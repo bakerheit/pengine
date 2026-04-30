@@ -47,14 +47,39 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(glad)
 glad_add_library(glad_gl_core_33 STATIC API gl:core=3.3)
 
+# --- stb (single-file image loader, header only) ----------------------------
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(stb)
+if(NOT stb_POPULATED)
+    FetchContent_Populate(stb)
+endif()
+
+# stb_impl.cpp is a pure C header expanded into C++; suppress all warnings on it.
+set_source_files_properties(src/render/stb_impl.cpp PROPERTIES COMPILE_OPTIONS "-w")
+
 # --- Engine library ---------------------------------------------------------
 add_library(pengine_core STATIC
     src/platform/window.cpp
     src/platform/input.cpp
     src/Application.cpp
+    src/render/shader.cpp
+    src/render/mesh.cpp
+    src/render/texture.cpp
+    src/render/camera.cpp
+    src/render/stb_impl.cpp
 )
 
 target_include_directories(pengine_core PUBLIC src)
+target_include_directories(pengine_core PRIVATE ${stb_SOURCE_DIR})
+
+target_compile_definitions(pengine_core PRIVATE
+    ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+)
 
 target_link_libraries(pengine_core
     PUBLIC

@@ -7,6 +7,8 @@ namespace pengine {
 void Input::begin_frame() {
     pressed_.fill(false);
     released_.fill(false);
+    mouse_dx_ = 0.f;
+    mouse_dy_ = 0.f;
 }
 
 void Input::handle_event(const SDL_Event& e) {
@@ -22,6 +24,9 @@ void Input::handle_event(const SDL_Event& e) {
             if (down_[idx]) released_[idx] = true;
             down_[idx] = false;
         }
+    } else if (e.type == SDL_MOUSEMOTION) {
+        mouse_dx_ += static_cast<float>(e.motion.xrel);
+        mouse_dy_ += static_cast<float>(e.motion.yrel);
     }
 }
 
