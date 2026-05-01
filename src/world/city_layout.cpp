@@ -81,9 +81,6 @@ CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground
     auto frand = [&](float lo, float hi) {
         return lo + (hi - lo) * (static_cast<float>(rng() & 0xFFFFu) / 65535.f);
     };
-    auto irand = [&](int lo, int hi) {
-        return lo + static_cast<int>(rng() % static_cast<unsigned>(hi - lo + 1));
-    };
 
     // ---- Roads: 5 east-west + 5 north-south slabs --------------------------
     // Each road is a full-cell slab so adjacent cells' roads tile seamlessly.
@@ -102,9 +99,19 @@ CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground
                   /*y_offset=*/ 0.010f);
     }
 
-    // ---- Buildings: 1–4 per block ------------------------------------------
-    // Sidewalk margin: leave 3 m around the block perimeter free of buildings.
-    constexpr float SIDEWALK = 3.f;
+    // ---- Buildings: 2x2 sub-grid per block, at most one per sub-cell -------
+    // No overlap → no z-fighting between adjacent walls. Tower variant fills
+    // a whole block with one tall building.
+    constexpr float SIDEWALK      = 3.f;
+    constexpr int   SUBGRID       = 2;
+    constexpr float SUB_FILL_PROB = 0.78f;
+    constexpr float TOWER_PROB    = 0.10f;
+
+    auto pick_tint = [&]() -> const glm::vec3& {
+        return BUILDING_TINTS[
+            static_cast<size_t>(rng() % (sizeof(BUILDING_TINTS) /
+                                          sizeof(BUILDING_TINTS[0])))];
+    };
 
     for (int bz = 0; bz < BLOCKS_PER_CELL; ++bz) {
         for (int bx = 0; bx < BLOCKS_PER_CELL; ++bx) {
@@ -113,29 +120,51 @@ CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground
             float bx1 = bx0 + block_size;
             float bz1 = bz0 + block_size;
 
-            // Buildable area inside sidewalk margin.
             float ax0 = bx0 + SIDEWALK, ax1 = bx1 - SIDEWALK;
             float az0 = bz0 + SIDEWALK, az1 = bz1 - SIDEWALK;
             float avail_x = ax1 - ax0;
             float avail_z = az1 - az0;
             if (avail_x < 6.f || avail_z < 6.f) continue;
 
-            int n = irand(1, 4);
-            for (int i = 0; i < n; ++i) {
-                // Random footprint that fits.
-                float w = std::min(avail_x, frand(8.f, 24.f));
-                float d = std::min(avail_z, frand(8.f, 24.f));
-                float h = frand(6.f, 38.f);
-
-                // Random centre within the buildable area.
-                float cx = frand(ax0 + w * 0.5f, ax1 - w * 0.5f);
-                float cz = frand(az0 + d * 0.5f, az1 - d * 0.5f);
-
-                const glm::vec3& tint = BUILDING_TINTS[
-                    static_cast<size_t>(rng() % (sizeof(BUILDING_TINTS) /
-                                                  sizeof(BUILDING_TINTS[0])))];
+            // Tower: occupy the whole block with a single tall building.
+            if (frand(0.f, 1.f) < TOWER_PROB) {
+                float w = frand(avail_x * 0.65f, avail_x * 0.92f);
+                float d = frand(avail_z * 0.65f, avail_z * 0.92f);
+                float h = frand(35.f, 70.f);
+                float cx = (ax0 + ax1) * 0.5f;
+                float cz = (az0 + az1) * 0.5f;
                 push_building(out.visuals, out.collisions,
-                              cx, cz, w, d, h, ground_y, tint, tex);
+                              cx, cz, w, d, h, ground_y, pick_tint(), tex);
+                continue;
+            }
+
+            // Otherwise: 2x2 sub-grid.
+            float sub_w = avail_x / SUBGRID;
+            float sub_d = avail_z / SUBGRID;
+            for (int sz = 0; sz < SUBGRID; ++sz) {
+                for (int sx = 0; sx < SUBGRID; ++sx) {
+                    if (frand(0.f, 1.f) > SUB_FILL_PROB) continue;
+
+                    float sx0 = ax0 + sx * sub_w;
+                    float sz0 = az0 + sz * sub_d;
+                    // Footprint sits inside the sub-cell with a tiny margin
+                    // so adjacent sub-cell buildings don't share a wall.
+                    constexpr float SUB_MARGIN = 0.4f;
+                    float w = frand(sub_w * 0.55f, sub_w - 2.f * SUB_MARGIN);
+                    float d = frand(sub_d * 0.55f, sub_d - 2.f * SUB_MARGIN);
+                    float h = frand(6.f, 32.f);
+
+                    // Random offset within the sub-cell (still fully inside).
+                    float free_x = sub_w - w - 2.f * SUB_MARGIN;
+                    float free_z = sub_d - d - 2.f * SUB_MARGIN;
+                    float cx = sx0 + SUB_MARGIN + w * 0.5f
+                             + (free_x > 0.f ? frand(0.f, free_x) : 0.f);
+                    float cz = sz0 + SUB_MARGIN + d * 0.5f
+                             + (free_z > 0.f ? frand(0.f, free_z) : 0.f);
+
+                    push_building(out.visuals, out.collisions,
+                                  cx, cz, w, d, h, ground_y, pick_tint(), tex);
+                }
             }
         }
     }
