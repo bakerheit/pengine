@@ -67,6 +67,7 @@ void Scene::draw(const CullResult& cr, Shader& shader) const {
         glm::mat3 nm = glm::mat3(glm::inverseTranspose(model));
         shader.set("u_model",      model);
         shader.set("u_normal_mat", nm);
+        shader.set("u_tint",       node->renderable->tint);
         node->renderable->mesh->draw();
     }
 }

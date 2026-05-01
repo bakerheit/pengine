@@ -36,8 +36,10 @@ public:
     float spring_k         = 60000.f;
     float damper_k         = 3800.f;
     float engine_force     = 22000.f;     // total drive force at 0 m/s
+    float reverse_force    = 13000.f;     // total reverse force at 0 m/s
     float brake_force      = 36000.f;     // total brake force
-    float max_speed        = 32.f;        // m/s   (~115 km/h)
+    float max_speed        = 32.f;        // m/s   (~115 km/h) forward
+    float max_reverse      = 12.f;        // m/s   (~ 43 km/h) reverse
     float max_steer_rad    = glm::radians(28.f);
     float steer_lerp       = 8.f;         // per-second toward input
     float lateral_grip     = 14.f;        // per-wheel lateral velocity-kill rate
@@ -50,7 +52,8 @@ public:
     // ---- Lifecycle ---------------------------------------------------------
     void spawn(const glm::vec3& spawn_pos, float yaw_deg = -90.f);
 
-    // Per-frame inputs (clamped internally).
+    // Per-frame inputs (clamped internally). throttle is signed:
+    // +1 = forward full, -1 = reverse full.
     void set_inputs(float throttle, float brake, float steer, bool handbrake);
 
     // Fixed-rate physics step. Call N times per render frame.

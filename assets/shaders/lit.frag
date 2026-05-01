@@ -9,6 +9,7 @@ uniform vec3      u_light_dir;   // world-space, normalized, toward the light
 uniform vec3      u_light_color;
 uniform vec3      u_ambient;
 uniform vec3      u_cam_pos;
+uniform vec3      u_tint;        // multiplied into the albedo
 
 out vec4 frag_color;
 
@@ -18,7 +19,7 @@ void main() {
     vec3 V = normalize(u_cam_pos - v_world_pos);
     vec3 H = normalize(L + V);
 
-    vec3 albedo  = texture(u_diffuse, v_uv).rgb;
+    vec3 albedo  = texture(u_diffuse, v_uv).rgb * u_tint;
     float NdotL  = max(dot(N, L), 0.0);
     float NdotH  = max(dot(N, H), 0.0);
 

@@ -55,20 +55,27 @@ bool Application::init() {
     Heightmap::set_seed(1337u);
 
     WorldConfig world_cfg;
-    float centre = world_cfg.world_cells_x * world_cfg.cell_size * 0.5f;
+    // Spawn at the central intersection of cell (8,8). The cell layout puts
+    // a 4-way intersection at (cell_origin + half), well clear of any
+    // building plot or the cell-edge ramp zone.
+    float cell = world_cfg.cell_size;
+    int   ci   = world_cfg.world_cells_x / 2;
+    int   cj   = world_cfg.world_cells_z / 2;
+    glm::vec3 intersection{(static_cast<float>(ci) + 0.5f) * cell, 0.f,
+                           (static_cast<float>(cj) + 0.5f) * cell};
 
     camera_.move_speed = 80.f;
     camera_.far_z      = 2000.f;
 
     streamer_.init(world_cfg, &scene_, &cube_mesh_, &world_collision_);
 
-    // Spawn character on the ground at world centre.
-    glm::vec3 spawn{centre, 0.f, centre};
+    glm::vec3 spawn = intersection;
     spawn.y = Heightmap::sample(spawn.x, spawn.z);
     character_.teleport(spawn);
 
-    // Vehicle a few metres east of spawn.
-    glm::vec3 car_spawn = spawn + glm::vec3{8.f, 0.f, 0.f};
+    // Car at the next intersection one block east — 62 m along the central
+    // E-W road. Lands cleanly on a road slab.
+    glm::vec3 car_spawn = intersection + glm::vec3{62.f, 0.f, 0.f};
     car_spawn.y = Heightmap::sample(car_spawn.x, car_spawn.z) + 1.5f;
     vehicle_.spawn(car_spawn, /*yaw_deg=*/ -90.f);
 
@@ -288,8 +295,20 @@ void Application::update(double dt) {
 
     // Vehicle inputs only when driving; physics always runs.
     if (mode_ == Mode::InVehicle) {
-        float thr  = input_.down(SDL_SCANCODE_W) ? 1.f : 0.f;
-        float brk  = input_.down(SDL_SCANCODE_S) ? 1.f : 0.f;
+        bool w_down = input_.down(SDL_SCANCODE_W);
+        bool s_down = input_.down(SDL_SCANCODE_S);
+        float v_fwd = glm::dot(vehicle_.body().linear_vel, vehicle_.forward());
+
+        float thr = 0.f, brk = 0.f;
+        if (w_down && s_down) {
+            brk = 1.f;
+        } else if (w_down) {
+            if (v_fwd < -0.5f) brk = 1.f;   // braking out of reverse
+            else               thr = 1.f;
+        } else if (s_down) {
+            if (v_fwd >  0.5f) brk = 1.f;   // braking out of forward
+            else               thr = -1.f;  // reverse
+        }
         float steer = (input_.down(SDL_SCANCODE_D) ? 1.f : 0.f)
                     - (input_.down(SDL_SCANCODE_A) ? 1.f : 0.f);
         bool  hb   = input_.down(SDL_SCANCODE_SPACE);

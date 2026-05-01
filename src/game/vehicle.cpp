@@ -49,9 +49,9 @@ void Vehicle::spawn(const glm::vec3& spawn_pos, float yaw_deg) {
 }
 
 void Vehicle::set_inputs(float throttle, float brake, float steer, bool handbrake) {
-    throttle_  = clampf(throttle, 0.f, 1.f);
-    brake_     = clampf(brake,    0.f, 1.f);
-    steer_in_  = clampf(steer,   -1.f, 1.f);
+    throttle_  = clampf(throttle, -1.f, 1.f);
+    brake_     = clampf(brake,     0.f, 1.f);
+    steer_in_  = clampf(steer,    -1.f, 1.f);
     handbrake_ = handbrake;
 }
 
@@ -107,7 +107,8 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
 
     glm::vec3 fwd_world = forward();
     float speed_signed  = glm::dot(body_.linear_vel, fwd_world);
-    float drive_factor  = clampf(1.f - std::max(0.f, speed_signed) / max_speed, 0.f, 1.f);
+    float drive_factor_fwd = clampf(1.f - std::max(0.f, speed_signed) / max_speed, 0.f, 1.f);
+    float drive_factor_rev = clampf(1.f - std::max(0.f, -speed_signed) / max_reverse, 0.f, 1.f);
 
     for (Wheel& w : wheels_) {
         if (!w.grounded) continue;
@@ -124,9 +125,14 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
         glm::vec3 lat_g = glm::normalize(glm::cross(w.contact_normal, fwd_g));
         if (glm::length(fwd_g) < 1e-4f) continue;
 
-        // Throttle (only on driven wheels).
+        // Throttle (only on driven wheels). Signed: + = forward, - = reverse.
         if (w.is_driven && throttle_ > 0.f) {
-            float per_wheel = (engine_force / static_cast<float>(driven_grounded)) * drive_factor;
+            float per_wheel = (engine_force / static_cast<float>(driven_grounded))
+                              * drive_factor_fwd;
+            body_.apply_force_at(fwd_g * per_wheel * throttle_, w.contact_world);
+        } else if (w.is_driven && throttle_ < 0.f) {
+            float per_wheel = (reverse_force / static_cast<float>(driven_grounded))
+                              * drive_factor_rev;
             body_.apply_force_at(fwd_g * per_wheel * throttle_, w.contact_world);
         }
 
@@ -140,7 +146,7 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
             float bmag = std::min(bf, impulse_cap);
             if (v_long > 0.f) bmag = -bmag;
             body_.apply_force_at(fwd_g * bmag, w.contact_world);
-        } else if (throttle_ <= 0.f) {
+        } else if (throttle_ == 0.f) {
             // Engine braking + rolling resistance on coast. Strong enough to
             // hold the car on a gentle slope, weak enough not to stop it
             // unrealistically fast at speed.

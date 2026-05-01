@@ -1,15 +1,18 @@
 #pragma once
 
+#include <glm/glm.hpp>
+
 #include "scene/transform.h"
 
 namespace pengine {
 
 // A single object instance inside a world cell.
 struct ObjectDef {
-    uint32_t  model_id   = 0;   // 0 = unit cube (the only model in Phase 4)
+    uint32_t  model_id   = 0;             // 0 = unit cube (the only model so far)
     Transform transform;
-    float     lod_near   = 200.f; // switch to low-detail beyond this (Phase 5+)
-    float     lod_far    = 500.f; // cull beyond this
+    glm::vec3 tint       = {1.f, 1.f, 1.f}; // multiplied by sampled diffuse
+    float     lod_near   = 200.f;
+    float     lod_far    = 500.f;
 };
 
 struct WorldConfig {

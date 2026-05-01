@@ -9,6 +9,7 @@
 #include "render/mesh.h"
 #include "scene/scene.h"
 #include "scene/scene_node.h"
+#include "world/city_layout.h"
 #include "world/heightmap.h"
 
 namespace pengine {
@@ -20,43 +21,16 @@ namespace pengine {
 void Streamer::generate_cell(CellCoord coord, const WorldConfig& cfg,
                               std::vector<ObjectDef>& out_defs,
                               std::vector<AABB>&      out_aabbs) {
-    std::uint32_t seed = static_cast<std::uint32_t>(coord.x * 1000003 + coord.z * 999983);
-    std::mt19937 rng(seed);
-    auto frand = [&](float lo, float hi) {
-        return lo + (hi - lo) * (static_cast<float>(rng() & 0xFFFFu) / 65535.f);
-    };
-    auto irand = [&](int lo, int hi) {
-        return lo + static_cast<int>(rng() % static_cast<unsigned>(hi - lo + 1));
-    };
-
+    // Cell ground height: sample the (already cell-flattened) heightmap at
+    // the cell centre.
     float ox = static_cast<float>(coord.x) * cfg.cell_size;
     float oz = static_cast<float>(coord.z) * cfg.cell_size;
+    float ground_y = Heightmap::sample(ox + cfg.cell_size * 0.5f,
+                                        oz + cfg.cell_size * 0.5f);
 
-    int count = irand(8, 20);
-    for (int i = 0; i < count; ++i) {
-        float px = ox + frand(4.f, cfg.cell_size - 4.f);
-        float pz = oz + frand(4.f, cfg.cell_size - 4.f);
-        float w  = frand(2.f, 6.f);
-        float h  = frand(3.f, 18.f);
-
-        // Sit the building on the terrain (slightly buried so it doesn't float
-        // when the corner is on a slope).
-        float ground_y = Heightmap::sample(px, pz);
-        float base_y   = ground_y - 0.5f;
-        float cy       = base_y + h * 0.5f;
-
-        ObjectDef def;
-        def.transform.position = {px, cy, pz};
-        def.transform.scale    = {w, h, w};
-        def.lod_near = cfg.cell_size * 1.5f;
-        def.lod_far  = cfg.cell_size * 3.f;
-        out_defs.push_back(def);
-
-        AABB aabb;
-        aabb.min = {px - w * 0.5f, base_y,     pz - w * 0.5f};
-        aabb.max = {px + w * 0.5f, base_y + h, pz + w * 0.5f};
-        out_aabbs.push_back(aabb);
-    }
+    CityCellLayout layout = generate_city_cell(coord, cfg.cell_size, ground_y);
+    out_defs  = std::move(layout.visuals);
+    out_aabbs = std::move(layout.collisions);
 }
 
 // ---------------------------------------------------------------------------
@@ -185,8 +159,8 @@ void Streamer::pump(glm::vec3 cam_pos) {
         cube_aabb.max = cube_mesh_->bounds_max();
         for (const ObjectDef& def : job.defs) {
             SceneNode* n = scene_->create_node();
-            n->transform   = def.transform;
-            n->renderable  = Renderable{cube_mesh_, cube_aabb};
+            n->transform  = def.transform;
+            n->renderable = Renderable{cube_mesh_, cube_aabb, def.tint};
             n->mark_dirty();
             lc.nodes.push_back(n);
         }
@@ -199,7 +173,8 @@ void Streamer::pump(glm::vec3 cam_pos) {
         terrain_aabb.min = lc.terrain_mesh.bounds_min();
         terrain_aabb.max = lc.terrain_mesh.bounds_max();
         SceneNode* tnode = scene_->create_node();
-        tnode->renderable = Renderable{nullptr, terrain_aabb};
+        tnode->renderable = Renderable{nullptr, terrain_aabb,
+                                        glm::vec3{0.55f, 0.58f, 0.50f}};
         tnode->mark_dirty();
         lc.nodes.push_back(tnode);
 

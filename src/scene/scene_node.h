@@ -14,6 +14,7 @@ class Shader;
 struct Renderable {
     const Mesh* mesh       = nullptr;
     AABB        local_aabb;       // in node-local space
+    glm::vec3   tint       = {1.f, 1.f, 1.f};
 };
 
 class SceneNode {
