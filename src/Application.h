@@ -10,6 +10,8 @@
 #include "render/shader.h"
 #include "render/texture.h"
 #include "scene/scene.h"
+#include "world/streamer.h"
+#include "world/world_defs.h"
 
 namespace pengine {
 
@@ -24,24 +26,26 @@ private:
     void update(double dt);
     void render(double alpha);
 
-    Window  window_;
-    Input   input_;
+    Window   window_;
+    Input    input_;
     FixedTimestep clock_;
 
-    // Phase 3 scene
-    Shader  lit_shader_;
-    Mesh    cube_mesh_;   // shared geometry — all 1000 nodes point here
-    Texture checker_tex_;
-    Camera  camera_;
-    Scene   scene_;
+    // Phase 4 world
+    Shader   lit_shader_;
+    Mesh     cube_mesh_;
+    Texture  checker_tex_;
+    Camera   camera_;
+    Scene    scene_;
+    Streamer streamer_;
 
-    bool    mouse_captured_ = false;
-    bool    running_        = false;
+    bool  mouse_captured_ = false;
+    bool  running_        = false;
 
-    TimePoint fps_start_{};
-    int       fps_frames_ = 0;
-    int       last_total_ = 0;
-    int       last_culled_ = 0;
+    // Per-second stats
+    TimePoint stats_start_{};
+    int       fps_frames_  = 0;
+    double    max_frame_ms_ = 0.0; // worst frame time in the current second
+    TimePoint last_frame_{};
 };
 
 } // namespace pengine

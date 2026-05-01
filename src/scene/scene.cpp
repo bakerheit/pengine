@@ -1,5 +1,6 @@
 #include "scene/scene.h"
 
+#include <algorithm>
 #include <functional>
 #include <glm/gtc/matrix_inverse.hpp>
 
@@ -17,6 +18,22 @@ SceneNode* Scene::create_node(SceneNode* parent) {
     nodes_.push_back(std::move(node));
     if (!parent) roots_.push_back(ptr);
     return ptr;
+}
+
+void Scene::remove_node(SceneNode* node) {
+    if (!node) return;
+    // Detach from parent.
+    if (node->parent) {
+        auto& ch = node->parent->children;
+        ch.erase(std::remove(ch.begin(), ch.end(), node), ch.end());
+    } else {
+        roots_.erase(std::remove(roots_.begin(), roots_.end(), node), roots_.end());
+    }
+    // Erase from ownership list (unique_ptr destructor handles cleanup).
+    nodes_.erase(
+        std::remove_if(nodes_.begin(), nodes_.end(),
+                       [node](const std::unique_ptr<SceneNode>& n) { return n.get() == node; }),
+        nodes_.end());
 }
 
 void Scene::update() {

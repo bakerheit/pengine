@@ -12,6 +12,8 @@ endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+find_package(Threads REQUIRED)
+
 include(FetchContent)
 set(FETCHCONTENT_QUIET FALSE)
 
@@ -97,6 +99,7 @@ add_library(pengine_core STATIC
     src/render/stb_impl.cpp
     src/scene/scene_node.cpp
     src/scene/scene.cpp
+    src/world/streamer.cpp
 )
 
 target_include_directories(pengine_core PUBLIC src)
@@ -111,6 +114,7 @@ target_link_libraries(pengine_core
         SDL2::SDL2-static
         glm::glm
         glad_gl_core_33
+        Threads::Threads
 )
 
 if(APPLE)

@@ -15,6 +15,9 @@ public:
     // Create and register a new node. Returns a non-owning pointer.
     SceneNode* create_node(SceneNode* parent = nullptr);
 
+    // Remove a node (and detach from its parent). O(n) — acceptable at streaming scale.
+    void remove_node(SceneNode* node);
+
     // Propagate dirty flags and recompute world transforms top-down.
     void update();
 

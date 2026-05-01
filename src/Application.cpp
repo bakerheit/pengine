@@ -2,12 +2,13 @@
 
 #include <SDL.h>
 #include <glad/gl.h>
-#include <glm/gtc/matrix_transform.hpp>
+#include <chrono>
 #include <cstdio>
-#include <cmath>
 
 #include "core/log.h"
+#include "render/mesh.h"
 #include "scene/frustum.h"
+#include "world/world_defs.h"
 
 #ifndef ASSETS_DIR
 #define ASSETS_DIR "assets"
@@ -15,13 +16,9 @@
 
 namespace pengine {
 
-static constexpr int   GRID_W    = 32;
-static constexpr int   GRID_H    = 32;
-static constexpr float GRID_STEP = 3.f;
-
 bool Application::init() {
     WindowConfig cfg;
-    cfg.title = "pengine [phase 3: scene graph]";
+    cfg.title = "pengine [phase 4: world streaming]";
     if (!window_.init(cfg)) return false;
 
     glEnable(GL_DEPTH_TEST);
@@ -32,80 +29,73 @@ bool Application::init() {
     if (!lit_shader_.load(ASSETS_DIR "/shaders/lit.vert",
                           ASSETS_DIR "/shaders/lit.frag")) return false;
 
-    // Build the shared cube mesh and record its local AABB.
     {
         std::vector<Vertex>   verts;
         std::vector<uint32_t> idxs;
         make_cube(verts, idxs, 0.5f);
         cube_mesh_.upload(verts, idxs);
     }
-    AABB cube_aabb;
-    cube_aabb.min = cube_mesh_.bounds_min();
-    cube_aabb.max = cube_mesh_.bounds_max();
 
     checker_tex_.load_checkerboard(128);
 
-    // Populate the scene: GRID_W × GRID_H cubes on a flat plane.
-    float offset_x = -GRID_W * GRID_STEP * 0.5f;
-    float offset_z = -GRID_H * GRID_STEP * 0.5f;
+    // World: 16×16 cells @ 256 m = 4096 × 4096 m. Start near centre.
+    WorldConfig world_cfg;
+    float centre = world_cfg.world_cells_x * world_cfg.cell_size * 0.5f;
+    camera_.position   = {centre, 30.f, centre};
+    camera_.yaw        = -90.f;
+    camera_.pitch      = -20.f;
+    camera_.move_speed = 80.f;
+    camera_.far_z      = 2000.f;
 
-    for (int row = 0; row < GRID_H; ++row) {
-        for (int col = 0; col < GRID_W; ++col) {
-            SceneNode* n = scene_.create_node();
-            n->transform.position = {
-                offset_x + static_cast<float>(col) * GRID_STEP,
-                0.5f,
-                offset_z + static_cast<float>(row) * GRID_STEP
-            };
-            // Slight Y scale variation so it doesn't look too uniform.
-            float s = 0.8f + 0.4f * std::sin(static_cast<float>(col + row) * 0.9f);
-            n->transform.scale = {1.f, s, 1.f};
-            n->renderable = Renderable{&cube_mesh_, cube_aabb};
-        }
-    }
+    streamer_.init(world_cfg, &scene_, &cube_mesh_);
 
-    scene_.update();
+    stats_start_ = Clock::now();
+    last_frame_  = Clock::now();
+    running_     = true;
 
-    camera_.position  = {0.f, 4.f, 20.f};
-    camera_.pitch     = -10.f;
-    camera_.move_speed = 15.f;
-
-    PE_INFO("Phase 3: %d cubes. Click to capture mouse. ESC = release. Ctrl+Q = quit.",
-            GRID_W * GRID_H);
-
-    fps_start_ = Clock::now();
-    running_   = true;
+    PE_INFO("Phase 4 ready. World %dx%d cells @ %.0f m (%.0f x %.0f km). "
+            "Click window to capture mouse. ESC = release. Ctrl+Q = quit.",
+            world_cfg.world_cells_x, world_cfg.world_cells_z,
+            world_cfg.cell_size,
+            world_cfg.world_cells_x * world_cfg.cell_size / 1000.f,
+            world_cfg.world_cells_z * world_cfg.cell_size / 1000.f);
     return true;
 }
 
 int Application::run() {
     while (running_) {
+        TimePoint frame_start = Clock::now();
+
         process_events();
         auto tick = clock_.advance();
         for (int i = 0; i < tick.updates; ++i)
             update(clock_.fixed_dt);
         render(tick.alpha);
 
+        double frame_ms =
+            std::chrono::duration<double, std::milli>(Clock::now() - frame_start).count();
+        if (frame_ms > max_frame_ms_) max_frame_ms_ = frame_ms;
+
         ++fps_frames_;
-        if (seconds_since(fps_start_) >= 1.0) {
-            char title[128];
+        if (seconds_since(stats_start_) >= 1.0) {
+            auto st = streamer_.stats();
+            char title[256];
             std::snprintf(title, sizeof(title),
-                          "pengine  |  total: %d  culled: %d  drawn: %d  |  fps: %d",
-                          last_total_, last_culled_,
-                          last_total_ - last_culled_,
-                          fps_frames_);
+                          "pengine  |  cells: %d  nodes: %d  fps: %d  worst: %.1f ms",
+                          st.loaded_cells, st.total_nodes, fps_frames_, max_frame_ms_);
             SDL_SetWindowTitle(window_.sdl(), title);
-            PE_INFO("total: %d  culled: %d  drawn: %d  fps: %d",
-                    last_total_, last_culled_,
-                    last_total_ - last_culled_, fps_frames_);
-            fps_frames_ = 0;
-            fps_start_  = Clock::now();
+            PE_INFO("cells: %d  nodes: %d  fps: %d  worst: %.1f ms",
+                    st.loaded_cells, st.total_nodes, fps_frames_, max_frame_ms_);
+            fps_frames_   = 0;
+            max_frame_ms_ = 0.0;
+            stats_start_  = Clock::now();
         }
     }
     return 0;
 }
 
 void Application::shutdown() {
+    streamer_.shutdown();
     SDL_SetRelativeMouseMode(SDL_FALSE);
     lit_shader_.destroy();
     cube_mesh_.destroy();
@@ -159,6 +149,9 @@ void Application::update(double dt) {
     float mdx = mouse_captured_ ? input_.mouse_dx() : 0.f;
     float mdy = mouse_captured_ ? input_.mouse_dy() : 0.f;
     camera_.update(fdt, input_, mdx, mdy);
+
+    streamer_.pump(camera_.position);
+    scene_.update();
 }
 
 void Application::render(double /*alpha*/) {
@@ -170,8 +163,6 @@ void Application::render(double /*alpha*/) {
 
     Frustum frustum = Frustum::from_view_proj(vp);
     Scene::CullResult cr = scene_.cull(frustum);
-    last_total_  = cr.total;
-    last_culled_ = cr.culled;
 
     lit_shader_.use();
     lit_shader_.set("u_view_proj",   vp);
@@ -182,7 +173,6 @@ void Application::render(double /*alpha*/) {
     lit_shader_.set("u_diffuse",     0);
 
     checker_tex_.bind(0);
-
     scene_.draw(cr, lit_shader_);
 
     window_.swap();
