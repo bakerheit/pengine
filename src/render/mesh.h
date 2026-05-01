@@ -23,11 +23,13 @@ public:
     Mesh& operator=(const Mesh&) = delete;
 
     Mesh(Mesh&& o) noexcept
-        : vao_(o.vao_), vbo_(o.vbo_), ebo_(o.ebo_), index_count_(o.index_count_)
+        : vao_(o.vao_), vbo_(o.vbo_), ebo_(o.ebo_), index_count_(o.index_count_),
+          bounds_min_(o.bounds_min_), bounds_max_(o.bounds_max_)
     { o.vao_ = o.vbo_ = o.ebo_ = 0; o.index_count_ = 0; }
     Mesh& operator=(Mesh&& o) noexcept {
         if (this != &o) { destroy();
             vao_ = o.vao_; vbo_ = o.vbo_; ebo_ = o.ebo_; index_count_ = o.index_count_;
+            bounds_min_ = o.bounds_min_; bounds_max_ = o.bounds_max_;
             o.vao_ = o.vbo_ = o.ebo_ = 0; o.index_count_ = 0; }
         return *this;
     }
@@ -37,13 +39,17 @@ public:
     void destroy();
     void draw() const;
 
-    int index_count() const { return index_count_; }
+    int       index_count() const { return index_count_; }
+    glm::vec3 bounds_min()  const { return bounds_min_; }
+    glm::vec3 bounds_max()  const { return bounds_max_; }
 
 private:
-    GLuint vao_         = 0;
-    GLuint vbo_         = 0;
-    GLuint ebo_         = 0;
-    int    index_count_ = 0;
+    GLuint    vao_         = 0;
+    GLuint    vbo_         = 0;
+    GLuint    ebo_         = 0;
+    int       index_count_ = 0;
+    glm::vec3 bounds_min_  = {0.f, 0.f, 0.f};
+    glm::vec3 bounds_max_  = {0.f, 0.f, 0.f};
 };
 
 // Procedural geometry helpers.

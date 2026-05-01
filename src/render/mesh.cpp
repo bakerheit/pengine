@@ -1,5 +1,7 @@
 #include "render/mesh.h"
 
+#include <cfloat>
+
 #include "render/gl_state.h"
 
 namespace pengine {
@@ -8,6 +10,13 @@ void Mesh::upload(const std::vector<Vertex>& vertices,
                   const std::vector<uint32_t>& indices) {
     destroy();
     index_count_ = static_cast<int>(indices.size());
+
+    bounds_min_ = { FLT_MAX,  FLT_MAX,  FLT_MAX};
+    bounds_max_ = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
+    for (const auto& v : vertices) {
+        bounds_min_ = glm::min(bounds_min_, v.position);
+        bounds_max_ = glm::max(bounds_max_, v.position);
+    }
 
     glGenVertexArrays(1, &vao_);
     glGenBuffers(1, &vbo_);

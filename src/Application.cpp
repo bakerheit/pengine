@@ -3,8 +3,11 @@
 #include <SDL.h>
 #include <glad/gl.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <cstdio>
+#include <cmath>
 
 #include "core/log.h"
+#include "scene/frustum.h"
 
 #ifndef ASSETS_DIR
 #define ASSETS_DIR "assets"
@@ -12,9 +15,13 @@
 
 namespace pengine {
 
+static constexpr int   GRID_W    = 32;
+static constexpr int   GRID_H    = 32;
+static constexpr float GRID_STEP = 3.f;
+
 bool Application::init() {
     WindowConfig cfg;
-    cfg.title = "pengine [phase 2: asset pipeline]";
+    cfg.title = "pengine [phase 3: scene graph]";
     if (!window_.init(cfg)) return false;
 
     glEnable(GL_DEPTH_TEST);
@@ -25,22 +32,46 @@ bool Application::init() {
     if (!lit_shader_.load(ASSETS_DIR "/shaders/lit.vert",
                           ASSETS_DIR "/shaders/lit.frag")) return false;
 
+    // Build the shared cube mesh and record its local AABB.
+    {
+        std::vector<Vertex>   verts;
+        std::vector<uint32_t> idxs;
+        make_cube(verts, idxs, 0.5f);
+        cube_mesh_.upload(verts, idxs);
+    }
+    AABB cube_aabb;
+    cube_aabb.min = cube_mesh_.bounds_min();
+    cube_aabb.max = cube_mesh_.bounds_max();
+
     checker_tex_.load_checkerboard(128);
 
-    // Load the .emesh produced by meshconv. Fall back gracefully if not yet built.
-    const char* emesh_path = ASSETS_DIR "/models/test_scene.emesh";
-    model_loaded_ = scene_model_.load(emesh_path);
-    if (!model_loaded_) {
-        PE_WARN("test_scene.emesh not found — run meshconv first:");
-        PE_WARN("  ./build/bin/meshconv %s/models/test_scene.obj %s",
-                ASSETS_DIR, emesh_path);
+    // Populate the scene: GRID_W × GRID_H cubes on a flat plane.
+    float offset_x = -GRID_W * GRID_STEP * 0.5f;
+    float offset_z = -GRID_H * GRID_STEP * 0.5f;
+
+    for (int row = 0; row < GRID_H; ++row) {
+        for (int col = 0; col < GRID_W; ++col) {
+            SceneNode* n = scene_.create_node();
+            n->transform.position = {
+                offset_x + static_cast<float>(col) * GRID_STEP,
+                0.5f,
+                offset_z + static_cast<float>(row) * GRID_STEP
+            };
+            // Slight Y scale variation so it doesn't look too uniform.
+            float s = 0.8f + 0.4f * std::sin(static_cast<float>(col + row) * 0.9f);
+            n->transform.scale = {1.f, s, 1.f};
+            n->renderable = Renderable{&cube_mesh_, cube_aabb};
+        }
     }
 
-    camera_.position  = {0.f, 3.f, 9.f};
-    camera_.pitch     = -15.f;
+    scene_.update();
 
-    PE_INFO("Click to capture mouse. ESC = release. Ctrl+Q = quit.");
-    PE_INFO("WASD / Q / E to fly. Mouse to look.");
+    camera_.position  = {0.f, 4.f, 20.f};
+    camera_.pitch     = -10.f;
+    camera_.move_speed = 15.f;
+
+    PE_INFO("Phase 3: %d cubes. Click to capture mouse. ESC = release. Ctrl+Q = quit.",
+            GRID_W * GRID_H);
 
     fps_start_ = Clock::now();
     running_   = true;
@@ -57,7 +88,16 @@ int Application::run() {
 
         ++fps_frames_;
         if (seconds_since(fps_start_) >= 1.0) {
-            PE_DEBUG("fps ~%d", fps_frames_);
+            char title[128];
+            std::snprintf(title, sizeof(title),
+                          "pengine  |  total: %d  culled: %d  drawn: %d  |  fps: %d",
+                          last_total_, last_culled_,
+                          last_total_ - last_culled_,
+                          fps_frames_);
+            SDL_SetWindowTitle(window_.sdl(), title);
+            PE_INFO("total: %d  culled: %d  drawn: %d  fps: %d",
+                    last_total_, last_culled_,
+                    last_total_ - last_culled_, fps_frames_);
             fps_frames_ = 0;
             fps_start_  = Clock::now();
         }
@@ -68,6 +108,7 @@ int Application::run() {
 void Application::shutdown() {
     SDL_SetRelativeMouseMode(SDL_FALSE);
     lit_shader_.destroy();
+    cube_mesh_.destroy();
     checker_tex_.destroy();
     window_.shutdown();
 }
@@ -127,6 +168,11 @@ void Application::render(double /*alpha*/) {
                    static_cast<float>(window_.height());
     glm::mat4 vp = camera_.view_proj(aspect);
 
+    Frustum frustum = Frustum::from_view_proj(vp);
+    Scene::CullResult cr = scene_.cull(frustum);
+    last_total_  = cr.total;
+    last_culled_ = cr.culled;
+
     lit_shader_.use();
     lit_shader_.set("u_view_proj",   vp);
     lit_shader_.set("u_cam_pos",     camera_.position);
@@ -135,15 +181,9 @@ void Application::render(double /*alpha*/) {
     lit_shader_.set("u_ambient",     glm::vec3{0.08f, 0.10f, 0.14f});
     lit_shader_.set("u_diffuse",     0);
 
-    glm::mat4 model{1.f};
-    glm::mat3 nm{1.f};
-    lit_shader_.set("u_model",      model);
-    lit_shader_.set("u_normal_mat", nm);
-
     checker_tex_.bind(0);
 
-    if (model_loaded_)
-        scene_model_.draw();
+    scene_.draw(cr, lit_shader_);
 
     window_.swap();
 }

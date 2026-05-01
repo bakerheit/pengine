@@ -95,6 +95,8 @@ add_library(pengine_core STATIC
     src/render/model.cpp
     src/render/material.cpp
     src/render/stb_impl.cpp
+    src/scene/scene_node.cpp
+    src/scene/scene.cpp
 )
 
 target_include_directories(pengine_core PUBLIC src)
