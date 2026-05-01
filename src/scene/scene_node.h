@@ -25,6 +25,7 @@ public:
 
     Transform transform;
     std::optional<Renderable> renderable;
+    bool      visible = true;
 
     // Hierarchy (non-owning pointers; Scene owns the nodes).
     SceneNode*              parent   = nullptr;

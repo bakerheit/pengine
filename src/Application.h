@@ -12,6 +12,7 @@
 #include "render/debug_draw.h"
 #include "render/mesh.h"
 #include "render/shader.h"
+#include "render/spring_arm.h"
 #include "render/texture.h"
 #include "scene/scene.h"
 #include "world/streamer.h"
@@ -23,7 +24,7 @@ class SceneNode;
 
 class Application {
 public:
-    enum class Mode { Fly, Walk, Drive };
+    enum class Mode { OnFoot, InVehicle, DebugFly };
 
     bool init();
     int  run();
@@ -34,9 +35,12 @@ private:
     void update(double dt);
     void render(double alpha);
 
-    void set_mode(Mode m);
-    void update_chase_camera(float dt);
+    void enter_mode(Mode m);
+    void try_toggle_vehicle();
+    void update_on_foot(float dt, float mdx, float mdy);
+    void update_in_vehicle(float dt, float mdx, float mdy);
     void sync_vehicle_scene();
+    void sync_character_scene();
 
     Window         window_;
     Input          input_;
@@ -52,15 +56,23 @@ private:
     WorldCollision      world_collision_;
     CharacterController character_;
     DebugDraw           debug_draw_;
+    SpringArm           spring_;
 
     Vehicle             vehicle_;
-    SceneNode*          chassis_node_       = nullptr;
-    SceneNode*          chassis_visual_node_= nullptr;
-    SceneNode*          wheel_nodes_[4]     = {nullptr, nullptr, nullptr, nullptr};
+    SceneNode*          chassis_node_        = nullptr;
+    SceneNode*          chassis_visual_node_ = nullptr;
+    SceneNode*          wheel_nodes_[4]      = {nullptr, nullptr, nullptr, nullptr};
 
-    Mode  mode_           = Mode::Fly;
+    SceneNode*          character_node_      = nullptr;
+    float               character_facing_yaw_deg_ = -90.f;
+
+    Mode  mode_           = Mode::OnFoot;
+    Mode  saved_mode_     = Mode::OnFoot; // last non-debug mode
     bool  mouse_captured_ = false;
     bool  running_        = false;
+    bool  can_enter_car_  = false;        // updated each frame, used by HUD
+
+    static constexpr float ENTRY_RADIUS = 4.0f; // metres for F-to-enter
 
     TimePoint stats_start_{};
     int       fps_frames_  = 0;

@@ -50,7 +50,7 @@ Scene::CullResult Scene::cull(const Frustum& frustum) const {
     CullResult cr;
     cr.total = static_cast<int>(nodes_.size());
     for (const auto& node : nodes_) {
-        if (!node->renderable) continue;
+        if (!node->renderable || !node->visible) continue;
         if (frustum.cull(node->world_aabb())) {
             ++cr.culled;
         } else {

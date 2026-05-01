@@ -22,16 +22,16 @@ namespace pengine {
 
 static const char* mode_name(Application::Mode m) {
     switch (m) {
-        case Application::Mode::Fly:   return "fly";
-        case Application::Mode::Walk:  return "walk";
-        case Application::Mode::Drive: return "drive";
+        case Application::Mode::OnFoot:    return "on-foot";
+        case Application::Mode::InVehicle: return "drive";
+        case Application::Mode::DebugFly:  return "fly";
     }
     return "?";
 }
 
 bool Application::init() {
     WindowConfig cfg;
-    cfg.title = "pengine [phase 6: vehicle]";
+    cfg.title = "pengine [phase 7: player + chase cam + enter/exit]";
     if (!window_.init(cfg)) return false;
 
     glEnable(GL_DEPTH_TEST);
@@ -57,30 +57,26 @@ bool Application::init() {
     WorldConfig world_cfg;
     float centre = world_cfg.world_cells_x * world_cfg.cell_size * 0.5f;
 
-    camera_.position   = {centre, 30.f, centre};
-    camera_.yaw        = -90.f;
-    camera_.pitch      = -15.f;
     camera_.move_speed = 80.f;
     camera_.far_z      = 2000.f;
 
     streamer_.init(world_cfg, &scene_, &cube_mesh_, &world_collision_);
 
+    // Spawn character on the ground at world centre.
     glm::vec3 spawn{centre, 0.f, centre};
     spawn.y = Heightmap::sample(spawn.x, spawn.z);
     character_.teleport(spawn);
 
-    // Vehicle spawn — slightly down the road from the player, on terrain.
+    // Vehicle a few metres east of spawn.
     glm::vec3 car_spawn = spawn + glm::vec3{8.f, 0.f, 0.f};
     car_spawn.y = Heightmap::sample(car_spawn.x, car_spawn.z) + 1.5f;
     vehicle_.spawn(car_spawn, /*yaw_deg=*/ -90.f);
 
-    // Scene nodes for the vehicle. chassis_node_ holds the unscaled pose;
-    // chassis_visual_node_ is a child that applies the box scale; wheels are
-    // children of chassis_node_ so they inherit pose but not box scale.
     AABB cube_aabb;
     cube_aabb.min = cube_mesh_.bounds_min();
     cube_aabb.max = cube_mesh_.bounds_max();
 
+    // Vehicle scene nodes (chassis pose + visual scale child + 4 wheels).
     chassis_node_         = scene_.create_node();
     chassis_visual_node_  = scene_.create_node(chassis_node_);
     chassis_visual_node_->renderable = Renderable{&cube_mesh_, cube_aabb};
@@ -89,13 +85,29 @@ bool Application::init() {
         wheel_nodes_[i]->renderable = Renderable{&cube_mesh_, cube_aabb};
     }
 
+    // Character node.
+    character_node_ = scene_.create_node();
+    character_node_->renderable = Renderable{&cube_mesh_, cube_aabb};
+
     sync_vehicle_scene();
+    sync_character_scene();
+
+    // Spring arm starts behind the character looking forward (yaw=-90 = -Z).
+    spring_.yaw_deg      = -90.f;
+    spring_.pitch_deg    = -10.f;
+    spring_.desired_dist = 4.5f;
+    spring_.anchor       = character_.eye_position();
+    spring_.update(world_collision_);
+    camera_.position = spring_.camera_position;
+    camera_.yaw      = spring_.yaw_deg;
+    camera_.pitch    = spring_.pitch_deg;
 
     stats_start_ = Clock::now();
     last_frame_  = Clock::now();
     running_     = true;
 
-    PE_INFO("Phase 6 ready. F=fly  G=walk  V=drive.  In drive: W throttle, S brake, A/D steer, Space handbrake.");
+    PE_INFO("Phase 7 ready. WASD walk, mouse look, Space jump. F enter/exit car. "
+            "C toggle debug fly. ESC release mouse. Ctrl+Q quit.");
     return true;
 }
 
@@ -118,20 +130,20 @@ int Application::run() {
             auto st = streamer_.stats();
             char title[400];
             std::snprintf(title, sizeof(title),
-                          "pengine  |  %s  |  cells:%d  bld:%d  fps:%d  worst:%.1fms"
-                          "  |  car:%.0fkm/h %s  |  ray:%s %.1fm",
+                          "pengine | %s | cells:%d bld:%d | fps:%d worst:%.1fms"
+                          " | car:%.0fkm/h%s%s",
                           mode_name(mode_),
                           st.loaded_cells, world_collision_.building_count(),
                           fps_frames_, max_frame_ms_,
-                          vehicle_.speed_kmh(), vehicle_.airborne() ? "AIR" : "ground",
-                          last_ray_hit_ ? "HIT" : "miss", last_ray_dist_);
+                          vehicle_.speed_kmh(),
+                          vehicle_.airborne() ? " AIR" : "",
+                          can_enter_car_ ? "  [F to enter]" : "");
             SDL_SetWindowTitle(window_.sdl(), title);
-            PE_INFO("%s  cells=%d bld=%d fps=%d worst=%.1fms  car=%.0fkm/h %s  ray=%s %.1fm",
-                    mode_name(mode_),
-                    st.loaded_cells, world_collision_.building_count(),
-                    fps_frames_, max_frame_ms_,
-                    vehicle_.speed_kmh(), vehicle_.airborne() ? "AIR" : "GND",
-                    last_ray_hit_ ? "HIT" : "miss", last_ray_dist_);
+            PE_INFO("%s  fps=%d worst=%.1fms  car=%.0fkm/h%s%s",
+                    mode_name(mode_), fps_frames_, max_frame_ms_,
+                    vehicle_.speed_kmh(),
+                    vehicle_.airborne() ? " AIR" : " GND",
+                    can_enter_car_ ? "  ENTER" : "");
             fps_frames_   = 0;
             max_frame_ms_ = 0.0;
             stats_start_  = Clock::now();
@@ -150,14 +162,35 @@ void Application::shutdown() {
     window_.shutdown();
 }
 
-void Application::set_mode(Mode m) {
+void Application::enter_mode(Mode m) {
     if (mode_ == m) return;
-    if (m == Mode::Walk) {
-        glm::vec3 spawn = camera_.position;
-        spawn.y = Heightmap::sample(spawn.x, spawn.z);
-        character_.teleport(spawn);
+
+    if (m == Mode::OnFoot) {
+        // Make sure character is grounded before re-entering on-foot.
+        spring_.desired_dist = 4.5f;
+        spring_.anchor       = character_.eye_position();
+        character_node_->visible = true;
+    } else if (m == Mode::InVehicle) {
+        spring_.desired_dist = 8.5f;
+        // Match camera yaw to vehicle heading so the player faces the road.
+        glm::vec3 vfwd = vehicle_.forward();
+        spring_.yaw_deg = glm::degrees(std::atan2(vfwd.z, vfwd.x));
+        spring_.pitch_deg = -12.f;
+        character_node_->visible = false;
     }
     mode_ = m;
+}
+
+void Application::try_toggle_vehicle() {
+    if (mode_ == Mode::OnFoot) {
+        if (can_enter_car_) enter_mode(Mode::InVehicle);
+    } else if (mode_ == Mode::InVehicle) {
+        // Exit to the left side of the car, snapped to terrain.
+        glm::vec3 exit = vehicle_.position() + vehicle_.right() * (-2.5f);
+        exit.y = Heightmap::sample(exit.x, exit.z);
+        character_.teleport(exit);
+        enter_mode(Mode::OnFoot);
+    }
 }
 
 void Application::process_events() {
@@ -199,26 +232,91 @@ void Application::process_events() {
     if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
         running_ = false;
 
-    if (input_.pressed(SDL_SCANCODE_F)) set_mode(Mode::Fly);
-    if (input_.pressed(SDL_SCANCODE_G)) set_mode(Mode::Walk);
-    if (input_.pressed(SDL_SCANCODE_V)) set_mode(Mode::Drive);
+    if (input_.pressed(SDL_SCANCODE_F)) try_toggle_vehicle();
+
+    if (input_.pressed(SDL_SCANCODE_C)) {
+        if (mode_ == Mode::DebugFly) {
+            enter_mode(saved_mode_);
+        } else {
+            saved_mode_ = mode_;
+            mode_ = Mode::DebugFly;
+            // Hand the camera back to the user; nothing else to set up.
+        }
+    }
 }
 
-void Application::update_chase_camera(float dt) {
-    glm::vec3 chassis_pos = vehicle_.position();
-    glm::vec3 fwd_h = vehicle_.forward();
-    fwd_h.y = 0.f;
-    if (glm::length(fwd_h) < 1e-3f) fwd_h = glm::vec3{1.f, 0.f, 0.f};
-    fwd_h = glm::normalize(fwd_h);
+void Application::update_on_foot(float dt, float mdx, float mdy) {
+    spring_.apply_mouse(mdx, mdy);
+    spring_.anchor = character_.eye_position();
+    spring_.update(world_collision_);
 
-    glm::vec3 desired_eye = chassis_pos - fwd_h * 8.f + glm::vec3{0.f, 3.5f, 0.f};
-    float blend = 1.f - std::exp(-8.f * dt);
-    camera_.position += (desired_eye - camera_.position) * blend;
+    character_.update(dt, input_, spring_.yaw_deg, world_collision_);
 
-    glm::vec3 look_at = chassis_pos + glm::vec3{0.f, 0.8f, 0.f};
-    glm::vec3 dir = glm::normalize(look_at - camera_.position);
-    camera_.yaw   = glm::degrees(std::atan2(dir.z, dir.x));
-    camera_.pitch = glm::degrees(std::asin(dir.y));
+    // Face the direction we're walking. Lerp gently so quick mouse turns
+    // don't snap the body around.
+    glm::vec3 vh = character_.velocity();
+    vh.y = 0.f;
+    if (glm::length(vh) > 0.5f) {
+        float target = glm::degrees(std::atan2(vh.z, vh.x));
+        // wrap to [-180, 180]
+        float diff = std::fmod(target - character_facing_yaw_deg_ + 540.f, 360.f) - 180.f;
+        character_facing_yaw_deg_ += diff * std::min(1.f, 12.f * dt);
+    }
+
+    camera_.position = spring_.camera_position;
+    camera_.yaw      = spring_.yaw_deg;
+    camera_.pitch    = spring_.pitch_deg;
+}
+
+void Application::update_in_vehicle(float dt, float mdx, float mdy) {
+    spring_.apply_mouse(mdx, mdy);
+    spring_.anchor = vehicle_.position() + glm::vec3{0.f, 1.2f, 0.f};
+    spring_.update(world_collision_);
+
+    camera_.position = spring_.camera_position;
+    camera_.yaw      = spring_.yaw_deg;
+    camera_.pitch    = spring_.pitch_deg;
+    (void)dt;
+}
+
+void Application::update(double dt) {
+    float fdt = static_cast<float>(dt);
+    lit_shader_.hot_reload();
+
+    float mdx = mouse_captured_ ? input_.mouse_dx() : 0.f;
+    float mdy = mouse_captured_ ? input_.mouse_dy() : 0.f;
+
+    // Vehicle inputs only when driving; physics always runs.
+    if (mode_ == Mode::InVehicle) {
+        float thr  = input_.down(SDL_SCANCODE_W) ? 1.f : 0.f;
+        float brk  = input_.down(SDL_SCANCODE_S) ? 1.f : 0.f;
+        float steer = (input_.down(SDL_SCANCODE_D) ? 1.f : 0.f)
+                    - (input_.down(SDL_SCANCODE_A) ? 1.f : 0.f);
+        bool  hb   = input_.down(SDL_SCANCODE_SPACE);
+        vehicle_.set_inputs(thr, brk, steer, hb);
+    } else {
+        vehicle_.set_inputs(0.f, 0.f, 0.f, false);
+    }
+    vehicle_.substep(fdt * 0.5f, world_collision_);
+    vehicle_.substep(fdt * 0.5f, world_collision_);
+
+    if (mode_ == Mode::DebugFly) {
+        camera_.update(fdt, input_, mdx, mdy);
+    } else if (mode_ == Mode::OnFoot) {
+        update_on_foot(fdt, mdx, mdy);
+    } else /* InVehicle */ {
+        update_in_vehicle(fdt, mdx, mdy);
+    }
+
+    // Update proximity prompt for the next F press.
+    can_enter_car_ = (mode_ == Mode::OnFoot)
+                  && glm::distance(character_.feet_position(), vehicle_.position())
+                     < ENTRY_RADIUS;
+
+    sync_vehicle_scene();
+    sync_character_scene();
+    streamer_.pump(camera_.position);
+    scene_.update();
 }
 
 void Application::sync_vehicle_scene() {
@@ -236,7 +334,7 @@ void Application::sync_vehicle_scene() {
     const auto& wheels = vehicle_.wheels();
     for (std::size_t i = 0; i < 4; ++i) {
         glm::vec3 pos = wheels[i].mount_local;
-        pos.y -= wheels[i].visual_drop; // drop along chassis -Y
+        pos.y -= wheels[i].visual_drop;
         wheel_nodes_[i]->transform.position = pos;
         glm::quat steer{1.f, 0.f, 0.f, 0.f};
         if (wheels[i].is_steering)
@@ -248,42 +346,15 @@ void Application::sync_vehicle_scene() {
     }
 }
 
-void Application::update(double dt) {
-    float fdt = static_cast<float>(dt);
-    lit_shader_.hot_reload();
-
-    float mdx = mouse_captured_ ? input_.mouse_dx() : 0.f;
-    float mdy = mouse_captured_ ? input_.mouse_dy() : 0.f;
-
-    if (mode_ == Mode::Drive) {
-        float thr  = input_.down(SDL_SCANCODE_W) ? 1.f : 0.f;
-        float brk  = input_.down(SDL_SCANCODE_S) ? 1.f : 0.f;
-        float steer = (input_.down(SDL_SCANCODE_D) ? 1.f : 0.f)
-                    - (input_.down(SDL_SCANCODE_A) ? 1.f : 0.f);
-        bool  hb   = input_.down(SDL_SCANCODE_SPACE);
-        vehicle_.set_inputs(thr, brk, steer, hb);
-    } else {
-        vehicle_.set_inputs(0.f, 0.f, 0.f, false);
-    }
-    // Vehicle physics runs every frame at 120 Hz (2 substeps), regardless of
-    // mode — the car is a persistent physics object.
-    vehicle_.substep(fdt * 0.5f, world_collision_);
-    vehicle_.substep(fdt * 0.5f, world_collision_);
-
-    if (mode_ == Mode::Fly) {
-        camera_.update(fdt, input_, mdx, mdy);
-    } else if (mode_ == Mode::Walk) {
-        Input dummy{};
-        camera_.update(fdt, dummy, mdx, mdy);
-        character_.update(fdt, input_, camera_.yaw, world_collision_);
-        camera_.position = character_.eye_position();
-    } else { // Drive
-        update_chase_camera(fdt);
-    }
-
-    sync_vehicle_scene();
-    streamer_.pump(camera_.position);
-    scene_.update();
+void Application::sync_character_scene() {
+    if (!character_node_) return;
+    glm::vec3 feet = character_.feet_position();
+    character_node_->transform.position = {feet.x, feet.y + 0.9f, feet.z};
+    character_node_->transform.rotation =
+        glm::angleAxis(glm::radians(-character_facing_yaw_deg_ - 90.f),
+                        glm::vec3{0.f, 1.f, 0.f});
+    character_node_->transform.scale    = {0.55f, 1.8f, 0.4f};
+    character_node_->mark_dirty();
 }
 
 void Application::render(double /*alpha*/) {
@@ -310,31 +381,31 @@ void Application::render(double /*alpha*/) {
     // ---- Debug overlay -----------------------------------------------------
     debug_draw_.clear();
 
-    glm::vec3 ray_origin = camera_.position;
-    glm::vec3 ray_dir    = camera_.forward();
-    RayHit    hit        = world_collision_.raycast(ray_origin, ray_dir, 200.f);
-    last_ray_hit_  = hit.hit;
-    last_ray_dist_ = hit.t;
-
-    if (hit.hit) {
-        debug_draw_.line(ray_origin, hit.position);
-        debug_draw_.cross(hit.position, 0.4f);
-    } else {
-        debug_draw_.line(ray_origin, ray_origin + ray_dir * 200.f);
+    // Forward raycast (only really useful in DebugFly; harmless otherwise).
+    if (mode_ == Mode::DebugFly) {
+        glm::vec3 ray_origin = camera_.position;
+        glm::vec3 ray_dir    = camera_.forward();
+        RayHit    hit        = world_collision_.raycast(ray_origin, ray_dir, 200.f);
+        last_ray_hit_  = hit.hit;
+        last_ray_dist_ = hit.t;
+        if (hit.hit) { debug_draw_.line(ray_origin, hit.position);
+                       debug_draw_.cross(hit.position, 0.4f); }
+        else         { debug_draw_.line(ray_origin, ray_origin + ray_dir * 200.f); }
     }
 
-    if (mode_ == Mode::Walk) {
-        debug_draw_.cylinder_xz(character_.feet_position(),
-                                CharacterController::RADIUS,
-                                CharacterController::HEIGHT);
-    }
-
-    // Vehicle: show wheel contact markers when grounded.
+    // Wheel contact markers.
     for (const Wheel& w : vehicle_.wheels()) {
         if (w.grounded) debug_draw_.cross(w.contact_world, 0.2f);
     }
 
-    debug_draw_.flush(vp, glm::vec3{1.f, 0.3f, 0.2f});
+    // Enter-vehicle prompt: ring around car when in range.
+    if (can_enter_car_) {
+        glm::vec3 base = vehicle_.position();
+        base.y -= vehicle_.chassis_full_extents.y * 0.5f;
+        debug_draw_.cylinder_xz(base, ENTRY_RADIUS, 0.05f, 32);
+    }
+
+    debug_draw_.flush(vp, glm::vec3{1.f, 0.85f, 0.2f});
 
     window_.swap();
 }
