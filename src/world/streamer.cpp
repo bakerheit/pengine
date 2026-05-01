@@ -5,9 +5,11 @@
 #include <cmath>
 
 #include "core/log.h"
+#include "physics/world_collision.h"
 #include "render/mesh.h"
 #include "scene/scene.h"
 #include "scene/scene_node.h"
+#include "world/heightmap.h"
 
 namespace pengine {
 
@@ -16,8 +18,8 @@ namespace pengine {
 // ---------------------------------------------------------------------------
 
 void Streamer::generate_cell(CellCoord coord, const WorldConfig& cfg,
-                              std::vector<ObjectDef>& out) {
-    // Seed deterministically from cell coordinates.
+                              std::vector<ObjectDef>& out_defs,
+                              std::vector<AABB>&      out_aabbs) {
     std::uint32_t seed = static_cast<std::uint32_t>(coord.x * 1000003 + coord.z * 999983);
     std::mt19937 rng(seed);
     auto frand = [&](float lo, float hi) {
@@ -32,17 +34,28 @@ void Streamer::generate_cell(CellCoord coord, const WorldConfig& cfg,
 
     int count = irand(8, 20);
     for (int i = 0; i < count; ++i) {
-        ObjectDef def;
         float px = ox + frand(4.f, cfg.cell_size - 4.f);
         float pz = oz + frand(4.f, cfg.cell_size - 4.f);
         float w  = frand(2.f, 6.f);
         float h  = frand(3.f, 18.f);
 
-        def.transform.position = {px, h * 0.5f, pz};
+        // Sit the building on the terrain (slightly buried so it doesn't float
+        // when the corner is on a slope).
+        float ground_y = Heightmap::sample(px, pz);
+        float base_y   = ground_y - 0.5f;
+        float cy       = base_y + h * 0.5f;
+
+        ObjectDef def;
+        def.transform.position = {px, cy, pz};
         def.transform.scale    = {w, h, w};
         def.lod_near = cfg.cell_size * 1.5f;
         def.lod_far  = cfg.cell_size * 3.f;
-        out.push_back(def);
+        out_defs.push_back(def);
+
+        AABB aabb;
+        aabb.min = {px - w * 0.5f, base_y,     pz - w * 0.5f};
+        aabb.max = {px + w * 0.5f, base_y + h, pz + w * 0.5f};
+        out_aabbs.push_back(aabb);
     }
 }
 
@@ -50,10 +63,12 @@ void Streamer::generate_cell(CellCoord coord, const WorldConfig& cfg,
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-void Streamer::init(const WorldConfig& cfg, Scene* scene, const Mesh* cube_mesh) {
+void Streamer::init(const WorldConfig& cfg, Scene* scene, const Mesh* cube_mesh,
+                     WorldCollision* collision) {
     cfg_       = cfg;
     scene_     = scene;
     cube_mesh_ = cube_mesh;
+    collision_ = collision;
     running_.store(true, std::memory_order_release);
     thread_ = std::thread(&Streamer::thread_func, this);
     PE_INFO("Streamer started  cell_size=%.0f radius=%d  world=%dx%d cells",
@@ -71,7 +86,6 @@ void Streamer::shutdown() {
 // ---------------------------------------------------------------------------
 
 void Streamer::thread_func() {
-    // Stream thread tracks what it believes is loaded, to avoid re-queuing.
     std::unordered_set<CellCoord, CellCoordHash> known_loaded;
 
     while (running_.load(std::memory_order_acquire)) {
@@ -83,32 +97,31 @@ void Streamer::thread_func() {
 
         CellCoord cam_cell = world_to_cell(pos.x, pos.z, cfg_.cell_size);
 
-        // Build desired set: cells within stream_radius (Chebyshev).
         std::unordered_set<CellCoord, CellCoordHash> desired;
         int r = cfg_.stream_radius;
         for (int dz = -r; dz <= r; ++dz) {
             for (int dx = -r; dx <= r; ++dx) {
                 CellCoord c{cam_cell.x + dx, cam_cell.z + dz};
-                // Clamp to world bounds.
                 if (c.x < 0 || c.x >= cfg_.world_cells_x) continue;
                 if (c.z < 0 || c.z >= cfg_.world_cells_z) continue;
                 desired.insert(c);
             }
         }
 
-        // Cells to load: in desired but not known_loaded.
         std::vector<LoadJob> new_loads;
         for (const CellCoord& c : desired) {
             if (known_loaded.count(c) == 0) {
                 LoadJob job;
                 job.coord = c;
-                generate_cell(c, cfg_, job.defs);
+                generate_cell(c, cfg_, job.defs, job.building_aabbs);
+                float ox = static_cast<float>(c.x) * cfg_.cell_size;
+                float oz = static_cast<float>(c.z) * cfg_.cell_size;
+                job.terrain = TerrainChunk::build(ox, oz, cfg_.cell_size);
                 new_loads.push_back(std::move(job));
                 known_loaded.insert(c);
             }
         }
 
-        // Cells to evict: in known_loaded but not desired.
         std::vector<EvictJob> new_evicts;
         for (auto it = known_loaded.begin(); it != known_loaded.end(); ) {
             if (desired.count(*it) == 0) {
@@ -119,7 +132,6 @@ void Streamer::thread_func() {
             }
         }
 
-        // Push to shared queues.
         if (!new_loads.empty() || !new_evicts.empty()) {
             std::lock_guard<std::mutex> lk(queue_mutex_);
             for (auto& j : new_loads)  load_queue_.push_back(std::move(j));
@@ -131,17 +143,15 @@ void Streamer::thread_func() {
 }
 
 // ---------------------------------------------------------------------------
-// Main-thread pump — call before Scene::update() each frame
+// Main-thread pump
 // ---------------------------------------------------------------------------
 
 void Streamer::pump(glm::vec3 cam_pos) {
-    // Update the camera position for the stream thread.
     {
         std::lock_guard<std::mutex> lk(cam_mutex_);
         cam_pos_ = cam_pos;
     }
 
-    // Drain queues (swap trick: hold lock only during swap, not during GL work).
     std::vector<LoadJob>  loads;
     std::vector<EvictJob> evicts;
     {
@@ -150,15 +160,14 @@ void Streamer::pump(glm::vec3 cam_pos) {
         evicts.swap(evict_queue_);
     }
 
-    // Process evictions first (frees memory before allocating).
     for (const EvictJob& job : evicts) {
         auto it = loaded_.find(job.coord);
         if (it == loaded_.end()) continue;
         for (SceneNode* n : it->second.nodes) scene_->remove_node(n);
+        if (collision_) collision_->remove_cell(job.coord);
         loaded_.erase(it);
     }
 
-    // Process loads — cap per frame to avoid hitches.
     int activated = 0;
     std::vector<LoadJob> deferred;
     for (auto& job : loads) {
@@ -166,13 +175,14 @@ void Streamer::pump(glm::vec3 cam_pos) {
             deferred.push_back(std::move(job));
             continue;
         }
-        if (loaded_.count(job.coord)) continue; // already loaded (race)
+        if (loaded_.count(job.coord)) continue;
 
         LoadedCell lc;
+
+        // Buildings.
         AABB cube_aabb;
         cube_aabb.min = cube_mesh_->bounds_min();
         cube_aabb.max = cube_mesh_->bounds_max();
-
         for (const ObjectDef& def : job.defs) {
             SceneNode* n = scene_->create_node();
             n->transform   = def.transform;
@@ -180,11 +190,26 @@ void Streamer::pump(glm::vec3 cam_pos) {
             n->mark_dirty();
             lc.nodes.push_back(n);
         }
-        loaded_.emplace(job.coord, std::move(lc));
+
+        // Terrain. Upload first; SceneNode mesh pointer is patched after the
+        // LoadedCell lands in `loaded_` (the move would invalidate any pointer
+        // taken before insertion).
+        lc.terrain_mesh.upload(job.terrain.verts, job.terrain.indices);
+        AABB terrain_aabb;
+        terrain_aabb.min = lc.terrain_mesh.bounds_min();
+        terrain_aabb.max = lc.terrain_mesh.bounds_max();
+        SceneNode* tnode = scene_->create_node();
+        tnode->renderable = Renderable{nullptr, terrain_aabb};
+        tnode->mark_dirty();
+        lc.nodes.push_back(tnode);
+
+        if (collision_) collision_->add_cell(job.coord, std::move(job.building_aabbs));
+
+        auto inserted = loaded_.emplace(job.coord, std::move(lc));
+        tnode->renderable->mesh = &inserted.first->second.terrain_mesh;
         ++activated;
     }
 
-    // Push deferred jobs back for the next frame.
     if (!deferred.empty()) {
         std::lock_guard<std::mutex> lk(queue_mutex_);
         for (auto& j : deferred)

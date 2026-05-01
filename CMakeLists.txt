@@ -99,6 +99,11 @@ add_library(pengine_core STATIC
     src/render/stb_impl.cpp
     src/scene/scene_node.cpp
     src/scene/scene.cpp
+    src/render/debug_draw.cpp
+    src/physics/world_collision.cpp
+    src/physics/character_controller.cpp
+    src/world/heightmap.cpp
+    src/world/terrain.cpp
     src/world/streamer.cpp
 )
 

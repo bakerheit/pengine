@@ -9,14 +9,17 @@
 
 #include <glm/glm.hpp>
 
+#include "render/mesh.h"
+#include "scene/aabb.h"
 #include "world/cell_coord.h"
+#include "world/terrain.h"
 #include "world/world_defs.h"
 
 namespace pengine {
 
-class Mesh;
 class Scene;
 class SceneNode;
+class WorldCollision;
 
 class Streamer {
 public:
@@ -25,45 +28,47 @@ public:
         int total_nodes  = 0;
     };
 
-    void init(const WorldConfig& cfg, Scene* scene, const Mesh* cube_mesh);
+    void init(const WorldConfig& cfg, Scene* scene, const Mesh* cube_mesh,
+              WorldCollision* collision);
     void shutdown();
 
-    // Main thread: call once per frame before scene.update().
-    // Drains load/evict queues, caps uploads to cfg_.max_uploads_per_frame.
     void pump(glm::vec3 cam_pos);
 
     Stats stats() const;
 
 private:
-    // Stream thread: runs continuously, ~100 ms sleep between iterations.
     void thread_func();
 
-    // Deterministic procedural cell generation — in a real engine this reads disk.
     static void generate_cell(CellCoord coord, const WorldConfig& cfg,
-                               std::vector<ObjectDef>& out);
+                               std::vector<ObjectDef>& out_defs,
+                               std::vector<AABB>&      out_aabbs);
 
-    // ---- Shared state (all protected by queue_mutex_) ----------------------
-    struct LoadJob  { CellCoord coord; std::vector<ObjectDef> defs; };
+    struct LoadJob {
+        CellCoord                coord;
+        std::vector<ObjectDef>   defs;
+        std::vector<AABB>        building_aabbs;
+        TerrainChunk             terrain;
+    };
     struct EvictJob { CellCoord coord; };
 
     mutable std::mutex    queue_mutex_;
     std::vector<LoadJob>  load_queue_;
     std::vector<EvictJob> evict_queue_;
 
-    // ---- Camera position (protected by cam_mutex_) -------------------------
     std::mutex  cam_mutex_;
     glm::vec3   cam_pos_ = {0.f, 0.f, 0.f};
 
-    // ---- Main-thread-only state --------------------------------------------
-    struct LoadedCell { std::vector<SceneNode*> nodes; };
+    struct LoadedCell {
+        std::vector<SceneNode*> nodes;          // building nodes + terrain node
+        Mesh                    terrain_mesh;
+    };
     std::unordered_map<CellCoord, LoadedCell, CellCoordHash> loaded_;
 
-    // ---- Config + deps (init once, then read-only) -------------------------
-    WorldConfig   cfg_;
-    Scene*        scene_      = nullptr;
-    const Mesh*   cube_mesh_  = nullptr;
+    WorldConfig      cfg_;
+    Scene*           scene_      = nullptr;
+    const Mesh*      cube_mesh_  = nullptr;
+    WorldCollision*  collision_  = nullptr;
 
-    // ---- Thread lifecycle --------------------------------------------------
     std::atomic<bool> running_{false};
     std::thread       thread_;
 };

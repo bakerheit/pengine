@@ -8,6 +8,7 @@
 #include "core/log.h"
 #include "render/mesh.h"
 #include "scene/frustum.h"
+#include "world/heightmap.h"
 #include "world/world_defs.h"
 
 #ifndef ASSETS_DIR
@@ -18,16 +19,17 @@ namespace pengine {
 
 bool Application::init() {
     WindowConfig cfg;
-    cfg.title = "pengine [phase 4: world streaming]";
+    cfg.title = "pengine [phase 5: terrain & collision]";
     if (!window_.init(cfg)) return false;
 
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
-    glClearColor(0.10f, 0.13f, 0.18f, 1.f);
+    glClearColor(0.45f, 0.65f, 0.85f, 1.f);
 
     if (!lit_shader_.load(ASSETS_DIR "/shaders/lit.vert",
                           ASSETS_DIR "/shaders/lit.frag")) return false;
+    if (!debug_draw_.init(ASSETS_DIR)) return false;
 
     {
         std::vector<Vertex>   verts;
@@ -38,27 +40,29 @@ bool Application::init() {
 
     checker_tex_.load_checkerboard(128);
 
-    // World: 16×16 cells @ 256 m = 4096 × 4096 m. Start near centre.
+    Heightmap::set_seed(1337u);
+
     WorldConfig world_cfg;
     float centre = world_cfg.world_cells_x * world_cfg.cell_size * 0.5f;
+
     camera_.position   = {centre, 30.f, centre};
     camera_.yaw        = -90.f;
-    camera_.pitch      = -20.f;
+    camera_.pitch      = -15.f;
     camera_.move_speed = 80.f;
     camera_.far_z      = 2000.f;
 
-    streamer_.init(world_cfg, &scene_, &cube_mesh_);
+    streamer_.init(world_cfg, &scene_, &cube_mesh_, &world_collision_);
+
+    // Spawn the character on the terrain near the centre.
+    glm::vec3 spawn{centre, 0.f, centre};
+    spawn.y = Heightmap::sample(spawn.x, spawn.z);
+    character_.teleport(spawn);
 
     stats_start_ = Clock::now();
     last_frame_  = Clock::now();
     running_     = true;
 
-    PE_INFO("Phase 4 ready. World %dx%d cells @ %.0f m (%.0f x %.0f km). "
-            "Click window to capture mouse. ESC = release. Ctrl+Q = quit.",
-            world_cfg.world_cells_x, world_cfg.world_cells_z,
-            world_cfg.cell_size,
-            world_cfg.world_cells_x * world_cfg.cell_size / 1000.f,
-            world_cfg.world_cells_z * world_cfg.cell_size / 1000.f);
+    PE_INFO("Phase 5 ready. F = toggle walk/fly. WASD/Space, mouse look. ESC release. Ctrl+Q quit.");
     return true;
 }
 
@@ -79,13 +83,20 @@ int Application::run() {
         ++fps_frames_;
         if (seconds_since(stats_start_) >= 1.0) {
             auto st = streamer_.stats();
-            char title[256];
+            char title[320];
             std::snprintf(title, sizeof(title),
-                          "pengine  |  cells: %d  nodes: %d  fps: %d  worst: %.1f ms",
-                          st.loaded_cells, st.total_nodes, fps_frames_, max_frame_ms_);
+                          "pengine  |  %s  |  cells: %d  buildings: %d  fps: %d  worst: %.1f ms  |  ray: %s %.1fm",
+                          walk_mode_ ? "walk" : "fly",
+                          st.loaded_cells, world_collision_.building_count(),
+                          fps_frames_, max_frame_ms_,
+                          last_ray_hit_ ? "HIT" : "miss",
+                          last_ray_dist_);
             SDL_SetWindowTitle(window_.sdl(), title);
-            PE_INFO("cells: %d  nodes: %d  fps: %d  worst: %.1f ms",
-                    st.loaded_cells, st.total_nodes, fps_frames_, max_frame_ms_);
+            PE_INFO("%s  cells=%d buildings=%d nodes=%d fps=%d worst=%.1fms ray=%s %.1fm",
+                    walk_mode_ ? "walk" : "fly",
+                    st.loaded_cells, world_collision_.building_count(),
+                    st.total_nodes, fps_frames_, max_frame_ms_,
+                    last_ray_hit_ ? "HIT" : "miss", last_ray_dist_);
             fps_frames_   = 0;
             max_frame_ms_ = 0.0;
             stats_start_  = Clock::now();
@@ -97,6 +108,7 @@ int Application::run() {
 void Application::shutdown() {
     streamer_.shutdown();
     SDL_SetRelativeMouseMode(SDL_FALSE);
+    debug_draw_.shutdown();
     lit_shader_.destroy();
     cube_mesh_.destroy();
     checker_tex_.destroy();
@@ -141,14 +153,34 @@ void Application::process_events() {
     }
     if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
         running_ = false;
+
+    if (input_.pressed(SDL_SCANCODE_F)) {
+        walk_mode_ = !walk_mode_;
+        if (walk_mode_) {
+            // Drop the character beneath the camera and snap to ground.
+            glm::vec3 spawn = camera_.position;
+            spawn.y = Heightmap::sample(spawn.x, spawn.z);
+            character_.teleport(spawn);
+        }
+    }
 }
 
 void Application::update(double dt) {
     float fdt = static_cast<float>(dt);
     lit_shader_.hot_reload();
+
     float mdx = mouse_captured_ ? input_.mouse_dx() : 0.f;
     float mdy = mouse_captured_ ? input_.mouse_dy() : 0.f;
-    camera_.update(fdt, input_, mdx, mdy);
+
+    if (walk_mode_) {
+        // Mouse-look only (no WASD on the camera; the character handles it).
+        Input dummy{}; // empty inputs => no fly translation
+        camera_.update(fdt, dummy, mdx, mdy);
+        character_.update(fdt, input_, camera_.yaw, world_collision_);
+        camera_.position = character_.eye_position();
+    } else {
+        camera_.update(fdt, input_, mdx, mdy);
+    }
 
     streamer_.pump(camera_.position);
     scene_.update();
@@ -169,11 +201,35 @@ void Application::render(double /*alpha*/) {
     lit_shader_.set("u_cam_pos",     camera_.position);
     lit_shader_.set("u_light_dir",   glm::normalize(glm::vec3{0.6f, 1.f, 0.4f}));
     lit_shader_.set("u_light_color", glm::vec3{1.f, 0.95f, 0.85f});
-    lit_shader_.set("u_ambient",     glm::vec3{0.08f, 0.10f, 0.14f});
+    lit_shader_.set("u_ambient",     glm::vec3{0.18f, 0.22f, 0.28f});
     lit_shader_.set("u_diffuse",     0);
 
     checker_tex_.bind(0);
     scene_.draw(cr, lit_shader_);
+
+    // ---- Debug overlay -----------------------------------------------------
+    debug_draw_.clear();
+
+    glm::vec3 ray_origin = camera_.position;
+    glm::vec3 ray_dir    = camera_.forward();
+    RayHit    hit        = world_collision_.raycast(ray_origin, ray_dir, 200.f);
+    last_ray_hit_  = hit.hit;
+    last_ray_dist_ = hit.t;
+
+    if (hit.hit) {
+        debug_draw_.line(ray_origin, hit.position);
+        debug_draw_.cross(hit.position, 0.4f);
+    } else {
+        debug_draw_.line(ray_origin, ray_origin + ray_dir * 200.f);
+    }
+
+    if (walk_mode_) {
+        debug_draw_.cylinder_xz(character_.feet_position(),
+                                CharacterController::RADIUS,
+                                CharacterController::HEIGHT);
+    }
+
+    debug_draw_.flush(vp, glm::vec3{1.f, 0.3f, 0.2f});
 
     window_.swap();
 }
