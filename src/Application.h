@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 
 #include "core/time.h"
+#include "game/vehicle.h"
 #include "physics/character_controller.h"
 #include "physics/world_collision.h"
 #include "platform/input.h"
@@ -18,8 +19,12 @@
 
 namespace pengine {
 
+class SceneNode;
+
 class Application {
 public:
+    enum class Mode { Fly, Walk, Drive };
+
     bool init();
     int  run();
     void shutdown();
@@ -28,6 +33,10 @@ private:
     void process_events();
     void update(double dt);
     void render(double alpha);
+
+    void set_mode(Mode m);
+    void update_chase_camera(float dt);
+    void sync_vehicle_scene();
 
     Window         window_;
     Input          input_;
@@ -44,7 +53,12 @@ private:
     CharacterController character_;
     DebugDraw           debug_draw_;
 
-    bool  walk_mode_      = false;
+    Vehicle             vehicle_;
+    SceneNode*          chassis_node_       = nullptr;
+    SceneNode*          chassis_visual_node_= nullptr;
+    SceneNode*          wheel_nodes_[4]     = {nullptr, nullptr, nullptr, nullptr};
+
+    Mode  mode_           = Mode::Fly;
     bool  mouse_captured_ = false;
     bool  running_        = false;
 

@@ -105,6 +105,7 @@ add_library(pengine_core STATIC
     src/world/heightmap.cpp
     src/world/terrain.cpp
     src/world/streamer.cpp
+    src/game/vehicle.cpp
 )
 
 target_include_directories(pengine_core PUBLIC src)
