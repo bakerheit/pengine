@@ -13,7 +13,8 @@ public:
     Texture(const Texture&) = delete;
     Texture& operator=(const Texture&) = delete;
 
-    // Load from a PNG/JPG/etc. via stb_image.
+    // Load from a PNG/JPG/etc. via stb_image, or a DDS (BC1/BC3) file.
+    // Dispatches on file extension.
     bool load_file(const std::string& path);
 
     // 8x8 checkerboard procedural texture (no file needed).

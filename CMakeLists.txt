@@ -59,6 +59,27 @@ if(NOT stb_POPULATED)
     FetchContent_Populate(stb)
 endif()
 
+# --- Assimp (meshconv only — never linked into engine) ----------------------
+# Only OBJ, FBX and glTF importers; no exporters; no tests.
+set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_OBJ_IMPORTER            ON  CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_FBX_IMPORTER            ON  CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_GLTF_IMPORTER           ON  CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ALL_EXPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_TESTS                   OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL                       OFF CACHE BOOL "" FORCE)
+set(ASSIMP_WARNINGS_AS_ERRORS            OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ASSIMP_VIEW             OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ZLIB                    OFF CACHE BOOL "" FORCE) # use system zlib (avoids macOS header conflict)
+set(BUILD_SHARED_LIBS                    OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    assimp
+    GIT_REPOSITORY https://github.com/assimp/assimp.git
+    GIT_TAG v5.3.1
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(assimp)
+
 # stb_impl.cpp is a pure C header expanded into C++; suppress all warnings on it.
 set_source_files_properties(src/render/stb_impl.cpp PROPERTIES COMPILE_OPTIONS "-w")
 
@@ -71,6 +92,8 @@ add_library(pengine_core STATIC
     src/render/mesh.cpp
     src/render/texture.cpp
     src/render/camera.cpp
+    src/render/model.cpp
+    src/render/material.cpp
     src/render/stb_impl.cpp
 )
 
@@ -108,6 +131,18 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT MSVC)
     target_compile_options(pengine_core PUBLIC -fsanitize=address,undefined -fno-omit-frame-pointer)
     target_link_options(pengine_core PUBLIC -fsanitize=address,undefined)
 endif()
+
+# --- meshconv (uses Assimp; must NEVER be linked into pengine_core/pengine) --
+add_executable(meshconv tools/meshconv/main.cpp)
+target_include_directories(meshconv PRIVATE src)
+target_compile_definitions(meshconv PRIVATE
+    ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
+)
+target_link_libraries(meshconv PRIVATE assimp::assimp)
+# meshconv is a host tool; no sanitizers, no strict warnings needed.
+set_target_properties(meshconv PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
 
 # --- Executable -------------------------------------------------------------
 add_executable(pengine src/main.cpp)

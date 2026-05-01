@@ -1,0 +1,64 @@
+# test_scene.obj — two-submesh test model: a ground plane and a simple building block.
+mtllib test_scene.mtl
+
+# ---- Ground plane ---------------------------------------------------------
+g ground
+usemtl ground_mat
+
+v -8  0  -8
+v  8  0  -8
+v  8  0   8
+v -8  0   8
+
+vn  0  1  0
+vt  0  0
+vt  4  0
+vt  4  4
+vt  0  4
+
+f 1/1/1  2/2/1  3/3/1
+f 1/1/1  3/3/1  4/4/1
+
+# ---- Building block -------------------------------------------------------
+g building
+usemtl wall_mat
+
+# Vertices (a 2x3x2 box sitting on y=0)
+v -1  0  -1
+v  1  0  -1
+v  1  0   1
+v -1  0   1
+v -1  3  -1
+v  1  3  -1
+v  1  3   1
+v -1  3   1
+
+# UVs
+vt  0  0
+vt  1  0
+vt  1  1
+vt  0  1
+
+# Normals
+vn  0  0 -1
+vn  1  0  0
+vn  0  0  1
+vn -1  0  0
+vn  0  1  0
+vn  0 -1  0
+
+# Front face (-Z)
+f  5/1/9   6/2/9   2/3/9
+f  5/1/9   2/3/9   1/4/9
+# Right face (+X)
+f  6/1/10  7/2/10  3/3/10
+f  6/1/10  3/3/10  2/4/10
+# Back face (+Z)
+f  7/1/11  8/2/11  4/3/11
+f  7/1/11  4/3/11  3/4/11
+# Left face (-X)
+f  8/1/12  5/2/12  1/3/12
+f  8/1/12  1/3/12  4/4/12
+# Top face (+Y)
+f  8/1/13  7/2/13  6/3/13
+f  8/1/13  6/3/13  5/4/13

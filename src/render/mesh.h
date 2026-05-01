@@ -19,8 +19,18 @@ public:
     Mesh() = default;
     ~Mesh() { destroy(); }
 
-    Mesh(const Mesh&) = delete;
+    Mesh(const Mesh&)            = delete;
     Mesh& operator=(const Mesh&) = delete;
+
+    Mesh(Mesh&& o) noexcept
+        : vao_(o.vao_), vbo_(o.vbo_), ebo_(o.ebo_), index_count_(o.index_count_)
+    { o.vao_ = o.vbo_ = o.ebo_ = 0; o.index_count_ = 0; }
+    Mesh& operator=(Mesh&& o) noexcept {
+        if (this != &o) { destroy();
+            vao_ = o.vao_; vbo_ = o.vbo_; ebo_ = o.ebo_; index_count_ = o.index_count_;
+            o.vao_ = o.vbo_ = o.ebo_ = 0; o.index_count_ = 0; }
+        return *this;
+    }
 
     void upload(const std::vector<Vertex>& vertices,
                 const std::vector<uint32_t>& indices);

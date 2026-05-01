@@ -1,0 +1,2 @@
+shader = lit
+# No texture file — Application will bind a procedural checkerboard.

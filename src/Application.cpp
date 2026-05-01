@@ -6,7 +6,6 @@
 
 #include "core/log.h"
 
-// ASSETS_DIR is defined by CMake to the absolute path of the assets/ folder.
 #ifndef ASSETS_DIR
 #define ASSETS_DIR "assets"
 #endif
@@ -15,7 +14,7 @@ namespace pengine {
 
 bool Application::init() {
     WindowConfig cfg;
-    cfg.title = "pengine [phase 1: renderer]";
+    cfg.title = "pengine [phase 2: asset pipeline]";
     if (!window_.init(cfg)) return false;
 
     glEnable(GL_DEPTH_TEST);
@@ -26,19 +25,22 @@ bool Application::init() {
     if (!lit_shader_.load(ASSETS_DIR "/shaders/lit.vert",
                           ASSETS_DIR "/shaders/lit.frag")) return false;
 
-    std::vector<Vertex> verts;
-    std::vector<uint32_t> idxs;
-
-    make_cube(verts, idxs);
-    cube_mesh_.upload(verts, idxs);
-
-    make_plane(verts, idxs, 20.f);
-    plane_mesh_.upload(verts, idxs);
-
     checker_tex_.load_checkerboard(128);
 
-    PE_INFO("Click the window to capture mouse. ESC to release. Ctrl+Q to quit.");
-    PE_INFO("WASD to fly, Q/E for vertical. Mouse to look.");
+    // Load the .emesh produced by meshconv. Fall back gracefully if not yet built.
+    const char* emesh_path = ASSETS_DIR "/models/test_scene.emesh";
+    model_loaded_ = scene_model_.load(emesh_path);
+    if (!model_loaded_) {
+        PE_WARN("test_scene.emesh not found — run meshconv first:");
+        PE_WARN("  ./build/bin/meshconv %s/models/test_scene.obj %s",
+                ASSETS_DIR, emesh_path);
+    }
+
+    camera_.position  = {0.f, 3.f, 9.f};
+    camera_.pitch     = -15.f;
+
+    PE_INFO("Click to capture mouse. ESC = release. Ctrl+Q = quit.");
+    PE_INFO("WASD / Q / E to fly. Mouse to look.");
 
     fps_start_ = Clock::now();
     running_   = true;
@@ -66,8 +68,6 @@ int Application::run() {
 void Application::shutdown() {
     SDL_SetRelativeMouseMode(SDL_FALSE);
     lit_shader_.destroy();
-    cube_mesh_.destroy();
-    plane_mesh_.destroy();
     checker_tex_.destroy();
     window_.shutdown();
 }
@@ -108,22 +108,16 @@ void Application::process_events() {
             mouse_captured_ = false;
         }
     }
-
-    // Ctrl+Q to quit
     if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
         running_ = false;
 }
 
 void Application::update(double dt) {
     float fdt = static_cast<float>(dt);
-
     lit_shader_.hot_reload();
-
     float mdx = mouse_captured_ ? input_.mouse_dx() : 0.f;
     float mdy = mouse_captured_ ? input_.mouse_dy() : 0.f;
     camera_.update(fdt, input_, mdx, mdy);
-
-    cube_angle_ += fdt * 0.785398f; // 45°/s
 }
 
 void Application::render(double /*alpha*/) {
@@ -141,22 +135,15 @@ void Application::render(double /*alpha*/) {
     lit_shader_.set("u_ambient",     glm::vec3{0.08f, 0.10f, 0.14f});
     lit_shader_.set("u_diffuse",     0);
 
+    glm::mat4 model{1.f};
+    glm::mat3 nm{1.f};
+    lit_shader_.set("u_model",      model);
+    lit_shader_.set("u_normal_mat", nm);
+
     checker_tex_.bind(0);
 
-    // Spinning cube
-    glm::mat4 cube_model = glm::rotate(glm::mat4{1.f}, cube_angle_, {0.f, 1.f, 0.f});
-    cube_model = glm::translate(cube_model, {0.f, 0.6f, 0.f});
-    glm::mat3 cube_nm = glm::mat3(glm::transpose(glm::inverse(cube_model)));
-    lit_shader_.set("u_model",      cube_model);
-    lit_shader_.set("u_normal_mat", cube_nm);
-    cube_mesh_.draw();
-
-    // Ground plane
-    glm::mat4 plane_model{1.f};
-    glm::mat3 plane_nm = glm::mat3(1.f);
-    lit_shader_.set("u_model",      plane_model);
-    lit_shader_.set("u_normal_mat", plane_nm);
-    plane_mesh_.draw();
+    if (model_loaded_)
+        scene_model_.draw();
 
     window_.swap();
 }
