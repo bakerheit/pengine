@@ -51,6 +51,9 @@ bool Application::init() {
     }
 
     checker_tex_.load_checkerboard(128);
+    asphalt_tex_.load_asphalt();
+    grass_tex_.load_grass();
+    facade_tex_.load_facade();
 
     Heightmap::set_seed(1337u);
 
@@ -67,7 +70,8 @@ bool Application::init() {
     camera_.move_speed = 80.f;
     camera_.far_z      = 2000.f;
 
-    streamer_.init(world_cfg, &scene_, &cube_mesh_, &world_collision_);
+    WorldTextures world_tex{&grass_tex_, &asphalt_tex_, &facade_tex_};
+    streamer_.init(world_cfg, &scene_, &cube_mesh_, &world_collision_, world_tex);
 
     glm::vec3 spawn = intersection;
     spawn.y = Heightmap::sample(spawn.x, spawn.z);
@@ -166,6 +170,9 @@ void Application::shutdown() {
     lit_shader_.destroy();
     cube_mesh_.destroy();
     checker_tex_.destroy();
+    asphalt_tex_.destroy();
+    grass_tex_.destroy();
+    facade_tex_.destroy();
     window_.shutdown();
 }
 

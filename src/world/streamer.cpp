@@ -20,15 +20,14 @@ namespace pengine {
 
 void Streamer::generate_cell(CellCoord coord, const WorldConfig& cfg,
                               std::vector<ObjectDef>& out_defs,
-                              std::vector<AABB>&      out_aabbs) {
-    // Cell ground height: sample the (already cell-flattened) heightmap at
-    // the cell centre.
+                              std::vector<AABB>&      out_aabbs) const {
     float ox = static_cast<float>(coord.x) * cfg.cell_size;
     float oz = static_cast<float>(coord.z) * cfg.cell_size;
     float ground_y = Heightmap::sample(ox + cfg.cell_size * 0.5f,
                                         oz + cfg.cell_size * 0.5f);
 
-    CityCellLayout layout = generate_city_cell(coord, cfg.cell_size, ground_y);
+    CityTextures ct{tex_.road, tex_.building};
+    CityCellLayout layout = generate_city_cell(coord, cfg.cell_size, ground_y, ct);
     out_defs  = std::move(layout.visuals);
     out_aabbs = std::move(layout.collisions);
 }
@@ -38,11 +37,12 @@ void Streamer::generate_cell(CellCoord coord, const WorldConfig& cfg,
 // ---------------------------------------------------------------------------
 
 void Streamer::init(const WorldConfig& cfg, Scene* scene, const Mesh* cube_mesh,
-                     WorldCollision* collision) {
+                     WorldCollision* collision, const WorldTextures& tex) {
     cfg_       = cfg;
     scene_     = scene;
     cube_mesh_ = cube_mesh;
     collision_ = collision;
+    tex_       = tex;
     running_.store(true, std::memory_order_release);
     thread_ = std::thread(&Streamer::thread_func, this);
     PE_INFO("Streamer started  cell_size=%.0f radius=%d  world=%dx%d cells",
@@ -160,7 +160,8 @@ void Streamer::pump(glm::vec3 cam_pos) {
         for (const ObjectDef& def : job.defs) {
             SceneNode* n = scene_->create_node();
             n->transform  = def.transform;
-            n->renderable = Renderable{cube_mesh_, cube_aabb, def.tint};
+            n->renderable = Renderable{cube_mesh_, cube_aabb,
+                                        def.tint, def.uv_scale, def.texture};
             n->mark_dirty();
             lc.nodes.push_back(n);
         }
@@ -173,8 +174,11 @@ void Streamer::pump(glm::vec3 cam_pos) {
         terrain_aabb.min = lc.terrain_mesh.bounds_min();
         terrain_aabb.max = lc.terrain_mesh.bounds_max();
         SceneNode* tnode = scene_->create_node();
+        // Terrain mesh already tiles (32 m per tile via vertex UVs in
+        // terrain.cpp). Bump frequency a bit so grass doesn't look uniform.
         tnode->renderable = Renderable{nullptr, terrain_aabb,
-                                        glm::vec3{0.55f, 0.58f, 0.50f}};
+                                        glm::vec3{1.f, 1.f, 1.f},
+                                        glm::vec2{4.f, 4.f}, tex_.terrain};
         tnode->mark_dirty();
         lc.nodes.push_back(tnode);
 

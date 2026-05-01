@@ -19,7 +19,14 @@ namespace pengine {
 
 class Scene;
 class SceneNode;
+class Texture;
 class WorldCollision;
+
+struct WorldTextures {
+    const Texture* terrain  = nullptr;  // grass for terrain mesh
+    const Texture* road     = nullptr;  // asphalt for road slabs
+    const Texture* building = nullptr;  // facade with windows
+};
 
 class Streamer {
 public:
@@ -29,7 +36,7 @@ public:
     };
 
     void init(const WorldConfig& cfg, Scene* scene, const Mesh* cube_mesh,
-              WorldCollision* collision);
+              WorldCollision* collision, const WorldTextures& tex);
     void shutdown();
 
     void pump(glm::vec3 cam_pos);
@@ -39,9 +46,9 @@ public:
 private:
     void thread_func();
 
-    static void generate_cell(CellCoord coord, const WorldConfig& cfg,
-                               std::vector<ObjectDef>& out_defs,
-                               std::vector<AABB>&      out_aabbs);
+    void generate_cell(CellCoord coord, const WorldConfig& cfg,
+                        std::vector<ObjectDef>& out_defs,
+                        std::vector<AABB>&      out_aabbs) const;
 
     struct LoadJob {
         CellCoord                coord;
@@ -68,6 +75,7 @@ private:
     Scene*           scene_      = nullptr;
     const Mesh*      cube_mesh_  = nullptr;
     WorldCollision*  collision_  = nullptr;
+    WorldTextures    tex_;
 
     std::atomic<bool> running_{false};
     std::thread       thread_;

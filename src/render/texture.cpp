@@ -1,9 +1,11 @@
 #include "render/texture.h"
 
 #include <stb_image.h>
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <random>
 #include <vector>
 
 #include "core/log.h"
@@ -156,6 +158,135 @@ void Texture::load_checkerboard(int size) {
     gl_state::bind_texture_2d(0, tex_);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, size, size, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
     glGenerateMipmap(GL_TEXTURE_2D);
+    apply_params();
+}
+
+// ---------------------------------------------------------------------------
+// Procedural textures (deterministic; no asset files needed).
+// ---------------------------------------------------------------------------
+
+namespace {
+
+inline unsigned char clamp_u8(int v) {
+    return static_cast<unsigned char>(std::max(0, std::min(255, v)));
+}
+
+void upload_rgb(GLuint& tex_out, int size, const std::vector<unsigned char>& pixels) {
+    glGenTextures(1, &tex_out);
+    gl_state::bind_texture_2d(0, tex_out);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, size, size, 0, GL_RGB,
+                 GL_UNSIGNED_BYTE, pixels.data());
+    glGenerateMipmap(GL_TEXTURE_2D);
+}
+
+} // namespace
+
+void Texture::load_asphalt(int size) {
+    width_ = height_ = size;
+    std::vector<unsigned char> pixels(static_cast<std::size_t>(size * size * 3));
+    std::mt19937 rng(0xa5fa17u);
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            int n = static_cast<int>(rng() % 28u) - 14;       // ±14 grain
+            int r = 48 + n, g = 48 + n, b = 52 + n;
+            // Occasional dark pebble.
+            if ((rng() & 0x3fu) == 0) { r -= 22; g -= 22; b -= 22; }
+            // Occasional light fleck (oil sheen / wear).
+            else if ((rng() & 0x7fu) == 0) { r += 18; g += 18; b += 18; }
+            std::size_t idx = static_cast<std::size_t>((y * size + x) * 3);
+            pixels[idx + 0] = clamp_u8(r);
+            pixels[idx + 1] = clamp_u8(g);
+            pixels[idx + 2] = clamp_u8(b);
+        }
+    }
+    upload_rgb(tex_, size, pixels);
+    apply_params();
+}
+
+void Texture::load_grass(int size) {
+    width_ = height_ = size;
+    std::vector<unsigned char> pixels(static_cast<std::size_t>(size * size * 3));
+    std::mt19937 rng(0xc0ffeeu);
+    // Low-frequency dark patches via 8x8 sample-and-bilerp.
+    constexpr int LF = 8;
+    int patch[LF * LF];
+    for (int i = 0; i < LF * LF; ++i)
+        patch[i] = static_cast<int>(rng() % 36u) - 18;        // ±18 patch bias
+
+    auto sample_patch = [&](int x, int y) {
+        float fx = static_cast<float>(x) / size * (LF - 1);
+        float fy = static_cast<float>(y) / size * (LF - 1);
+        int   ix = static_cast<int>(fx);
+        int   iy = static_cast<int>(fy);
+        float tx = fx - ix, ty = fy - iy;
+        int p00 = patch[iy       * LF + ix];
+        int p10 = patch[iy       * LF + ix + 1];
+        int p01 = patch[(iy + 1) * LF + ix];
+        int p11 = patch[(iy + 1) * LF + ix + 1];
+        float p0 = p00 + (p10 - p00) * tx;
+        float p1 = p01 + (p11 - p01) * tx;
+        return static_cast<int>(p0 + (p1 - p0) * ty);
+    };
+
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            int hf  = static_cast<int>(rng() % 24u) - 12;     // ±12 grain
+            int lf  = sample_patch(x, y);
+            int r   =  68 + hf + lf / 2;
+            int g   = 105 + hf + lf;
+            int b   =  44 + hf + lf / 2;
+            std::size_t idx = static_cast<std::size_t>((y * size + x) * 3);
+            pixels[idx + 0] = clamp_u8(r);
+            pixels[idx + 1] = clamp_u8(g);
+            pixels[idx + 2] = clamp_u8(b);
+        }
+    }
+    upload_rgb(tex_, size, pixels);
+    apply_params();
+}
+
+void Texture::load_facade(int size) {
+    width_ = height_ = size;
+    std::vector<unsigned char> pixels(static_cast<std::size_t>(size * size * 3));
+    std::mt19937 rng(0xfacadeu);
+
+    // One window per tile. Window occupies ~55% of tile, framed by a sill,
+    // surrounded by wall.
+    const int frame_in  = static_cast<int>(size * 0.20f);  // 20% margin
+    const int frame_out = static_cast<int>(size * 0.24f);  //  4% frame thickness
+
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            int  noise = static_cast<int>(rng() % 16u) - 8; // wall grain ±8
+            int  r, g, b;
+            bool in_window = (x >= frame_in  && x < size - frame_in  &&
+                              y >= frame_in  && y < size - frame_in);
+            bool in_frame  = (x >= frame_out && x < size - frame_out &&
+                              y >= frame_out && y < size - frame_out);
+            if (in_window) {
+                // Dark glass with a faint vertical highlight to read as window.
+                int sheen = (x % 8 < 2) ? 22 : 0;
+                r = 28 + sheen;
+                g = 36 + sheen;
+                b = 52 + sheen;
+            } else if (in_frame) {
+                // Sill / frame: slightly darker than wall.
+                r = 150 + noise / 2;
+                g = 145 + noise / 2;
+                b = 135 + noise / 2;
+            } else {
+                // Wall.
+                r = 200 + noise;
+                g = 192 + noise;
+                b = 178 + noise;
+            }
+            std::size_t idx = static_cast<std::size_t>((y * size + x) * 3);
+            pixels[idx + 0] = clamp_u8(r);
+            pixels[idx + 1] = clamp_u8(g);
+            pixels[idx + 2] = clamp_u8(b);
+        }
+    }
+    upload_rgb(tex_, size, pixels);
     apply_params();
 }
 

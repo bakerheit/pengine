@@ -6,6 +6,7 @@
 
 #include "render/mesh.h"
 #include "render/shader.h"
+#include "render/texture.h"
 
 namespace pengine {
 
@@ -63,12 +64,15 @@ Scene::CullResult Scene::cull(const Frustum& frustum) const {
 void Scene::draw(const CullResult& cr, Shader& shader) const {
     for (const SceneNode* node : cr.visible) {
         if (!node->renderable || !node->renderable->mesh) continue;
+        const Renderable& r = *node->renderable;
         const glm::mat4& model = node->world_matrix();
         glm::mat3 nm = glm::mat3(glm::inverseTranspose(model));
         shader.set("u_model",      model);
         shader.set("u_normal_mat", nm);
-        shader.set("u_tint",       node->renderable->tint);
-        node->renderable->mesh->draw();
+        shader.set("u_tint",       r.tint);
+        shader.set("u_uv_scale",   r.uv_scale);
+        if (r.texture) r.texture->bind(0);
+        r.mesh->draw();
     }
 }
 

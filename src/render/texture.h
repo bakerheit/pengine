@@ -20,6 +20,15 @@ public:
     // 8x8 checkerboard procedural texture (no file needed).
     void load_checkerboard(int size = 64);
 
+    // Procedural city textures. All tile seamlessly. Pair with per-object
+    // uv_scale so that one tile maps to a recognisable real-world feature:
+    //   asphalt: ~4 m  (gritty road surface)
+    //   grass:   ~6 m  (terrain)
+    //   facade:  ~3 m  (one window per tile)
+    void load_asphalt(int size = 64);
+    void load_grass  (int size = 128);
+    void load_facade (int size = 64);
+
     void destroy();
     void bind(unsigned int unit = 0) const;
 

@@ -20,28 +20,41 @@ const     glm::vec3 BUILDING_TINTS[] = {
     {0.62f, 0.62f, 0.62f}, // mid-grey
 };
 
+constexpr float ROAD_TILE_M  = 4.f;  // metres per asphalt tile
+constexpr float WINDOW_TILE_M = 3.f; // metres per window tile
+
 // Add a road slab covering [x0,x1] x [z0,z1] at ground_y, top flush with
 // terrain. Slab is centred vertically on (ground_y - ROAD_THICKNESS/2).
 void push_road(std::vector<ObjectDef>& out, float x0, float z0,
-               float x1, float z1, float ground_y) {
-    ObjectDef d;
-    d.transform.position = {(x0 + x1) * 0.5f,
-                             ground_y - ROAD_THICKNESS * 0.5f + 0.005f,
-                             (z0 + z1) * 0.5f};
-    d.transform.scale    = {x1 - x0, ROAD_THICKNESS, z1 - z0};
-    d.tint               = ROAD_TINT;
-    out.push_back(d);
+               float x1, float z1, float ground_y, const CityTextures& tex,
+               float y_offset = 0.005f) {
+    float w = x1 - x0;
+    float d = z1 - z0;
+    ObjectDef def;
+    def.transform.position = {(x0 + x1) * 0.5f,
+                               ground_y - ROAD_THICKNESS * 0.5f + y_offset,
+                               (z0 + z1) * 0.5f};
+    def.transform.scale    = {w, ROAD_THICKNESS, d};
+    def.tint               = ROAD_TINT;
+    def.texture            = tex.road;
+    def.uv_scale           = {w / ROAD_TILE_M, d / ROAD_TILE_M};
+    out.push_back(def);
 }
 
 void push_building(std::vector<ObjectDef>& out, std::vector<AABB>& aabbs,
                     float cx, float cz, float w, float d, float h, float ground_y,
-                    const glm::vec3& tint) {
+                    const glm::vec3& tint, const CityTextures& tex) {
     ObjectDef def;
     float base_y = ground_y - 0.05f;        // sink slightly so it never floats
     float cy     = base_y + h * 0.5f;
     def.transform.position = {cx, cy, cz};
     def.transform.scale    = {w, h, d};
     def.tint               = tint;
+    def.texture            = tex.building;
+    // One window tile per WINDOW_TILE_M m, derived from the largest face so
+    // sides line up reasonably. Cube faces share UV scale so we accept some
+    // stretching on faces with mismatched aspect ratios.
+    def.uv_scale = {w / WINDOW_TILE_M, h / WINDOW_TILE_M};
     out.push_back(def);
 
     AABB a;
@@ -52,7 +65,8 @@ void push_building(std::vector<ObjectDef>& out, std::vector<AABB>& aabbs,
 
 } // namespace
 
-CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground_y) {
+CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground_y,
+                                   const CityTextures& tex) {
     CityCellLayout out;
 
     const float ox = static_cast<float>(coord.x) * cell_size;
@@ -79,16 +93,13 @@ CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground
 
         // East-west road (along X).
         push_road(out.visuals, ox, oz + s,
-                                 ox + cell_size, oz + s + STREET_WIDTH, ground_y);
-        // North-south road (along Z). Slight Y offset to avoid z-fight at
-        // intersections with the EW slabs.
-        ObjectDef d;
-        d.transform.position = {ox + s + STREET_WIDTH * 0.5f,
-                                 ground_y - ROAD_THICKNESS * 0.5f + 0.010f,
-                                 oz + cell_size * 0.5f};
-        d.transform.scale    = {STREET_WIDTH, ROAD_THICKNESS, cell_size};
-        d.tint               = ROAD_TINT;
-        out.visuals.push_back(d);
+                  ox + cell_size, oz + s + STREET_WIDTH, ground_y, tex,
+                  /*y_offset=*/ 0.005f);
+        // North-south road (along Z). Slight Y offset over the EW slabs to
+        // avoid z-fighting at intersections.
+        push_road(out.visuals, ox + s, oz,
+                  ox + s + STREET_WIDTH, oz + cell_size, ground_y, tex,
+                  /*y_offset=*/ 0.010f);
     }
 
     // ---- Buildings: 1–4 per block ------------------------------------------
@@ -124,7 +135,7 @@ CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground
                     static_cast<size_t>(rng() % (sizeof(BUILDING_TINTS) /
                                                   sizeof(BUILDING_TINTS[0])))];
                 push_building(out.visuals, out.collisions,
-                              cx, cz, w, d, h, ground_y, tint);
+                              cx, cz, w, d, h, ground_y, tint, tex);
             }
         }
     }

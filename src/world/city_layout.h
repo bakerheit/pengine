@@ -8,6 +8,13 @@
 
 namespace pengine {
 
+class Texture;
+
+struct CityTextures {
+    const Texture* road     = nullptr;
+    const Texture* building = nullptr;
+};
+
 // Procedural city block layout for one streaming cell. Deterministic from
 // (coord, cfg). Designed so neighbouring cells line up at shared streets.
 //
@@ -22,6 +29,7 @@ struct CityCellLayout {
     std::vector<AABB>      collisions;  // buildings only
 };
 
-CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground_y);
+CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground_y,
+                                   const CityTextures& tex);
 
 } // namespace pengine

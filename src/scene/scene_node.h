@@ -11,10 +11,14 @@ namespace pengine {
 class Mesh;
 class Shader;
 
+class Texture;
+
 struct Renderable {
-    const Mesh* mesh       = nullptr;
-    AABB        local_aabb;       // in node-local space
-    glm::vec3   tint       = {1.f, 1.f, 1.f};
+    const Mesh*    mesh       = nullptr;
+    AABB           local_aabb;             // in node-local space
+    glm::vec3      tint       = {1.f, 1.f, 1.f};
+    glm::vec2      uv_scale   = {1.f, 1.f};
+    const Texture* texture    = nullptr;   // null = use the bound default
 };
 
 class SceneNode {

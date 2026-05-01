@@ -49,6 +49,9 @@ private:
     Shader         lit_shader_;
     Mesh           cube_mesh_;
     Texture        checker_tex_;
+    Texture        asphalt_tex_;
+    Texture        grass_tex_;
+    Texture        facade_tex_;
     Camera         camera_;
     Scene          scene_;
     Streamer       streamer_;

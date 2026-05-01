@@ -6,13 +6,17 @@
 
 namespace pengine {
 
+class Texture;
+
 // A single object instance inside a world cell.
 struct ObjectDef {
-    uint32_t  model_id   = 0;             // 0 = unit cube (the only model so far)
-    Transform transform;
-    glm::vec3 tint       = {1.f, 1.f, 1.f}; // multiplied by sampled diffuse
-    float     lod_near   = 200.f;
-    float     lod_far    = 500.f;
+    uint32_t       model_id  = 0;             // 0 = unit cube (the only model so far)
+    Transform      transform;
+    glm::vec3      tint      = {1.f, 1.f, 1.f}; // multiplied by sampled diffuse
+    glm::vec2      uv_scale  = {1.f, 1.f};      // multiplies the mesh UVs
+    const Texture* texture   = nullptr;         // null = use the bound default
+    float          lod_near  = 200.f;
+    float          lod_far   = 500.f;
 };
 
 struct WorldConfig {
