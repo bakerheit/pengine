@@ -90,6 +90,9 @@ private:
     float     last_ray_dist_ = 0.f;
 
     double    world_time_    = 0.0;  // accumulates fixed-timestep seconds
+
+    // Debug
+    bool      cull_enabled_  = true;  // toggled with K
 };
 
 } // namespace pengine

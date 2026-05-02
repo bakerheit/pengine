@@ -167,6 +167,36 @@ int Application::run() {
                     vehicle_.airborne() ? " AIR" : " GND",
                     traffic_.active(),
                     can_enter_car_ ? "  ENTER" : "");
+
+            // Diagnostic camera + actor state.
+            glm::vec3 cf = character_.feet_position();
+            glm::vec3 cn = character_node_ ? character_node_->transform.position
+                                            : glm::vec3{0};
+            glm::vec3 vp = vehicle_.position();
+            PE_INFO("  cam=(%.1f,%.1f,%.1f) yaw=%.1f pitch=%.1f dist=%.2f cull=%s",
+                    camera_.position.x, camera_.position.y, camera_.position.z,
+                    camera_.yaw, camera_.pitch, spring_.actual_dist,
+                    cull_enabled_ ? "on" : "off");
+            PE_INFO("  char_feet=(%.1f,%.1f,%.1f) char_node=(%.1f,%.1f,%.1f) face=%.1f",
+                    cf.x, cf.y, cf.z, cn.x, cn.y, cn.z,
+                    character_facing_yaw_deg_);
+            PE_INFO("  vehicle=(%.1f,%.1f,%.1f)", vp.x, vp.y, vp.z);
+
+            // Check whether the character / chassis_visual AABBs survive the
+            // current frustum.
+            float aspect = static_cast<float>(window_.width()) /
+                           static_cast<float>(window_.height());
+            Frustum f = Frustum::from_view_proj(camera_.view_proj(aspect));
+            bool char_in = character_node_
+                ? !f.cull(character_node_->world_aabb()) : false;
+            bool chassis_in = chassis_visual_node_
+                ? !f.cull(chassis_visual_node_->world_aabb()) : false;
+            const AABB& cab = character_node_->world_aabb();
+            PE_INFO("  char_aabb=(%.2f,%.2f,%.2f)..(%.2f,%.2f,%.2f) in_frustum=%s",
+                    cab.min.x, cab.min.y, cab.min.z,
+                    cab.max.x, cab.max.y, cab.max.z,
+                    char_in ? "yes" : "NO");
+            PE_INFO("  chassis_in_frustum=%s", chassis_in ? "yes" : "NO");
             fps_frames_   = 0;
             max_frame_ms_ = 0.0;
             stats_start_  = Clock::now();
@@ -260,6 +290,12 @@ void Application::process_events() {
         running_ = false;
 
     if (input_.pressed(SDL_SCANCODE_F)) try_toggle_vehicle();
+
+    if (input_.pressed(SDL_SCANCODE_K)) {
+        cull_enabled_ = !cull_enabled_;
+        if (cull_enabled_) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
+        PE_INFO("backface culling %s", cull_enabled_ ? "ENABLED" : "DISABLED");
+    }
 
     if (input_.pressed(SDL_SCANCODE_C)) {
         if (mode_ == Mode::DebugFly) {
@@ -437,6 +473,18 @@ void Application::render(double /*alpha*/) {
     // Wheel contact markers.
     for (const Wheel& w : vehicle_.wheels()) {
         if (w.grounded) debug_draw_.cross(w.contact_world, 0.2f);
+    }
+
+    // Diagnostic: world AABB of character + chassis_visual. If the AABB shows
+    // here but the textured cube doesn't render, the bug is in shading /
+    // back-face / depth, not in the transform or AABB.
+    if (character_node_ && character_node_->renderable) {
+        const AABB& a = character_node_->world_aabb();
+        if (a.valid()) debug_draw_.box(a.min, a.max);
+    }
+    if (chassis_visual_node_ && chassis_visual_node_->renderable) {
+        const AABB& a = chassis_visual_node_->world_aabb();
+        if (a.valid()) debug_draw_.box(a.min, a.max);
     }
 
     // Enter-vehicle prompt: ring around car when in range.

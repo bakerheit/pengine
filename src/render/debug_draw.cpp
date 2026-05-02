@@ -2,6 +2,8 @@
 
 #include <cmath>
 
+#include "render/gl_state.h"
+
 namespace pengine {
 
 bool DebugDraw::init(const std::string& assets_root) {
@@ -11,11 +13,11 @@ bool DebugDraw::init(const std::string& assets_root) {
     glGenVertexArrays(1, &vao_);
     glGenBuffers(1, &vbo_);
 
-    glBindVertexArray(vao_);
+    gl_state::bind_vao(vao_);
     glBindBuffer(GL_ARRAY_BUFFER, vbo_);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), nullptr);
-    glBindVertexArray(0);
+    gl_state::bind_vao(0);
     return true;
 }
 
@@ -85,9 +87,9 @@ void DebugDraw::flush(const glm::mat4& view_proj, const glm::vec3& color) {
     shader_.set("u_view_proj", view_proj);
     shader_.set("u_color",     color);
 
-    glBindVertexArray(vao_);
+    gl_state::bind_vao(vao_);
     glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(verts_.size()));
-    glBindVertexArray(0);
+    gl_state::bind_vao(0);
 
     if (depth_was_on) glEnable(GL_DEPTH_TEST);
 }
