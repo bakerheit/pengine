@@ -31,7 +31,17 @@
       "Bash(sort -k2,2 -k4,4 -k6,6n)",
       "Bash(awk '/^v / { vi++; if \\(vi >= 192 && vi <= 215\\) printf \"%d: %s\\\\n\", vi, $0 }' \"/Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/Car 05/Car5.obj\")",
       "Bash(sed -i '' '463,649d' /Users/andrewbaker/workspace/pengine/src/Application.cpp)",
-      "Bash(sed -n '460,470p' /Users/andrewbaker/workspace/pengine/src/Application.cpp)"
+      "Bash(sed -n '460,470p' /Users/andrewbaker/workspace/pengine/src/Application.cpp)",
+      "Bash(timeout 3 /Users/andrewbaker/workspace/pengine/build/bin/pengine)",
+      "Bash(awk 'BEGIN{vi=0} /^v / { vi++; vy=$3+0; if\\(used[vi]\\){print \"v\",vi,\"y=\",vy} }' /Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/\"Car 05\"/Car5_nowheels.obj)",
+      "Read(//dev/**)",
+      "Bash(python3 -c ' *)",
+      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/pengine)"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/private/tmp",
+      "/Users/andrewbaker/workspace/pengine/src/game"
     ]
   }
 }

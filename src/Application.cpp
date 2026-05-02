@@ -59,11 +59,6 @@ bool Application::init() {
     facade_tex_.load_facade();
     sidewalk_tex_.load_sidewalk();
 
-    // Player vehicle assets — body mesh, paints, and wheel mesh. Done early
-    // because TrafficSystem::init shares the body mesh handles. The actual
-    // rigid-body spawn + scene nodes happen later via player_vehicle_.spawn.
-    player_vehicle_.init(scene_, cube_mesh_, checker_tex_);
-
     // Player character: skinned mesh + skeleton + walk animation.
     character_skinned_ =
         load_skinned_emesh(ASSETS_DIR "/models/characters/character_01.emesh",
@@ -110,28 +105,24 @@ bool Application::init() {
     WorldTextures world_tex{&grass_tex_, &asphalt_tex_, &sidewalk_tex_, &facade_tex_};
     streamer_.init(world_cfg, &scene_, &cube_mesh_, &world_collision_,
                     world_tex, &road_graph_);
-    TrafficSystem::Visuals tvis;
-    tvis.light_mesh = &cube_mesh_;
-    tvis.light_tex  = &checker_tex_;
-    if (player_vehicle_.body_loaded()) {
-        tvis.car_mesh           = player_vehicle_.body_mesh();
-        tvis.car_scale          = player_vehicle_.body_visual_scale();
-        tvis.car_yaw_offset_deg = player_vehicle_.body_yaw_offset_deg();
-        tvis.car_paints         = {player_vehicle_.paint(0),
-                                    player_vehicle_.paint(1),
-                                    player_vehicle_.paint(2)};
-    }
-    traffic_.init(&scene_, tvis, &road_graph_, /*target_count=*/ 30);
+    // Traffic owns *every* car, including the player's. Pass the cube /
+    // checker handles for traffic-light scaffolding; body + wheel assets are
+    // loaded internally.
+    TrafficSystem::LightVisuals tvis;
+    tvis.cube_mesh   = &cube_mesh_;
+    tvis.checker_tex = &checker_tex_;
+    traffic_.init(scene_, tvis, road_graph_, /*target_ai_count=*/ 30);
 
     glm::vec3 spawn = intersection;
     spawn.y = Heightmap::sample(spawn.x, spawn.z);
     character_.teleport(spawn);
 
-    // Player vehicle — spawn the rigid body and create its scene nodes.
-    // Spawned one block east of the central intersection; lands on a road slab.
+    // Player car — one block east of the central intersection. spawn_player_car
+    // creates the entity, sets driver = Player, and registers it as the car
+    // input/HUD/camera should follow.
     glm::vec3 car_spawn = intersection + glm::vec3{62.f, 0.f, 0.f};
     car_spawn.y = Heightmap::sample(car_spawn.x, car_spawn.z) + 1.5f;
-    player_vehicle_.spawn(car_spawn, /*yaw_deg=*/ -90.f);
+    traffic_.spawn_player_car(car_spawn, /*yaw_deg=*/ -90.f);
 
     AABB cube_aabb;
     cube_aabb.min = cube_mesh_.bounds_min();
@@ -168,7 +159,6 @@ bool Application::init() {
         character_visual_node_->renderable = make_renderable({0.65f, 0.55f, 0.45f});
     }
 
-    player_vehicle_.update_visuals(0.f);
     sync_character_scene();
 
     // Spring arm starts behind the character looking forward (yaw=-90 = -Z).
@@ -215,14 +205,18 @@ int Application::run() {
                           st.loaded_cells, world_collision_.building_count(),
                           traffic_.active(),
                           fps_frames_, max_frame_ms_,
-                          player_vehicle_.speed_kmh(),
-                          player_vehicle_.airborne() ? " AIR" : "",
+                          traffic_.player_car()
+                              ? traffic_.player_car()->vehicle.speed_kmh() : 0.f,
+                          traffic_.player_car() && traffic_.player_car()->vehicle.airborne()
+                              ? " AIR" : "",
                           can_enter_car_ ? "  [F to enter]" : "");
             SDL_SetWindowTitle(window_.sdl(), title);
             PE_INFO("%s  fps=%d worst=%.1fms  car=%.0fkm/h%s  traffic=%d%s",
                     mode_name(mode_), fps_frames_, max_frame_ms_,
-                    player_vehicle_.speed_kmh(),
-                    player_vehicle_.airborne() ? " AIR" : " GND",
+                    traffic_.player_car()
+                        ? traffic_.player_car()->vehicle.speed_kmh() : 0.f,
+                    traffic_.player_car() && traffic_.player_car()->vehicle.airborne()
+                        ? " AIR" : " GND",
                     traffic_.active(),
                     can_enter_car_ ? "  ENTER" : "");
             fps_frames_   = 0;
@@ -260,9 +254,11 @@ void Application::enter_mode(Mode m) {
     } else if (m == Mode::InVehicle) {
         spring_.desired_dist = 8.5f;
         // Match camera yaw to vehicle heading so the player faces the road.
-        glm::vec3 vfwd = player_vehicle_.forward();
-        spring_.yaw_deg = glm::degrees(std::atan2(vfwd.z, vfwd.x));
-        spring_.pitch_deg = -12.f;
+        if (auto* pc = traffic_.player_car()) {
+            glm::vec3 vfwd = pc->vehicle.forward();
+            spring_.yaw_deg = glm::degrees(std::atan2(vfwd.z, vfwd.x));
+            spring_.pitch_deg = -12.f;
+        }
         character_node_->visible = false;
     }
     mode_ = m;
@@ -270,13 +266,23 @@ void Application::enter_mode(Mode m) {
 
 void Application::try_toggle_vehicle() {
     if (mode_ == Mode::OnFoot) {
-        if (can_enter_car_) enter_mode(Mode::InVehicle);
+        // F-to-enter: transfer the Player driver flag to the targeted car.
+        // No teleport — the car the player walked up to stays in place; the
+        // previously-driven car (if any) is left as Parked.
+        if (steal_target_) {
+            traffic_.set_player_driver(steal_target_);
+            enter_mode(Mode::InVehicle);
+        }
     } else if (mode_ == Mode::InVehicle) {
-        // Exit to the left side of the car, snapped to terrain.
-        glm::vec3 exit = player_vehicle_.position()
-                       + player_vehicle_.right() * (-2.5f);
-        exit.y = Heightmap::sample(exit.x, exit.z);
-        character_.teleport(exit);
+        // Exit to the left side of the car, snapped to terrain. The car
+        // we were just in becomes Parked (handbrake on), staying where it is.
+        if (auto* pc = traffic_.player_car()) {
+            glm::vec3 exit = pc->vehicle.position()
+                           + pc->vehicle.right() * (-2.5f);
+            exit.y = Heightmap::sample(exit.x, exit.z);
+            character_.teleport(exit);
+        }
+        traffic_.set_player_driver(nullptr); // demote previous player → Parked
         enter_mode(Mode::OnFoot);
     }
 }
@@ -358,7 +364,9 @@ void Application::update_on_foot(float dt, float mdx, float mdy) {
 
 void Application::update_in_vehicle(float dt, float mdx, float mdy) {
     spring_.apply_mouse(mdx, mdy);
-    spring_.anchor = player_vehicle_.position() + glm::vec3{0.f, 1.2f, 0.f};
+    if (auto* pc = traffic_.player_car()) {
+        spring_.anchor = pc->vehicle.position() + glm::vec3{0.f, 1.2f, 0.f};
+    }
     spring_.update(world_collision_);
 
     camera_.position = spring_.camera_position;
@@ -374,32 +382,31 @@ void Application::update(double dt) {
     float mdx = mouse_captured_ ? input_.mouse_dx() : 0.f;
     float mdy = mouse_captured_ ? input_.mouse_dy() : 0.f;
 
-    // Vehicle inputs only when driving; physics always runs.
-    if (mode_ == Mode::InVehicle) {
+    // Player driver inputs. Read keyboard while InVehicle and feed via the
+    // CarSystem; substep physics + AI updates run inside traffic_.update().
+    if (mode_ == Mode::InVehicle && traffic_.player_car()) {
+        const Vehicle& pv = traffic_.player_car()->vehicle;
         bool w_down = input_.down(SDL_SCANCODE_W);
         bool s_down = input_.down(SDL_SCANCODE_S);
-        float v_fwd = glm::dot(player_vehicle_.linear_vel(),
-                                player_vehicle_.forward());
+        float v_fwd = glm::dot(pv.body().linear_vel, pv.forward());
 
         float thr = 0.f, brk = 0.f;
         if (w_down && s_down) {
             brk = 1.f;
         } else if (w_down) {
-            if (v_fwd < -0.5f) brk = 1.f;   // braking out of reverse
+            if (v_fwd < -0.5f) brk = 1.f;
             else               thr = 1.f;
         } else if (s_down) {
-            if (v_fwd >  0.5f) brk = 1.f;   // braking out of forward
-            else               thr = -1.f;  // reverse
+            if (v_fwd >  0.5f) brk = 1.f;
+            else               thr = -1.f;
         }
         float steer = (input_.down(SDL_SCANCODE_D) ? 1.f : 0.f)
                     - (input_.down(SDL_SCANCODE_A) ? 1.f : 0.f);
         bool  hb   = input_.down(SDL_SCANCODE_SPACE);
-        player_vehicle_.set_inputs(thr, brk, steer, hb);
+        traffic_.set_player_inputs(thr, brk, steer, hb);
     } else {
-        player_vehicle_.set_inputs(0.f, 0.f, 0.f, false);
+        traffic_.set_player_inputs(0.f, 0.f, 0.f, /*handbrake=*/ false);
     }
-    player_vehicle_.substep(fdt * 0.5f, world_collision_);
-    player_vehicle_.substep(fdt * 0.5f, world_collision_);
 
     if (mode_ == Mode::DebugFly) {
         camera_.update(fdt, input_, mdx, mdy);
@@ -409,10 +416,16 @@ void Application::update(double dt) {
         update_in_vehicle(fdt, mdx, mdy);
     }
 
-    // Update proximity prompt for the next F press.
-    can_enter_car_ = (mode_ == Mode::OnFoot)
-                  && glm::distance(character_.feet_position(),
-                                    player_vehicle_.position()) < ENTRY_RADIUS;
+    // F-to-enter target: closest car (any driver) within ENTRY_RADIUS. The
+    // car the player is approaching stays exactly where it is — F just
+    // transfers the Player driver flag (see try_toggle_vehicle).
+    steal_target_  = nullptr;
+    can_enter_car_ = false;
+    if (mode_ == Mode::OnFoot) {
+        steal_target_ = traffic_.find_nearest(character_.feet_position(),
+                                               ENTRY_RADIUS);
+        can_enter_car_ = (steal_target_ != nullptr);
+    }
 
     // Advance the walk-anim time accumulator (seconds). The Mixamo walk loop
     // is 1 s = 1 stride, so we just scale by current speed / reference speed.
@@ -452,11 +465,13 @@ void Application::update(double dt) {
                                                     char_skin_matrices_);
     }
 
-    player_vehicle_.update_visuals(static_cast<float>(dt));
     sync_character_scene();
     streamer_.pump(camera_.position);
     world_time_ += dt;
-    traffic_.update(fdt, world_time_, camera_.position);
+    // Single per-frame entry point: AI lane-follow (kinematic), player +
+    // parked physics substeps, traffic-light state, and visual sync for
+    // every car all happen here.
+    traffic_.update(fdt, world_time_, camera_.position, world_collision_);
     scene_.update();
 }
 
@@ -585,15 +600,17 @@ void Application::render(double /*alpha*/) {
         else         { debug_draw_.line(ray_origin, ray_origin + ray_dir * 200.f); }
     }
 
-    // Wheel contact markers.
-    for (const Wheel& w : player_vehicle_.vehicle().wheels()) {
-        if (w.grounded) debug_draw_.cross(w.contact_world, 0.2f);
+    // Wheel contact markers (player car only; AI cars are kinematic).
+    if (auto* pc = traffic_.player_car()) {
+        for (const Wheel& w : pc->vehicle.wheels()) {
+            if (w.grounded) debug_draw_.cross(w.contact_world, 0.2f);
+        }
     }
 
-    // Enter-vehicle prompt: ring around car when in range.
-    if (can_enter_car_) {
-        glm::vec3 base = player_vehicle_.position();
-        base.y -= player_vehicle_.vehicle().chassis_full_extents.y * 0.5f;
+    // Enter-vehicle prompt: ring around the targeted car (parked / AI alike).
+    if (can_enter_car_ && steal_target_) {
+        glm::vec3 base = steal_target_->vehicle.position();
+        base.y -= steal_target_->vehicle.chassis_full_extents.y * 0.5f;
         debug_draw_.cylinder_xz(base, ENTRY_RADIUS, 0.05f, 32);
     }
 

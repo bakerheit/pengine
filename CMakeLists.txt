@@ -113,7 +113,6 @@ add_library(pengine_core STATIC
     src/world/road_graph.cpp
     src/game/vehicle.cpp
     src/game/traffic.cpp
-    src/game/player_vehicle.cpp
 )
 
 target_include_directories(pengine_core PUBLIC src)

@@ -5,7 +5,6 @@
 #include <glm/glm.hpp>
 
 #include "core/time.h"
-#include "game/player_vehicle.h"
 #include "game/traffic.h"
 #include "physics/character_controller.h"
 #include "physics/world_collision.h"
@@ -78,8 +77,6 @@ private:
     RoadGraph           road_graph_;
     TrafficSystem       traffic_;
 
-    PlayerVehicle       player_vehicle_;
-
     SceneNode*          character_node_      = nullptr;  // pose root: feet pos + facing
     SceneNode*          character_visual_node_ = nullptr; // child: model offset + scale
     float               character_facing_yaw_deg_ = -90.f;
@@ -104,6 +101,14 @@ private:
     bool  mouse_captured_ = false;
     bool  running_        = false;
     bool  can_enter_car_  = false;        // updated each frame, used by HUD
+
+    // F-to-steal: when OnFoot and an AI car is the closest in-range target,
+    // pressing F removes that AI from TrafficSystem and teleports the player
+    // car to its pose. The target is recomputed every frame in update().
+    // F-to-enter target. Null = no car in range. The pointer is stable
+    // across frames (cars_ uses unique_ptr internally) but invalidated when
+    // a car is destroyed; recompute every frame.
+    TrafficSystem::Car* steal_target_ = nullptr;
 
     static constexpr float ENTRY_RADIUS = 4.0f; // metres for F-to-enter
 

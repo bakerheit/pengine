@@ -59,6 +59,16 @@ public:
             wheels_[static_cast<std::size_t>(idx)].mount_local = mount_local;
     }
 
+    // Stamp the rigid-body pose without running physics. Used by AI traffic
+    // cars (kinematic): they update position + orientation each frame from
+    // a lane-following script, with velocities zeroed.
+    void set_kinematic_pose(const glm::vec3& pos, const glm::quat& rot) {
+        body_.position    = pos;
+        body_.orientation = rot;
+        body_.linear_vel  = {0.f, 0.f, 0.f};
+        body_.angular_vel = {0.f, 0.f, 0.f};
+    }
+
     // Per-frame inputs (clamped internally). throttle is signed:
     // +1 = forward full, -1 = reverse full.
     void set_inputs(float throttle, float brake, float steer, bool handbrake);

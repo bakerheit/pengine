@@ -1,71 +1,133 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <random>
 #include <unordered_set>
 #include <vector>
 
 #include <glm/glm.hpp>
 
+#include "game/vehicle.h"
+#include "render/mesh.h"
+#include "render/texture.h"
 #include "world/road_graph.h"
 
 namespace pengine {
 
-class Mesh;
 class Scene;
 class SceneNode;
-class Texture;
+class WorldCollision;
 
-// Lightweight kinematic AI cars driving on the global road grid. Each car
-// follows a lane (right-side driving), advances along its current segment,
-// and picks a new direction at each intersection (no U-turn unless dead-end).
-// No physics, no collision with the player or each other — just visuals.
+// All cars in the world — player, AI, and parked alike — share the same
+// Car entity layout. TrafficSystem owns every car in the simulation, runs
+// each one according to its current driver, and exposes a small API for
+// the Application to steer "the player's car" without teleporting between
+// entities. Pressing F simply transfers the Player driver flag.
 class TrafficSystem {
 public:
-    struct Visuals {
-        const Mesh*    light_mesh = nullptr; // cube for poles/arms/bulbs
-        const Texture* light_tex  = nullptr;
-        const Mesh*    car_mesh   = nullptr; // shared body model
-        glm::vec3      car_scale {1.f};      // applied to car node
-        glm::vec3      car_offset{0.f};      // local offset under chassis frame
-        // Extra Y-rotation (degrees) to align the model's local forward with
-        // travel direction. Author-dependent: +Z-forward models need -90°.
-        float          car_yaw_offset_deg = 0.f;
-        std::vector<const Texture*> car_paints; // ≥1; spawn picks at random
+    enum class Driver : std::uint8_t { AI, Player, Parked };
+
+    // A single car. Identical layout for player and AI; the only difference
+    // is which `Driver` is updating its inputs each frame.
+    struct Car {
+        Driver driver = Driver::AI;
+
+        // Physics — used when driver is Player or Parked. For AI cars the
+        // rigid body is kinematic: its body position/orientation are stamped
+        // each frame from the lane state below.
+        Vehicle vehicle;
+
+        // Paint variant index into the shared paints list.
+        int paint_idx = 0;
+
+        // ---- AI lane state (used when driver == AI) ----------------------
+        int     ai_i = 0, ai_j = 0;          // intersection just left
+        GridDir ai_dir = GridDir::East;
+        float   ai_distance_along = 0.f;     // metres from (i, j) toward neighbour
+        float   ai_speed          = 0.f;     // current AI-script speed (m/s)
+        float   ai_target_speed   = 12.f;    // free-flow desired speed (m/s)
+
+        // ---- Visual scene-graph (always present) -------------------------
+        SceneNode* chassis_node     = nullptr;       // rigid-body pose
+        SceneNode* body_visual_node = nullptr;       // model offset / scale / yaw fix
+        SceneNode* wheel_nodes[4]   = {nullptr, nullptr, nullptr, nullptr};
+        float      wheel_spin_rad   = 0.f;           // rolling angle accumulator
     };
 
-    void init(Scene* scene, const Visuals& vis, RoadGraph* graph, int target_count);
+    // Visual handles owned elsewhere (e.g. cube + checker for traffic-light
+    // scaffolding fallback). Body / wheel assets are loaded internally.
+    struct LightVisuals {
+        const Mesh*    cube_mesh   = nullptr;
+        const Texture* checker_tex = nullptr;
+    };
+
+    TrafficSystem();
+    ~TrafficSystem();
+    TrafficSystem(const TrafficSystem&)            = delete;
+    TrafficSystem& operator=(const TrafficSystem&) = delete;
+
+    // Lifecycle.
+    bool init(Scene& scene, const LightVisuals& lights,
+              RoadGraph& graph, int target_ai_count);
     void shutdown();
 
-    // Per-frame update. Spawns up to one car / despawns out-of-range cars,
-    // and advances all live cars. `time_seconds` drives the global traffic
-    // light phase clock.
-    void update(float dt, double time_seconds, const glm::vec3& camera_pos);
+    // Spawn the player's starting car. Returns the new Car (always non-null
+    // on success). The car is created with `Driver::Player` and registered
+    // as the system's player car.
+    Car* spawn_player_car(const glm::vec3& pos, float yaw_deg);
+
+    // Per-frame update. Runs AI lane-following on AI cars (kinematic),
+    // physics substeps on Player/Parked cars, traffic lights, and visual
+    // sync for all cars.
+    void update(float dt, double time_seconds,
+                const glm::vec3& camera_pos, const WorldCollision& world);
 
     int active() const { return static_cast<int>(cars_.size()); }
 
-private:
-    struct Car {
-        SceneNode* node = nullptr;
-        int        i = 0, j = 0;       // intersection just left
-        GridDir    dir = GridDir::East;
-        float      distance_along = 0.f; // metres from (i, j) toward neighbour
-        float      speed = 0.f;          // m/s, current
-        float      target_speed = 12.f;  // m/s, free-flow desired
-        int        paint_idx = 0;
-    };
+    // Closest car (any driver) to `point` within `radius`. Null if none.
+    Car* find_nearest(const glm::vec3& point, float radius) const;
 
-    bool try_spawn(const glm::vec3& camera_pos, double time_seconds);
-    void update_speed(std::size_t idx, float dt, double time_seconds);
-    void advance(std::size_t idx, float dt);
-    void update_visual(Car& car);
+    // Make `target` the player car. The previous player car (if any) is
+    // demoted to `Driver::Parked`. No teleport: each car keeps its current
+    // pose / velocity. Returns true if a transfer happened.
+    bool set_player_driver(Car* target);
+
+    // The currently-driven car, or null if none. Camera, HUD, and input all
+    // route through this pointer.
+    Car*       player_car()       { return player_car_; }
+    const Car* player_car() const { return player_car_; }
+
+    // Forwards inputs to the player car's Vehicle. No-op if there's no
+    // player car (e.g. between teardown and respawn).
+    void set_player_inputs(float throttle, float brake, float steer,
+                            bool handbrake);
+
+private:
+    // Tunable visual params, derived from the car5 + Wheel.obj assets at
+    // init time. Lives in the cpp's anon namespace; a pointer here is just
+    // for forward reference.
+    struct Assets;
+    std::unique_ptr<Assets> assets_;
+
+    // Per-frame per-car logic split by driver.
+    void update_ai_kinematic(Car& c, float dt, double time_seconds);
+    void integrate_player_or_parked(Car& c, float dt,
+                                     const WorldCollision& world);
+    void sync_visuals(Car& c);
+
+    // AI helpers (kinematic lane follow).
+    void ai_update_speed(Car& c, float dt, double time_seconds);
+    void ai_advance(Car& c, float dt);
+
+    // Spawn helpers.
+    bool try_spawn_ai(const glm::vec3& camera_pos);
+    Car* create_car_at_pose(const glm::vec3& pos, float yaw_deg, int paint_idx,
+                             Driver driver);
     void destroy_car(std::size_t idx);
 
     // Traffic lights — one signal per approach direction at every loaded
-    // intersection (4 per intersection). Each signal: vertical pole on the
-    // corner, horizontal arm out over the approaching lane, hanging housing
-    // with three stacked bulbs (red/yellow/green). The bulb whose color
-    // matches the current phase is rendered bright; the other two are dim.
+    // intersection. (Unchanged from the previous implementation.)
     struct Light {
         int        i = 0, j = 0;
         int        approach = 0;       // 0..3, indexes APPROACHES[]
@@ -81,20 +143,22 @@ private:
     void spawn_lights_at(int i, int j);
     void destroy_lights_at(int i, int j);
 
-    Scene*         scene_       = nullptr;
-    Visuals        vis_         {};
-    RoadGraph*     graph_       = nullptr;
+    Scene*        scene_       = nullptr;
+    LightVisuals  light_vis_   {};
+    RoadGraph*    graph_       = nullptr;
 
-    int            target_      = 0;
-    float          spawn_min_   = 25.f;
-    float          spawn_max_   = 140.f;
-    float          despawn_dist_ = 200.f;
-    float          lane_offset_ = 2.f;   // right-of-centerline metres
+    int   target_ai_count_ = 0;
+    float spawn_min_       = 25.f;
+    float spawn_max_       = 140.f;
+    float despawn_dist_    = 200.f;
+    float lane_offset_     = 2.f;
 
-    std::vector<Car>   cars_;
-    std::vector<Light> lights_;
-    std::unordered_set<std::uint64_t> light_intersections_; // packed (i,j)
-    std::mt19937       rng_{0xCABBA9Eu};
+    std::vector<std::unique_ptr<Car>> cars_;
+    Car*                              player_car_ = nullptr;
+
+    std::vector<Light>                 lights_;
+    std::unordered_set<std::uint64_t>  light_intersections_;
+    std::mt19937                       rng_{0xCABBA9Eu};
 };
 
 } // namespace pengine
