@@ -4,7 +4,13 @@
       "Bash(git commit -m ' *)",
       "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv /Users/andrewbaker/workspace/pengine/assets/Characters_psx/Models/Male/Character_01.fbx /Users/andrewbaker/workspace/pengine/assets/models/characters/character_01.emesh)",
       "Bash(cmake --build build --parallel --target meshconv)",
-      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv /Users/andrewbaker/workspace/pengine/assets/Characters_psx/Models/Male/Character_01.fbx /tmp/probe.emesh)"
+      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv /Users/andrewbaker/workspace/pengine/assets/Characters_psx/Models/Male/Character_01.fbx /tmp/probe.emesh)",
+      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv /Users/andrewbaker/workspace/pengine/assets/Characters_psx/Models/Male/Character_01.fbx /Users/andrewbaker/workspace/pengine/assets/models/characters/character_01)",
+      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv /Users/andrewbaker/workspace/pengine/assets/Characters_psx/Models/Male/Character_01.fbx /tmp/probe)",
+      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv /Users/andrewbaker/workspace/pengine/assets/Characters_psx/Models/Male/Character_05.fbx /tmp/probe05)",
+      "Bash(find /Users/andrewbaker/workspace/pengine/build* -name \"meshconv\" -type f)",
+      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv /Users/andrewbaker/workspace/pengine/assets/Characters_psx/Animations/Walking.fbx /tmp/walking)",
+      "Bash(cmake --build . -j)"
     ]
   }
 }

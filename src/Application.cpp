@@ -3,6 +3,7 @@
 #include <SDL.h>
 #include <glad/gl.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -41,6 +42,8 @@ bool Application::init() {
 
     if (!lit_shader_.load(ASSETS_DIR "/shaders/lit.vert",
                           ASSETS_DIR "/shaders/lit.frag")) return false;
+    if (!skinned_shader_.load(ASSETS_DIR "/shaders/skinned.vert",
+                               ASSETS_DIR "/shaders/lit.frag")) return false;
     if (!debug_draw_.init(ASSETS_DIR)) return false;
 
     {
@@ -55,13 +58,33 @@ bool Application::init() {
     grass_tex_.load_grass();
     facade_tex_.load_facade();
 
-    // Player character mesh + texture.
-    if (!character_model_.load(ASSETS_DIR "/models/characters/character_01.emesh")) {
-        PE_WARN("Falling back to cube character (model load failed)");
+    // Player character: skinned mesh + skeleton + walk animation.
+    character_skinned_ =
+        load_skinned_emesh(ASSETS_DIR "/models/characters/character_01.emesh",
+                           character_skinned_mesh_) &&
+        character_skeleton_.load (ASSETS_DIR "/models/characters/character_01.eskel") &&
+        character_anim_   .load  (ASSETS_DIR "/models/characters/walking.eanim",
+                                   character_skeleton_);
+    if (!character_skinned_)
+        PE_WARN("Falling back to cube character (skinning load failed)");
+
+    if (character_skinned_) {
+        walk_bones_.left_upleg  = character_skeleton_.find_bone("mixamorig:LeftUpLeg");
+        walk_bones_.right_upleg = character_skeleton_.find_bone("mixamorig:RightUpLeg");
+        walk_bones_.left_leg    = character_skeleton_.find_bone("mixamorig:LeftLeg");
+        walk_bones_.right_leg   = character_skeleton_.find_bone("mixamorig:RightLeg");
+        walk_bones_.left_arm    = character_skeleton_.find_bone("mixamorig:LeftArm");
+        walk_bones_.right_arm   = character_skeleton_.find_bone("mixamorig:RightArm");
+        walk_bones_.spine       = character_skeleton_.find_bone("mixamorig:Spine");
+        PE_INFO("Walk bones: LU=%d RU=%d LK=%d RK=%d LA=%d RA=%d S=%d",
+                walk_bones_.left_upleg, walk_bones_.right_upleg,
+                walk_bones_.left_leg,   walk_bones_.right_leg,
+                walk_bones_.left_arm,   walk_bones_.right_arm,
+                walk_bones_.spine);
     }
-    if (!character_tex_.load_file(ASSETS_DIR "/Characters_psx/Textures/Character_01.png")) {
+
+    if (!character_tex_.load_file(ASSETS_DIR "/Characters_psx/Textures/Character_01.png"))
         PE_WARN("Falling back to checker for character (texture load failed)");
-    }
 
     Heightmap::set_seed(1337u);
 
@@ -115,31 +138,25 @@ bool Application::init() {
     }
 
     // Character: pose root (feet pos + facing yaw) with a visual child that
-    // applies model-specific offset/scale. Falls back to a tan cube if the
-    // model didn't load.
+    // carries model offset + uniform scale. The skinned mesh is drawn out-of-
+    // band by Application::render (Scene::draw can't handle skinning today).
+    // If skinning load failed, fall back to a tan cube renderable here.
     character_node_ = scene_.create_node();
     character_visual_node_ = scene_.create_node(character_node_);
-    if (!character_model_.submeshes().empty()) {
-        const Mesh& m = character_model_.submeshes()[0].mesh;
-        glm::vec3 mn = m.bounds_min();
-        glm::vec3 mx = m.bounds_max();
+    if (character_skinned_) {
+        glm::vec3 mn = character_skinned_mesh_.bounds_min();
+        glm::vec3 mx = character_skinned_mesh_.bounds_max();
         float h_native = std::max(0.001f, mx.y - mn.y);
         constexpr float TARGET_HEIGHT = 1.8f;
         character_model_scale_  = TARGET_HEIGHT / h_native;
-        // After scale, the model spans y in [scale*mn.y, scale*mx.y]. Shift
-        // by -scale*mn.y so its feet sit at y=0 of the parent. Centre XZ
-        // similarly.
         character_model_offset_ = {
             -(mn.x + mx.x) * 0.5f * character_model_scale_,
             -mn.y                  * character_model_scale_,
             -(mn.z + mx.z) * 0.5f * character_model_scale_,
         };
-        AABB local{ {mn.x, mn.y, mn.z}, {mx.x, mx.y, mx.z} };
-        character_visual_node_->renderable = Renderable{
-            &m, local, glm::vec3{1.f}, glm::vec2{1.f, 1.f},
-            character_tex_.id() ? &character_tex_ : &checker_tex_};
-        PE_INFO("Character model: native y=[%.3f,%.3f] -> scale %.4f offset y=%.3f",
-                mn.y, mx.y, character_model_scale_, character_model_offset_.y);
+        // No renderable: scene::draw skips. Drawn manually in render().
+        PE_INFO("Character: skinned y=[%.3f,%.3f] -> scale %.4f anim=%.2fs",
+                mn.y, mx.y, character_model_scale_, character_anim_.duration());
     } else {
         character_visual_node_->renderable = make_renderable({0.65f, 0.55f, 0.45f});
     }
@@ -387,16 +404,42 @@ void Application::update(double dt) {
                   && glm::distance(character_.feet_position(), vehicle_.position())
                      < ENTRY_RADIUS;
 
-    // Advance the character walk-cycle phase (strides). Faster when moving,
-    // slow idle breath when still. Read in sync_character_scene.
+    // Advance the walk-anim time accumulator (seconds). The Mixamo walk loop
+    // is 1 s = 1 stride, so we just scale by current speed / reference speed.
+    // Idle: freeze on first frame instead of playing in place.
+    bool char_moving;
     {
         glm::vec3 vh = character_.velocity();
         vh.y = 0.f;
         float speed = glm::length(vh);
-        constexpr float WALK_REF = 6.f;            // CharacterController::MOVE_SPEED
-        double rate = (speed > 0.5f) ? double(speed / WALK_REF) : 0.30;
-        walk_phase_ += dt * rate;
-        if (walk_phase_ > 1024.0) walk_phase_ -= 1024.0;
+        constexpr float WALK_REF = 6.f;
+        char_moving = speed > 0.5f;
+        if (char_moving) walk_phase_ += dt * double(speed / WALK_REF);
+        else             walk_phase_  = 0.0;   // freeze at first frame
+    }
+
+    if (character_skinned_) {
+        if (char_moving && character_anim_.duration() > 0.f) {
+            character_anim_.sample(static_cast<float>(walk_phase_),
+                                   character_skeleton_, char_local_poses_);
+            // Strip root motion: gameplay drives world position, so the root
+            // bone's translation must come from the bind pose, not the anim.
+            for (int b = 0; b < character_skeleton_.bone_count(); ++b) {
+                if (character_skeleton_.bone(b).parent < 0) {
+                    glm::vec3 bind_t{character_skeleton_.bone(b).bind_local[3]};
+                    char_local_poses_[static_cast<std::size_t>(b)][3] =
+                        glm::vec4{bind_t, 1.f};
+                }
+            }
+        } else {
+            const int n = character_skeleton_.bone_count();
+            char_local_poses_.resize(static_cast<std::size_t>(n));
+            for (int b = 0; b < n; ++b)
+                char_local_poses_[static_cast<std::size_t>(b)] =
+                    character_skeleton_.bone(b).bind_local;
+        }
+        character_skeleton_.compute_skin_matrices(char_local_poses_,
+                                                    char_skin_matrices_);
     }
 
     sync_vehicle_scene();
@@ -434,6 +477,44 @@ void Application::sync_vehicle_scene() {
     }
 }
 
+void Application::compute_procedural_walk_pose(float phase, bool moving) {
+    const int n = character_skeleton_.bone_count();
+    char_local_poses_.resize(static_cast<std::size_t>(n));
+
+    // Default: bind pose for every bone.
+    for (int b = 0; b < n; ++b)
+        char_local_poses_[static_cast<std::size_t>(b)] =
+            character_skeleton_.bone(b).bind_local;
+
+    if (!moving) return;
+
+    constexpr float TWO_PI = 6.2831853f;
+    // Drive ~2 strides per second of phase. With phase = walk_phase_ in
+    // seconds (advances at speed/WALK_REF), this gives 2 strides/sec at
+    // full speed.
+    float a = phase * TWO_PI * 2.f;
+    float s = std::sin(a);
+
+    auto rotate_local = [&](int b, const glm::vec3& axis, float angle) {
+        if (b < 0) return;
+        char_local_poses_[static_cast<std::size_t>(b)] =
+            character_skeleton_.bone(b).bind_local *
+            glm::mat4_cast(glm::angleAxis(angle, axis));
+    };
+
+    float thigh = glm::radians(30.f) * s;
+    float arm   = glm::radians(25.f) * s;
+    float knee_l = glm::radians(45.f) * std::max(0.f, -s);
+    float knee_r = glm::radians(45.f) * std::max(0.f,  s);
+
+    rotate_local(walk_bones_.left_upleg,  {1, 0, 0}, +thigh);
+    rotate_local(walk_bones_.right_upleg, {1, 0, 0}, -thigh);
+    rotate_local(walk_bones_.left_leg,    {1, 0, 0}, knee_l);
+    rotate_local(walk_bones_.right_leg,   {1, 0, 0}, knee_r);
+    rotate_local(walk_bones_.left_arm,    {1, 0, 0}, -arm);
+    rotate_local(walk_bones_.right_arm,   {1, 0, 0}, +arm);
+}
+
 void Application::sync_character_scene() {
     if (!character_node_) return;
 
@@ -441,39 +522,20 @@ void Application::sync_character_scene() {
     glm::vec3 feet = character_.feet_position();
     character_node_->transform.position = feet;
     character_node_->transform.rotation =
-        glm::angleAxis(glm::radians(-character_facing_yaw_deg_ - 90.f),
+        glm::angleAxis(glm::radians(-character_facing_yaw_deg_ + 90.f),
                         glm::vec3{0.f, 1.f, 0.f});
     character_node_->transform.scale    = {1.f, 1.f, 1.f};
     character_node_->mark_dirty();
 
-    // Walk animation: vertical bob (2 per stride) + tiny yaw zigzag (1 per
-    // stride) when moving; subtle breathing bob when idle.
-    glm::vec3 vh = character_.velocity();
-    vh.y = 0.f;
-    float speed = glm::length(vh);
-    bool  moving = speed > 0.5f;
-    constexpr float TWO_PI = 6.2831853f;
-    float phase = static_cast<float>(walk_phase_);
-    float bob_y, yaw_off_deg;
-    if (moving) {
-        bob_y       = std::sin(phase * TWO_PI * 2.f) * 0.045f;   // ±4.5 cm
-        yaw_off_deg = std::sin(phase * TWO_PI       ) * 4.f;     // ±4°
-    } else {
-        bob_y       = std::sin(phase * TWO_PI       ) * 0.012f;  // breathing
-        yaw_off_deg = 0.f;
-    }
-    glm::quat anim_yaw = glm::angleAxis(glm::radians(yaw_off_deg),
-                                          glm::vec3{0.f, 1.f, 0.f});
-
-    // Visual child: model offset + uniform scale + walk-cycle pose.
-    if (!character_model_.submeshes().empty()) {
-        character_visual_node_->transform.position =
-            character_model_offset_ + glm::vec3{0.f, bob_y, 0.f};
-        character_visual_node_->transform.rotation = anim_yaw;
+    // Visual child: model offset + uniform scale (skeletal animation handles
+    // body motion). Cube fallback if no skinned model.
+    if (character_skinned_) {
+        character_visual_node_->transform.position = character_model_offset_;
+        character_visual_node_->transform.rotation = glm::quat{1.f, 0.f, 0.f, 0.f};
         character_visual_node_->transform.scale    = glm::vec3{character_model_scale_};
     } else {
-        character_visual_node_->transform.position = {0.f, 0.9f + bob_y, 0.f};
-        character_visual_node_->transform.rotation = anim_yaw;
+        character_visual_node_->transform.position = {0.f, 0.9f, 0.f};
+        character_visual_node_->transform.rotation = glm::quat{1.f, 0.f, 0.f, 0.f};
         character_visual_node_->transform.scale    = {0.55f, 1.8f, 0.4f};
     }
     character_visual_node_->mark_dirty();
@@ -499,6 +561,30 @@ void Application::render(double /*alpha*/) {
 
     checker_tex_.bind(0);
     scene_.draw(cr, lit_shader_);
+
+    // ---- Skinned character (manual draw — Scene::draw doesn't skin) --------
+    if (character_skinned_ && character_node_->visible
+        && !char_skin_matrices_.empty()) {
+        skinned_shader_.use();
+        skinned_shader_.set("u_view_proj",   vp);
+        skinned_shader_.set("u_cam_pos",     camera_.position);
+        skinned_shader_.set("u_light_dir",   glm::normalize(glm::vec3{0.6f, 1.f, 0.4f}));
+        skinned_shader_.set("u_light_color", glm::vec3{1.f, 0.95f, 0.85f});
+        skinned_shader_.set("u_ambient",     glm::vec3{0.18f, 0.22f, 0.28f});
+        skinned_shader_.set("u_diffuse",     0);
+        skinned_shader_.set("u_tint",        glm::vec3{1.f});
+        skinned_shader_.set("u_uv_scale",    glm::vec2{1.f, 1.f});
+        skinned_shader_.set("u_model",       character_visual_node_->world_matrix());
+        skinned_shader_.set("u_normal_mat",
+            glm::mat3(glm::inverseTranspose(character_visual_node_->world_matrix())));
+        int n = static_cast<int>(char_skin_matrices_.size());
+        if (n > 64) n = 64;
+        skinned_shader_.set_mat4_array("u_bones", char_skin_matrices_.data(), n);
+
+        if (character_tex_.id()) character_tex_.bind(0);
+        else                     checker_tex_.bind(0);
+        character_skinned_mesh_.draw();
+    }
 
     // ---- Debug overlay -----------------------------------------------------
     debug_draw_.clear();

@@ -126,5 +126,9 @@ void Shader::set(const char* name, const glm::mat3& v) const {
 void Shader::set(const char* name, const glm::mat4& v) const {
     glUniformMatrix4fv(glGetUniformLocation(program_, name), 1, GL_FALSE, &v[0][0]);
 }
+void Shader::set_mat4_array(const char* name, const glm::mat4* data, int count) const {
+    glUniformMatrix4fv(glGetUniformLocation(program_, name),
+                        count, GL_FALSE, &data[0][0][0]);
+}
 
 } // namespace pengine

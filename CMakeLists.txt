@@ -101,6 +101,9 @@ add_library(pengine_core STATIC
     src/scene/scene.cpp
     src/render/debug_draw.cpp
     src/render/spring_arm.cpp
+    src/render/skinned_mesh.cpp
+    src/render/skeleton.cpp
+    src/render/animation.cpp
     src/physics/world_collision.cpp
     src/physics/character_controller.cpp
     src/world/heightmap.cpp

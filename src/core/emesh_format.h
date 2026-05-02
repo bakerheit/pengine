@@ -6,43 +6,63 @@
 //
 // File layout:
 //   EmeshHeader
-//   Vertex[header.vertex_count]          (sizeof(EmeshVertex) each)
-//   uint32_t[header.index_count]
-//   EmeshSubmesh[header.submesh_count]
-//   char[header.string_block_size]       (null-terminated material name strings)
+//   if (flags & EMESH_FLAG_SKINNED)
+//     EmeshSkinnedVertex[vertex_count]   // 68 B each
+//   else
+//     EmeshVertex[vertex_count]          // 48 B each
+//   uint32_t[index_count]
+//   EmeshSubmesh[submesh_count]
+//   char[string_block_size]              // null-terminated material name strings
 //
-// All offsets/counts are absolute within their section.
 // No internal pointers — safe to mmap and use directly.
+//
+// Bones, animations: not in this file — see skeleton_format.h / anim_format.h
+// (separate sidecar files .eskel / .eanim).
 
 namespace pengine {
 
 constexpr uint32_t EMESH_MAGIC   = 0x48534D45u; // 'EMSH'
-constexpr uint32_t EMESH_VERSION = 1u;
+constexpr uint32_t EMESH_VERSION = 2u;
+
+constexpr uint32_t EMESH_FLAG_SKINNED = 0x1u; // vertices include bone idx + weights
 
 struct EmeshVertex {
-    float px, py, pz;   // position
-    float nx, ny, nz;   // normal
-    float u, v;          // uv
-    float tx, ty, tz, tw; // tangent (w = bitangent sign)
+    float px, py, pz;
+    float nx, ny, nz;
+    float u, v;
+    float tx, ty, tz, tw;
+};
+
+struct EmeshSkinnedVertex {
+    float    px, py, pz;
+    float    nx, ny, nz;
+    float    u, v;
+    float    tx, ty, tz, tw;
+    uint8_t  bone_idx[4];     // up to 4 bones per vertex
+    float    bone_weight[4];
 };
 
 struct EmeshSubmesh {
-    uint32_t index_offset;         // first index in the index section
+    uint32_t index_offset;
     uint32_t index_count;
-    uint32_t material_name_offset; // byte offset into string block (null-terminated)
+    uint32_t material_name_offset;
     uint32_t _pad = 0;
 };
 
 struct EmeshHeader {
     uint32_t magic;
     uint32_t version;
+    uint32_t flags;             // EMESH_FLAG_*
     uint32_t vertex_count;
     uint32_t index_count;
     uint32_t submesh_count;
     uint32_t string_block_size;
+    uint32_t _pad = 0;          // 8-byte alignment
 };
-static_assert(sizeof(EmeshHeader)  == 24, "header size");
-static_assert(sizeof(EmeshVertex)  == 48, "vertex size");
-static_assert(sizeof(EmeshSubmesh) == 16, "submesh size");
+
+static_assert(sizeof(EmeshHeader)        == 32, "header size");
+static_assert(sizeof(EmeshVertex)        == 48, "static vertex size");
+static_assert(sizeof(EmeshSkinnedVertex) == 68, "skinned vertex size");
+static_assert(sizeof(EmeshSubmesh)       == 16, "submesh size");
 
 } // namespace pengine

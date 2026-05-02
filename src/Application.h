@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include <glm/glm.hpp>
 
 #include "core/time.h"
@@ -9,11 +11,13 @@
 #include "physics/world_collision.h"
 #include "platform/input.h"
 #include "platform/window.h"
+#include "render/animation.h"
 #include "render/camera.h"
 #include "render/debug_draw.h"
 #include "render/mesh.h"
-#include "render/model.h"
 #include "render/shader.h"
+#include "render/skeleton.h"
+#include "render/skinned_mesh.h"
 #include "render/spring_arm.h"
 #include "render/texture.h"
 #include "scene/scene.h"
@@ -44,14 +48,19 @@ private:
     void update_in_vehicle(float dt, float mdx, float mdy);
     void sync_vehicle_scene();
     void sync_character_scene();
+    void compute_procedural_walk_pose(float phase, bool moving);
 
     Window         window_;
     Input          input_;
     FixedTimestep  clock_;
 
     Shader         lit_shader_;
+    Shader         skinned_shader_;
     Mesh           cube_mesh_;
-    Model          character_model_;
+    SkinnedMesh    character_skinned_mesh_;
+    Skeleton       character_skeleton_;
+    Animation      character_anim_;
+    bool           character_skinned_ = false;
     Texture        checker_tex_;
     Texture        asphalt_tex_;
     Texture        grass_tex_;
@@ -74,11 +83,23 @@ private:
     SceneNode*          wheel_nodes_[4]      = {nullptr, nullptr, nullptr, nullptr};
 
     SceneNode*          character_node_      = nullptr;  // pose root: feet pos + facing
-    SceneNode*          character_visual_node_ = nullptr; // child: model offset + scale + bob
+    SceneNode*          character_visual_node_ = nullptr; // child: model offset + scale
     float               character_facing_yaw_deg_ = -90.f;
     glm::vec3           character_model_offset_{0.f, 0.f, 0.f};
     float               character_model_scale_ = 1.f;
-    double              walk_phase_ = 0.0;  // strides accumulator for bob anim
+    double              walk_phase_ = 0.0;  // seconds of walk-anim time accumulator
+    std::vector<glm::mat4> char_local_poses_;
+    std::vector<glm::mat4> char_skin_matrices_;
+
+    // Cached limb-bone indices, resolved after skeleton load. Used by the
+    // procedural walk-cycle pose generator (the asset's baked animation is a
+    // static pose, so we drive these directly).
+    struct WalkBones {
+        int left_upleg = -1,  right_upleg = -1;
+        int left_leg   = -1,  right_leg   = -1;
+        int left_arm   = -1,  right_arm   = -1;
+        int spine      = -1;
+    } walk_bones_;
 
     Mode  mode_           = Mode::OnFoot;
     Mode  saved_mode_     = Mode::OnFoot; // last non-debug mode

@@ -32,6 +32,7 @@ public:
     void set(const char* name, const glm::vec3& v) const;
     void set(const char* name, const glm::mat3& v) const;
     void set(const char* name, const glm::mat4& v) const;
+    void set_mat4_array(const char* name, const glm::mat4* data, int count) const;
 
 private:
     bool compile_and_link();
