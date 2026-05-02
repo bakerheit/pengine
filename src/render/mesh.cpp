@@ -81,23 +81,28 @@ void make_cube(std::vector<Vertex>& verts, std::vector<uint32_t>& indices, float
         glm::vec2 uv[4];
     };
 
+    // Per face: outward normal, tangent, 4 corners in CCW order viewed from
+    // outside (BL, BR, TR, TL with respect to that face's outside view), and
+    // matching UVs. Originally +X / -X / +Y / -Y were wound CW from outside,
+    // so back-face culling hid the visible side and the player saw straight
+    // through to the inside of the far wall. Fixed.
     const Face faces[] = {
-        // +X
-        {{ 1,0,0},{ 0,0,-1}, {{ h,-h,-h},{ h,-h, h},{ h, h, h},{ h, h,-h}},
+        // +X (outside = +X looking -X with +Y up; -Z is camera right)
+        {{ 1,0,0},{ 0,0,-1}, {{ h,-h, h},{ h,-h,-h},{ h, h,-h},{ h, h, h}},
          {{0,0},{1,0},{1,1},{0,1}}},
-        // -X
-        {{-1,0,0},{ 0,0, 1}, {{-h,-h, h},{-h,-h,-h},{-h, h,-h},{-h, h, h}},
+        // -X (outside = -X looking +X with +Y up; +Z is camera right)
+        {{-1,0,0},{ 0,0, 1}, {{-h,-h,-h},{-h,-h, h},{-h, h, h},{-h, h,-h}},
          {{0,0},{1,0},{1,1},{0,1}}},
-        // +Y
-        {{ 0,1,0},{ 1,0, 0}, {{-h, h,-h},{ h, h,-h},{ h, h, h},{-h, h, h}},
+        // +Y (outside = above looking down; +X right, +Z toward viewer)
+        {{ 0,1,0},{ 1,0, 0}, {{-h, h, h},{ h, h, h},{ h, h,-h},{-h, h,-h}},
          {{0,0},{1,0},{1,1},{0,1}}},
-        // -Y
-        {{ 0,-1,0},{ 1,0, 0},{{-h,-h, h},{ h,-h, h},{ h,-h,-h},{-h,-h,-h}},
+        // -Y (outside = below looking up; +X right, +Z up on screen)
+        {{ 0,-1,0},{ 1,0, 0},{{-h,-h,-h},{ h,-h,-h},{ h,-h, h},{-h,-h, h}},
          {{0,0},{1,0},{1,1},{0,1}}},
-        // +Z
+        // +Z (outside = +Z looking -Z with +Y up; +X right)
         {{ 0,0,1},{ 1,0, 0}, {{-h,-h, h},{ h,-h, h},{ h, h, h},{-h, h, h}},
          {{0,0},{1,0},{1,1},{0,1}}},
-        // -Z
+        // -Z (outside = -Z looking +Z with +Y up; -X right)
         {{ 0,0,-1},{-1,0, 0}, {{ h,-h,-h},{-h,-h,-h},{-h, h,-h},{ h, h,-h}},
          {{0,0},{1,0},{1,1},{0,1}}},
     };
