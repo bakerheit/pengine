@@ -90,18 +90,25 @@ bool Application::init() {
     cube_aabb.min = cube_mesh_.bounds_min();
     cube_aabb.max = cube_mesh_.bounds_max();
 
-    // Vehicle scene nodes (chassis pose + visual scale child + 4 wheels).
+    // Build renderables with an explicit texture so they don't accidentally
+    // inherit whatever the previous draw bound.
+    auto make_renderable = [&](const glm::vec3& tint) {
+        return Renderable{&cube_mesh_, cube_aabb, tint,
+                          glm::vec2{1.f, 1.f}, &checker_tex_};
+    };
+
+    // Vehicle scene nodes.
     chassis_node_         = scene_.create_node();
     chassis_visual_node_  = scene_.create_node(chassis_node_);
-    chassis_visual_node_->renderable = Renderable{&cube_mesh_, cube_aabb};
+    chassis_visual_node_->renderable = make_renderable({0.85f, 0.20f, 0.18f}); // red car
     for (int i = 0; i < 4; ++i) {
         wheel_nodes_[i] = scene_.create_node(chassis_node_);
-        wheel_nodes_[i]->renderable = Renderable{&cube_mesh_, cube_aabb};
+        wheel_nodes_[i]->renderable = make_renderable({0.10f, 0.10f, 0.10f}); // dark tyres
     }
 
-    // Character node.
+    // Character node — light skin tone for visibility against sky.
     character_node_ = scene_.create_node();
-    character_node_->renderable = Renderable{&cube_mesh_, cube_aabb};
+    character_node_->renderable = make_renderable({0.65f, 0.55f, 0.45f});
 
     sync_vehicle_scene();
     sync_character_scene();
