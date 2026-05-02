@@ -107,7 +107,9 @@ add_library(pengine_core STATIC
     src/world/terrain.cpp
     src/world/streamer.cpp
     src/world/city_layout.cpp
+    src/world/road_graph.cpp
     src/game/vehicle.cpp
+    src/game/traffic.cpp
 )
 
 target_include_directories(pengine_core PUBLIC src)

@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 
 #include "core/time.h"
+#include "game/traffic.h"
 #include "game/vehicle.h"
 #include "physics/character_controller.h"
 #include "physics/world_collision.h"
@@ -15,6 +16,7 @@
 #include "render/spring_arm.h"
 #include "render/texture.h"
 #include "scene/scene.h"
+#include "world/road_graph.h"
 #include "world/streamer.h"
 #include "world/world_defs.h"
 
@@ -60,6 +62,8 @@ private:
     CharacterController character_;
     DebugDraw           debug_draw_;
     SpringArm           spring_;
+    RoadGraph           road_graph_;
+    TrafficSystem       traffic_;
 
     Vehicle             vehicle_;
     SceneNode*          chassis_node_        = nullptr;

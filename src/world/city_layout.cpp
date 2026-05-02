@@ -7,10 +7,11 @@ namespace pengine {
 
 namespace {
 
-constexpr int   BLOCKS_PER_CELL = 4;
-constexpr float STREET_WIDTH    = 8.f;
-constexpr float ROAD_THICKNESS  = 0.10f;
-// Building palette tints (subtle variation; multiplied with checker texture).
+// ROAD_PITCH, STREET_WIDTH, ROADS_PER_CELL come from city_layout.h.
+constexpr float ROAD_THICKNESS = 0.10f;
+constexpr float ROAD_TILE_M    = 4.f;
+constexpr float WINDOW_TILE_M  = 3.f;
+
 constexpr glm::vec3 ROAD_TINT  {0.18f, 0.19f, 0.21f};
 const     glm::vec3 BUILDING_TINTS[] = {
     {0.85f, 0.84f, 0.80f}, // bone / concrete
@@ -20,14 +21,9 @@ const     glm::vec3 BUILDING_TINTS[] = {
     {0.62f, 0.62f, 0.62f}, // mid-grey
 };
 
-constexpr float ROAD_TILE_M  = 4.f;  // metres per asphalt tile
-constexpr float WINDOW_TILE_M = 3.f; // metres per window tile
-
-// Add a road slab covering [x0,x1] x [z0,z1] at ground_y, top flush with
-// terrain. Slab is centred vertically on (ground_y - ROAD_THICKNESS/2).
 void push_road(std::vector<ObjectDef>& out, float x0, float z0,
                float x1, float z1, float ground_y, const CityTextures& tex,
-               float y_offset = 0.005f) {
+               float y_offset) {
     float w = x1 - x0;
     float d = z1 - z0;
     ObjectDef def;
@@ -45,15 +41,12 @@ void push_building(std::vector<ObjectDef>& out, std::vector<AABB>& aabbs,
                     float cx, float cz, float w, float d, float h, float ground_y,
                     const glm::vec3& tint, const CityTextures& tex) {
     ObjectDef def;
-    float base_y = ground_y - 0.05f;        // sink slightly so it never floats
+    float base_y = ground_y - 0.05f;
     float cy     = base_y + h * 0.5f;
     def.transform.position = {cx, cy, cz};
     def.transform.scale    = {w, h, d};
     def.tint               = tint;
     def.texture            = tex.building;
-    // One window tile per WINDOW_TILE_M m, derived from the largest face so
-    // sides line up reasonably. Cube faces share UV scale so we accept some
-    // stretching on faces with mismatched aspect ratios.
     def.uv_scale = {w / WINDOW_TILE_M, h / WINDOW_TILE_M};
     out.push_back(def);
 
@@ -71,10 +64,7 @@ CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground
 
     const float ox = static_cast<float>(coord.x) * cell_size;
     const float oz = static_cast<float>(coord.z) * cell_size;
-    const float block_size =
-        (cell_size - (BLOCKS_PER_CELL + 1) * STREET_WIDTH) / BLOCKS_PER_CELL;
 
-    // Deterministic RNG for buildings.
     std::uint32_t seed = static_cast<std::uint32_t>(coord.x) * 0x9E3779B1u
                        ^ static_cast<std::uint32_t>(coord.z) * 0x85EBCA77u;
     std::mt19937 rng(seed);
@@ -82,26 +72,27 @@ CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground
         return lo + (hi - lo) * (static_cast<float>(rng() & 0xFFFFu) / 65535.f);
     };
 
-    // ---- Roads: 5 east-west + 5 north-south slabs --------------------------
-    // Each road is a full-cell slab so adjacent cells' roads tile seamlessly.
-    for (int i = 0; i <= BLOCKS_PER_CELL; ++i) {
-        float pitch = block_size + STREET_WIDTH;
-        float s     = static_cast<float>(i) * pitch;
-
-        // East-west road (along X).
-        push_road(out.visuals, ox, oz + s,
-                  ox + cell_size, oz + s + STREET_WIDTH, ground_y, tex,
-                  /*y_offset=*/ 0.005f);
-        // North-south road (along Z). Slight Y offset over the EW slabs to
-        // avoid z-fighting at intersections.
-        push_road(out.visuals, ox + s, oz,
-                  ox + s + STREET_WIDTH, oz + cell_size, ground_y, tex,
-                  /*y_offset=*/ 0.010f);
+    // ---- Roads --------------------------------------------------------------
+    // Each cell owns ROADS_PER_CELL NS + ROADS_PER_CELL EW road slabs.
+    // Centerlines at world positions {ox, ox+64, ox+128, ox+192} (and same for z).
+    for (int i = 0; i < ROADS_PER_CELL; ++i) {
+        float xc = ox + static_cast<float>(i) * ROAD_PITCH;
+        float zc = oz + static_cast<float>(i) * ROAD_PITCH;
+        // NS road (along Z, varying x).
+        push_road(out.visuals,
+                  xc - STREET_WIDTH * 0.5f, oz,
+                  xc + STREET_WIDTH * 0.5f, oz + cell_size,
+                  ground_y, tex, /*y_offset=*/ 0.010f);
+        // EW road (along X, varying z).
+        push_road(out.visuals,
+                  ox, zc - STREET_WIDTH * 0.5f,
+                  ox + cell_size, zc + STREET_WIDTH * 0.5f,
+                  ground_y, tex, /*y_offset=*/ 0.005f);
     }
 
-    // ---- Buildings: 2x2 sub-grid per block, at most one per sub-cell -------
-    // No overlap → no z-fighting between adjacent walls. Tower variant fills
-    // a whole block with one tall building.
+    // ---- Building plots: ROADS_PER_CELL × ROADS_PER_CELL --------------------
+    // Plot (i, j) is the block bounded by roads i and i+1 on x, and j and j+1
+    // on z. Plot center at world (ox + (i+0.5)*PITCH, oz + (j+0.5)*PITCH).
     constexpr float SIDEWALK      = 3.f;
     constexpr int   SUBGRID       = 2;
     constexpr float SUB_FILL_PROB = 0.78f;
@@ -113,48 +104,45 @@ CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground
                                           sizeof(BUILDING_TINTS[0])))];
     };
 
-    for (int bz = 0; bz < BLOCKS_PER_CELL; ++bz) {
-        for (int bx = 0; bx < BLOCKS_PER_CELL; ++bx) {
-            float bx0 = ox + STREET_WIDTH + bx * (block_size + STREET_WIDTH);
-            float bz0 = oz + STREET_WIDTH + bz * (block_size + STREET_WIDTH);
-            float bx1 = bx0 + block_size;
-            float bz1 = bz0 + block_size;
+    const float plot_size = ROAD_PITCH - STREET_WIDTH; // 56 m
 
-            float ax0 = bx0 + SIDEWALK, ax1 = bx1 - SIDEWALK;
-            float az0 = bz0 + SIDEWALK, az1 = bz1 - SIDEWALK;
+    for (int j = 0; j < ROADS_PER_CELL; ++j) {
+        for (int i = 0; i < ROADS_PER_CELL; ++i) {
+            float plot_cx = ox + (static_cast<float>(i) + 0.5f) * ROAD_PITCH;
+            float plot_cz = oz + (static_cast<float>(j) + 0.5f) * ROAD_PITCH;
+
+            float ax0 = plot_cx - plot_size * 0.5f + SIDEWALK;
+            float ax1 = plot_cx + plot_size * 0.5f - SIDEWALK;
+            float az0 = plot_cz - plot_size * 0.5f + SIDEWALK;
+            float az1 = plot_cz + plot_size * 0.5f - SIDEWALK;
             float avail_x = ax1 - ax0;
             float avail_z = az1 - az0;
             if (avail_x < 6.f || avail_z < 6.f) continue;
 
-            // Tower: occupy the whole block with a single tall building.
+            // Tower variant.
             if (frand(0.f, 1.f) < TOWER_PROB) {
                 float w = frand(avail_x * 0.65f, avail_x * 0.92f);
                 float d = frand(avail_z * 0.65f, avail_z * 0.92f);
                 float h = frand(35.f, 70.f);
-                float cx = (ax0 + ax1) * 0.5f;
-                float cz = (az0 + az1) * 0.5f;
                 push_building(out.visuals, out.collisions,
-                              cx, cz, w, d, h, ground_y, pick_tint(), tex);
+                              plot_cx, plot_cz, w, d, h,
+                              ground_y, pick_tint(), tex);
                 continue;
             }
 
-            // Otherwise: 2x2 sub-grid.
             float sub_w = avail_x / SUBGRID;
             float sub_d = avail_z / SUBGRID;
             for (int sz = 0; sz < SUBGRID; ++sz) {
                 for (int sx = 0; sx < SUBGRID; ++sx) {
                     if (frand(0.f, 1.f) > SUB_FILL_PROB) continue;
 
-                    float sx0 = ax0 + sx * sub_w;
-                    float sz0 = az0 + sz * sub_d;
-                    // Footprint sits inside the sub-cell with a tiny margin
-                    // so adjacent sub-cell buildings don't share a wall.
+                    float sx0 = ax0 + static_cast<float>(sx) * sub_w;
+                    float sz0 = az0 + static_cast<float>(sz) * sub_d;
                     constexpr float SUB_MARGIN = 0.4f;
                     float w = frand(sub_w * 0.55f, sub_w - 2.f * SUB_MARGIN);
                     float d = frand(sub_d * 0.55f, sub_d - 2.f * SUB_MARGIN);
                     float h = frand(6.f, 32.f);
 
-                    // Random offset within the sub-cell (still fully inside).
                     float free_x = sub_w - w - 2.f * SUB_MARGIN;
                     float free_z = sub_d - d - 2.f * SUB_MARGIN;
                     float cx = sx0 + SUB_MARGIN + w * 0.5f
@@ -163,7 +151,8 @@ CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground
                              + (free_z > 0.f ? frand(0.f, free_z) : 0.f);
 
                     push_building(out.visuals, out.collisions,
-                                  cx, cz, w, d, h, ground_y, pick_tint(), tex);
+                                  cx, cz, w, d, h,
+                                  ground_y, pick_tint(), tex);
                 }
             }
         }

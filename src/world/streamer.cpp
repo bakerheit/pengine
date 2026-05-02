@@ -11,6 +11,7 @@
 #include "scene/scene_node.h"
 #include "world/city_layout.h"
 #include "world/heightmap.h"
+#include "world/road_graph.h"
 
 namespace pengine {
 
@@ -37,12 +38,14 @@ void Streamer::generate_cell(CellCoord coord, const WorldConfig& cfg,
 // ---------------------------------------------------------------------------
 
 void Streamer::init(const WorldConfig& cfg, Scene* scene, const Mesh* cube_mesh,
-                     WorldCollision* collision, const WorldTextures& tex) {
-    cfg_       = cfg;
-    scene_     = scene;
-    cube_mesh_ = cube_mesh;
-    collision_ = collision;
-    tex_       = tex;
+                     WorldCollision* collision, const WorldTextures& tex,
+                     RoadGraph* road_graph) {
+    cfg_        = cfg;
+    scene_      = scene;
+    cube_mesh_  = cube_mesh;
+    collision_  = collision;
+    road_graph_ = road_graph;
+    tex_        = tex;
     running_.store(true, std::memory_order_release);
     thread_ = std::thread(&Streamer::thread_func, this);
     PE_INFO("Streamer started  cell_size=%.0f radius=%d  world=%dx%d cells",
@@ -138,7 +141,8 @@ void Streamer::pump(glm::vec3 cam_pos) {
         auto it = loaded_.find(job.coord);
         if (it == loaded_.end()) continue;
         for (SceneNode* n : it->second.nodes) scene_->remove_node(n);
-        if (collision_) collision_->remove_cell(job.coord);
+        if (collision_)  collision_->remove_cell(job.coord);
+        if (road_graph_) road_graph_->remove_cell(job.coord);
         loaded_.erase(it);
     }
 
@@ -182,7 +186,8 @@ void Streamer::pump(glm::vec3 cam_pos) {
         tnode->mark_dirty();
         lc.nodes.push_back(tnode);
 
-        if (collision_) collision_->add_cell(job.coord, std::move(job.building_aabbs));
+        if (collision_)  collision_->add_cell(job.coord, std::move(job.building_aabbs));
+        if (road_graph_) road_graph_->add_cell(job.coord);
 
         auto inserted = loaded_.emplace(job.coord, std::move(lc));
         tnode->renderable->mesh = &inserted.first->second.terrain_mesh;

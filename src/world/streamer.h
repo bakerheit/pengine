@@ -17,6 +17,7 @@
 
 namespace pengine {
 
+class RoadGraph;
 class Scene;
 class SceneNode;
 class Texture;
@@ -36,7 +37,8 @@ public:
     };
 
     void init(const WorldConfig& cfg, Scene* scene, const Mesh* cube_mesh,
-              WorldCollision* collision, const WorldTextures& tex);
+              WorldCollision* collision, const WorldTextures& tex,
+              RoadGraph* road_graph = nullptr);
     void shutdown();
 
     void pump(glm::vec3 cam_pos);
@@ -75,6 +77,7 @@ private:
     Scene*           scene_      = nullptr;
     const Mesh*      cube_mesh_  = nullptr;
     WorldCollision*  collision_  = nullptr;
+    RoadGraph*       road_graph_ = nullptr;
     WorldTextures    tex_;
 
     std::atomic<bool> running_{false};

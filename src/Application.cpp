@@ -71,7 +71,10 @@ bool Application::init() {
     camera_.far_z      = 2000.f;
 
     WorldTextures world_tex{&grass_tex_, &asphalt_tex_, &facade_tex_};
-    streamer_.init(world_cfg, &scene_, &cube_mesh_, &world_collision_, world_tex);
+    streamer_.init(world_cfg, &scene_, &cube_mesh_, &world_collision_,
+                    world_tex, &road_graph_);
+    traffic_.init(&scene_, &cube_mesh_, &checker_tex_, &road_graph_,
+                  /*target_count=*/ 30);
 
     glm::vec3 spawn = intersection;
     spawn.y = Heightmap::sample(spawn.x, spawn.z);
@@ -141,19 +144,21 @@ int Application::run() {
             auto st = streamer_.stats();
             char title[400];
             std::snprintf(title, sizeof(title),
-                          "pengine | %s | cells:%d bld:%d | fps:%d worst:%.1fms"
-                          " | car:%.0fkm/h%s%s",
+                          "pengine | %s | cells:%d bld:%d traffic:%d"
+                          " | fps:%d worst:%.1fms | car:%.0fkm/h%s%s",
                           mode_name(mode_),
                           st.loaded_cells, world_collision_.building_count(),
+                          traffic_.active(),
                           fps_frames_, max_frame_ms_,
                           vehicle_.speed_kmh(),
                           vehicle_.airborne() ? " AIR" : "",
                           can_enter_car_ ? "  [F to enter]" : "");
             SDL_SetWindowTitle(window_.sdl(), title);
-            PE_INFO("%s  fps=%d worst=%.1fms  car=%.0fkm/h%s%s",
+            PE_INFO("%s  fps=%d worst=%.1fms  car=%.0fkm/h%s  traffic=%d%s",
                     mode_name(mode_), fps_frames_, max_frame_ms_,
                     vehicle_.speed_kmh(),
                     vehicle_.airborne() ? " AIR" : " GND",
+                    traffic_.active(),
                     can_enter_car_ ? "  ENTER" : "");
             fps_frames_   = 0;
             max_frame_ms_ = 0.0;
@@ -164,6 +169,7 @@ int Application::run() {
 }
 
 void Application::shutdown() {
+    traffic_.shutdown();
     streamer_.shutdown();
     SDL_SetRelativeMouseMode(SDL_FALSE);
     debug_draw_.shutdown();
@@ -342,6 +348,7 @@ void Application::update(double dt) {
     sync_vehicle_scene();
     sync_character_scene();
     streamer_.pump(camera_.position);
+    traffic_.update(fdt, camera_.position);
     scene_.update();
 }
 

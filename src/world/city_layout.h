@@ -15,6 +15,14 @@ struct CityTextures {
     const Texture* building = nullptr;
 };
 
+// Global road grid constants. Roads run along world lines x = i * ROAD_PITCH
+// (NS roads) and z = j * ROAD_PITCH (EW roads). Intersections at the
+// integer grid points (i, j). Each cell at (cx, cz) owns the 4×4 roads
+// indexed by i ∈ [cx*4, cx*4+4), j ∈ [cz*4, cz*4+4).
+constexpr float ROAD_PITCH       = 64.f;
+constexpr float STREET_WIDTH     = 8.f;
+constexpr int   ROADS_PER_CELL   = 4;     // = cell_size / ROAD_PITCH
+
 // Procedural city block layout for one streaming cell. Deterministic from
 // (coord, cfg). Designed so neighbouring cells line up at shared streets.
 //
