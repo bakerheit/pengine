@@ -26,6 +26,7 @@ class WorldCollision;
 struct WorldTextures {
     const Texture* terrain  = nullptr;  // grass for terrain mesh
     const Texture* road     = nullptr;  // asphalt for road slabs
+    const Texture* sidewalk = nullptr;  // concrete slab for sidewalks
     const Texture* building = nullptr;  // facade with windows
 };
 

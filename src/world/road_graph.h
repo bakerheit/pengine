@@ -55,6 +55,10 @@ public:
     // no cells are loaded.
     bool random_loaded_intersection(std::mt19937& rng, int& out_i, int& out_j) const;
 
+    // Snapshot of every currently-loaded intersection as (i, j) pairs.
+    // Snapshots so callers can iterate without holding the cell lock.
+    std::vector<std::pair<int,int>> loaded_intersections() const;
+
     int loaded_cell_count() const;
 
 private:

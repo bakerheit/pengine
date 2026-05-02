@@ -10,7 +10,26 @@
       "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv /Users/andrewbaker/workspace/pengine/assets/Characters_psx/Models/Male/Character_05.fbx /tmp/probe05)",
       "Bash(find /Users/andrewbaker/workspace/pengine/build* -name \"meshconv\" -type f)",
       "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv /Users/andrewbaker/workspace/pengine/assets/Characters_psx/Animations/Walking.fbx /tmp/walking)",
-      "Bash(cmake --build . -j)"
+      "Bash(cmake --build . -j)",
+      "Bash(cmake --build /Users/andrewbaker/workspace/pengine/build -j)",
+      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv \"/Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/Car 05/Car5.obj\" /Users/andrewbaker/workspace/pengine/assets/models/vehicles/car5)",
+      "Bash(awk '/^v / {print $2, $3, $4}' \"/Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/Car 05/Car5.obj\")",
+      "Bash(awk 'BEGIN{xn=99999;xx=-99999;yn=99999;yx=-99999;zn=99999;zx=-99999} {if\\($1<xn\\)xn=$1;if\\($1>xx\\)xx=$1;if\\($2<yn\\)yn=$2;if\\($2>yx\\)yx=$2;if\\($3<zn\\)zn=$3;if\\($3>zx\\)zx=$3} END{printf \"x=[%.3f, %.3f] \\(%.3f\\)\\\\ny=[%.3f, %.3f] \\(%.3f\\)\\\\nz=[%.3f, %.3f] \\(%.3f\\)\\\\n\", xn, xx, xx-xn, yn, yx, yx-yn, zn, zx, zx-zn}')",
+      "Bash(awk '/^v / {if\\($3 < 0.3\\) print $2, $3, $4}' \"/Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/Car 05/Car5.obj\")",
+      "Bash(awk ' *)",
+      "Bash(awk '/^v / {x=$2; y=$3; z=$4; if\\(x>0.6 && x<1.5 && z>1.5 && z<3.0 && y<0.7\\) print x, y, z}' \"/Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/Car 05/Car5.obj\")",
+      "Bash(awk '/^v / {print $2, $3, $4}' \"/Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/Wheel/Wheel.obj\")",
+      "Bash(awk 'BEGIN{xn=99;xx=-99;yn=99;yx=-99;zn=99;zx=-99;c=0} {c++;if\\($1<xn\\)xn=$1;if\\($1>xx\\)xx=$1;if\\($2<yn\\)yn=$2;if\\($2>yx\\)yx=$2;if\\($3<zn\\)zn=$3;if\\($3>zx\\)zx=$3} END{printf \"v=%d x=[%.3f,%.3f] \\(%.3f\\)\\\\ny=[%.3f,%.3f] \\(%.3f\\)\\\\nz=[%.3f,%.3f] \\(%.3f\\)\\\\n\", c, xn,xx,xx-xn, yn,yx,yx-yn, zn,zx,zx-zn}')",
+      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv \"/Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/Wheel/Wheel.obj\" /Users/andrewbaker/workspace/pengine/assets/models/vehicles/wheel)",
+      "Bash(awk '/^v / {x=$2; y=$3; z=$4; if\\(y < 0.5\\) { *)",
+      "Bash(awk '/^v / {x=$2; y=$3; z=$4; if\\(y<0.5\\) { *)",
+      "Bash(awk '/^v / {x=$2; y=$3; z=$4; if\\(y < 0.5 && x*x > 0.36 && z < -1.0\\) print x, y, z}' \"/Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/Car 05/Car5.obj\")",
+      "Bash(sort -nk3)",
+      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv \"/Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/Car 05/Car5_nowheels.obj\" /Users/andrewbaker/workspace/pengine/assets/models/vehicles/car5)",
+      "Bash(awk '/^v / {print $2, $3, $4}' \"/Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/Car 05/Car5_nowheels.obj\")",
+      "Bash(awk 'BEGIN{xn=99;xx=-99;yn=99;yx=-99;zn=99;zx=-99} {if\\($1<xn\\)xn=$1;if\\($1>xx\\)xx=$1;if\\($2<yn\\)yn=$2;if\\($2>yx\\)yx=$2;if\\($3<zn\\)zn=$3;if\\($3>zx\\)zx=$3} END{printf \"x=[%.3f,%.3f] y=[%.3f,%.3f] z=[%.3f,%.3f]\\\\n\", xn,xx, yn,yx, zn,zx}')",
+      "Bash(sort -k2,2 -k4,4 -k6,6n)",
+      "Bash(awk '/^v / { vi++; if \\(vi >= 192 && vi <= 215\\) printf \"%d: %s\\\\n\", vi, $0 }' \"/Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/Car 05/Car5.obj\")"
     ]
   }
 }

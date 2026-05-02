@@ -5,7 +5,7 @@
 
 #include "physics/world_collision.h"
 #include "platform/input.h"
-#include "world/heightmap.h"
+#include "world/city_layout.h"
 
 namespace pengine {
 
@@ -54,8 +54,8 @@ void CharacterController::update(float dt, const Input& input, float forward_yaw
     next.x = xz.x;
     next.z = xz.y;
 
-    // ---- Resolve terrain (always above heightmap) ---------------------------
-    float ground_y = Heightmap::sample(next.x, next.z);
+    // ---- Resolve terrain (always above heightmap + sidewalks) --------------
+    float ground_y = city_ground_sample(next.x, next.z);
     if (next.y <= ground_y) {
         next.y    = ground_y;
         vel_.y    = 0.f;

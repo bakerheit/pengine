@@ -52,6 +52,13 @@ public:
     // ---- Lifecycle ---------------------------------------------------------
     void spawn(const glm::vec3& spawn_pos, float yaw_deg = -90.f);
 
+    // Override the suspension-top point of one wheel after spawn. Used to
+    // align raycasts with a non-cube body's actual wheel positions.
+    void set_wheel_mount(int idx, const glm::vec3& mount_local) {
+        if (idx >= 0 && idx < 4)
+            wheels_[static_cast<std::size_t>(idx)].mount_local = mount_local;
+    }
+
     // Per-frame inputs (clamped internally). throttle is signed:
     // +1 = forward full, -1 = reverse full.
     void set_inputs(float throttle, float brake, float steer, bool handbrake);

@@ -290,6 +290,49 @@ void Texture::load_facade(int size) {
     apply_params();
 }
 
+void Texture::load_sidewalk(int size) {
+    width_ = height_ = size;
+    std::vector<unsigned char> pixels(static_cast<std::size_t>(size * size * 3));
+    std::mt19937 rng(0x5dcafeu);
+
+    // One concrete slab per tile with a 2-px seam at the tile edges (so the
+    // texture, repeated, looks like uniform 1 m slabs end-to-end). Faint
+    // speckle for grit; subtle horizontal staining for weathering.
+    constexpr int SEAM_PX = 2;
+    int patch[16];
+    for (int i = 0; i < 16; ++i) patch[i] = static_cast<int>(rng() % 14u) - 6;
+
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            int  noise = static_cast<int>(rng() % 12u) - 6; // ±6 grain
+            int  r = 168 + noise;
+            int  g = 166 + noise;
+            int  b = 160 + noise;
+
+            // Low-frequency staining bias (4x4 patch sampled).
+            int  px = (x * 4) / size;
+            int  py = (y * 4) / size;
+            int  bias = patch[py * 4 + px];
+            r += bias; g += bias; b += bias;
+
+            // Slab seam: 2-px dark border on the tile edges.
+            bool seam = (x < SEAM_PX || x >= size - SEAM_PX ||
+                         y < SEAM_PX || y >= size - SEAM_PX);
+            if (seam) { r -= 38; g -= 38; b -= 38; }
+
+            // Occasional dark fleck (small pebble / discolouration).
+            if ((rng() & 0xffu) == 0) { r -= 28; g -= 28; b -= 28; }
+
+            std::size_t idx = static_cast<std::size_t>((y * size + x) * 3);
+            pixels[idx + 0] = clamp_u8(r);
+            pixels[idx + 1] = clamp_u8(g);
+            pixels[idx + 2] = clamp_u8(b);
+        }
+    }
+    upload_rgb(tex_, size, pixels);
+    apply_params();
+}
+
 void Texture::destroy() {
     if (tex_) { glDeleteTextures(1, &tex_); tex_ = 0; }
 }

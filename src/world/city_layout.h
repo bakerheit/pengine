@@ -12,6 +12,7 @@ class Texture;
 
 struct CityTextures {
     const Texture* road     = nullptr;
+    const Texture* sidewalk = nullptr;
     const Texture* building = nullptr;
 };
 
@@ -39,5 +40,11 @@ struct CityCellLayout {
 
 CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground_y,
                                    const CityTextures& tex);
+
+// Walkable ground height at world (x, z): heightmap sample plus the sidewalk
+// curb (15 cm) when the point lies inside a plot's sidewalk ring. Roads and
+// terrain return the bare heightmap value. Used by the character controller
+// (and pedestrian AI) so feet rest on the slab top, not in it.
+float city_ground_sample(float x, float z);
 
 } // namespace pengine

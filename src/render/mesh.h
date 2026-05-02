@@ -56,4 +56,8 @@ private:
 void make_cube(std::vector<Vertex>& verts, std::vector<uint32_t>& indices, float half = 0.5f);
 void make_plane(std::vector<Vertex>& verts, std::vector<uint32_t>& indices, float half = 10.f);
 
+// Load a single-submesh static .emesh into one Mesh (combines all submeshes
+// into one buffer pair). For multi-material loads, use Model instead.
+bool load_static_emesh(const std::string& path, Mesh& out);
+
 } // namespace pengine

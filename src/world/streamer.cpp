@@ -27,7 +27,7 @@ void Streamer::generate_cell(CellCoord coord, const WorldConfig& cfg,
     float ground_y = Heightmap::sample(ox + cfg.cell_size * 0.5f,
                                         oz + cfg.cell_size * 0.5f);
 
-    CityTextures ct{tex_.road, tex_.building};
+    CityTextures ct{tex_.road, tex_.sidewalk, tex_.building};
     CityCellLayout layout = generate_city_cell(coord, cfg.cell_size, ground_y, ct);
     out_defs  = std::move(layout.visuals);
     out_aabbs = std::move(layout.collisions);

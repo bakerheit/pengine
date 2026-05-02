@@ -45,6 +45,19 @@ int RoadGraph::outgoing(int i, int j, std::array<GridDir, 4>& out) const {
     return static_cast<int>(n);
 }
 
+std::vector<std::pair<int,int>> RoadGraph::loaded_intersections() const {
+    std::vector<std::pair<int,int>> out;
+    std::lock_guard<std::mutex> lk(cells_mu_);
+    out.reserve(cells_.size() * ROADS_PER_CELL * ROADS_PER_CELL);
+    for (const auto& c : cells_) {
+        for (int dj = 0; dj < ROADS_PER_CELL; ++dj)
+            for (int di = 0; di < ROADS_PER_CELL; ++di)
+                out.emplace_back(c.x * ROADS_PER_CELL + di,
+                                  c.z * ROADS_PER_CELL + dj);
+    }
+    return out;
+}
+
 bool RoadGraph::random_loaded_intersection(std::mt19937& rng,
                                             int& out_i, int& out_j) const {
     std::lock_guard<std::mutex> lk(cells_mu_);

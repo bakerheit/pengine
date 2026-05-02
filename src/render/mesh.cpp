@@ -1,7 +1,11 @@
 #include "render/mesh.h"
 
 #include <cfloat>
+#include <cstdio>
+#include <vector>
 
+#include "core/emesh_format.h"
+#include "core/log.h"
 #include "render/gl_state.h"
 
 namespace pengine {
@@ -132,6 +136,46 @@ void make_plane(std::vector<Vertex>& verts, std::vector<uint32_t>& indices, floa
         {{-h, 0, h}, n, {0,   h*2}, t},
     };
     indices = {0,1,2, 0,2,3};
+}
+
+bool load_static_emesh(const std::string& path, Mesh& out) {
+    std::FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) { PE_ERROR("Mesh: cannot open %s", path.c_str()); return false; }
+
+    EmeshHeader hdr{};
+    if (std::fread(&hdr, sizeof(hdr), 1, f) != 1) { std::fclose(f); return false; }
+    if (hdr.magic != EMESH_MAGIC || hdr.version != EMESH_VERSION) {
+        PE_ERROR("Mesh: bad magic/version in %s", path.c_str());
+        std::fclose(f); return false;
+    }
+    if (hdr.flags & EMESH_FLAG_SKINNED) {
+        PE_ERROR("Mesh: %s is skinned, use load_skinned_emesh", path.c_str());
+        std::fclose(f); return false;
+    }
+
+    std::vector<EmeshVertex> raw_verts(hdr.vertex_count);
+    std::vector<uint32_t>    raw_idx(hdr.index_count);
+    bool ok =
+        std::fread(raw_verts.data(), sizeof(EmeshVertex), raw_verts.size(), f)
+            == raw_verts.size() &&
+        std::fread(raw_idx.data(),   sizeof(uint32_t),    raw_idx.size(),   f)
+            == raw_idx.size();
+    std::fclose(f);
+    if (!ok) { PE_ERROR("Mesh: truncated %s", path.c_str()); return false; }
+
+    std::vector<Vertex> verts(hdr.vertex_count);
+    for (uint32_t i = 0; i < hdr.vertex_count; ++i) {
+        const auto& s = raw_verts[i];
+        Vertex& d = verts[i];
+        d.position = {s.px, s.py, s.pz};
+        d.normal   = {s.nx, s.ny, s.nz};
+        d.uv       = {s.u,  s.v};
+        d.tangent  = {s.tx, s.ty, s.tz, s.tw};
+    }
+    out.upload(verts, raw_idx);
+    PE_INFO("Mesh loaded: %s  (%u verts, %u idx)",
+            path.c_str(), hdr.vertex_count, hdr.index_count);
+    return true;
 }
 
 } // namespace pengine

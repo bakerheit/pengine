@@ -1,7 +1,10 @@
 #include "world/city_layout.h"
 
 #include <algorithm>
+#include <cmath>
 #include <random>
+
+#include "world/heightmap.h"
 
 namespace pengine {
 
@@ -12,7 +15,15 @@ constexpr float ROAD_THICKNESS = 0.10f;
 constexpr float ROAD_TILE_M    = 4.f;
 constexpr float WINDOW_TILE_M  = 3.f;
 
-constexpr glm::vec3 ROAD_TINT  {0.18f, 0.19f, 0.21f};
+// Sidewalks are slabs sitting 15 cm above the road (visible curb), 30 cm
+// thick. Each plot emits a 4-sided ring of sidewalk; adjacent plots' rings
+// form the intersection corners by construction.
+constexpr float SIDEWALK_CURB_H    = 0.15f; // top above ground_y
+constexpr float SIDEWALK_THICKNESS = 0.30f;
+constexpr float SIDEWALK_TILE_M    = 1.0f;
+
+constexpr glm::vec3 ROAD_TINT     {0.18f, 0.19f, 0.21f};
+constexpr glm::vec3 SIDEWALK_TINT {0.78f, 0.78f, 0.76f};
 const     glm::vec3 BUILDING_TINTS[] = {
     {0.85f, 0.84f, 0.80f}, // bone / concrete
     {0.72f, 0.66f, 0.55f}, // sandstone
@@ -34,6 +45,24 @@ void push_road(std::vector<ObjectDef>& out, float x0, float z0,
     def.tint               = ROAD_TINT;
     def.texture            = tex.road;
     def.uv_scale           = {w / ROAD_TILE_M, d / ROAD_TILE_M};
+    out.push_back(def);
+}
+
+void push_sidewalk(std::vector<ObjectDef>& out,
+                    float x0, float z0, float x1, float z1,
+                    float ground_y, const CityTextures& tex) {
+    float w = x1 - x0;
+    float d = z1 - z0;
+    if (w <= 0.f || d <= 0.f) return;
+    ObjectDef def;
+    float top = ground_y + SIDEWALK_CURB_H;
+    def.transform.position = {(x0 + x1) * 0.5f,
+                               top - SIDEWALK_THICKNESS * 0.5f,
+                               (z0 + z1) * 0.5f};
+    def.transform.scale    = {w, SIDEWALK_THICKNESS, d};
+    def.tint               = SIDEWALK_TINT;
+    def.texture            = tex.sidewalk;
+    def.uv_scale           = {w / SIDEWALK_TILE_M, d / SIDEWALK_TILE_M};
     out.push_back(def);
 }
 
@@ -111,10 +140,26 @@ CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground
             float plot_cx = ox + (static_cast<float>(i) + 0.5f) * ROAD_PITCH;
             float plot_cz = oz + (static_cast<float>(j) + 0.5f) * ROAD_PITCH;
 
-            float ax0 = plot_cx - plot_size * 0.5f + SIDEWALK;
-            float ax1 = plot_cx + plot_size * 0.5f - SIDEWALK;
-            float az0 = plot_cz - plot_size * 0.5f + SIDEWALK;
-            float az1 = plot_cz + plot_size * 0.5f - SIDEWALK;
+            // Plot extent (between adjacent road edges).
+            float px0 = plot_cx - plot_size * 0.5f;
+            float px1 = plot_cx + plot_size * 0.5f;
+            float pz0 = plot_cz - plot_size * 0.5f;
+            float pz1 = plot_cz + plot_size * 0.5f;
+
+            // Building inset = SIDEWALK m inside the plot extent on each side.
+            float ax0 = px0 + SIDEWALK;
+            float ax1 = px1 - SIDEWALK;
+            float az0 = pz0 + SIDEWALK;
+            float az1 = pz1 - SIDEWALK;
+
+            // Sidewalk ring: 4 strips wrapping the plot. North/South run
+            // full plot width; East/West fill only the inner span so the
+            // corner squares are owned by N/S (no overlap, no z-fighting).
+            push_sidewalk(out.visuals, px0, pz0, px1, az0, ground_y, tex); // N
+            push_sidewalk(out.visuals, px0, az1, px1, pz1, ground_y, tex); // S
+            push_sidewalk(out.visuals, px0, az0, ax0, az1, ground_y, tex); // W
+            push_sidewalk(out.visuals, ax1, az0, px1, az1, ground_y, tex); // E
+
             float avail_x = ax1 - ax0;
             float avail_z = az1 - az0;
             if (avail_x < 6.f || avail_z < 6.f) continue;
@@ -159,6 +204,30 @@ CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground
     }
 
     return out;
+}
+
+float city_ground_sample(float x, float z) {
+    float base = Heightmap::sample(x, z);
+
+    // Plot index: each ROAD_PITCH-wide column/row contains one plot whose
+    // centre is at (i + 0.5) * ROAD_PITCH.
+    int   i        = static_cast<int>(std::floor(x / ROAD_PITCH));
+    int   j        = static_cast<int>(std::floor(z / ROAD_PITCH));
+    float plot_cx  = (static_cast<float>(i) + 0.5f) * ROAD_PITCH;
+    float plot_cz  = (static_cast<float>(j) + 0.5f) * ROAD_PITCH;
+    float dx       = std::abs(x - plot_cx);
+    float dz       = std::abs(z - plot_cz);
+
+    constexpr float plot_half = ROAD_PITCH * 0.5f - STREET_WIDTH * 0.5f; // 28
+    constexpr float SIDEWALK  = 3.f;
+    constexpr float inner_half = plot_half - SIDEWALK;                   // 25
+
+    bool inside_plot = (dx <= plot_half && dz <= plot_half);
+    bool inside_inner = (dx <= inner_half && dz <= inner_half);
+    if (inside_plot && !inside_inner) {
+        return base + SIDEWALK_CURB_H;
+    }
+    return base;
 }
 
 } // namespace pengine
