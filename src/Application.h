@@ -63,8 +63,9 @@ private:
     glm::vec3      car5_visual_offset_ {0.f};
     Mesh           wheel_mesh_;          // shared by all 4 player wheels
     Texture        wheel_tex_;
-    float          wheel_visual_scale_ = 1.f;  // wheel_radius / native radius
-    double         wheel_spin_rad_     = 0.0;  // rolling angle accumulator
+    float          wheel_visual_scale_  = 1.f;  // applied to wheel mesh
+    float          wheel_visible_radius_ = 0.f; // post-scale radius
+    double         wheel_spin_rad_      = 0.0;  // rolling angle accumulator
     SkinnedMesh    character_skinned_mesh_;
     Skeleton       character_skeleton_;
     Animation      character_anim_;

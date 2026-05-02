@@ -92,9 +92,10 @@ bool Application::init() {
         PE_WARN("Car5 load failed; cars will fall back to cube visuals");
     }
 
-    // Wheel mesh shared between the player's four wheels. Native wheel
-    // radius is the largest |y| (or |z|) coordinate; scale uniformly to
-    // match the physics wheel_radius so visible == raycast.
+    // Wheel mesh shared between the player's four wheels. Visible radius is
+    // sized to fit the body's wheel-arch interior (smaller than the physics
+    // raycast radius); the visible wheel BOTTOM still tracks the contact
+    // point so it appears grounded regardless of the size mismatch.
     bool wheel_ok =
         load_static_emesh(ASSETS_DIR "/models/vehicles/wheel.emesh", wheel_mesh_) &&
         wheel_tex_.load_file(ASSETS_DIR "/Vehicles_psx/Wheel/wheel.png");
@@ -102,8 +103,10 @@ bool Application::init() {
         glm::vec3 wmn = wheel_mesh_.bounds_min();
         glm::vec3 wmx = wheel_mesh_.bounds_max();
         float native_r = std::max(wmx.y - wmn.y, wmx.z - wmn.z) * 0.5f;
-        wheel_visual_scale_ = (native_r > 1e-4f)
-            ? vehicle_.wheel_radius / native_r : 1.f;
+        constexpr float TARGET_VISIBLE_R = 0.275f;  // ~ car5 arch interior radius
+        wheel_visual_scale_   = (native_r > 1e-4f)
+            ? TARGET_VISIBLE_R / native_r : 1.f;
+        wheel_visible_radius_ = TARGET_VISIBLE_R;
     } else {
         PE_WARN("Wheel load failed; falling back to cube wheels");
     }
@@ -173,6 +176,10 @@ bool Application::init() {
     // E-W road. Lands cleanly on a road slab.
     glm::vec3 car_spawn = intersection + glm::vec3{62.f, 0.f, 0.f};
     car_spawn.y = Heightmap::sample(car_spawn.x, car_spawn.z) + 1.5f;
+    // Stiffer suspension: less pitch under accel/brake, less roll on tight
+    // turns. Spring + damper roughly doubled while keeping the damping ratio.
+    vehicle_.spring_k       = 130000.f;
+    vehicle_.damper_k       = 8000.f;
     vehicle_.spawn(car_spawn, /*yaw_deg=*/ -90.f);
 
     if (car5_ok) {
@@ -585,9 +592,13 @@ void Application::sync_vehicle_scene() {
             ? glm::vec3{wheel_visual_scale_}
             : glm::vec3{0.32f, 2.f * vehicle_.wheel_radius,
                               2.f * vehicle_.wheel_radius};
+        // Visible wheel may be smaller than physics wheel; offset the centre
+        // so the visible bottom = contact point regardless.
+        const float bottom_align = model_wheels
+            ? (vehicle_.wheel_radius - wheel_visible_radius_) : 0.f;
         for (std::size_t i = 0; i < 4; ++i) {
             glm::vec3 pos = wheels[i].mount_local;
-            pos.y -= wheels[i].visual_drop;
+            pos.y -= wheels[i].visual_drop + bottom_align;
             wheel_nodes_[i]->transform.position = pos;
 
             // Steer (chassis Y) composed with rolling spin (wheel axle = +X).
