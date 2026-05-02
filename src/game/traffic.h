@@ -25,8 +25,9 @@ public:
     void shutdown();
 
     // Per-frame update. Spawns up to one car / despawns out-of-range cars,
-    // and advances all live cars.
-    void update(float dt, const glm::vec3& camera_pos);
+    // and advances all live cars. `time_seconds` drives the global traffic
+    // light phase clock.
+    void update(float dt, double time_seconds, const glm::vec3& camera_pos);
 
     int active() const { return static_cast<int>(cars_.size()); }
 
@@ -36,11 +37,13 @@ private:
         int        i = 0, j = 0;       // intersection just left
         GridDir    dir = GridDir::East;
         float      distance_along = 0.f; // metres from (i, j) toward neighbour
-        float      speed = 10.f;         // m/s
+        float      speed = 0.f;          // m/s, current
+        float      target_speed = 12.f;  // m/s, free-flow desired
         glm::vec3  tint{1.f};
     };
 
-    bool try_spawn(const glm::vec3& camera_pos);
+    bool try_spawn(const glm::vec3& camera_pos, double time_seconds);
+    void update_speed(std::size_t idx, float dt, double time_seconds);
     void advance(std::size_t idx, float dt);
     void update_visual(Car& car);
     void destroy_car(std::size_t idx);

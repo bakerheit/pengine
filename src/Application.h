@@ -88,6 +88,8 @@ private:
 
     bool      last_ray_hit_  = false;
     float     last_ray_dist_ = 0.f;
+
+    double    world_time_    = 0.0;  // accumulates fixed-timestep seconds
 };
 
 } // namespace pengine

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "render/mesh.h"
 #include "scene/aabb.h"
@@ -14,22 +15,32 @@ namespace pengine {
 namespace {
 
 constexpr glm::vec3 CAR_PALETTE[] = {
-    {0.85f, 0.20f, 0.20f}, // red
-    {0.20f, 0.30f, 0.85f}, // blue
-    {0.95f, 0.92f, 0.85f}, // off-white
-    {0.30f, 0.30f, 0.32f}, // dark grey
-    {0.95f, 0.78f, 0.20f}, // taxi yellow
-    {0.20f, 0.55f, 0.30f}, // forest green
-    {0.55f, 0.40f, 0.25f}, // brown
+    {0.85f, 0.20f, 0.20f}, {0.20f, 0.30f, 0.85f}, {0.95f, 0.92f, 0.85f},
+    {0.30f, 0.30f, 0.32f}, {0.95f, 0.78f, 0.20f}, {0.20f, 0.55f, 0.30f},
+    {0.55f, 0.40f, 0.25f},
 };
 
 constexpr glm::vec3 CAR_FULL_EXTENTS{2.f, 1.0f, 4.0f};
-constexpr float     CAR_BODY_Y      = 0.55f; // chassis centre above ground
+constexpr float     CAR_LENGTH      = CAR_FULL_EXTENTS.z;
+constexpr float     CAR_BODY_Y      = 0.55f;
 
-// Direction → (di, dj) and right-hand lane offset.
+// IDM-lite tuning.
+constexpr float ACCEL_MAX     = 5.f;    // m/s^2
+constexpr float BRAKE_MAX     = 9.f;    // m/s^2
+constexpr float TIME_HEADWAY  = 1.4f;   // seconds of gap to leader
+constexpr float MIN_GAP       = 2.5f;   // metres at standstill
+
+// Stop line: how far back from the next intersection a car waits at red.
+constexpr float STOP_BACK     = 6.f;
+
+// Traffic light cycle.
+constexpr float LIGHT_PERIOD  = 12.f;   // full N-S + E-W cycle, seconds
+constexpr float LIGHT_HALF    = LIGHT_PERIOD * 0.5f;
+constexpr float YELLOW_TIME   = 1.5f;   // hard-stop window at end of green
+
 struct DirInfo {
     int       di, dj;
-    glm::vec3 right_offset; // pre-multiplied by lane_offset later
+    glm::vec3 right_offset;  // unit, multiplied by lane_offset later
     float     yaw_deg;
 };
 
@@ -41,6 +52,26 @@ inline DirInfo dir_info(GridDir d) {
         case GridDir::South: return { 0, -1, {-1,0, 0}, 270.f};
     }
     return {1, 0, {0,0,-1}, 0.f};
+}
+
+inline bool is_ew(GridDir d) {
+    return d == GridDir::East || d == GridDir::West;
+}
+
+// Per-intersection traffic-light state at `t` seconds. Returns true if the
+// car's direction has green. Each intersection has a deterministic phase
+// offset so the city doesn't blink in unison.
+bool light_is_green(int i, int j, GridDir car_dir, double t) {
+    std::uint32_t hash = static_cast<std::uint32_t>(i) * 0x9E3779B1u
+                       ^ static_cast<std::uint32_t>(j) * 0x85EBCA77u;
+    float offset = static_cast<float>(hash & 0xFFFFu) / 65535.f * LIGHT_PERIOD;
+    float local  = static_cast<float>(std::fmod(t + offset, LIGHT_PERIOD));
+    bool ew_green = (local < LIGHT_HALF);
+    // Treat last YELLOW_TIME of green as red so cars approaching the line
+    // start braking instead of running it.
+    if (ew_green && local > LIGHT_HALF - YELLOW_TIME) ew_green = false;
+    if (!ew_green && local > LIGHT_PERIOD - YELLOW_TIME) ew_green = true; // NS yellow
+    return is_ew(car_dir) ? ew_green : !ew_green;
 }
 
 } // namespace
@@ -61,22 +92,19 @@ void TrafficSystem::shutdown() {
     graph_ = nullptr;
 }
 
-bool TrafficSystem::try_spawn(const glm::vec3& camera_pos) {
+bool TrafficSystem::try_spawn(const glm::vec3& camera_pos, double /*time_seconds*/) {
     if (!graph_ || graph_->loaded_cell_count() == 0) return false;
 
-    // Up to a few attempts to find an in-range intersection; bail otherwise.
     for (int attempt = 0; attempt < 16; ++attempt) {
         int i, j;
         if (!graph_->random_loaded_intersection(rng_, i, j)) return false;
 
-        // Pick a starting direction from the random intersection.
         std::array<GridDir, 4> options;
         int n = graph_->outgoing(i, j, options);
         if (n == 0) continue;
         GridDir dir = options[rng_() % static_cast<unsigned>(n)];
         DirInfo di  = dir_info(dir);
 
-        // Random progress along the segment.
         float along = static_cast<float>(rng_() & 0xFFFFu) / 65535.f * ROAD_PITCH;
 
         glm::vec3 from_pos = RoadGraph::intersection_pos(i, j, 0.f);
@@ -88,12 +116,12 @@ bool TrafficSystem::try_spawn(const glm::vec3& camera_pos) {
         float dist = std::sqrt(dx*dx + dz*dz);
         if (dist < spawn_min_ || dist > spawn_max_) continue;
 
-        // Spawn it.
         Car car;
         car.i = i; car.j = j;
         car.dir = dir;
         car.distance_along = along;
-        car.speed = 8.f + static_cast<float>(rng_() & 0xFFFu) / 4096.f * 8.f; // 8..16 m/s
+        car.target_speed = 9.f + static_cast<float>(rng_() & 0xFFFu) / 4096.f * 7.f; // 9..16 m/s
+        car.speed = car.target_speed * 0.6f; // start moving at a reasonable pace
         car.tint = CAR_PALETTE[rng_() % (sizeof(CAR_PALETTE)/sizeof(CAR_PALETTE[0]))];
 
         car.node = scene_->create_node();
@@ -109,6 +137,52 @@ bool TrafficSystem::try_spawn(const glm::vec3& camera_pos) {
     return false;
 }
 
+void TrafficSystem::update_speed(std::size_t idx, float dt, double time_seconds) {
+    Car& c = cars_[idx];
+
+    // Constraint 1: free-flow desired speed.
+    float target = c.target_speed;
+
+    // Constraint 2: leader car directly ahead, same segment + lane + direction.
+    {
+        float best_gap = std::numeric_limits<float>::infinity();
+        for (std::size_t k = 0; k < cars_.size(); ++k) {
+            if (k == idx) continue;
+            const Car& o = cars_[k];
+            if (o.i != c.i || o.j != c.j || o.dir != c.dir) continue;
+            if (o.distance_along <= c.distance_along) continue;
+            float gap = o.distance_along - c.distance_along - CAR_LENGTH;
+            if (gap < best_gap) best_gap = gap;
+        }
+        if (std::isfinite(best_gap)) {
+            float leader_target = (best_gap - MIN_GAP) / TIME_HEADWAY;
+            target = std::min(target, std::max(0.f, leader_target));
+        }
+    }
+
+    // Constraint 3: traffic light at the segment's end intersection.
+    {
+        DirInfo info = dir_info(c.dir);
+        int next_i = c.i + info.di;
+        int next_j = c.j + info.dj;
+        if (!light_is_green(next_i, next_j, c.dir, time_seconds)) {
+            float stop_at = ROAD_PITCH - STOP_BACK;
+            float gap     = stop_at - c.distance_along;
+            if (gap > 0.f) {
+                float light_target = (gap - MIN_GAP) / TIME_HEADWAY;
+                target = std::min(target, std::max(0.f, light_target));
+            }
+        }
+    }
+
+    // Move c.speed toward target with bounded accel / brake.
+    float diff = target - c.speed;
+    float delta = (diff > 0.f) ? std::min(diff, ACCEL_MAX * dt)
+                                : std::max(diff, -BRAKE_MAX * dt);
+    c.speed += delta;
+    if (c.speed < 0.f) c.speed = 0.f;
+}
+
 void TrafficSystem::advance(std::size_t idx, float dt) {
     Car& c = cars_[idx];
     c.distance_along += c.speed * dt;
@@ -119,11 +193,9 @@ void TrafficSystem::advance(std::size_t idx, float dt) {
         c.i += cur.di;
         c.j += cur.dj;
 
-        // Pick new direction. Prefer not to U-turn.
         std::array<GridDir, 4> options;
         int n = graph_->outgoing(c.i, c.j, options);
         if (n == 0) {
-            // Dead-end: U-turn anyway. Place at the intersection and reverse.
             c.dir = opposite(c.dir);
             c.distance_along = 0.f;
             continue;
@@ -133,8 +205,7 @@ void TrafficSystem::advance(std::size_t idx, float dt) {
         std::size_t m = 0;
         for (std::size_t k = 0; k < static_cast<std::size_t>(n); ++k)
             if (options[k] != back) non_uturn[m++] = options[k];
-        c.dir = (m > 0) ? non_uturn[rng_() % m]
-                        : back;
+        c.dir = (m > 0) ? non_uturn[rng_() % m] : back;
     }
     update_visual(c);
 }
@@ -161,7 +232,8 @@ void TrafficSystem::destroy_car(std::size_t idx) {
     cars_.pop_back();
 }
 
-void TrafficSystem::update(float dt, const glm::vec3& camera_pos) {
+void TrafficSystem::update(float dt, double time_seconds,
+                            const glm::vec3& camera_pos) {
     if (!graph_) return;
 
     // Despawn out-of-range or in unloaded cells.
@@ -176,10 +248,11 @@ void TrafficSystem::update(float dt, const glm::vec3& camera_pos) {
     // Spawn up to a few per frame to refill toward target.
     int budget = 2;
     while (static_cast<int>(cars_.size()) < target_ && budget-- > 0) {
-        if (!try_spawn(camera_pos)) break;
+        if (!try_spawn(camera_pos, time_seconds)) break;
     }
 
-    // Advance.
+    // Update speed (IDM-lite + lights), then advance.
+    for (std::size_t i = 0; i < cars_.size(); ++i) update_speed(i, dt, time_seconds);
     for (std::size_t i = 0; i < cars_.size(); ++i) advance(i, dt);
 }
 

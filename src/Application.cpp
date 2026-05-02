@@ -348,7 +348,8 @@ void Application::update(double dt) {
     sync_vehicle_scene();
     sync_character_scene();
     streamer_.pump(camera_.position);
-    traffic_.update(fdt, camera_.position);
+    world_time_ += dt;
+    traffic_.update(fdt, world_time_, camera_.position);
     scene_.update();
 }
 
