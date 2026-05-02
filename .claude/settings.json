@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv /Users/andrewbaker/workspace/pengine/assets/Characters_psx/Models/Male/Character_01.fbx /Users/andrewbaker/workspace/pengine/assets/models/characters/character_01.emesh)",
+      "Bash(cmake --build build --parallel --target meshconv)",
+      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/meshconv /Users/andrewbaker/workspace/pengine/assets/Characters_psx/Models/Male/Character_01.fbx /tmp/probe.emesh)"
     ]
   }
 }

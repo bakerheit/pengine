@@ -55,6 +55,14 @@ bool Application::init() {
     grass_tex_.load_grass();
     facade_tex_.load_facade();
 
+    // Player character mesh + texture.
+    if (!character_model_.load(ASSETS_DIR "/models/characters/character_01.emesh")) {
+        PE_WARN("Falling back to cube character (model load failed)");
+    }
+    if (!character_tex_.load_file(ASSETS_DIR "/Characters_psx/Textures/Character_01.png")) {
+        PE_WARN("Falling back to checker for character (texture load failed)");
+    }
+
     Heightmap::set_seed(1337u);
 
     WorldConfig world_cfg;
@@ -106,9 +114,35 @@ bool Application::init() {
         wheel_nodes_[i]->renderable = make_renderable({0.10f, 0.10f, 0.10f}); // dark tyres
     }
 
-    // Character node — light skin tone for visibility against sky.
+    // Character: pose root (feet pos + facing yaw) with a visual child that
+    // applies model-specific offset/scale. Falls back to a tan cube if the
+    // model didn't load.
     character_node_ = scene_.create_node();
-    character_node_->renderable = make_renderable({0.65f, 0.55f, 0.45f});
+    character_visual_node_ = scene_.create_node(character_node_);
+    if (!character_model_.submeshes().empty()) {
+        const Mesh& m = character_model_.submeshes()[0].mesh;
+        glm::vec3 mn = m.bounds_min();
+        glm::vec3 mx = m.bounds_max();
+        float h_native = std::max(0.001f, mx.y - mn.y);
+        constexpr float TARGET_HEIGHT = 1.8f;
+        character_model_scale_  = TARGET_HEIGHT / h_native;
+        // After scale, the model spans y in [scale*mn.y, scale*mx.y]. Shift
+        // by -scale*mn.y so its feet sit at y=0 of the parent. Centre XZ
+        // similarly.
+        character_model_offset_ = {
+            -(mn.x + mx.x) * 0.5f * character_model_scale_,
+            -mn.y                  * character_model_scale_,
+            -(mn.z + mx.z) * 0.5f * character_model_scale_,
+        };
+        AABB local{ {mn.x, mn.y, mn.z}, {mx.x, mx.y, mx.z} };
+        character_visual_node_->renderable = Renderable{
+            &m, local, glm::vec3{1.f}, glm::vec2{1.f, 1.f},
+            character_tex_.id() ? &character_tex_ : &checker_tex_};
+        PE_INFO("Character model: native y=[%.3f,%.3f] -> scale %.4f offset y=%.3f",
+                mn.y, mx.y, character_model_scale_, character_model_offset_.y);
+    } else {
+        character_visual_node_->renderable = make_renderable({0.65f, 0.55f, 0.45f});
+    }
 
     sync_vehicle_scene();
     sync_character_scene();
@@ -186,6 +220,7 @@ void Application::shutdown() {
     asphalt_tex_.destroy();
     grass_tex_.destroy();
     facade_tex_.destroy();
+    character_tex_.destroy();
     window_.shutdown();
 }
 
@@ -352,6 +387,18 @@ void Application::update(double dt) {
                   && glm::distance(character_.feet_position(), vehicle_.position())
                      < ENTRY_RADIUS;
 
+    // Advance the character walk-cycle phase (strides). Faster when moving,
+    // slow idle breath when still. Read in sync_character_scene.
+    {
+        glm::vec3 vh = character_.velocity();
+        vh.y = 0.f;
+        float speed = glm::length(vh);
+        constexpr float WALK_REF = 6.f;            // CharacterController::MOVE_SPEED
+        double rate = (speed > 0.5f) ? double(speed / WALK_REF) : 0.30;
+        walk_phase_ += dt * rate;
+        if (walk_phase_ > 1024.0) walk_phase_ -= 1024.0;
+    }
+
     sync_vehicle_scene();
     sync_character_scene();
     streamer_.pump(camera_.position);
@@ -389,13 +436,47 @@ void Application::sync_vehicle_scene() {
 
 void Application::sync_character_scene() {
     if (!character_node_) return;
+
+    // Pose root at feet, rotated by facing yaw.
     glm::vec3 feet = character_.feet_position();
-    character_node_->transform.position = {feet.x, feet.y + 0.9f, feet.z};
+    character_node_->transform.position = feet;
     character_node_->transform.rotation =
         glm::angleAxis(glm::radians(-character_facing_yaw_deg_ - 90.f),
                         glm::vec3{0.f, 1.f, 0.f});
-    character_node_->transform.scale    = {0.55f, 1.8f, 0.4f};
+    character_node_->transform.scale    = {1.f, 1.f, 1.f};
     character_node_->mark_dirty();
+
+    // Walk animation: vertical bob (2 per stride) + tiny yaw zigzag (1 per
+    // stride) when moving; subtle breathing bob when idle.
+    glm::vec3 vh = character_.velocity();
+    vh.y = 0.f;
+    float speed = glm::length(vh);
+    bool  moving = speed > 0.5f;
+    constexpr float TWO_PI = 6.2831853f;
+    float phase = static_cast<float>(walk_phase_);
+    float bob_y, yaw_off_deg;
+    if (moving) {
+        bob_y       = std::sin(phase * TWO_PI * 2.f) * 0.045f;   // ±4.5 cm
+        yaw_off_deg = std::sin(phase * TWO_PI       ) * 4.f;     // ±4°
+    } else {
+        bob_y       = std::sin(phase * TWO_PI       ) * 0.012f;  // breathing
+        yaw_off_deg = 0.f;
+    }
+    glm::quat anim_yaw = glm::angleAxis(glm::radians(yaw_off_deg),
+                                          glm::vec3{0.f, 1.f, 0.f});
+
+    // Visual child: model offset + uniform scale + walk-cycle pose.
+    if (!character_model_.submeshes().empty()) {
+        character_visual_node_->transform.position =
+            character_model_offset_ + glm::vec3{0.f, bob_y, 0.f};
+        character_visual_node_->transform.rotation = anim_yaw;
+        character_visual_node_->transform.scale    = glm::vec3{character_model_scale_};
+    } else {
+        character_visual_node_->transform.position = {0.f, 0.9f + bob_y, 0.f};
+        character_visual_node_->transform.rotation = anim_yaw;
+        character_visual_node_->transform.scale    = {0.55f, 1.8f, 0.4f};
+    }
+    character_visual_node_->mark_dirty();
 }
 
 void Application::render(double /*alpha*/) {

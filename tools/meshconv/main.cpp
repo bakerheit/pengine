@@ -30,17 +30,35 @@ int main(int argc, char* argv[]) {
     const char* out_path = argv[2];
 
     Assimp::Importer imp;
+    // Note: no aiProcess_FlipUVs. Our texture loader already flips images
+    // vertically for OpenGL's bottom-left origin (stbi_set_flip_vertically_on_load),
+    // and our procedural / FBX UVs come out OpenGL-correct without a flip.
     const aiScene* scene = imp.ReadFile(in_path,
         aiProcess_Triangulate       |
         aiProcess_GenSmoothNormals  |
         aiProcess_CalcTangentSpace  |
-        aiProcess_FlipUVs           |
         aiProcess_JoinIdenticalVertices |
         aiProcess_SortByPType);
 
     if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
         std::fprintf(stderr, "meshconv: Assimp error: %s\n", imp.GetErrorString());
         return 1;
+    }
+
+    // Diagnostics: bones / animations are not yet preserved in .emesh, but
+    // surface them so we know whether the asset has any.
+    std::printf("meshconv: scene meshes=%u  animations=%u\n",
+                scene->mNumMeshes, scene->mNumAnimations);
+    for (unsigned int mi = 0; mi < scene->mNumMeshes; ++mi) {
+        const aiMesh* m = scene->mMeshes[mi];
+        std::printf("  mesh[%u]: '%s' verts=%u faces=%u bones=%u\n",
+                    mi, m->mName.C_Str(), m->mNumVertices, m->mNumFaces, m->mNumBones);
+    }
+    for (unsigned int ai = 0; ai < scene->mNumAnimations; ++ai) {
+        const aiAnimation* a = scene->mAnimations[ai];
+        std::printf("  anim[%u]: '%s' duration=%.2f tps=%.1f channels=%u\n",
+                    ai, a->mName.C_Str(), a->mDuration, a->mTicksPerSecond,
+                    a->mNumChannels);
     }
 
     std::vector<EmeshVertex>  vertices;

@@ -12,6 +12,7 @@
 #include "render/camera.h"
 #include "render/debug_draw.h"
 #include "render/mesh.h"
+#include "render/model.h"
 #include "render/shader.h"
 #include "render/spring_arm.h"
 #include "render/texture.h"
@@ -50,10 +51,12 @@ private:
 
     Shader         lit_shader_;
     Mesh           cube_mesh_;
+    Model          character_model_;
     Texture        checker_tex_;
     Texture        asphalt_tex_;
     Texture        grass_tex_;
     Texture        facade_tex_;
+    Texture        character_tex_;
     Camera         camera_;
     Scene          scene_;
     Streamer       streamer_;
@@ -70,8 +73,12 @@ private:
     SceneNode*          chassis_visual_node_ = nullptr;
     SceneNode*          wheel_nodes_[4]      = {nullptr, nullptr, nullptr, nullptr};
 
-    SceneNode*          character_node_      = nullptr;
+    SceneNode*          character_node_      = nullptr;  // pose root: feet pos + facing
+    SceneNode*          character_visual_node_ = nullptr; // child: model offset + scale + bob
     float               character_facing_yaw_deg_ = -90.f;
+    glm::vec3           character_model_offset_{0.f, 0.f, 0.f};
+    float               character_model_scale_ = 1.f;
+    double              walk_phase_ = 0.0;  // strides accumulator for bob anim
 
     Mode  mode_           = Mode::OnFoot;
     Mode  saved_mode_     = Mode::OnFoot; // last non-debug mode

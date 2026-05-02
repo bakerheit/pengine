@@ -31,6 +31,10 @@ void CharacterController::update(float dt, const Input& input, float forward_yaw
     if (wish_len > 1e-4f) wish /= wish_len;
 
     glm::vec3 horiz_vel = wish * MOVE_SPEED;
+    // Mirror horizontal wish velocity into vel_.xz so callers (e.g. the
+    // walk-cycle animation) can ask "are we moving?" from velocity().
+    vel_.x = horiz_vel.x;
+    vel_.z = horiz_vel.z;
 
     // ---- Vertical (gravity + jump) ------------------------------------------
     if (grounded_ && input.pressed(SDL_SCANCODE_SPACE)) {
