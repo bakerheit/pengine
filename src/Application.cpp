@@ -59,57 +59,10 @@ bool Application::init() {
     facade_tex_.load_facade();
     sidewalk_tex_.load_sidewalk();
 
-    // Car5 model + paint variants. Mesh is shared between player + AI; each
-    // car instance picks a random texture index on spawn for visual variety.
-    bool car5_ok =
-        load_static_emesh(ASSETS_DIR "/models/vehicles/car5.emesh", car5_mesh_) &&
-        car5_paints_[0].load_file(ASSETS_DIR "/Vehicles_psx/Car 05/car5.png") &&
-        car5_paints_[1].load_file(ASSETS_DIR "/Vehicles_psx/Car 05/car5_green.png") &&
-        car5_paints_[2].load_file(ASSETS_DIR "/Vehicles_psx/Car 05/car5_grey.png");
-    if (car5_ok) {
-        // Pick a uniform scale so the model length ~= chassis length; centre
-        // the model laterally and pin its body so that the natural wheel-
-        // arch centre (native y=0.48 in the car5 mesh) lines up with the
-        // physics wheel-centre line (mount_y - suspension_rest). That puts
-        // the wheels inside the body's wheel arches at rest.
-        glm::vec3 mn = car5_mesh_.bounds_min();
-        glm::vec3 mx = car5_mesh_.bounds_max();
-        float native_length      = std::max(0.001f, mx.z - mn.z);
-        float target_length      = vehicle_.chassis_full_extents.z;
-        float s                  = target_length / native_length;
-        constexpr float ARCH_CY  = 0.30f;  // car5 wheel-cluster centre y, native units
-        float wheel_chassis_y    = -vehicle_.chassis_full_extents.y * 0.5f
-                                 -  vehicle_.suspension_rest;
-        car5_visual_scale_  = glm::vec3{s};
-        car5_visual_offset_ = {
-            -(mn.x + mx.x) * 0.5f * s,           // centre x
-             wheel_chassis_y - ARCH_CY * s,      // arch centre = physics wheel centre
-            -(mn.z + mx.z) * 0.5f * s,           // centre z
-        };
-        PE_INFO("Car5 model: native=%.2fx%.2fx%.2f scale=%.3f",
-                mx.x - mn.x, mx.y - mn.y, mx.z - mn.z, s);
-    } else {
-        PE_WARN("Car5 load failed; cars will fall back to cube visuals");
-    }
-
-    // Wheel mesh shared between the player's four wheels. Visible radius is
-    // sized to fit the body's wheel-arch interior (smaller than the physics
-    // raycast radius); the visible wheel BOTTOM still tracks the contact
-    // point so it appears grounded regardless of the size mismatch.
-    bool wheel_ok =
-        load_static_emesh(ASSETS_DIR "/models/vehicles/wheel.emesh", wheel_mesh_) &&
-        wheel_tex_.load_file(ASSETS_DIR "/Vehicles_psx/Wheel/wheel.png");
-    if (wheel_ok) {
-        glm::vec3 wmn = wheel_mesh_.bounds_min();
-        glm::vec3 wmx = wheel_mesh_.bounds_max();
-        float native_r = std::max(wmx.y - wmn.y, wmx.z - wmn.z) * 0.5f;
-        constexpr float TARGET_VISIBLE_R = 0.275f;  // ~ car5 arch interior radius
-        wheel_visual_scale_   = (native_r > 1e-4f)
-            ? TARGET_VISIBLE_R / native_r : 1.f;
-        wheel_visible_radius_ = TARGET_VISIBLE_R;
-    } else {
-        PE_WARN("Wheel load failed; falling back to cube wheels");
-    }
+    // Player vehicle assets — body mesh, paints, and wheel mesh. Done early
+    // because TrafficSystem::init shares the body mesh handles. The actual
+    // rigid-body spawn + scene nodes happen later via player_vehicle_.spawn.
+    player_vehicle_.init(scene_, cube_mesh_, checker_tex_);
 
     // Player character: skinned mesh + skeleton + walk animation.
     character_skinned_ =
@@ -160,11 +113,13 @@ bool Application::init() {
     TrafficSystem::Visuals tvis;
     tvis.light_mesh = &cube_mesh_;
     tvis.light_tex  = &checker_tex_;
-    if (car5_ok) {
-        tvis.car_mesh   = &car5_mesh_;
-        tvis.car_scale  = car5_visual_scale_;
-        tvis.car_yaw_offset_deg = 180.f; // car5 model forward = +Z; flip to -Z
-        tvis.car_paints = {&car5_paints_[0], &car5_paints_[1], &car5_paints_[2]};
+    if (player_vehicle_.body_loaded()) {
+        tvis.car_mesh           = player_vehicle_.body_mesh();
+        tvis.car_scale          = player_vehicle_.body_visual_scale();
+        tvis.car_yaw_offset_deg = player_vehicle_.body_yaw_offset_deg();
+        tvis.car_paints         = {player_vehicle_.paint(0),
+                                    player_vehicle_.paint(1),
+                                    player_vehicle_.paint(2)};
     }
     traffic_.init(&scene_, tvis, &road_graph_, /*target_count=*/ 30);
 
@@ -172,30 +127,11 @@ bool Application::init() {
     spawn.y = Heightmap::sample(spawn.x, spawn.z);
     character_.teleport(spawn);
 
-    // Car at the next intersection one block east — 62 m along the central
-    // E-W road. Lands cleanly on a road slab.
+    // Player vehicle — spawn the rigid body and create its scene nodes.
+    // Spawned one block east of the central intersection; lands on a road slab.
     glm::vec3 car_spawn = intersection + glm::vec3{62.f, 0.f, 0.f};
     car_spawn.y = Heightmap::sample(car_spawn.x, car_spawn.z) + 1.5f;
-    // Stiffer suspension: less pitch under accel/brake, less roll on tight
-    // turns. Spring + damper roughly doubled while keeping the damping ratio.
-    vehicle_.spring_k       = 130000.f;
-    vehicle_.damper_k       = 8000.f;
-    vehicle_.spawn(car_spawn, /*yaw_deg=*/ -90.f);
-
-    if (car5_ok) {
-        // Align suspension raycasts with the car5 model's actual wheels.
-        // Native wheel anchors (low-y vertex clusters per quadrant), then
-        // apply scale + 180° Y rotation so model +Z front becomes chassis -Z.
-        const float s        = car5_visual_scale_.x;
-        const float wheel_x  = 1.038f * s;
-        const float wheel_zf = 2.254f * s;  // model front (chassis-local -Z)
-        const float wheel_zr = 1.813f * s;  // model rear  (chassis-local +Z)
-        const float mount_y  = -vehicle_.chassis_full_extents.y * 0.5f;
-        vehicle_.set_wheel_mount(0, {-wheel_x, mount_y, -wheel_zf}); // FL
-        vehicle_.set_wheel_mount(1, {+wheel_x, mount_y, -wheel_zf}); // FR
-        vehicle_.set_wheel_mount(2, {-wheel_x, mount_y, +wheel_zr}); // RL
-        vehicle_.set_wheel_mount(3, {+wheel_x, mount_y, +wheel_zr}); // RR
-    }
+    player_vehicle_.spawn(car_spawn, /*yaw_deg=*/ -90.f);
 
     AABB cube_aabb;
     cube_aabb.min = cube_mesh_.bounds_min();
@@ -207,39 +143,6 @@ bool Application::init() {
         return Renderable{&cube_mesh_, cube_aabb, tint,
                           glm::vec2{1.f, 1.f}, &checker_tex_};
     };
-
-    // Vehicle scene nodes. Player car uses the car5 model when available,
-    // textured with the default paint. Wheels are separate nodes so suspension
-    // / steering / rolling can drive them independently of the body.
-    chassis_node_         = scene_.create_node();
-    chassis_visual_node_  = scene_.create_node(chassis_node_);
-    if (car5_ok) {
-        AABB local;
-        local.min = car5_mesh_.bounds_min();
-        local.max = car5_mesh_.bounds_max();
-        chassis_visual_node_->renderable = Renderable{
-            &car5_mesh_, local, glm::vec3{1.f, 1.f, 1.f},
-            glm::vec2{1.f, 1.f}, &car5_paints_[0]};
-    } else {
-        chassis_visual_node_->renderable = make_renderable({0.85f, 0.20f, 0.18f});
-    }
-    {
-        const bool use_wheel_mesh = wheel_ok;
-        AABB wheel_local;
-        wheel_local.min = use_wheel_mesh ? wheel_mesh_.bounds_min()
-                                          : -glm::vec3{0.5f};
-        wheel_local.max = use_wheel_mesh ? wheel_mesh_.bounds_max()
-                                          :  glm::vec3{0.5f};
-        const Mesh*    wm = use_wheel_mesh ? &wheel_mesh_ : &cube_mesh_;
-        const Texture* wt = use_wheel_mesh ? &wheel_tex_  : &checker_tex_;
-        glm::vec3 tint = use_wheel_mesh ? glm::vec3{1.f}
-                                         : glm::vec3{0.10f, 0.10f, 0.10f};
-        for (int i = 0; i < 4; ++i) {
-            wheel_nodes_[i] = scene_.create_node(chassis_node_);
-            wheel_nodes_[i]->renderable = Renderable{
-                wm, wheel_local, tint, glm::vec2{1.f, 1.f}, wt};
-        }
-    }
 
     // Character: pose root (feet pos + facing yaw) with a visual child that
     // carries model offset + uniform scale. The skinned mesh is drawn out-of-
@@ -265,7 +168,7 @@ bool Application::init() {
         character_visual_node_->renderable = make_renderable({0.65f, 0.55f, 0.45f});
     }
 
-    sync_vehicle_scene();
+    player_vehicle_.update_visuals(0.f);
     sync_character_scene();
 
     // Spring arm starts behind the character looking forward (yaw=-90 = -Z).
@@ -312,14 +215,14 @@ int Application::run() {
                           st.loaded_cells, world_collision_.building_count(),
                           traffic_.active(),
                           fps_frames_, max_frame_ms_,
-                          vehicle_.speed_kmh(),
-                          vehicle_.airborne() ? " AIR" : "",
+                          player_vehicle_.speed_kmh(),
+                          player_vehicle_.airborne() ? " AIR" : "",
                           can_enter_car_ ? "  [F to enter]" : "");
             SDL_SetWindowTitle(window_.sdl(), title);
             PE_INFO("%s  fps=%d worst=%.1fms  car=%.0fkm/h%s  traffic=%d%s",
                     mode_name(mode_), fps_frames_, max_frame_ms_,
-                    vehicle_.speed_kmh(),
-                    vehicle_.airborne() ? " AIR" : " GND",
+                    player_vehicle_.speed_kmh(),
+                    player_vehicle_.airborne() ? " AIR" : " GND",
                     traffic_.active(),
                     can_enter_car_ ? "  ENTER" : "");
             fps_frames_   = 0;
@@ -357,7 +260,7 @@ void Application::enter_mode(Mode m) {
     } else if (m == Mode::InVehicle) {
         spring_.desired_dist = 8.5f;
         // Match camera yaw to vehicle heading so the player faces the road.
-        glm::vec3 vfwd = vehicle_.forward();
+        glm::vec3 vfwd = player_vehicle_.forward();
         spring_.yaw_deg = glm::degrees(std::atan2(vfwd.z, vfwd.x));
         spring_.pitch_deg = -12.f;
         character_node_->visible = false;
@@ -370,7 +273,8 @@ void Application::try_toggle_vehicle() {
         if (can_enter_car_) enter_mode(Mode::InVehicle);
     } else if (mode_ == Mode::InVehicle) {
         // Exit to the left side of the car, snapped to terrain.
-        glm::vec3 exit = vehicle_.position() + vehicle_.right() * (-2.5f);
+        glm::vec3 exit = player_vehicle_.position()
+                       + player_vehicle_.right() * (-2.5f);
         exit.y = Heightmap::sample(exit.x, exit.z);
         character_.teleport(exit);
         enter_mode(Mode::OnFoot);
@@ -454,7 +358,7 @@ void Application::update_on_foot(float dt, float mdx, float mdy) {
 
 void Application::update_in_vehicle(float dt, float mdx, float mdy) {
     spring_.apply_mouse(mdx, mdy);
-    spring_.anchor = vehicle_.position() + glm::vec3{0.f, 1.2f, 0.f};
+    spring_.anchor = player_vehicle_.position() + glm::vec3{0.f, 1.2f, 0.f};
     spring_.update(world_collision_);
 
     camera_.position = spring_.camera_position;
@@ -474,7 +378,8 @@ void Application::update(double dt) {
     if (mode_ == Mode::InVehicle) {
         bool w_down = input_.down(SDL_SCANCODE_W);
         bool s_down = input_.down(SDL_SCANCODE_S);
-        float v_fwd = glm::dot(vehicle_.body().linear_vel, vehicle_.forward());
+        float v_fwd = glm::dot(player_vehicle_.linear_vel(),
+                                player_vehicle_.forward());
 
         float thr = 0.f, brk = 0.f;
         if (w_down && s_down) {
@@ -489,12 +394,12 @@ void Application::update(double dt) {
         float steer = (input_.down(SDL_SCANCODE_D) ? 1.f : 0.f)
                     - (input_.down(SDL_SCANCODE_A) ? 1.f : 0.f);
         bool  hb   = input_.down(SDL_SCANCODE_SPACE);
-        vehicle_.set_inputs(thr, brk, steer, hb);
+        player_vehicle_.set_inputs(thr, brk, steer, hb);
     } else {
-        vehicle_.set_inputs(0.f, 0.f, 0.f, false);
+        player_vehicle_.set_inputs(0.f, 0.f, 0.f, false);
     }
-    vehicle_.substep(fdt * 0.5f, world_collision_);
-    vehicle_.substep(fdt * 0.5f, world_collision_);
+    player_vehicle_.substep(fdt * 0.5f, world_collision_);
+    player_vehicle_.substep(fdt * 0.5f, world_collision_);
 
     if (mode_ == Mode::DebugFly) {
         camera_.update(fdt, input_, mdx, mdy);
@@ -506,8 +411,8 @@ void Application::update(double dt) {
 
     // Update proximity prompt for the next F press.
     can_enter_car_ = (mode_ == Mode::OnFoot)
-                  && glm::distance(character_.feet_position(), vehicle_.position())
-                     < ENTRY_RADIUS;
+                  && glm::distance(character_.feet_position(),
+                                    player_vehicle_.position()) < ENTRY_RADIUS;
 
     // Advance the walk-anim time accumulator (seconds). The Mixamo walk loop
     // is 1 s = 1 stride, so we just scale by current speed / reference speed.
@@ -547,15 +452,7 @@ void Application::update(double dt) {
                                                     char_skin_matrices_);
     }
 
-    // Roll the visible wheels at v / r. Use signed forward velocity so the
-    // wheels reverse direction when reversing.
-    {
-        float speed_signed = glm::dot(vehicle_.forward(), vehicle_.body().linear_vel);
-        wheel_spin_rad_   += static_cast<double>(speed_signed) * dt
-                           / static_cast<double>(vehicle_.wheel_radius);
-    }
-
-    sync_vehicle_scene();
+    player_vehicle_.update_visuals(static_cast<float>(dt));
     sync_character_scene();
     streamer_.pump(camera_.position);
     world_time_ += dt;
@@ -563,61 +460,6 @@ void Application::update(double dt) {
     scene_.update();
 }
 
-void Application::sync_vehicle_scene() {
-    if (!chassis_node_) return;
-    chassis_node_->transform.position = vehicle_.position();
-    chassis_node_->transform.rotation = vehicle_.orientation();
-    chassis_node_->transform.scale    = {1.f, 1.f, 1.f};
-    chassis_node_->mark_dirty();
-
-    if (car5_mesh_.index_count() > 0) {
-        chassis_visual_node_->transform.position = car5_visual_offset_;
-        // car5 model forward is local +Z. Chassis frame uses -Z forward (per
-        // Vehicle::forward()), so flip the visual 180° around Y.
-        chassis_visual_node_->transform.rotation =
-            glm::angleAxis(glm::radians(180.f), glm::vec3{0.f, 1.f, 0.f});
-        chassis_visual_node_->transform.scale    = car5_visual_scale_;
-    } else {
-        chassis_visual_node_->transform.position = {0.f, 0.f, 0.f};
-        chassis_visual_node_->transform.rotation = glm::quat{1.f, 0.f, 0.f, 0.f};
-        chassis_visual_node_->transform.scale    = vehicle_.chassis_full_extents;
-    }
-    chassis_visual_node_->mark_dirty();
-
-    if (wheel_nodes_[0]) {
-        const bool model_wheels = wheel_mesh_.index_count() > 0;
-        const auto& wheels      = vehicle_.wheels();
-        const float spin        = static_cast<float>(wheel_spin_rad_);
-        const glm::vec3 wheel_scale = model_wheels
-            ? glm::vec3{wheel_visual_scale_}
-            : glm::vec3{0.32f, 2.f * vehicle_.wheel_radius,
-                              2.f * vehicle_.wheel_radius};
-        // Visible wheel may be smaller than physics wheel; offset the centre
-        // so the visible bottom = contact point regardless.
-        const float bottom_align = model_wheels
-            ? (vehicle_.wheel_radius - wheel_visible_radius_) : 0.f;
-        for (std::size_t i = 0; i < 4; ++i) {
-            glm::vec3 pos = wheels[i].mount_local;
-            pos.y -= wheels[i].visual_drop + bottom_align;
-            wheel_nodes_[i]->transform.position = pos;
-
-            // Steer (chassis Y) composed with rolling spin (wheel axle = +X).
-            // Order steer * spin so the spin happens in the wheel's local frame
-            // before steering rotates the wheel around chassis up.
-            glm::quat steer{1.f, 0.f, 0.f, 0.f};
-            if (wheels[i].is_steering) {
-                steer = glm::angleAxis(-vehicle_.steer_rad(),
-                                        glm::vec3{0.f, 1.f, 0.f});
-            }
-            glm::quat roll = model_wheels
-                ? glm::angleAxis(-spin, glm::vec3{1.f, 0.f, 0.f})
-                : glm::quat{1.f, 0.f, 0.f, 0.f};
-            wheel_nodes_[i]->transform.rotation = steer * roll;
-            wheel_nodes_[i]->transform.scale    = wheel_scale;
-            wheel_nodes_[i]->mark_dirty();
-        }
-    }
-}
 
 void Application::compute_procedural_walk_pose(float phase, bool moving) {
     const int n = character_skeleton_.bone_count();
@@ -744,14 +586,14 @@ void Application::render(double /*alpha*/) {
     }
 
     // Wheel contact markers.
-    for (const Wheel& w : vehicle_.wheels()) {
+    for (const Wheel& w : player_vehicle_.vehicle().wheels()) {
         if (w.grounded) debug_draw_.cross(w.contact_world, 0.2f);
     }
 
     // Enter-vehicle prompt: ring around car when in range.
     if (can_enter_car_) {
-        glm::vec3 base = vehicle_.position();
-        base.y -= vehicle_.chassis_full_extents.y * 0.5f;
+        glm::vec3 base = player_vehicle_.position();
+        base.y -= player_vehicle_.vehicle().chassis_full_extents.y * 0.5f;
         debug_draw_.cylinder_xz(base, ENTRY_RADIUS, 0.05f, 32);
     }
 

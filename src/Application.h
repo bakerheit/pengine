@@ -5,8 +5,8 @@
 #include <glm/glm.hpp>
 
 #include "core/time.h"
+#include "game/player_vehicle.h"
 #include "game/traffic.h"
-#include "game/vehicle.h"
 #include "physics/character_controller.h"
 #include "physics/world_collision.h"
 #include "platform/input.h"
@@ -46,7 +46,6 @@ private:
     void try_toggle_vehicle();
     void update_on_foot(float dt, float mdx, float mdy);
     void update_in_vehicle(float dt, float mdx, float mdy);
-    void sync_vehicle_scene();
     void sync_character_scene();
     void compute_procedural_walk_pose(float phase, bool moving);
 
@@ -57,15 +56,7 @@ private:
     Shader         lit_shader_;
     Shader         skinned_shader_;
     Mesh           cube_mesh_;
-    Mesh           car5_mesh_;
-    Texture        car5_paints_[3];      // default / green / grey
-    glm::vec3      car5_visual_scale_  {1.f};
-    glm::vec3      car5_visual_offset_ {0.f};
-    Mesh           wheel_mesh_;          // shared by all 4 player wheels
-    Texture        wheel_tex_;
-    float          wheel_visual_scale_  = 1.f;  // applied to wheel mesh
-    float          wheel_visible_radius_ = 0.f; // post-scale radius
-    double         wheel_spin_rad_      = 0.0;  // rolling angle accumulator
+
     SkinnedMesh    character_skinned_mesh_;
     Skeleton       character_skeleton_;
     Animation      character_anim_;
@@ -87,10 +78,7 @@ private:
     RoadGraph           road_graph_;
     TrafficSystem       traffic_;
 
-    Vehicle             vehicle_;
-    SceneNode*          chassis_node_        = nullptr;
-    SceneNode*          chassis_visual_node_ = nullptr;
-    SceneNode*          wheel_nodes_[4]      = {nullptr, nullptr, nullptr, nullptr};
+    PlayerVehicle       player_vehicle_;
 
     SceneNode*          character_node_      = nullptr;  // pose root: feet pos + facing
     SceneNode*          character_visual_node_ = nullptr; // child: model offset + scale
