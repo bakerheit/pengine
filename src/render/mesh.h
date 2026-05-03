@@ -23,14 +23,21 @@ public:
     Mesh& operator=(const Mesh&) = delete;
 
     Mesh(Mesh&& o) noexcept
-        : vao_(o.vao_), vbo_(o.vbo_), ebo_(o.ebo_), index_count_(o.index_count_),
-          bounds_min_(o.bounds_min_), bounds_max_(o.bounds_max_)
-    { o.vao_ = o.vbo_ = o.ebo_ = 0; o.index_count_ = 0; }
+        : vao_(o.vao_), vbo_(o.vbo_), ebo_(o.ebo_),
+          index_count_(o.index_count_),
+          bounds_min_(o.bounds_min_), bounds_max_(o.bounds_max_),
+          instance_vbo_(o.instance_vbo_), instance_capacity_(o.instance_capacity_)
+    { o.vao_ = o.vbo_ = o.ebo_ = o.instance_vbo_ = 0;
+      o.instance_capacity_ = 0; o.index_count_ = 0; }
     Mesh& operator=(Mesh&& o) noexcept {
         if (this != &o) { destroy();
-            vao_ = o.vao_; vbo_ = o.vbo_; ebo_ = o.ebo_; index_count_ = o.index_count_;
+            vao_ = o.vao_; vbo_ = o.vbo_; ebo_ = o.ebo_;
+            instance_vbo_ = o.instance_vbo_;
+            instance_capacity_ = o.instance_capacity_;
+            index_count_ = o.index_count_;
             bounds_min_ = o.bounds_min_; bounds_max_ = o.bounds_max_;
-            o.vao_ = o.vbo_ = o.ebo_ = 0; o.index_count_ = 0; }
+            o.vao_ = o.vbo_ = o.ebo_ = o.instance_vbo_ = 0;
+            o.instance_capacity_ = 0; o.index_count_ = 0; }
         return *this;
     }
 
@@ -38,6 +45,13 @@ public:
                 const std::vector<uint32_t>& indices);
     void destroy();
     void draw() const;
+
+    // Instanced draw. Uploads `count` per-instance model matrices to an
+    // internal VBO and emits a single glDrawElementsInstanced. The first call
+    // wires up vertex attribs 4..7 (one mat4 column each) on this mesh's VAO
+    // with divisor = 1; pair with a shader that consumes them at those
+    // locations (see assets/shaders/lit_instanced.vert).
+    void draw_instanced(const glm::mat4* matrices, int count) const;
 
     int       index_count() const { return index_count_; }
     glm::vec3 bounds_min()  const { return bounds_min_; }
@@ -50,6 +64,11 @@ private:
     int       index_count_ = 0;
     glm::vec3 bounds_min_  = {0.f, 0.f, 0.f};
     glm::vec3 bounds_max_  = {0.f, 0.f, 0.f};
+
+    // Lazy-initialised on first draw_instanced() call. Mutable so a
+    // logically-const draw can grow the buffer.
+    mutable GLuint instance_vbo_      = 0;
+    mutable int    instance_capacity_ = 0;
 };
 
 // Procedural geometry helpers.

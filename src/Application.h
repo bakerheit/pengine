@@ -14,12 +14,14 @@
 #include "render/camera.h"
 #include "render/debug_draw.h"
 #include "render/mesh.h"
+#include "render/minimap.h"
 #include "render/shader.h"
 #include "render/skeleton.h"
 #include "render/skinned_mesh.h"
 #include "render/spring_arm.h"
 #include "render/texture.h"
 #include "scene/scene.h"
+#include "world/model_registry.h"
 #include "world/road_graph.h"
 #include "world/streamer.h"
 #include "world/world_defs.h"
@@ -43,6 +45,7 @@ private:
 
     void enter_mode(Mode m);
     void try_toggle_vehicle();
+    void log_debug_area();
     void update_on_foot(float dt, float mdx, float mdy);
     void update_in_vehicle(float dt, float mdx, float mdy);
     void sync_character_scene();
@@ -53,13 +56,17 @@ private:
     FixedTimestep  clock_;
 
     Shader         lit_shader_;
+    Shader         lit_instanced_shader_;
     Shader         skinned_shader_;
     Mesh           cube_mesh_;
 
     SkinnedMesh    character_skinned_mesh_;
     Skeleton       character_skeleton_;
-    Animation      character_anim_;
+    Animation      character_anim_;          // walk loop
+    Animation      character_anim_sprint_;   // sprint loop (shift held)
+    Animation      character_anim_idle_;     // breathing idle (no input)
     bool           character_skinned_ = false;
+    bool           sprinting_         = false; // set in update_on_foot
     Texture        checker_tex_;
     Texture        asphalt_tex_;
     Texture        grass_tex_;
@@ -68,11 +75,13 @@ private:
     Texture        character_tex_;
     Camera         camera_;
     Scene          scene_;
+    ModelRegistry  world_models_;
     Streamer       streamer_;
 
     WorldCollision      world_collision_;
     CharacterController character_;
     DebugDraw           debug_draw_;
+    Minimap             minimap_;
     SpringArm           spring_;
     RoadGraph           road_graph_;
     TrafficSystem       traffic_;

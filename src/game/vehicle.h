@@ -35,17 +35,17 @@ public:
     float suspension_max   = 0.65f;
     float spring_k         = 60000.f;
     float damper_k         = 3800.f;
-    float engine_force     = 22000.f;     // total drive force at 0 m/s
+    float engine_force     = 16000.f;     // total drive force at 0 m/s
     float reverse_force    = 13000.f;     // total reverse force at 0 m/s
     float brake_force      = 36000.f;     // total brake force
     float max_speed        = 32.f;        // m/s   (~115 km/h) forward
     float max_reverse      = 12.f;        // m/s   (~ 43 km/h) reverse
     float max_steer_rad    = glm::radians(28.f);
-    float steer_lerp       = 8.f;         // per-second toward input
+    float steer_lerp       = 13.f;        // per-second toward input
     float lateral_grip     = 14.f;        // per-wheel lateral velocity-kill rate
     float handbrake_grip   = 1.5f;        // rear lateral grip when handbrake held
-    float linear_drag      = 0.30f;       // 1/s air drag (horizontal)
-    float angular_drag     = 2.5f;        // 1/s
+    float linear_drag      = 0.50f;       // 1/s air drag (horizontal)
+    float angular_drag     = 4.0f;        // 1/s
     float gravity          = -18.f;
     float chassis_collision_radius = 1.4f; // cylinder used vs buildings
 
@@ -68,6 +68,12 @@ public:
         body_.linear_vel  = {0.f, 0.f, 0.f};
         body_.angular_vel = {0.f, 0.f, 0.f};
     }
+
+    // Bookkeeping helpers used by external collision resolution (vehicle ↔
+    // vehicle in TrafficSystem). Translate moves the chassis, apply_impulse
+    // adds to linear velocity at the centre of mass.
+    void translate(const glm::vec3& delta)              { body_.position += delta; }
+    void apply_impulse_central(const glm::vec3& imp)    { body_.linear_vel += imp / body_.mass; }
 
     // Per-frame inputs (clamped internally). throttle is signed:
     // +1 = forward full, -1 = reverse full.

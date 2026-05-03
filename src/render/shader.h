@@ -2,6 +2,7 @@
 
 #include <string>
 #include <ctime>
+#include <unordered_map>
 #include <glad/gl.h>
 #include <glm/glm.hpp>
 
@@ -35,11 +36,16 @@ public:
     void set_mat4_array(const char* name, const glm::mat4* data, int count) const;
 
 private:
-    bool compile_and_link();
+    bool  compile_and_link();
+    GLint location(const char* name) const;
 
     GLuint      program_    = 0;
     std::string vert_path_;
     std::string frag_path_;
+
+    // Cached uniform locations. -1 is a valid value ("uniform not present");
+    // we keep it cached so we don't re-query glGetUniformLocation each frame.
+    mutable std::unordered_map<std::string, GLint> uniform_cache_;
 
 #ifndef NDEBUG
     std::time_t vert_mtime_   = 0;

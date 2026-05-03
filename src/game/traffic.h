@@ -15,8 +15,10 @@
 
 namespace pengine {
 
+struct Frustum;
 class Scene;
 class SceneNode;
+class Shader;
 class WorldCollision;
 
 // All cars in the world — player, AI, and parked alike — share the same
@@ -103,6 +105,12 @@ public:
     void set_player_inputs(float throttle, float brake, float steer,
                             bool handbrake);
 
+    // Draw every visible car's wheels in a single instanced draw. Caller must
+    // have bound `shader` and set its globals (view_proj, lights, diffuse=0,
+    // tint=1, uv_scale=1). No-op if the wheel asset failed to load — in that
+    // case wheel rendering happens through the regular Scene::draw path.
+    void draw_wheels(Shader& shader, const Frustum& frustum) const;
+
 private:
     // Tunable visual params, derived from the car5 + Wheel.obj assets at
     // init time. Lives in the cpp's anon namespace; a pointer here is just
@@ -115,6 +123,10 @@ private:
     void integrate_player_or_parked(Car& c, float dt,
                                      const WorldCollision& world);
     void sync_visuals(Car& c);
+
+    // Resolve all car ↔ car overlaps. Called once per update after every
+    // car has had its pose updated, before sync_visuals.
+    void resolve_vehicle_collisions();
 
     // AI helpers (kinematic lane follow).
     void ai_update_speed(Car& c, float dt, double time_seconds);

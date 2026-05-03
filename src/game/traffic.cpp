@@ -8,7 +8,9 @@
 #include "core/log.h"
 #include "physics/world_collision.h"
 #include "render/mesh.h"
+#include "render/shader.h"
 #include "scene/aabb.h"
+#include "scene/frustum.h"
 #include "scene/scene.h"
 #include "scene/scene_node.h"
 #include "world/city_layout.h"
@@ -55,7 +57,7 @@ namespace WheelAsset {
 // tight corners. Applied to every car so a stolen AI handles the same.
 namespace SuspensionOverride {
     constexpr float SPRING_K = 130000.f;
-    constexpr float DAMPER_K =   8000.f;
+    constexpr float DAMPER_K =  13000.f;  // ζ ≈ 0.93 — just shy of critical
 }
 
 // ---- AI lane-follow tuning -------------------------------------------------
@@ -145,6 +147,67 @@ constexpr float CORNER_DIST     = STREET_WIDTH * 0.5f + CORNER_INSET;
 inline std::uint64_t pack_ij(int i, int j) {
     return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(i)) << 32)
          |  static_cast<std::uint64_t>(static_cast<std::uint32_t>(j));
+}
+
+// =============================================================================
+// 2D OBB intersection (XZ plane). Cars rotate primarily around Y, so a 2D OBB
+// per car is accurate without paying for full 3D SAT. Used by car ↔ car
+// collision resolution below.
+// =============================================================================
+
+struct OBBxz {
+    glm::vec2 center;
+    glm::vec2 half_ext;   // along body's local +X and +Z respectively
+    glm::vec2 ax_x;       // unit, body +X projected to XZ
+    glm::vec2 ax_z;       // unit, body +Z projected to XZ
+};
+
+OBBxz make_obb_xz(const Vehicle& v) {
+    OBBxz o;
+    glm::vec3 p  = v.position();
+    glm::vec3 ax = v.right();        // body +X
+    glm::vec3 az = -v.forward();     // body +Z (forward() is body -Z)
+    o.center     = {p.x, p.z};
+    o.half_ext   = {v.chassis_full_extents.x * 0.5f,
+                    v.chassis_full_extents.z * 0.5f};
+    glm::vec2 ax2{ax.x, ax.z};
+    glm::vec2 az2{az.x, az.z};
+    float lx = glm::length(ax2);
+    float lz = glm::length(az2);
+    o.ax_x = lx > 1e-6f ? ax2 / lx : glm::vec2{1.f, 0.f};
+    o.ax_z = lz > 1e-6f ? az2 / lz : glm::vec2{0.f, 1.f};
+    return o;
+}
+
+// SAT against the four candidate axes. Returns true on overlap, with
+// `out_normal` pointing from b toward a and `out_depth` = penetration depth
+// along that normal.
+bool obb_xz_intersect(const OBBxz& a, const OBBxz& b,
+                       glm::vec2& out_normal, float& out_depth) {
+    const glm::vec2 axes[4] = {a.ax_x, a.ax_z, b.ax_x, b.ax_z};
+    glm::vec2 d = a.center - b.center;
+
+    float min_overlap = std::numeric_limits<float>::max();
+    glm::vec2 min_axis{1.f, 0.f};
+
+    for (int i = 0; i < 4; ++i) {
+        glm::vec2 n = axes[i];
+        float a_proj = std::abs(glm::dot(a.ax_x * a.half_ext.x, n))
+                     + std::abs(glm::dot(a.ax_z * a.half_ext.y, n));
+        float b_proj = std::abs(glm::dot(b.ax_x * b.half_ext.x, n))
+                     + std::abs(glm::dot(b.ax_z * b.half_ext.y, n));
+        float dist   = std::abs(glm::dot(d, n));
+        float overlap = a_proj + b_proj - dist;
+        if (overlap <= 0.f) return false;       // separating axis — done
+        if (overlap < min_overlap) {
+            min_overlap = overlap;
+            min_axis    = n;
+        }
+    }
+    if (glm::dot(d, min_axis) < 0.f) min_axis = -min_axis;
+    out_normal = min_axis;
+    out_depth  = min_overlap;
+    return true;
 }
 
 } // anonymous namespace
@@ -340,8 +403,13 @@ TrafficSystem::Car* TrafficSystem::create_car_at_pose(const glm::vec3& pos,
                                          : glm::vec3{0.10f, 0.10f, 0.10f};
     for (int wi = 0; wi < 4; ++wi) {
         car->wheel_nodes[wi] = scene_->create_node(car->chassis_node);
-        car->wheel_nodes[wi]->renderable = Renderable{
-            wm, waabb, wtint, glm::vec2{1.f, 1.f}, wt};
+        // When the wheel asset loaded, wheels are drawn in one instanced call
+        // via TrafficSystem::draw_wheels — leave renderable empty so Scene::draw
+        // skips them. The cube fallback still goes through the per-node path.
+        if (!assets_->wheel_ok) {
+            car->wheel_nodes[wi]->renderable = Renderable{
+                wm, waabb, wtint, glm::vec2{1.f, 1.f}, wt};
+        }
     }
 
     Car* raw = car.get();
@@ -427,6 +495,116 @@ void TrafficSystem::set_player_inputs(float throttle, float brake, float steer,
                                        bool handbrake) {
     if (!player_car_) return;
     player_car_->vehicle.set_inputs(throttle, brake, steer, handbrake);
+}
+
+void TrafficSystem::draw_wheels(Shader& shader, const Frustum& frustum) const {
+    if (!assets_ || !assets_->wheel_ok || cars_.empty()) return;
+
+    // Reuse storage across frames so we don't reallocate every render.
+    static thread_local std::vector<glm::mat4> mats;
+    mats.clear();
+    mats.reserve(cars_.size() * 4);
+
+    for (const auto& car : cars_) {
+        if (!car) continue;
+        // Cull whole car: if its body is off-screen, skip its 4 wheels.
+        if (car->body_visual_node && car->body_visual_node->renderable
+            && frustum.cull(car->body_visual_node->world_aabb())) continue;
+        for (int wi = 0; wi < 4; ++wi) {
+            if (car->wheel_nodes[wi])
+                mats.push_back(car->wheel_nodes[wi]->world_matrix());
+        }
+    }
+    if (mats.empty()) return;
+
+    shader.use();
+    assets_->wheel_tex.bind(0);
+    assets_->wheel_mesh.draw_instanced(mats.data(),
+                                        static_cast<int>(mats.size()));
+}
+
+// =============================================================================
+// Vehicle ↔ vehicle collisions
+// =============================================================================
+//
+// Run once per frame after every car has had its pose updated. Pairwise OBB
+// (XZ-plane) intersection; for each colliding pair, separate the two cars and
+// — when at least one of them is dynamic — apply an impulse along the contact
+// normal so the player gets a believable bump. AI cars are kinematic and will
+// re-stamp from their lane state next frame, so we only push them visually.
+// A few iterations handle short chains (A pushed into B pushed into C).
+
+void TrafficSystem::resolve_vehicle_collisions() {
+    if (cars_.size() < 2) return;
+
+    constexpr int   MAX_ITER    = 4;
+    constexpr float SLOP        = 0.005f;
+    constexpr float RESTITUTION = 0.2f;     // mostly inelastic — cars don't bounce off each other much
+
+    for (int iter = 0; iter < MAX_ITER; ++iter) {
+        bool any = false;
+
+        for (std::size_t i = 0; i < cars_.size(); ++i) {
+            for (std::size_t j = i + 1; j < cars_.size(); ++j) {
+                Car& a = *cars_[i];
+                Car& b = *cars_[j];
+
+                OBBxz oa = make_obb_xz(a.vehicle);
+                OBBxz ob = make_obb_xz(b.vehicle);
+
+                glm::vec2 n2; float depth;
+                if (!obb_xz_intersect(oa, ob, n2, depth)) continue;
+                any = true;
+
+                // Inflate normal to 3D (Y = 0 — XZ-plane resolution only).
+                glm::vec3 n{n2.x, 0.f, n2.y};
+                float push = depth + SLOP;
+
+                // If a dynamic car hits an AI, promote that AI to Parked so
+                // it picks up real physics. From here on it's a free-floating
+                // chassis (lane script no longer drives it); the spawner
+                // refills the AI population toward target_ai_count_, so this
+                // doesn't deplete traffic. We deliberately do NOT promote on
+                // AI ↔ AI contact — that would turn every traffic jam into a
+                // pile of inert wrecks.
+                bool a_was_ai = (a.driver == Driver::AI);
+                bool b_was_ai = (b.driver == Driver::AI);
+                if (a_was_ai && !b_was_ai) a.driver = Driver::Parked;
+                if (b_was_ai && !a_was_ai) b.driver = Driver::Parked;
+
+                bool a_dyn = (a.driver != Driver::AI);
+                bool b_dyn = (b.driver != Driver::AI);
+
+                if (a_dyn && b_dyn) {
+                    // Both dynamic — separate proportional to inverse mass and
+                    // exchange momentum along the contact normal.
+                    float ma = a.vehicle.body().mass;
+                    float mb = b.vehicle.body().mass;
+                    float mt = ma + mb;
+                    a.vehicle.translate( n * (push * (mb / mt)));
+                    b.vehicle.translate(-n * (push * (ma / mt)));
+
+                    glm::vec3 v_rel = a.vehicle.body().linear_vel
+                                    - b.vehicle.body().linear_vel;
+                    float v_n = glm::dot(v_rel, n);
+                    if (v_n < 0.f) {
+                        float jmag = -(1.f + RESTITUTION) * v_n
+                                     / (1.f / ma + 1.f / mb);
+                        a.vehicle.apply_impulse_central( n * jmag);
+                        b.vehicle.apply_impulse_central(-n * jmag);
+                    }
+                } else {
+                    // Both AI — split the push 50/50. Both will re-stamp from
+                    // their lane scripts next frame; this just avoids a frame
+                    // of overlap and prevents wedging.
+                    a.vehicle.translate( n * (push * 0.5f));
+                    b.vehicle.translate(-n * (push * 0.5f));
+                }
+            }
+        }
+
+        if (!any) break;
+    }
 }
 
 // =============================================================================
@@ -686,7 +864,9 @@ void TrafficSystem::update(float dt, double time_seconds,
         ++ai_count;
     }
 
-    // Per-driver update.
+    // Per-driver update. sync_visuals is deferred until after collision
+    // resolution so that the rendered pose reflects the post-resolve state
+    // (otherwise overlapping cars would render mid-collision for one frame).
     for (auto& cp : cars_) {
         Car& c = *cp;
         switch (c.driver) {
@@ -698,8 +878,11 @@ void TrafficSystem::update(float dt, double time_seconds,
                 integrate_player_or_parked(c, dt, world);
                 break;
         }
-        sync_visuals(c);
     }
+
+    resolve_vehicle_collisions();
+
+    for (auto& cp : cars_) sync_visuals(*cp);
 
     sync_lights_to_loaded();
     update_light_visuals(time_seconds);
@@ -736,12 +919,17 @@ void TrafficSystem::sync_lights_to_loaded() {
 void TrafficSystem::spawn_lights_at(int i, int j) {
     glm::vec3 ix = RoadGraph::intersection_pos(i, j, 0.f);
 
+    // Traffic light nodes are static (they never move). Register them in the
+    // cell bucket so cull() can skip this entire intersection at once when
+    // it's outside the camera frustum.
+    CellCoord light_cell = RoadGraph::intersection_cell(i, j);
+
     auto unit_cube = []() {
         AABB a; a.min = -glm::vec3{0.5f}; a.max = glm::vec3{0.5f}; return a;
     };
     auto make_node = [&](const glm::vec3& pos, const glm::vec3& scale,
                          const glm::vec3& tint) {
-        SceneNode* n = scene_->create_node();
+        SceneNode* n = scene_->create_node_static(nullptr, light_cell);
         n->renderable = Renderable{light_vis_.cube_mesh, unit_cube(), tint,
                                     glm::vec2{1.f, 1.f}, light_vis_.checker_tex};
         n->transform.position = pos;
@@ -790,6 +978,8 @@ void TrafficSystem::spawn_lights_at(int i, int j) {
 }
 
 void TrafficSystem::destroy_lights_at(int i, int j) {
+    // Wipe the whole static bucket for this intersection first (O(1)).
+    if (scene_) scene_->remove_static_cell(RoadGraph::intersection_cell(i, j));
     auto remove = [&](SceneNode* n) {
         if (n && scene_) scene_->remove_node(n);
     };

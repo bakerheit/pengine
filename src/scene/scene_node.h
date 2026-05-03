@@ -42,12 +42,14 @@ public:
     // Recompute world transform if dirty (recurses up to parent first).
     void update();
 
-    const glm::mat4& world_matrix() const { return world_mat_; }
-    const AABB&      world_aabb()   const { return world_aabb_; }
-    bool             is_dirty()     const { return dirty_; }
+    const glm::mat4& world_matrix()        const { return world_mat_; }
+    const glm::mat3& world_normal_matrix() const { return world_normal_mat_; }
+    const AABB&      world_aabb()          const { return world_aabb_; }
+    bool             is_dirty()            const { return dirty_; }
 
 private:
-    mutable glm::mat4 world_mat_  = glm::mat4{1.f};
+    mutable glm::mat4 world_mat_        = glm::mat4{1.f};
+    mutable glm::mat3 world_normal_mat_ = glm::mat3{1.f};
     mutable AABB      world_aabb_;
     mutable bool      dirty_      = true;
 };

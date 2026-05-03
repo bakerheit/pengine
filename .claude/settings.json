@@ -36,12 +36,27 @@
       "Bash(awk 'BEGIN{vi=0} /^v / { vi++; vy=$3+0; if\\(used[vi]\\){print \"v\",vi,\"y=\",vy} }' /Users/andrewbaker/workspace/pengine/assets/Vehicles_psx/\"Car 05\"/Car5_nowheels.obj)",
       "Read(//dev/**)",
       "Bash(python3 -c ' *)",
-      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/pengine)"
+      "Bash(/Users/andrewbaker/workspace/pengine/build/bin/pengine)",
+      "Bash(cmake -S . -B build)",
+      "Bash(cmake --build build -j)",
+      "Bash(cmake --build build -j --target pengine_core)",
+      "Bash(python3 -m pip install --user jinja2)",
+      "Bash(python3 -c \"import jinja2; print\\(jinja2.__version__\\)\")",
+      "Bash(/opt/homebrew/Frameworks/Python.framework/Versions/3.14/bin/python3.14 -m pip install --break-system-packages jinja2)",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(pgrep -f \"pengine$\")",
+      "Bash(pkill -f \"build/bin/pengine\")",
+      "Bash(kill -9 11172)",
+      "Bash(cmake --build build -j8)",
+      "Bash(awk '!/^#/ && NF>0 {print $1}' assets/world/cells/cell_8_8.ipl)",
+      "Bash(awk '!/^#/ && NF>0' assets/world/cells/cell_8_8.ipl)",
+      "Bash(./build/bin/meshconv \"assets/Characters_psx/Animations/Breathing Idle.fbx\" assets/models/characters/breathing_idle)"
     ],
     "additionalDirectories": [
       "/tmp",
       "/private/tmp",
-      "/Users/andrewbaker/workspace/pengine/src/game"
+      "/Users/andrewbaker/workspace/pengine/src/game",
+      "/Users/andrewbaker/workspace/pengine/assets/world/cells"
     ]
   }
 }

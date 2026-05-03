@@ -1,5 +1,7 @@
 #include "scene/scene_node.h"
 
+#include <glm/gtc/matrix_inverse.hpp>
+
 namespace pengine {
 
 void SceneNode::mark_dirty() {
@@ -12,6 +14,7 @@ void SceneNode::update() {
 
     glm::mat4 local = transform.matrix();
     world_mat_ = parent ? parent->world_matrix() * local : local;
+    world_normal_mat_ = glm::mat3(glm::inverseTranspose(world_mat_));
 
     if (renderable) {
         world_aabb_ = renderable->local_aabb.transform(world_mat_);

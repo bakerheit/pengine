@@ -12,7 +12,9 @@
 #include "render/mesh.h"
 #include "scene/frustum.h"
 #include "scene/scene_node.h"
+#include "world/cell_coord.h"
 #include "world/heightmap.h"
+#include "world/road_grid.h"
 #include "world/world_defs.h"
 
 #ifndef ASSETS_DIR
@@ -42,9 +44,12 @@ bool Application::init() {
 
     if (!lit_shader_.load(ASSETS_DIR "/shaders/lit.vert",
                           ASSETS_DIR "/shaders/lit.frag")) return false;
+    if (!lit_instanced_shader_.load(ASSETS_DIR "/shaders/lit_instanced.vert",
+                                     ASSETS_DIR "/shaders/lit.frag")) return false;
     if (!skinned_shader_.load(ASSETS_DIR "/shaders/skinned.vert",
                                ASSETS_DIR "/shaders/lit.frag")) return false;
     if (!debug_draw_.init(ASSETS_DIR)) return false;
+    if (!minimap_.init(ASSETS_DIR)) return false;
 
     {
         std::vector<Vertex>   verts;
@@ -69,6 +74,22 @@ bool Application::init() {
     if (!character_skinned_)
         PE_WARN("Falling back to cube character (skinning load failed)");
 
+    // Sprint loop is optional: if it fails to load we just stay on the walk
+    // anim while shift is held (movement still speeds up).
+    if (character_skinned_ &&
+        !character_anim_sprint_.load(ASSETS_DIR "/models/characters/sprint.eanim",
+                                     character_skeleton_)) {
+        PE_WARN("Sprint animation failed to load; shift will still speed up movement");
+    }
+
+    // Breathing idle loop is optional: if missing we fall back to bind pose
+    // with the walk anim's root rotation (see render path).
+    if (character_skinned_ &&
+        !character_anim_idle_.load(ASSETS_DIR "/models/characters/breathing_idle.eanim",
+                                    character_skeleton_)) {
+        PE_WARN("Idle animation failed to load; using bind pose for idle");
+    }
+
     if (character_skinned_) {
         walk_bones_.left_upleg  = character_skeleton_.find_bone("mixamorig:LeftUpLeg");
         walk_bones_.right_upleg = character_skeleton_.find_bone("mixamorig:RightUpLeg");
@@ -87,12 +108,32 @@ bool Application::init() {
     if (!character_tex_.load_file(ASSETS_DIR "/Characters_psx/Textures/Character_01.png"))
         PE_WARN("Falling back to checker for character (texture load failed)");
 
-    Heightmap::set_seed(1337u);
+    // World model registry. Step 1 of the IDE/IPL migration: load defs from
+    // disk and resolve their mesh/texture handles. Streamer still uses the
+    // legacy procedural path; this is just a smoke test that the pipeline
+    // works end-to-end before we cut over.
+    if (!world_models_.load_ide(ASSETS_DIR "/world/streets.ide") ||
+        !world_models_.resolve_assets()) {
+        PE_WARN("ModelRegistry init failed (continuing with legacy world)");
+    } else {
+        for (const auto& [id, def] : world_models_.all()) {
+            PE_INFO("  model %u '%s' mesh=%s tex=%s draw=%.0f flags=%s",
+                    id, def.name.c_str(), def.mesh_path.c_str(),
+                    def.texture_path.c_str(), def.draw_dist,
+                    format_model_flags(def.flags));
+        }
+    }
 
     WorldConfig world_cfg;
-    // Spawn at the central intersection of cell (8,8). The cell layout puts
-    // a 4-way intersection at (cell_origin + half), well clear of any
-    // building plot or the cell-edge ramp zone.
+    {
+        float world_size_m =
+            static_cast<float>(world_cfg.world_cells_x) * world_cfg.cell_size;
+        Heightmap::init(world_size_m, ASSETS_DIR "/world/heightmap.png");
+    }
+
+    // Spawn at the central intersection of the world's middle cell — the
+    // basin area between the river and the northern plateau, where the
+    // procedural city generator gives us a clear 4-way intersection.
     float cell = world_cfg.cell_size;
     int   ci   = world_cfg.world_cells_x / 2;
     int   cj   = world_cfg.world_cells_z / 2;
@@ -102,9 +143,8 @@ bool Application::init() {
     camera_.move_speed = 80.f;
     camera_.far_z      = 2000.f;
 
-    WorldTextures world_tex{&grass_tex_, &asphalt_tex_, &sidewalk_tex_, &facade_tex_};
-    streamer_.init(world_cfg, &scene_, &cube_mesh_, &world_collision_,
-                    world_tex, &road_graph_);
+    streamer_.init(world_cfg, &scene_, &world_collision_,
+                    &world_models_, &grass_tex_, &road_graph_);
     // Traffic owns *every* car, including the player's. Pass the cube /
     // checker handles for traffic-light scaffolding; body + wheel assets are
     // loaded internally.
@@ -232,7 +272,9 @@ void Application::shutdown() {
     streamer_.shutdown();
     SDL_SetRelativeMouseMode(SDL_FALSE);
     debug_draw_.shutdown();
+    minimap_.shutdown();
     lit_shader_.destroy();
+    lit_instanced_shader_.destroy();
     cube_mesh_.destroy();
     checker_tex_.destroy();
     asphalt_tex_.destroy();
@@ -327,6 +369,7 @@ void Application::process_events() {
         running_ = false;
 
     if (input_.pressed(SDL_SCANCODE_F)) try_toggle_vehicle();
+    if (input_.pressed(SDL_SCANCODE_M)) log_debug_area();
 
     if (input_.pressed(SDL_SCANCODE_C)) {
         if (mode_ == Mode::DebugFly) {
@@ -344,18 +387,22 @@ void Application::update_on_foot(float dt, float mdx, float mdy) {
     spring_.anchor = character_.eye_position();
     spring_.update(world_collision_);
 
-    character_.update(dt, input_, spring_.yaw_deg, world_collision_);
+    sprinting_ = input_.down(SDL_SCANCODE_LSHIFT) || input_.down(SDL_SCANCODE_RSHIFT);
+    character_.update(dt, input_, spring_.yaw_deg, sprinting_, world_collision_);
 
-    // Face the direction we're walking. Lerp gently so quick mouse turns
-    // don't snap the body around.
+    // Face the direction we're walking when moving; otherwise face the
+    // camera. Lerp gently so quick mouse turns don't snap the body around.
+    // Without the idle branch, releasing W mid-mouse-turn freezes facing
+    // partway through the lerp, leaving the character pointing off to the
+    // side of where the camera is now looking.
     glm::vec3 vh = character_.velocity();
     vh.y = 0.f;
-    if (glm::length(vh) > 0.5f) {
-        float target = glm::degrees(std::atan2(vh.z, vh.x));
-        // wrap to [-180, 180]
-        float diff = std::fmod(target - character_facing_yaw_deg_ + 540.f, 360.f) - 180.f;
-        character_facing_yaw_deg_ += diff * std::min(1.f, 12.f * dt);
-    }
+    float target = (glm::length(vh) > 0.5f)
+                    ? glm::degrees(std::atan2(vh.z, vh.x))
+                    : spring_.yaw_deg;
+    // wrap to [-180, 180]
+    float diff = std::fmod(target - character_facing_yaw_deg_ + 540.f, 360.f) - 180.f;
+    character_facing_yaw_deg_ += diff * std::min(1.f, 12.f * dt);
 
     camera_.position = spring_.camera_position;
     camera_.yaw      = spring_.yaw_deg;
@@ -378,6 +425,7 @@ void Application::update_in_vehicle(float dt, float mdx, float mdy) {
 void Application::update(double dt) {
     float fdt = static_cast<float>(dt);
     lit_shader_.hot_reload();
+    lit_instanced_shader_.hot_reload();
 
     float mdx = mouse_captured_ ? input_.mouse_dx() : 0.f;
     float mdy = mouse_captured_ ? input_.mouse_dy() : 0.f;
@@ -427,27 +475,49 @@ void Application::update(double dt) {
         can_enter_car_ = (steal_target_ != nullptr);
     }
 
-    // Advance the walk-anim time accumulator (seconds). The Mixamo walk loop
-    // is 1 s = 1 stride, so we just scale by current speed / reference speed.
+    // Advance the walk-anim time accumulator (seconds). Mixamo loops are
+    // 1 stride each, so we scale by current speed / reference speed of the
+    // anim that's actually playing — keeps stride frequency tied to ground
+    // speed regardless of which clip is sampled.
     // Idle: freeze on first frame instead of playing in place.
     bool char_moving;
+    bool use_sprint;
     {
         glm::vec3 vh = character_.velocity();
         vh.y = 0.f;
         float speed = glm::length(vh);
-        constexpr float WALK_REF = 6.f;
         char_moving = speed > 0.5f;
-        if (char_moving) walk_phase_ += dt * double(speed / WALK_REF);
+        use_sprint  = sprinting_ && char_moving &&
+                      character_anim_sprint_.duration() > 0.f;
+        float ref = use_sprint ? CharacterController::SPRINT_SPEED
+                               : CharacterController::MOVE_SPEED;
+        if (char_moving) walk_phase_ += dt * double(speed / ref);
         else             walk_phase_  = 0.0;   // freeze at first frame
     }
 
     if (character_skinned_) {
-        if (char_moving && character_anim_.duration() > 0.f) {
-            character_anim_.sample(static_cast<float>(walk_phase_),
-                                   character_skeleton_, char_local_poses_);
-            // Strip root motion: gameplay drives world position, so the root
-            // bone's translation must come from the bind pose, not the anim.
-            for (int b = 0; b < character_skeleton_.bone_count(); ++b) {
+        const int n = character_skeleton_.bone_count();
+        char_local_poses_.resize(static_cast<std::size_t>(n));
+
+        // Pick the anim driving the current frame. Walking and sprint loop
+        // at speed-tied stride frequency; idle plays the breathing-idle
+        // loop in real time.
+        const Animation* anim_to_use = nullptr;
+        float            phase       = 0.f;
+        if (char_moving) {
+            anim_to_use = use_sprint ? &character_anim_sprint_ : &character_anim_;
+            phase       = static_cast<float>(walk_phase_);
+        } else if (character_anim_idle_.duration() > 0.f) {
+            anim_to_use = &character_anim_idle_;
+            phase       = static_cast<float>(world_time_);
+        }
+
+        if (anim_to_use && anim_to_use->duration() > 0.f) {
+            anim_to_use->sample(phase, character_skeleton_, char_local_poses_);
+            // Strip root motion: gameplay drives world position, so the
+            // root bone's translation must come from the bind pose, not
+            // the anim.
+            for (int b = 0; b < n; ++b) {
                 if (character_skeleton_.bone(b).parent < 0) {
                     glm::vec3 bind_t{character_skeleton_.bone(b).bind_local[3]};
                     char_local_poses_[static_cast<std::size_t>(b)][3] =
@@ -455,12 +525,12 @@ void Application::update(double dt) {
                 }
             }
         } else {
-            const int n = character_skeleton_.bone_count();
-            char_local_poses_.resize(static_cast<std::size_t>(n));
+            // No anim available — fall back to bind pose.
             for (int b = 0; b < n; ++b)
                 char_local_poses_[static_cast<std::size_t>(b)] =
                     character_skeleton_.bone(b).bind_local;
         }
+
         character_skeleton_.compute_skin_matrices(char_local_poses_,
                                                     char_skin_matrices_);
     }
@@ -475,6 +545,89 @@ void Application::update(double dt) {
     scene_.update();
 }
 
+
+void Application::log_debug_area() {
+    // Snapshot the world geometry around the player at the moment M is
+    // pressed. Easiest debug surface for roads — copy the output and feed
+    // it back so I can correlate visible artifacts with carved/raw heights
+    // and road-segment sample positions.
+    static int counter = 0;
+    ++counter;
+
+    glm::vec3 pos;
+    glm::vec3 fwd;
+    if (mode_ == Mode::InVehicle && traffic_.player_car()) {
+        pos = traffic_.player_car()->vehicle.position();
+        fwd = traffic_.player_car()->vehicle.orientation() *
+              glm::vec3{0.f, 0.f, -1.f};
+    } else {
+        pos = character_.feet_position();
+        float yr = glm::radians(character_facing_yaw_deg_);
+        fwd = {std::cos(yr), 0.f, std::sin(yr)};
+    }
+
+    CellCoord cell = world_to_cell(pos.x, pos.z, 256.f);
+
+    // Nearest NS / EW road centerlines.
+    int   ns_k = static_cast<int>(std::round(pos.x / ROAD_PITCH));
+    int   ew_k = static_cast<int>(std::round(pos.z / ROAD_PITCH));
+    float ns_x = static_cast<float>(ns_k) * ROAD_PITCH;
+    float ew_z = static_cast<float>(ew_k) * ROAD_PITCH;
+
+    float h_raw_p    = Heightmap::raw_sample(pos.x, pos.z);
+    float h_carved_p = Heightmap::sample(pos.x, pos.z);
+
+    PE_INFO("===== DEBUG #%d =====", counter);
+    PE_INFO("Player    pos=(%.2f, %.2f, %.2f)  cell=(%d, %d)  mode=%s",
+            pos.x, pos.y, pos.z, cell.x, cell.z,
+            mode_ == Mode::InVehicle ? "drive" :
+            mode_ == Mode::DebugFly  ? "fly"   : "on-foot");
+    PE_INFO("Forward   (%.3f, %.3f, %.3f)  bearing=%.1f deg",
+            fwd.x, fwd.y, fwd.z,
+            glm::degrees(std::atan2(fwd.x, -fwd.z)));
+    PE_INFO("Heightmap raw=%.3f  carved=%.3f  delta=%.3f",
+            h_raw_p, h_carved_p, h_carved_p - h_raw_p);
+    PE_INFO("Nearest   NS road x=%.0f (%+.2fm)   EW road z=%.0f (%+.2fm)",
+            ns_x, pos.x - ns_x, ew_z, pos.z - ew_z);
+
+    // 5x5 carved heightmap grid centred on the player, 4 m spacing.
+    PE_INFO("Carved heightmap grid (5x5, 4m, dz row x dx col):");
+    for (int dz = -2; dz <= 2; ++dz) {
+        char line[256] = {};
+        int  n = 0;
+        for (int dx = -2; dx <= 2; ++dx) {
+            float qx = pos.x + static_cast<float>(dx) * 4.f;
+            float qz = pos.z + static_cast<float>(dz) * 4.f;
+            n += std::snprintf(line + n,
+                               sizeof(line) - static_cast<std::size_t>(n),
+                               " %7.2f", Heightmap::sample(qx, qz));
+        }
+        PE_INFO("  z%+3d:%s", dz * 4, line);
+    }
+
+    // Sweep 4m steps for ±20m along nearest NS road centerline.
+    PE_INFO("NS road slab samples at x=%.0f, z = player_z (-20 .. +20):", ns_x);
+    for (int i = -5; i <= 5; ++i) {
+        float qz       = pos.z + static_cast<float>(i) * 4.f;
+        float carved   = Heightmap::sample(ns_x, qz);
+        float raw      = Heightmap::raw_sample(ns_x, qz);
+        PE_INFO("  z=%-9.2f  carved=%-7.3f  raw=%-7.3f  delta=%+.3f",
+                qz, carved, raw, carved - raw);
+    }
+
+    // Same for nearest EW road centerline.
+    PE_INFO("EW road slab samples at z=%.0f, x = player_x (-20 .. +20):", ew_z);
+    for (int i = -5; i <= 5; ++i) {
+        float qx       = pos.x + static_cast<float>(i) * 4.f;
+        float carved   = Heightmap::sample(qx, ew_z);
+        float raw      = Heightmap::raw_sample(qx, ew_z);
+        PE_INFO("  x=%-9.2f  carved=%-7.3f  raw=%-7.3f  delta=%+.3f",
+                qx, carved, raw, carved - raw);
+    }
+
+    PE_INFO("Cell IPL  assets/world/cells/cell_%d_%d.ipl", cell.x, cell.z);
+    PE_INFO("===== END #%d =====", counter);
+}
 
 void Application::compute_procedural_walk_pose(float phase, bool moving) {
     const int n = character_skeleton_.bone_count();
@@ -561,6 +714,18 @@ void Application::render(double /*alpha*/) {
     checker_tex_.bind(0);
     scene_.draw(cr, lit_shader_);
 
+    // ---- Instanced wheels (one draw call covers every visible car) ---------
+    lit_instanced_shader_.use();
+    lit_instanced_shader_.set("u_view_proj",   vp);
+    lit_instanced_shader_.set("u_cam_pos",     camera_.position);
+    lit_instanced_shader_.set("u_light_dir",   glm::normalize(glm::vec3{0.6f, 1.f, 0.4f}));
+    lit_instanced_shader_.set("u_light_color", glm::vec3{1.f, 0.95f, 0.85f});
+    lit_instanced_shader_.set("u_ambient",     glm::vec3{0.18f, 0.22f, 0.28f});
+    lit_instanced_shader_.set("u_diffuse",     0);
+    lit_instanced_shader_.set("u_tint",        glm::vec3{1.f});
+    lit_instanced_shader_.set("u_uv_scale",    glm::vec2{1.f, 1.f});
+    traffic_.draw_wheels(lit_instanced_shader_, frustum);
+
     // ---- Skinned character (manual draw — Scene::draw doesn't skin) --------
     if (character_skinned_ && character_node_->visible
         && !char_skin_matrices_.empty()) {
@@ -615,6 +780,27 @@ void Application::render(double /*alpha*/) {
     }
 
     debug_draw_.flush(vp, glm::vec3{1.f, 0.85f, 0.2f});
+
+    // ---- Minimap (HUD overlay) ---------------------------------------------
+    {
+        Minimap::DrawState ms;
+        ms.viewport_size_px = {static_cast<float>(window_.width()),
+                                static_cast<float>(window_.height())};
+        if (mode_ == Mode::InVehicle) {
+            if (auto* pc = traffic_.player_car()) {
+                ms.player_pos_world = pc->vehicle.position();
+                glm::vec3 fwd = pc->vehicle.orientation() * glm::vec3{0.f, 0.f, -1.f};
+                ms.player_yaw_deg = glm::degrees(std::atan2(fwd.x, -fwd.z));
+            } else {
+                ms.player_pos_world = camera_.position;
+                ms.player_yaw_deg   = 0.f;
+            }
+        } else {
+            ms.player_pos_world = character_.feet_position();
+            ms.player_yaw_deg   = character_facing_yaw_deg_ + 90.f;
+        }
+        minimap_.draw(ms);
+    }
 
     window_.swap();
 }

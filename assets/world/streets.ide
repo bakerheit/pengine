@@ -1,0 +1,20 @@
+# streets.ide — first batch of GTA-style world model defs.
+# Layout matches the existing procedural city block (cube + tinted procedural
+# texture). Real meshes will replace these later; the streamer doesn't care
+# what's behind a model id, only that it resolves.
+#
+# Building variants 11..15 must stay contiguous and match
+# world_model_ids.h::BuildingFirst/BuildingLast — the procedural city
+# exporter picks one at random per plot.
+#
+# Columns: id  name           mesh         texture           draw  flags   lod   [tint=R,G,B] [uv=U,V]
+
+10  bldg_cube      proc:cube    proc:facade       300   BLDG    0     tint=0.85,0.84,0.80   uv=1,1
+11  bldg_concrete  proc:cube    proc:facade       300   BLDG    0     tint=0.85,0.84,0.80   uv=1,1
+12  bldg_sandstone proc:cube    proc:facade       300   BLDG    0     tint=0.72,0.66,0.55   uv=1,1
+13  bldg_glass     proc:cube    proc:facade       300   BLDG    0     tint=0.55,0.60,0.68   uv=1,1
+14  bldg_brick     proc:cube    proc:facade       300   BLDG    0     tint=0.78,0.55,0.45   uv=1,1
+15  bldg_grey      proc:cube    proc:facade       300   BLDG    0     tint=0.62,0.62,0.62   uv=1,1
+
+20  road_slab      proc:cube    proc:asphalt      250   ROAD    0     tint=0.18,0.19,0.21   uv=1,1
+30  sidewalk_slab  proc:cube    proc:sidewalk     250   WALK    0     tint=0.78,0.78,0.76   uv=1,1

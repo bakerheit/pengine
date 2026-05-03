@@ -4,25 +4,10 @@
 
 #include "scene/aabb.h"
 #include "world/cell_coord.h"
-#include "world/world_defs.h"
+#include "world/instance_def.h"
+#include "world/road_grid.h"
 
 namespace pengine {
-
-class Texture;
-
-struct CityTextures {
-    const Texture* road     = nullptr;
-    const Texture* sidewalk = nullptr;
-    const Texture* building = nullptr;
-};
-
-// Global road grid constants. Roads run along world lines x = i * ROAD_PITCH
-// (NS roads) and z = j * ROAD_PITCH (EW roads). Intersections at the
-// integer grid points (i, j). Each cell at (cx, cz) owns the 4×4 roads
-// indexed by i ∈ [cx*4, cx*4+4), j ∈ [cz*4, cz*4+4).
-constexpr float ROAD_PITCH       = 64.f;
-constexpr float STREET_WIDTH     = 8.f;
-constexpr int   ROADS_PER_CELL   = 4;     // = cell_size / ROAD_PITCH
 
 // Procedural city block layout for one streaming cell. Deterministic from
 // (coord, cfg). Designed so neighbouring cells line up at shared streets.
@@ -31,15 +16,20 @@ constexpr int   ROADS_PER_CELL   = 4;     // = cell_size / ROAD_PITCH
 //   block size = (cell_size - 5*street_width) / 4
 //   For cell_size = 256 m:    block = 54 m,  street = 8 m
 //
-// Outputs are world-space ObjectDefs (visual) and AABBs (collision = buildings
-// only; roads are aesthetic and rely on the heightmap for the driving surface).
+// Outputs are world-space InstanceDefs (visual) and AABBs (collision =
+// buildings only; roads are aesthetic and rely on the heightmap for the
+// driving surface).
+//
+// This function is the procedural authoring tool: the streamer calls it on
+// first encounter of a cell, saves the result as an IPL, and reads from disk
+// thereafter. It carries no runtime dependency on textures — model ids fully
+// describe the look, resolved through ModelRegistry at activation time.
 struct CityCellLayout {
-    std::vector<ObjectDef> visuals;     // buildings + road slabs
-    std::vector<AABB>      collisions;  // buildings only
+    std::vector<InstanceDef> instances;
+    std::vector<AABB>        collisions;
 };
 
-CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground_y,
-                                   const CityTextures& tex);
+CityCellLayout generate_city_cell(CellCoord coord, float cell_size);
 
 // Walkable ground height at world (x, z): heightmap sample plus the sidewalk
 // curb (15 cm) when the point lies inside a plot's sidewalk ring. Roads and
@@ -47,4 +37,4 @@ CityCellLayout generate_city_cell(CellCoord coord, float cell_size, float ground
 // (and pedestrian AI) so feet rest on the slab top, not in it.
 float city_ground_sample(float x, float z);
 
-} // namespace pengine
+}  // namespace pengine

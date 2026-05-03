@@ -12,15 +12,17 @@ public:
     static constexpr float RADIUS     = 0.4f;
     static constexpr float HEIGHT     = 1.8f;
     static constexpr float EYE_HEIGHT = 1.65f;
-    static constexpr float MOVE_SPEED = 6.f;     // m/s
-    static constexpr float JUMP_SPEED = 5.5f;    // m/s
-    static constexpr float GRAVITY    = -18.f;   // m/s^2
+    static constexpr float MOVE_SPEED   = 6.f;     // m/s
+    static constexpr float SPRINT_SPEED = 9.5f;    // m/s, while shift held
+    static constexpr float JUMP_SPEED   = 5.5f;    // m/s
+    static constexpr float GRAVITY      = -18.f;   // m/s^2
 
     void teleport(const glm::vec3& feet_pos);
 
     // `forward_yaw_deg` controls horizontal walk direction (camera yaw).
+    // `sprint` swaps MOVE_SPEED → SPRINT_SPEED for this tick.
     void update(float dt, const Input& input, float forward_yaw_deg,
-                const WorldCollision& world);
+                bool sprint, const WorldCollision& world);
 
     glm::vec3 feet_position() const { return pos_; }
     glm::vec3 eye_position()  const { return pos_ + glm::vec3{0.f, EYE_HEIGHT, 0.f}; }

@@ -1,8 +1,8 @@
 #include "world/streamer.h"
 
 #include <chrono>
-#include <random>
 #include <cmath>
+#include <random>
 
 #include "core/log.h"
 #include "physics/world_collision.h"
@@ -11,46 +11,81 @@
 #include "scene/scene_node.h"
 #include "world/city_layout.h"
 #include "world/heightmap.h"
+#include "world/ipl_loader.h"
+#include "world/model_def.h"
+#include "world/model_registry.h"
 #include "world/road_graph.h"
+
+#ifndef ASSETS_DIR
+#define ASSETS_DIR "assets"
+#endif
 
 namespace pengine {
 
 // ---------------------------------------------------------------------------
-// Procedural cell generation
+// Cell load: try IPL on disk; on miss, generate procedurally and save.
 // ---------------------------------------------------------------------------
 
-void Streamer::generate_cell(CellCoord coord, const WorldConfig& cfg,
-                              std::vector<ObjectDef>& out_defs,
-                              std::vector<AABB>&      out_aabbs) const {
-    float ox = static_cast<float>(coord.x) * cfg.cell_size;
-    float oz = static_cast<float>(coord.z) * cfg.cell_size;
-    float ground_y = Heightmap::sample(ox + cfg.cell_size * 0.5f,
-                                        oz + cfg.cell_size * 0.5f);
+Streamer::LoadJob Streamer::load_or_generate_cell(CellCoord coord) const {
+    LoadJob job;
+    job.coord = coord;
 
-    CityTextures ct{tex_.road, tex_.sidewalk, tex_.building};
-    CityCellLayout layout = generate_city_cell(coord, cfg.cell_size, ground_y, ct);
-    out_defs  = std::move(layout.visuals);
-    out_aabbs = std::move(layout.collisions);
+    auto ipl = ipl_path_for_cell(cell_cache_, coord);
+    bool loaded = std::filesystem::exists(ipl) && load_ipl(ipl, job.instances);
+
+    if (!loaded) {
+        CityCellLayout layout = generate_city_cell(coord, cfg_.cell_size);
+        job.instances      = std::move(layout.instances);
+        job.building_aabbs = std::move(layout.collisions);
+        save_ipl(ipl, job.instances);
+    } else {
+        // Reconstitute building collision AABBs from instances. Building model
+        // ids are 11..15 (per world_model_ids.h). Step 5 will move collision
+        // off this side-channel onto ModelDef.
+        for (const InstanceDef& inst : job.instances) {
+            const ModelDef* m = registry_->get(inst.model_id);
+            if (!m || (m->flags & ModelFlag::Building) == 0) continue;
+            // Local cube bounds are [-0.5, +0.5]; transform to world.
+            AABB local{m->local_bounds.min, m->local_bounds.max};
+            job.building_aabbs.push_back(local.transform(inst.transform.matrix()));
+        }
+    }
+
+    float ox = static_cast<float>(coord.x) * cfg_.cell_size;
+    float oz = static_cast<float>(coord.z) * cfg_.cell_size;
+    job.terrain = TerrainChunk::build(ox, oz, cfg_.cell_size);
+    return job;
 }
 
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-void Streamer::init(const WorldConfig& cfg, Scene* scene, const Mesh* cube_mesh,
-                     WorldCollision* collision, const WorldTextures& tex,
-                     RoadGraph* road_graph) {
-    cfg_        = cfg;
-    scene_      = scene;
-    cube_mesh_  = cube_mesh;
-    collision_  = collision;
-    road_graph_ = road_graph;
-    tex_        = tex;
+void Streamer::init(const WorldConfig& cfg, Scene* scene,
+                     WorldCollision* collision, const ModelRegistry* registry,
+                     const Texture* terrain_tex,
+                     RoadGraph* road_graph,
+                     std::filesystem::path cell_cache) {
+    cfg_         = cfg;
+    scene_       = scene;
+    collision_   = collision;
+    registry_    = registry;
+    terrain_tex_ = terrain_tex;
+    road_graph_  = road_graph;
+    cell_cache_  = cell_cache.empty()
+                    ? std::filesystem::path(ASSETS_DIR) / "world" / "cells"
+                    : std::move(cell_cache);
+
+    std::error_code ec;
+    std::filesystem::create_directories(cell_cache_, ec);
+
+    if (scene_) scene_->set_static_cell_size(cfg_.cell_size);
     running_.store(true, std::memory_order_release);
     thread_ = std::thread(&Streamer::thread_func, this);
-    PE_INFO("Streamer started  cell_size=%.0f radius=%d  world=%dx%d cells",
+    PE_INFO("Streamer started  cell_size=%.0f radius=%d  world=%dx%d cells  cache=%s",
             cfg_.cell_size, cfg_.stream_radius,
-            cfg_.world_cells_x, cfg_.world_cells_z);
+            cfg_.world_cells_x, cfg_.world_cells_z,
+            cell_cache_.string().c_str());
 }
 
 void Streamer::shutdown() {
@@ -88,13 +123,7 @@ void Streamer::thread_func() {
         std::vector<LoadJob> new_loads;
         for (const CellCoord& c : desired) {
             if (known_loaded.count(c) == 0) {
-                LoadJob job;
-                job.coord = c;
-                generate_cell(c, cfg_, job.defs, job.building_aabbs);
-                float ox = static_cast<float>(c.x) * cfg_.cell_size;
-                float oz = static_cast<float>(c.z) * cfg_.cell_size;
-                job.terrain = TerrainChunk::build(ox, oz, cfg_.cell_size);
-                new_loads.push_back(std::move(job));
+                new_loads.push_back(load_or_generate_cell(c));
                 known_loaded.insert(c);
             }
         }
@@ -140,6 +169,7 @@ void Streamer::pump(glm::vec3 cam_pos) {
     for (const EvictJob& job : evicts) {
         auto it = loaded_.find(job.coord);
         if (it == loaded_.end()) continue;
+        scene_->remove_static_cell(job.coord);
         for (SceneNode* n : it->second.nodes) scene_->remove_node(n);
         if (collision_)  collision_->remove_cell(job.coord);
         if (road_graph_) road_graph_->remove_cell(job.coord);
@@ -157,32 +187,32 @@ void Streamer::pump(glm::vec3 cam_pos) {
 
         LoadedCell lc;
 
-        // Buildings.
-        AABB cube_aabb;
-        cube_aabb.min = cube_mesh_->bounds_min();
-        cube_aabb.max = cube_mesh_->bounds_max();
-        for (const ObjectDef& def : job.defs) {
-            SceneNode* n = scene_->create_node();
-            n->transform  = def.transform;
-            n->renderable = Renderable{cube_mesh_, cube_aabb,
-                                        def.tint, def.uv_scale, def.texture};
+        // Instances — registered as static nodes in this cell's bucket.
+        for (const InstanceDef& inst : job.instances) {
+            const ModelDef* m = registry_ ? registry_->get(inst.model_id) : nullptr;
+            if (!m || !m->mesh) {
+                PE_WARN("Streamer: cell (%d,%d) skipped instance with unresolved model id %u",
+                        job.coord.x, job.coord.z, inst.model_id);
+                continue;
+            }
+            SceneNode* n = scene_->create_node_static(nullptr, job.coord);
+            n->transform = inst.transform;
+            glm::vec2 uv = (inst.uv_scale_override.x > 0.f || inst.uv_scale_override.y > 0.f)
+                            ? inst.uv_scale_override : m->uv_scale;
+            n->renderable = Renderable{m->mesh, m->local_bounds, m->tint, uv, m->texture};
             n->mark_dirty();
             lc.nodes.push_back(n);
         }
 
-        // Terrain. Upload first; SceneNode mesh pointer is patched after the
-        // LoadedCell lands in `loaded_` (the move would invalidate any pointer
-        // taken before insertion).
+        // Terrain (step 3 removes this entirely; ground will become more instances).
         lc.terrain_mesh.upload(job.terrain.verts, job.terrain.indices);
         AABB terrain_aabb;
         terrain_aabb.min = lc.terrain_mesh.bounds_min();
         terrain_aabb.max = lc.terrain_mesh.bounds_max();
-        SceneNode* tnode = scene_->create_node();
-        // Terrain mesh already tiles (32 m per tile via vertex UVs in
-        // terrain.cpp). Bump frequency a bit so grass doesn't look uniform.
+        SceneNode* tnode = scene_->create_node_static(nullptr, job.coord);
         tnode->renderable = Renderable{nullptr, terrain_aabb,
                                         glm::vec3{1.f, 1.f, 1.f},
-                                        glm::vec2{4.f, 4.f}, tex_.terrain};
+                                        glm::vec2{4.f, 4.f}, terrain_tex_};
         tnode->mark_dirty();
         lc.nodes.push_back(tnode);
 
@@ -207,4 +237,4 @@ Streamer::Stats Streamer::stats() const {
     return {static_cast<int>(loaded_.size()), nodes};
 }
 
-} // namespace pengine
+}  // namespace pengine

@@ -16,7 +16,7 @@ void CharacterController::teleport(const glm::vec3& feet_pos) {
 }
 
 void CharacterController::update(float dt, const Input& input, float forward_yaw_deg,
-                                  const WorldCollision& world) {
+                                  bool sprint, const WorldCollision& world) {
     // ---- Horizontal input ----------------------------------------------------
     float yaw_rad = glm::radians(forward_yaw_deg);
     glm::vec3 fwd { std::cos(yaw_rad), 0.f, std::sin(yaw_rad) };
@@ -30,7 +30,7 @@ void CharacterController::update(float dt, const Input& input, float forward_yaw
     float wish_len = glm::length(wish);
     if (wish_len > 1e-4f) wish /= wish_len;
 
-    glm::vec3 horiz_vel = wish * MOVE_SPEED;
+    glm::vec3 horiz_vel = wish * (sprint ? SPRINT_SPEED : MOVE_SPEED);
     // Mirror horizontal wish velocity into vel_.xz so callers (e.g. the
     // walk-cycle animation) can ask "are we moving?" from velocity().
     vel_.x = horiz_vel.x;

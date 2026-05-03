@@ -69,30 +69,67 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
     glm::vec3 chassis_down = body_.to_world_dir({0.f, -1.f, 0.f});
     glm::vec3 chassis_up   = -chassis_down;
 
+    // Suspension only makes sense when the chassis is roughly upright. When
+    // tipped past ~73°, raycasts in chassis-down can hit ground at near-
+    // horizontal angles and apply spring/drive/lateral forces that push the
+    // car sideways across the ground. Disable wheel forces in that case;
+    // chassis-on-ground friction below takes over.
+    const bool chassis_upright = glm::dot(chassis_up, glm::vec3{0.f, 1.f, 0.f}) > 0.3f;
+
     for (Wheel& w : wheels_) {
+        if (!chassis_upright) {
+            w.grounded         = false;
+            w.compression      = 0.f;
+            w.normal_force     = 0.f;
+            w.visual_drop      = suspension_rest;
+            w.prev_compression = 0.f;
+            continue;
+        }
+
         glm::vec3 mount_w = body_.to_world_point(w.mount_local);
         float ray_len = suspension_max + wheel_radius;
         RayHit hit = world.raycast(mount_w, chassis_down, ray_len);
 
         if (hit.hit && hit.t <= ray_len) {
-            float susp_len    = std::max(0.f, hit.t - wheel_radius);
+            // Compression saturates at suspension_rest (the bumpstop), but
+            // the *visual* drop should track the actual hit so the wheel
+            // sits at the terrain. Without the signed form below the wheel
+            // snaps up to the mount whenever hit.t < wheel_radius, which
+            // looks like the tire is sucked into the body.
+            float susp_signed = hit.t - wheel_radius;
+            float susp_len    = std::max(0.f, susp_signed);
             w.compression     = clampf(suspension_rest - susp_len, 0.f, suspension_rest);
             w.grounded        = true;
             w.contact_world   = mount_w + chassis_down * hit.t;
             w.contact_normal  = hit.normal;
-            w.visual_drop     = susp_len;
+            w.visual_drop     = susp_signed;
 
-            // Spring + damper. Force magnitude along chassis +Y.
-            float dcompress  = (w.compression - w.prev_compression) / std::max(dt, 1e-5f);
+            // Spring + damper. The damper input is the body's velocity at
+            // the mount projected onto chassis-down (i.e. how fast the sprung
+            // mass is moving toward the ground at this corner). That's the
+            // physically correct relative motion across the shock, AND it's
+            // smooth — the previous formulation took a finite difference of
+            // the raycasted compression, which spiked to tens of m/s on
+            // sharp terrain features (the V-valley launch problem) even
+            // though the body itself barely moved.
+            constexpr float MAX_DCOMPRESS_RATE = 8.f;     // m/s — sanity cap
+            constexpr float MAX_WHEEL_FORCE    = 80000.f; // N — ~12× rest weight
+            float dcompress  = glm::dot(body_.point_velocity(mount_w), chassis_down);
+            dcompress        = clampf(dcompress, -MAX_DCOMPRESS_RATE, MAX_DCOMPRESS_RATE);
             float force_mag  = w.compression * spring_k + dcompress * damper_k;
-            force_mag        = std::max(0.f, force_mag);
+            force_mag        = clampf(force_mag, 0.f, MAX_WHEEL_FORCE);
             w.normal_force   = force_mag;
             body_.apply_force_at(chassis_up * force_mag, mount_w);
         } else {
+            // Airborne: hang the wheel at the max suspension travel, not at
+            // rest length. This is continuous with the grounded branch (a
+            // ray that just barely fails returns visual_drop ≈ suspension_max
+            // either way), so wheels skirting the edge of contact don't
+            // flicker between two visual heights.
             w.grounded     = false;
             w.compression  = 0.f;
             w.normal_force = 0.f;
-            w.visual_drop  = suspension_rest; // hangs at rest length
+            w.visual_drop  = suspension_max;
         }
         w.prev_compression = w.compression;
     }
@@ -126,14 +163,21 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
         if (glm::length(fwd_g) < 1e-4f) continue;
 
         // Throttle (only on driven wheels). Signed: + = forward, - = reverse.
+        // Drive force is applied at the wheel mount (chassis-bottom level)
+        // rather than at the contact patch. The longer lever arm from contact
+        // to COM produces unrealistic pitch torque (visible wheelies); real
+        // drivetrains transmit longitudinal load through the suspension link
+        // at mount level — this is the "anti-squat" geometry trick. Lateral
+        // grip and brake still go through the contact, where they belong.
+        glm::vec3 mount_w = body_.to_world_point(w.mount_local);
         if (w.is_driven && throttle_ > 0.f) {
             float per_wheel = (engine_force / static_cast<float>(driven_grounded))
                               * drive_factor_fwd;
-            body_.apply_force_at(fwd_g * per_wheel * throttle_, w.contact_world);
+            body_.apply_force_at(fwd_g * per_wheel * throttle_, mount_w);
         } else if (w.is_driven && throttle_ < 0.f) {
             float per_wheel = (reverse_force / static_cast<float>(driven_grounded))
                               * drive_factor_rev;
-            body_.apply_force_at(fwd_g * per_wheel * throttle_, w.contact_world);
+            body_.apply_force_at(fwd_g * per_wheel * throttle_, mount_w);
         }
 
         // Brake (all wheels). Opposes current contact-point velocity along fwd_g.
@@ -208,13 +252,69 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
         }
     }
 
-    // ---- Hard floor: don't allow chassis under terrain ----------------------
+    // ---- Chassis-corner contact springs ------------------------------------
+    // Each of the 8 chassis corners that penetrates terrain applies its own
+    // upward spring/damper plus a Coulomb friction force, *at that corner*.
+    // Forces applied off-centre naturally generate torque, so a chassis
+    // balanced on its rear face is unstable: any small lean makes one corner
+    // penetrate more than the others, asymmetric support tips it over, and
+    // friction at the moving contact dissipates the slide. This replaces the
+    // earlier rigid hard-floor clamp (which lifted the centre of mass and so
+    // never produced a toppling moment) and the bespoke linear/angular drag
+    // code (subsumed by per-corner friction).
     {
-        float ground = Heightmap::sample(body_.position.x, body_.position.z);
-        float min_y  = ground + chassis_full_extents.y * 0.5f - 0.05f;
-        if (body_.position.y < min_y) {
-            body_.position.y = min_y;
-            if (body_.linear_vel.y < 0.f) body_.linear_vel.y = 0.f;
+        const glm::vec3 he = chassis_full_extents * 0.5f;
+        const glm::vec3 N{0.f, 1.f, 0.f};
+        constexpr float K_NORMAL    = 400000.f;  // N/m
+        constexpr float C_NORMAL    =  18000.f;  // N·s/m
+        constexpr float V_DAMP_CAP  =      6.f;  // m/s — clamp damper input
+        constexpr float CHASSIS_MU  =     0.9f;
+
+        // Wheel suspension already supports body weight when wheels are
+        // grounded. If we let chassis-corner springs fire at full strength on
+        // top of that, narrow features (a V-shaped valley, where two opposite
+        // chassis corners penetrate the V walls while the wheels are happily
+        // on the slopes) can launch the car. Cap the corner force tightly
+        // while any wheel is grounded; the cap relaxes the moment the car is
+        // genuinely unsupported (mid-air, tipped over, etc.).
+        bool any_wheel_grounded = false;
+        for (const Wheel& w : wheels_) if (w.grounded) { any_wheel_grounded = true; break; }
+        const float fn_per_corn = any_wheel_grounded ? 4000.f : 60000.f;
+
+        for (int sx = -1; sx <= 1; sx += 2)
+        for (int sy = -1; sy <= 1; sy += 2)
+        for (int sz = -1; sz <= 1; sz += 2) {
+            glm::vec3 c_world = body_.to_world_point(
+                {he.x * sx, he.y * sy, he.z * sz});
+            float ground = Heightmap::sample(c_world.x, c_world.z);
+            float pen    = ground - c_world.y;
+            if (pen <= 0.f) continue;
+
+            glm::vec3 v_corner = body_.point_velocity(c_world);
+            float     v_normal = glm::dot(v_corner, N);
+
+            // Spring + damper. Damper only resists incoming motion (don't
+            // pull the corner back down once it lifts off). The damper
+            // velocity is capped so a high-speed impact doesn't fire a
+            // single-substep impulse big enough to launch the car.
+            float v_n_in = std::min(std::max(0.f, -v_normal), V_DAMP_CAP);
+            float fn     = pen * K_NORMAL + v_n_in * C_NORMAL;
+            fn           = std::min(fn, fn_per_corn);
+            body_.apply_force_at(N * fn, c_world);
+
+            // Coulomb friction at the contact point: opposes tangential
+            // velocity, capped by μ * normal force. Capped a second time so
+            // we can't overshoot and reverse the tangential motion within a
+            // single substep.
+            glm::vec3 v_tan     = v_corner - N * v_normal;
+            float     v_tan_mag = glm::length(v_tan);
+            if (v_tan_mag > 1e-4f) {
+                float fric_max  = CHASSIS_MU * fn;
+                float fric_stop = v_tan_mag * (body_.mass / 8.f)
+                                  / std::max(dt, 1e-5f);
+                float fric_mag  = std::min(fric_max, fric_stop);
+                body_.apply_force_at(-(v_tan / v_tan_mag) * fric_mag, c_world);
+            }
         }
     }
 }

@@ -6,8 +6,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
 endif()
+
+option(PENGINE_SANITIZE "Build with AddressSanitizer + UBSan" OFF)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -100,6 +102,7 @@ add_library(pengine_core STATIC
     src/scene/scene_node.cpp
     src/scene/scene.cpp
     src/render/debug_draw.cpp
+    src/render/minimap.cpp
     src/render/spring_arm.cpp
     src/render/skinned_mesh.cpp
     src/render/skeleton.cpp
@@ -111,6 +114,8 @@ add_library(pengine_core STATIC
     src/world/streamer.cpp
     src/world/city_layout.cpp
     src/world/road_graph.cpp
+    src/world/model_registry.cpp
+    src/world/ipl_loader.cpp
     src/game/vehicle.cpp
     src/game/traffic.cpp
 )
@@ -145,8 +150,8 @@ else()
     )
 endif()
 
-# Sanitizers in Debug.
-if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT MSVC)
+# Sanitizers — opt in via -DPENGINE_SANITIZE=ON.
+if(PENGINE_SANITIZE AND NOT MSVC)
     target_compile_options(pengine_core PUBLIC -fsanitize=address,undefined -fno-omit-frame-pointer)
     target_link_options(pengine_core PUBLIC -fsanitize=address,undefined)
 endif()

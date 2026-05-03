@@ -59,15 +59,53 @@ void Mesh::upload(const std::vector<Vertex>& vertices,
 }
 
 void Mesh::destroy() {
-    if (vao_) { glDeleteVertexArrays(1, &vao_); vao_ = 0; }
-    if (vbo_) { glDeleteBuffers(1, &vbo_);       vbo_ = 0; }
-    if (ebo_) { glDeleteBuffers(1, &ebo_);       ebo_ = 0; }
+    if (vao_)          { glDeleteVertexArrays(1, &vao_); vao_ = 0; }
+    if (vbo_)          { glDeleteBuffers(1, &vbo_);          vbo_ = 0; }
+    if (ebo_)          { glDeleteBuffers(1, &ebo_);          ebo_ = 0; }
+    if (instance_vbo_) { glDeleteBuffers(1, &instance_vbo_); instance_vbo_ = 0; }
+    instance_capacity_ = 0;
     index_count_ = 0;
 }
 
 void Mesh::draw() const {
     gl_state::bind_vao(vao_);
     glDrawElements(GL_TRIANGLES, index_count_, GL_UNSIGNED_INT, nullptr);
+}
+
+void Mesh::draw_instanced(const glm::mat4* matrices, int count) const {
+    if (count <= 0 || !vao_) return;
+
+    gl_state::bind_vao(vao_);
+
+    if (!instance_vbo_) {
+        glGenBuffers(1, &instance_vbo_);
+        glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_);
+        // Locations 0..3 are taken by position/normal/uv/tangent. mat4 spans
+        // four consecutive vec4 attribs starting at 4.
+        for (GLuint col = 0; col < 4; ++col) {
+            const GLuint loc = 4 + col;
+            glEnableVertexAttribArray(loc);
+            glVertexAttribPointer(loc, 4, GL_FLOAT, GL_FALSE,
+                                   sizeof(glm::mat4),
+                                   reinterpret_cast<void*>(col * sizeof(glm::vec4)));
+            glVertexAttribDivisor(loc, 1);
+        }
+    } else {
+        glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_);
+    }
+
+    const GLsizeiptr bytes = static_cast<GLsizeiptr>(count) *
+                              static_cast<GLsizeiptr>(sizeof(glm::mat4));
+    if (count > instance_capacity_) {
+        // Grow: allocates a new store. GL_DYNAMIC_DRAW hints at frequent updates.
+        glBufferData(GL_ARRAY_BUFFER, bytes, matrices, GL_DYNAMIC_DRAW);
+        instance_capacity_ = count;
+    } else {
+        glBufferSubData(GL_ARRAY_BUFFER, 0, bytes, matrices);
+    }
+
+    glDrawElementsInstanced(GL_TRIANGLES, index_count_, GL_UNSIGNED_INT,
+                             nullptr, count);
 }
 
 // ---------------------------------------------------------------------------

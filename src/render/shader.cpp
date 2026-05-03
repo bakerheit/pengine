@@ -11,10 +11,12 @@ namespace pengine {
 
 namespace {
 
+#ifndef NDEBUG
 std::time_t mtime(const std::string& path) {
     struct ::stat st;
     return ::stat(path.c_str(), &st) == 0 ? static_cast<std::time_t>(st.st_mtime) : 0;
 }
+#endif
 
 std::string read_file(const std::string& path) {
     std::ifstream f(path);
@@ -51,6 +53,15 @@ bool Shader::load(std::string vert_path, std::string frag_path) {
 
 void Shader::destroy() {
     if (program_) { glDeleteProgram(program_); program_ = 0; }
+    uniform_cache_.clear();
+}
+
+GLint Shader::location(const char* name) const {
+    auto it = uniform_cache_.find(name);
+    if (it != uniform_cache_.end()) return it->second;
+    GLint loc = glGetUniformLocation(program_, name);
+    uniform_cache_.emplace(name, loc);
+    return loc;
 }
 
 bool Shader::compile_and_link() {
@@ -81,6 +92,7 @@ bool Shader::compile_and_link() {
 
     if (program_) glDeleteProgram(program_);
     program_ = prog;
+    uniform_cache_.clear();
 
 #ifndef NDEBUG
     vert_mtime_ = mtime(vert_path_);
@@ -109,26 +121,25 @@ void Shader::hot_reload() {
 }
 
 void Shader::set(const char* name, int v) const {
-    glUniform1i(glGetUniformLocation(program_, name), v);
+    glUniform1i(location(name), v);
 }
 void Shader::set(const char* name, float v) const {
-    glUniform1f(glGetUniformLocation(program_, name), v);
+    glUniform1f(location(name), v);
 }
 void Shader::set(const char* name, const glm::vec2& v) const {
-    glUniform2fv(glGetUniformLocation(program_, name), 1, &v[0]);
+    glUniform2fv(location(name), 1, &v[0]);
 }
 void Shader::set(const char* name, const glm::vec3& v) const {
-    glUniform3fv(glGetUniformLocation(program_, name), 1, &v[0]);
+    glUniform3fv(location(name), 1, &v[0]);
 }
 void Shader::set(const char* name, const glm::mat3& v) const {
-    glUniformMatrix3fv(glGetUniformLocation(program_, name), 1, GL_FALSE, &v[0][0]);
+    glUniformMatrix3fv(location(name), 1, GL_FALSE, &v[0][0]);
 }
 void Shader::set(const char* name, const glm::mat4& v) const {
-    glUniformMatrix4fv(glGetUniformLocation(program_, name), 1, GL_FALSE, &v[0][0]);
+    glUniformMatrix4fv(location(name), 1, GL_FALSE, &v[0][0]);
 }
 void Shader::set_mat4_array(const char* name, const glm::mat4* data, int count) const {
-    glUniformMatrix4fv(glGetUniformLocation(program_, name),
-                        count, GL_FALSE, &data[0][0][0]);
+    glUniformMatrix4fv(location(name), count, GL_FALSE, &data[0][0][0]);
 }
 
 } // namespace pengine

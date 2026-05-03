@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <filesystem>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -12,23 +13,18 @@
 #include "render/mesh.h"
 #include "scene/aabb.h"
 #include "world/cell_coord.h"
+#include "world/instance_def.h"
 #include "world/terrain.h"
 #include "world/world_defs.h"
 
 namespace pengine {
 
+class ModelRegistry;
 class RoadGraph;
 class Scene;
 class SceneNode;
 class Texture;
 class WorldCollision;
-
-struct WorldTextures {
-    const Texture* terrain  = nullptr;  // grass for terrain mesh
-    const Texture* road     = nullptr;  // asphalt for road slabs
-    const Texture* sidewalk = nullptr;  // concrete slab for sidewalks
-    const Texture* building = nullptr;  // facade with windows
-};
 
 class Streamer {
 public:
@@ -37,9 +33,15 @@ public:
         int total_nodes  = 0;
     };
 
-    void init(const WorldConfig& cfg, Scene* scene, const Mesh* cube_mesh,
-              WorldCollision* collision, const WorldTextures& tex,
-              RoadGraph* road_graph = nullptr);
+    // `registry`     — owns model defs (mesh, texture, bounds) referenced by IPL.
+    // `terrain_tex`  — texture used for the per-cell heightmap mesh (step 3 removes this).
+    // `cell_cache`   — directory for IPL files. Empty = "<ASSETS_DIR>/world/cells".
+    //                  Cells without an IPL are generated procedurally and saved here.
+    void init(const WorldConfig& cfg, Scene* scene,
+              WorldCollision* collision, const ModelRegistry* registry,
+              const Texture* terrain_tex,
+              RoadGraph* road_graph = nullptr,
+              std::filesystem::path cell_cache = {});
     void shutdown();
 
     void pump(glm::vec3 cam_pos);
@@ -49,17 +51,15 @@ public:
 private:
     void thread_func();
 
-    void generate_cell(CellCoord coord, const WorldConfig& cfg,
-                        std::vector<ObjectDef>& out_defs,
-                        std::vector<AABB>&      out_aabbs) const;
-
     struct LoadJob {
         CellCoord                coord;
-        std::vector<ObjectDef>   defs;
+        std::vector<InstanceDef> instances;
         std::vector<AABB>        building_aabbs;
         TerrainChunk             terrain;
     };
     struct EvictJob { CellCoord coord; };
+
+    LoadJob load_or_generate_cell(CellCoord coord) const;
 
     mutable std::mutex    queue_mutex_;
     std::vector<LoadJob>  load_queue_;
@@ -69,20 +69,21 @@ private:
     glm::vec3   cam_pos_ = {0.f, 0.f, 0.f};
 
     struct LoadedCell {
-        std::vector<SceneNode*> nodes;          // building nodes + terrain node
+        std::vector<SceneNode*> nodes;
         Mesh                    terrain_mesh;
     };
     std::unordered_map<CellCoord, LoadedCell, CellCoordHash> loaded_;
 
-    WorldConfig      cfg_;
-    Scene*           scene_      = nullptr;
-    const Mesh*      cube_mesh_  = nullptr;
-    WorldCollision*  collision_  = nullptr;
-    RoadGraph*       road_graph_ = nullptr;
-    WorldTextures    tex_;
+    WorldConfig          cfg_;
+    Scene*               scene_       = nullptr;
+    WorldCollision*      collision_   = nullptr;
+    const ModelRegistry* registry_    = nullptr;
+    const Texture*       terrain_tex_ = nullptr;
+    RoadGraph*           road_graph_  = nullptr;
+    std::filesystem::path cell_cache_;
 
     std::atomic<bool> running_{false};
     std::thread       thread_;
 };
 
-} // namespace pengine
+}  // namespace pengine
