@@ -42,14 +42,6 @@ public:
     // that might cross it).
     static float     raw_sample(float wx, float wz);
 
-    // Slab placement variant. Identical to sample() everywhere except inside
-    // an intersection band: there it returns a sharp plateau Y (the raw
-    // heightmap at the centerline grid point) instead of the smooth-snap
-    // blend. Used for road and sidewalk slab endpoint heights so all four
-    // approaches converge to the same flat 8x8m platform at intersections,
-    // while terrain mesh and vehicle physics keep using the smooth sample.
-    static float     sample_for_slab(float wx, float wz);
-
     static int   resolution()  ;
     static float world_size_m();
 };

@@ -266,20 +266,6 @@ glm::vec3 Heightmap::normal(float wx, float wz) {
     return glm::normalize(n);
 }
 
-float Heightmap::sample_for_slab(float wx, float wz) {
-    RoadBandClass c = classify_road_band(wx, wz);
-    if (c.in_ns && c.in_ew) {
-        // Inside an intersection band: snap both axes to the centerline grid
-        // point so all four approaching road slabs (and the sidewalks at
-        // the intersection corners) converge to the same plateau Y.
-        return raw_sample(c.ns_x, c.ew_z);
-    }
-    // Off-intersection: identical to the smooth sample used by terrain and
-    // physics. Single-band carving (snap one axis to its centerline) is
-    // already what sample() does, so nothing extra to do here.
-    return sample(wx, wz);
-}
-
 int   Heightmap::resolution()   { return g_resolution; }
 float Heightmap::world_size_m() { return g_world_size; }
 

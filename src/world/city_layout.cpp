@@ -101,63 +101,23 @@ void push_slope_slab(std::vector<InstanceDef>& out,
     out.push_back(inst);
 }
 
-// Sorted list of road-segment endpoints along [t0, t1] including:
-//   - The boundaries t0 and t1.
-//   - Every intersection centre (multiple of ROAD_PITCH) inside the range.
-//   - The two band edges (centre ± ROAD_HALF_WIDTH) of every intersection.
-//   - SEGMENT_M-spaced fillers between adjacent special points.
-//
-// The band-edge endpoints are the critical part: paired with sample_for_slab,
-// the segment that spans an intersection's plateau region [centre-4m, centre+4m]
-// has both endpoints sampled at the same plateau Y → the slab is flat across
-// the intersection and NS/EW slabs converge to a shared elevation rather than
-// rendering at each road's natural grade.
-std::vector<float> road_endpoints(float t0, float t1) {
-    std::vector<float> e;
-    e.reserve(64);
-    e.push_back(t0);
-    e.push_back(t1);
-
-    int k0 = static_cast<int>(std::floor((t0 - ROAD_HALF_WIDTH) / ROAD_PITCH));
-    int k1 = static_cast<int>(std::ceil ((t1 + ROAD_HALF_WIDTH) / ROAD_PITCH));
-    for (int k = k0; k <= k1; ++k) {
-        float ic = static_cast<float>(k) * ROAD_PITCH;
-        for (float t : {ic - ROAD_HALF_WIDTH, ic, ic + ROAD_HALF_WIDTH}) {
-            if (t > t0 + 1e-3f && t < t1 - 1e-3f) e.push_back(t);
-        }
-    }
-    std::sort(e.begin(), e.end());
-    e.erase(std::unique(e.begin(), e.end(),
-                        [](float a, float b){ return std::abs(a - b) < 1e-3f; }),
-            e.end());
-
-    std::vector<float> out;
-    out.reserve(e.size() * 3);
-    out.push_back(e.front());
-    for (std::size_t i = 1; i < e.size(); ++i) {
-        float gap = e[i] - e[i - 1];
-        int   n   = std::max(1, static_cast<int>(std::ceil(gap / SEGMENT_M)));
-        for (int j = 1; j < n; ++j) {
-            out.push_back(e[i - 1] + gap * static_cast<float>(j) /
-                                       static_cast<float>(n));
-        }
-        out.push_back(e[i]);
-    }
-    return out;
-}
-
-// NS road slab. Endpoints come from road_endpoints() so segments fall on
-// intersection band edges; height comes from Heightmap::sample_for_slab so
-// segments inside an intersection band are flat at the plateau.
+// NS road slab subdivided into uniform SEGMENT_M-long segments aligned with
+// terrain mesh vertices (multiples of 8m from cell origin). Slab endpoint Y
+// comes from Heightmap::sample (smooth-snap) so the slab follows the same
+// continuous heightmap as the terrain mesh — no slope kinks at intersection
+// band edges, and slabs from two crossing roads end up matched (within
+// heightmap-curvature tolerance) wherever their footprints overlap, because
+// push_slope_slab tilts each segment laterally to fit terrain at its edges.
 void push_road_ns(std::vector<InstanceDef>& out,
                    float xc, float z0, float z1, float lift) {
+    float length = z1 - z0;
+    int   n_segs = std::max(1, static_cast<int>(std::ceil(length / SEGMENT_M)));
     constexpr float tile_per_m = 1.f / ROAD_TILE_M;
-    std::vector<float> zs_list = road_endpoints(z0, z1);
-    for (std::size_t i = 1; i < zs_list.size(); ++i) {
-        float zs = zs_list[i - 1];
-        float ze = zs_list[i];
-        glm::vec3 start{xc, Heightmap::sample_for_slab(xc, zs), zs};
-        glm::vec3 end  {xc, Heightmap::sample_for_slab(xc, ze), ze};
+    for (int i = 0; i < n_segs; ++i) {
+        float zs = z0 + length * (static_cast<float>(i)     / static_cast<float>(n_segs));
+        float ze = z0 + length * (static_cast<float>(i + 1) / static_cast<float>(n_segs));
+        glm::vec3 start{xc, Heightmap::sample(xc, zs), zs};
+        glm::vec3 end  {xc, Heightmap::sample(xc, ze), ze};
         push_slope_slab(out, world_ids::RoadSlab, start, end,
                         STREET_WIDTH, ROAD_THICKNESS, lift,
                         tile_per_m, tile_per_m);
@@ -166,13 +126,14 @@ void push_road_ns(std::vector<InstanceDef>& out,
 
 void push_road_ew(std::vector<InstanceDef>& out,
                    float zc, float x0, float x1, float lift) {
+    float length = x1 - x0;
+    int   n_segs = std::max(1, static_cast<int>(std::ceil(length / SEGMENT_M)));
     constexpr float tile_per_m = 1.f / ROAD_TILE_M;
-    std::vector<float> xs_list = road_endpoints(x0, x1);
-    for (std::size_t i = 1; i < xs_list.size(); ++i) {
-        float xs = xs_list[i - 1];
-        float xe = xs_list[i];
-        glm::vec3 start{xs, Heightmap::sample_for_slab(xs, zc), zc};
-        glm::vec3 end  {xe, Heightmap::sample_for_slab(xe, zc), zc};
+    for (int i = 0; i < n_segs; ++i) {
+        float xs = x0 + length * (static_cast<float>(i)     / static_cast<float>(n_segs));
+        float xe = x0 + length * (static_cast<float>(i + 1) / static_cast<float>(n_segs));
+        glm::vec3 start{xs, Heightmap::sample(xs, zc), zc};
+        glm::vec3 end  {xe, Heightmap::sample(xe, zc), zc};
         push_slope_slab(out, world_ids::RoadSlab, start, end,
                         STREET_WIDTH, ROAD_THICKNESS, lift,
                         tile_per_m, tile_per_m);
@@ -197,8 +158,8 @@ void push_sidewalk_strip(std::vector<InstanceDef>& out,
             float t1 = static_cast<float>(i + 1) / static_cast<float>(n_segs);
             float zs = z0 + d * t0;
             float ze = z0 + d * t1;
-            glm::vec3 start{xc, Heightmap::sample_for_slab(xc, zs), zs};
-            glm::vec3 end  {xc, Heightmap::sample_for_slab(xc, ze), ze};
+            glm::vec3 start{xc, Heightmap::sample(xc, zs), zs};
+            glm::vec3 end  {xc, Heightmap::sample(xc, ze), ze};
             push_slope_slab(out, world_ids::SidewalkSlab, start, end,
                             w, SIDEWALK_THICKNESS, SIDEWALK_CURB_H,
                             tile_per_m, tile_per_m);
@@ -212,8 +173,8 @@ void push_sidewalk_strip(std::vector<InstanceDef>& out,
             float t1 = static_cast<float>(i + 1) / static_cast<float>(n_segs);
             float xs = x0 + w * t0;
             float xe = x0 + w * t1;
-            glm::vec3 start{xs, Heightmap::sample_for_slab(xs, zc), zc};
-            glm::vec3 end  {xe, Heightmap::sample_for_slab(xe, zc), zc};
+            glm::vec3 start{xs, Heightmap::sample(xs, zc), zc};
+            glm::vec3 end  {xe, Heightmap::sample(xe, zc), zc};
             push_slope_slab(out, world_ids::SidewalkSlab, start, end,
                             d, SIDEWALK_THICKNESS, SIDEWALK_CURB_H,
                             tile_per_m, tile_per_m);
