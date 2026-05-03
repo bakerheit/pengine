@@ -1,5 +1,7 @@
 #include "game/traffic.h"
 
+#include "game/car_models.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -27,23 +29,9 @@ namespace pengine {
 // =============================================================================
 namespace {
 
-// ---- Car5 body model -------------------------------------------------------
-// Mesh has +Z forward in author space; we apply YAW_OFFSET_DEG to flip into
-// the engine's -Z forward convention. ARCH_CENTRE_Y_NATIVE is the body's
-// wheel-arch midline in mesh-y, used to pin the body inside the wheels.
-namespace Car5 {
-    constexpr const char* MESH_PATH      = ASSETS_DIR "/models/vehicles/car5.emesh";
-    constexpr const char* PAINT_PATHS[3] = {
-        ASSETS_DIR "/Vehicles_psx/Car 05/car5.png",
-        ASSETS_DIR "/Vehicles_psx/Car 05/car5_green.png",
-        ASSETS_DIR "/Vehicles_psx/Car 05/car5_grey.png",
-    };
-    constexpr float YAW_OFFSET_DEG       = 180.f;
-    constexpr float ARCH_CENTRE_Y_NATIVE = 0.45f;
-    constexpr float WHEEL_X_NATIVE       = 1.038f;
-    constexpr float WHEEL_ZF_NATIVE      = 2.254f;
-    constexpr float WHEEL_ZR_NATIVE      = 1.813f;
-}
+// Car body models, asset paths, geometry, and tuning all live in
+// game/car_models.h / .cpp — that's the single source of truth for adding or
+// editing a vehicle. This file just consumes the table.
 
 // ---- Separate wheel mesh ---------------------------------------------------
 namespace WheelAsset {
@@ -216,31 +204,39 @@ bool obb_xz_intersect(const OBBxz& a, const OBBxz& b,
 // Assets — loaded once at init, shared across every Car.
 // =============================================================================
 struct TrafficSystem::Assets {
-    Mesh    body_mesh;
-    Texture body_paints[3];
-    bool    body_ok = false;
-
+    // Wheel asset is shared across every car model.
     Mesh    wheel_mesh;
     Texture wheel_tex;
-    bool    wheel_ok = false;
+    bool    wheel_ok            = false;
+    float   wheel_visual_scale  = 1.f;
+    float   wheel_visible_radius = 0.f;
 
-    glm::vec3 body_visual_scale  {1.f}; // uniform scale to fit chassis length
-    glm::vec3 body_visual_offset {0.f}; // chassis-local offset for body child
-    float     wheel_visual_scale  = 1.f; // scale for wheel children
-    float     wheel_visible_radius = 0.f;
-    glm::vec3 wheel_mount[4]      {};   // chassis-local positions
+    // Per-car-model resources. Indexed by Car::model_id (which corresponds
+    // to the slot of CAR_MODELS[]). Each model is loaded independently — if
+    // one fails, init() bails for the whole TrafficSystem.
+    struct ModelAssets {
+        Mesh                 body_mesh;
+        std::vector<Texture> paints;          // sized to def.paint_count
+        bool                 body_ok = false;
 
-    // Where the chassis-centre sits above the ground at static rest. Used
-    // by AI cars (kinematic) so they line up with the player car visually.
-    float ride_height_at_rest = 1.0f;
+        glm::vec3 body_visual_scale  {1.f};   // uniform scale to fit chassis length
+        glm::vec3 body_visual_offset {0.f};   // chassis-local offset for body child
+        glm::vec3 wheel_mount[4]     {};      // chassis-local positions
 
-    // Suspension extension at static rest. AI cars never run wheel raycasts
-    // (kinematic), so their `Wheel::visual_drop` stays at zero — wheels would
-    // render at mount-level (too high). We stamp this value in sync_visuals
-    // for AI cars so they match what the physics-driven player would settle to.
-    //   static_compression = mass * |gravity| / (4 * spring_k)
-    //   static_visual_drop = suspension_rest - static_compression
-    float static_visual_drop = 0.f;
+        // Where the chassis-centre sits above the ground at static rest, for
+        // AI cars (kinematic) to line up with player visually. Per-model
+        // because chassis dimensions and wheel/suspension tuning differ.
+        float ride_height_at_rest = 1.0f;
+
+        // Suspension extension at static rest. AI cars never run wheel
+        // raycasts so their Wheel::visual_drop stays zero — wheels would
+        // render at mount level (too high). We stamp this value in
+        // sync_visuals for AI cars so they match the physics-settled rest:
+        //   static_compression = mass * |gravity| / (4 * spring_k)
+        //   static_visual_drop = suspension_rest - static_compression
+        float static_visual_drop = 0.f;
+    };
+    std::vector<ModelAssets> models;   // sized to NUM_CAR_MODELS at init()
 };
 
 // =============================================================================
@@ -259,47 +255,7 @@ bool TrafficSystem::init(Scene& scene, const LightVisuals& lights,
 
     assets_ = std::make_unique<Assets>();
 
-    // ---- Body mesh + paints ------------------------------------------------
-    bool body_ok = load_static_emesh(Car5::MESH_PATH, assets_->body_mesh);
-    for (int i = 0; body_ok && i < 3; ++i)
-        body_ok = assets_->body_paints[i].load_file(Car5::PAINT_PATHS[i]);
-    assets_->body_ok = body_ok;
-    if (!body_ok) {
-        PE_WARN("Car5 load failed; cars will fall back to cube visuals");
-        return false;
-    }
-
-    // Body uniform scale + body_visual offset.
-    {
-        glm::vec3 mn = assets_->body_mesh.bounds_min();
-        glm::vec3 mx = assets_->body_mesh.bounds_max();
-        // A reference Vehicle just to get the same chassis_full_extents the
-        // cars use (the field is configured on Vehicle's defaults).
-        Vehicle ref;
-        float native_length = std::max(0.001f, mx.z - mn.z);
-        float target_length = ref.chassis_full_extents.z;
-        float s             = target_length / native_length;
-        float wheel_chassis_y = -ref.chassis_full_extents.y * 0.5f - ref.suspension_rest;
-        assets_->body_visual_scale  = glm::vec3{s};
-        assets_->body_visual_offset = {
-            -(mn.x + mx.x) * 0.5f * s,
-            wheel_chassis_y - Car5::ARCH_CENTRE_Y_NATIVE * s,
-            -(mn.z + mx.z) * 0.5f * s,
-        };
-        assets_->ride_height_at_rest = ref.chassis_full_extents.y * 0.5f
-                                     + ref.suspension_rest
-                                     + ref.wheel_radius;
-        const float static_compress =
-            (ref.chassis_mass * std::abs(ref.gravity))
-                / (4.f * SuspensionOverride::SPRING_K);
-        assets_->static_visual_drop =
-            std::max(0.f, ref.suspension_rest - static_compress);
-        PE_INFO("Car5 model: native=%.2fx%.2fx%.2f scale=%.3f ride=%.2f",
-                mx.x - mn.x, mx.y - mn.y, mx.z - mn.z, s,
-                assets_->ride_height_at_rest);
-    }
-
-    // ---- Wheel mesh + texture ---------------------------------------------
+    // ---- Wheel mesh + texture (shared across all car models) --------------
     if (load_static_emesh(WheelAsset::MESH_PATH, assets_->wheel_mesh)
         && assets_->wheel_tex.load_file(WheelAsset::TEXTURE_PATH)) {
         glm::vec3 wmn = assets_->wheel_mesh.bounds_min();
@@ -313,18 +269,67 @@ bool TrafficSystem::init(Scene& scene, const LightVisuals& lights,
         PE_WARN("Wheel load failed; falling back to cube wheels");
     }
 
-    // ---- Wheel mount positions (chassis-local) ----------------------------
-    {
+    // ---- Per-model body mesh + paints + derived geometry ------------------
+    assets_->models.resize(static_cast<std::size_t>(NUM_CAR_MODELS));
+    for (int m = 0; m < NUM_CAR_MODELS; ++m) {
+        const CarModelDef& def = CAR_MODELS[m];
+        auto&              ma  = assets_->models[static_cast<std::size_t>(m)];
+
+        ma.body_ok = load_static_emesh(def.mesh_path, ma.body_mesh);
+        ma.paints.resize(static_cast<std::size_t>(def.paint_count));
+        for (int p = 0; ma.body_ok && p < def.paint_count; ++p)
+            ma.body_ok = ma.paints[static_cast<std::size_t>(p)]
+                            .load_file(def.paint_paths[p]);
+        if (!ma.body_ok) {
+            PE_WARN("Car model '%s' load failed; cars will not spawn",
+                    def.internal_name);
+            return false;
+        }
+
+        // Reference Vehicle pre-loaded with this model's tuning, so derived
+        // values (ride height, static suspension compression) reflect the
+        // mass/wheel/suspension this model actually uses.
         Vehicle ref;
-        float mount_y = -ref.chassis_full_extents.y * 0.5f;
-        const float s        = assets_->body_visual_scale.x;
-        const float wheel_x  = Car5::WHEEL_X_NATIVE  * s;
-        const float wheel_zf = Car5::WHEEL_ZF_NATIVE * s; // chassis-local -Z
-        const float wheel_zr = Car5::WHEEL_ZR_NATIVE * s; // chassis-local +Z
-        assets_->wheel_mount[0] = {-wheel_x, mount_y, -wheel_zf}; // FL
-        assets_->wheel_mount[1] = {+wheel_x, mount_y, -wheel_zf}; // FR
-        assets_->wheel_mount[2] = {-wheel_x, mount_y, +wheel_zr}; // RL
-        assets_->wheel_mount[3] = {+wheel_x, mount_y, +wheel_zr}; // RR
+        apply_model_tuning(ref, def);
+
+        glm::vec3 mn = ma.body_mesh.bounds_min();
+        glm::vec3 mx = ma.body_mesh.bounds_max();
+        float native_length = std::max(0.001f, mx.z - mn.z);
+        float target_length = ref.chassis_full_extents.z;
+        float s             = target_length / native_length;
+        float wheel_chassis_y = -ref.chassis_full_extents.y * 0.5f
+                                 - ref.suspension_rest;
+        ma.body_visual_scale  = glm::vec3{s};
+        ma.body_visual_offset = {
+            -(mn.x + mx.x) * 0.5f * s,
+            wheel_chassis_y - def.arch_centre_y_native * s,
+            -(mn.z + mx.z) * 0.5f * s,
+        };
+        ma.ride_height_at_rest = ref.chassis_full_extents.y * 0.5f
+                               + ref.suspension_rest
+                               + ref.wheel_radius;
+        const float static_compress =
+            (ref.chassis_mass * std::abs(ref.gravity))
+                / (4.f * SuspensionOverride::SPRING_K);
+        ma.static_visual_drop =
+            std::max(0.f, ref.suspension_rest - static_compress);
+
+        // Wheel mount positions (chassis-local) from this model's mesh-native
+        // wheel positions, scaled by the body-fit factor `s`.
+        const float mount_y  = -ref.chassis_full_extents.y * 0.5f;
+        const float wheel_x  = def.wheel_x_native  * s;
+        const float wheel_zf = def.wheel_zf_native * s;
+        const float wheel_zr = def.wheel_zr_native * s;
+        ma.wheel_mount[0] = {-wheel_x, mount_y, -wheel_zf}; // FL
+        ma.wheel_mount[1] = {+wheel_x, mount_y, -wheel_zf}; // FR
+        ma.wheel_mount[2] = {-wheel_x, mount_y, +wheel_zr}; // RL
+        ma.wheel_mount[3] = {+wheel_x, mount_y, +wheel_zr}; // RR
+
+        PE_INFO("Car model '%s' (%s %s): native=%.2fx%.2fx%.2f scale=%.3f "
+                "ride=%.2f max=%.0f km/h mass=%.0f kg",
+                def.internal_name, def.make, def.model,
+                mx.x - mn.x, mx.y - mn.y, mx.z - mn.z, s,
+                ma.ride_height_at_rest, def.max_speed_kmh, def.chassis_mass);
     }
 
     return true;
@@ -354,33 +359,44 @@ void TrafficSystem::shutdown() {
 
 TrafficSystem::Car* TrafficSystem::create_car_at_pose(const glm::vec3& pos,
                                                       float yaw_deg,
+                                                      int model_id,
                                                       int paint_idx,
                                                       Driver driver) {
     if (!scene_ || !assets_) return nullptr;
+    if (model_id < 0 || model_id >= NUM_CAR_MODELS) model_id = 0;
+    const CarModelDef& def = CAR_MODELS[model_id];
+    auto&              ma  = assets_->models[static_cast<std::size_t>(model_id)];
+    if (!ma.body_ok) return nullptr;
+
     auto car = std::make_unique<Car>();
     car->driver    = driver;
-    car->paint_idx = paint_idx;
+    car->model_id  = model_id;
+    // Clamp paint index to this model's paint palette.
+    car->paint_idx = std::clamp(paint_idx, 0, def.paint_count - 1);
+
+    // Apply per-model tuning (mass, max_speed, engine_force, …) before spawn.
+    apply_model_tuning(car->vehicle, def);
 
     // Configure the rigid body. spawn() resets velocity + sets default
-    // wheel mounts; we then override wheel mounts to the car5 positions.
+    // wheel mounts; we then override wheel mounts to this model's positions.
     car->vehicle.spring_k = SuspensionOverride::SPRING_K;
     car->vehicle.damper_k = SuspensionOverride::DAMPER_K;
     car->vehicle.spawn(pos, yaw_deg);
     for (int wi = 0; wi < 4; ++wi)
-        car->vehicle.set_wheel_mount(wi, assets_->wheel_mount[wi]);
+        car->vehicle.set_wheel_mount(wi, ma.wheel_mount[wi]);
 
     // ---- Scene graph: chassis (rigid-body pose) → body_visual + 4 wheels --
     car->chassis_node     = scene_->create_node();
     car->body_visual_node = scene_->create_node(car->chassis_node);
 
-    if (assets_->body_ok) {
+    if (ma.body_ok) {
         AABB local;
-        local.min = assets_->body_mesh.bounds_min();
-        local.max = assets_->body_mesh.bounds_max();
-        int pi = paint_idx < 0 ? 0 : (paint_idx > 2 ? 2 : paint_idx);
+        local.min = ma.body_mesh.bounds_min();
+        local.max = ma.body_mesh.bounds_max();
         car->body_visual_node->renderable = Renderable{
-            &assets_->body_mesh, local, glm::vec3{1.f, 1.f, 1.f},
-            glm::vec2{1.f, 1.f}, &assets_->body_paints[pi]};
+            &ma.body_mesh, local, glm::vec3{1.f, 1.f, 1.f},
+            glm::vec2{1.f, 1.f},
+            &ma.paints[static_cast<std::size_t>(car->paint_idx)]};
     } else if (light_vis_.cube_mesh) {
         AABB cube_aabb;
         cube_aabb.min = light_vis_.cube_mesh->bounds_min();
@@ -391,24 +407,29 @@ TrafficSystem::Car* TrafficSystem::create_car_at_pose(const glm::vec3& pos,
             light_vis_.checker_tex};
     }
 
-    // Wheels.
-    const Mesh*    wm = assets_->wheel_ok ? &assets_->wheel_mesh
-                                          : light_vis_.cube_mesh;
-    const Texture* wt = assets_->wheel_ok ? &assets_->wheel_tex
-                                          : light_vis_.checker_tex;
-    AABB waabb;
-    waabb.min = wm ? wm->bounds_min() : -glm::vec3{0.5f};
-    waabb.max = wm ? wm->bounds_max() :  glm::vec3{0.5f};
-    glm::vec3 wtint = assets_->wheel_ok ? glm::vec3{1.f}
-                                         : glm::vec3{0.10f, 0.10f, 0.10f};
-    for (int wi = 0; wi < 4; ++wi) {
-        car->wheel_nodes[wi] = scene_->create_node(car->chassis_node);
-        // When the wheel asset loaded, wheels are drawn in one instanced call
-        // via TrafficSystem::draw_wheels — leave renderable empty so Scene::draw
-        // skips them. The cube fallback still goes through the per-node path.
-        if (!assets_->wheel_ok) {
-            car->wheel_nodes[wi]->renderable = Renderable{
-                wm, waabb, wtint, glm::vec2{1.f, 1.f}, wt};
+    // Dynamic wheels — skipped entirely for models that already have wheels
+    // baked into the body mesh, otherwise we'd render two sets at the same
+    // wheel arches. draw_wheels and sync_visuals both null-check the
+    // wheel_nodes, so leaving them null disables both paths cleanly.
+    if (!def.body_has_built_in_wheels) {
+        const Mesh*    wm = assets_->wheel_ok ? &assets_->wheel_mesh
+                                              : light_vis_.cube_mesh;
+        const Texture* wt = assets_->wheel_ok ? &assets_->wheel_tex
+                                              : light_vis_.checker_tex;
+        AABB waabb;
+        waabb.min = wm ? wm->bounds_min() : -glm::vec3{0.5f};
+        waabb.max = wm ? wm->bounds_max() :  glm::vec3{0.5f};
+        glm::vec3 wtint = assets_->wheel_ok ? glm::vec3{1.f}
+                                             : glm::vec3{0.10f, 0.10f, 0.10f};
+        for (int wi = 0; wi < 4; ++wi) {
+            car->wheel_nodes[wi] = scene_->create_node(car->chassis_node);
+            // When the wheel asset loaded, wheels are drawn in one instanced
+            // call via TrafficSystem::draw_wheels — leave renderable empty
+            // so Scene::draw skips them. Cube fallback uses the per-node path.
+            if (!assets_->wheel_ok) {
+                car->wheel_nodes[wi]->renderable = Renderable{
+                    wm, waabb, wtint, glm::vec2{1.f, 1.f}, wt};
+            }
         }
     }
 
@@ -420,7 +441,9 @@ TrafficSystem::Car* TrafficSystem::create_car_at_pose(const glm::vec3& pos,
 
 TrafficSystem::Car* TrafficSystem::spawn_player_car(const glm::vec3& pos,
                                                     float yaw_deg) {
-    Car* c = create_car_at_pose(pos, yaw_deg, /*paint_idx=*/ 0, Driver::Player);
+    // Player drives Car5 (model 0) by default.
+    Car* c = create_car_at_pose(pos, yaw_deg, /*model_id=*/ 0,
+                                 /*paint_idx=*/ 0, Driver::Player);
     if (c) player_car_ = c;
     return c;
 }
@@ -635,19 +658,36 @@ bool TrafficSystem::try_spawn_ai(const glm::vec3& camera_pos) {
         float dist = std::sqrt(dx*dx + dz*dz);
         if (dist < spawn_min_ || dist > spawn_max_) continue;
 
+        // Pick model by spawn weight (so e.g. trucks are rarer than sedans),
+        // then a random paint within that model's palette. Done up front so
+        // we can use the model's ride height when placing the chassis.
+        int total_weight = 0;
+        for (int m = 0; m < NUM_CAR_MODELS; ++m) total_weight += CAR_MODELS[m].spawn_weight;
+        int r = static_cast<int>(rng_() % static_cast<std::uint32_t>(total_weight));
+        int model_id = 0;
+        for (int m = 0; m < NUM_CAR_MODELS; ++m) {
+            r -= CAR_MODELS[m].spawn_weight;
+            if (r < 0) { model_id = m; break; }
+        }
+        int paint_idx = static_cast<int>(rng_() %
+                            static_cast<std::uint32_t>(
+                                CAR_MODELS[model_id].paint_count));
+
         // Place the chassis at the lane position, lifted to chassis-centre
         // height so the visual matches a player-driven car.
         float ground = Heightmap::sample(spawn_xz.x, spawn_xz.z);
         glm::vec3 spawn_pos{spawn_xz.x,
-                             ground + assets_->ride_height_at_rest,
+                             ground + assets_->models[
+                                 static_cast<std::size_t>(model_id)
+                             ].ride_height_at_rest,
                              spawn_xz.z};
         // Match Vehicle::spawn yaw_deg argument: chassis rotation = R_y(yaw+90°)
         // and we want chassis rotation to put -Z forward at the motion
         // direction, i.e. R_y(info.yaw_deg).
         float yaw_deg = di.yaw_deg - 90.f;
 
-        int paint_idx = static_cast<int>(rng_() % 3u);
-        Car* c = create_car_at_pose(spawn_pos, yaw_deg, paint_idx, Driver::AI);
+        Car* c = create_car_at_pose(spawn_pos, yaw_deg,
+                                     model_id, paint_idx, Driver::AI);
         if (!c) return false;
 
         c->ai_i = i; c->ai_j = j;
@@ -744,7 +784,8 @@ void TrafficSystem::update_ai_kinematic(Car& c, float dt, double time_seconds) {
                           + info.right_offset * lane_offset_;
     float ground   = Heightmap::sample(xz.x, xz.z);
 
-    glm::vec3 pos{xz.x, ground + assets_->ride_height_at_rest, xz.z};
+    const auto& ma = assets_->models[static_cast<std::size_t>(c.model_id)];
+    glm::vec3 pos{xz.x, ground + ma.ride_height_at_rest, xz.z};
     glm::quat rot = glm::angleAxis(glm::radians(info.yaw_deg),
                                     glm::vec3{0.f, 1.f, 0.f});
     c.vehicle.set_kinematic_pose(pos, rot);
@@ -785,11 +826,13 @@ void TrafficSystem::sync_visuals(Car& c) {
     c.chassis_node->mark_dirty();
 
     // Body visual child: model offset + scale, plus the model-axis fix-up.
-    if (assets_->body_ok && c.body_visual_node) {
-        c.body_visual_node->transform.position = assets_->body_visual_offset;
+    const auto& ma = assets_->models[static_cast<std::size_t>(c.model_id)];
+    const CarModelDef& def = CAR_MODELS[c.model_id];
+    if (ma.body_ok && c.body_visual_node) {
+        c.body_visual_node->transform.position = ma.body_visual_offset;
         c.body_visual_node->transform.rotation = glm::angleAxis(
-            glm::radians(Car5::YAW_OFFSET_DEG), glm::vec3{0.f, 1.f, 0.f});
-        c.body_visual_node->transform.scale    = assets_->body_visual_scale;
+            glm::radians(def.yaw_offset_deg), glm::vec3{0.f, 1.f, 0.f});
+        c.body_visual_node->transform.scale    = ma.body_visual_scale;
         c.body_visual_node->mark_dirty();
     } else if (c.body_visual_node) {
         c.body_visual_node->transform.position = {0.f, 0.f, 0.f};
@@ -813,7 +856,7 @@ void TrafficSystem::sync_visuals(Car& c) {
             glm::vec3 pos = wheels[i].mount_local;
             // AI cars don't run wheel raycasts (kinematic), so use the
             // precomputed static-rest drop instead of the live one.
-            float drop = kinematic ? assets_->static_visual_drop
+            float drop = kinematic ? ma.static_visual_drop
                                     : wheels[i].visual_drop;
             pos.y -= drop + bottom_align;
             c.wheel_nodes[i]->transform.position = pos;

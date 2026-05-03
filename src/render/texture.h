@@ -10,8 +10,21 @@ public:
     Texture() = default;
     ~Texture() { destroy(); }
 
-    Texture(const Texture&) = delete;
+    Texture(const Texture&)            = delete;
     Texture& operator=(const Texture&) = delete;
+
+    Texture(Texture&& o) noexcept
+        : tex_(o.tex_), width_(o.width_), height_(o.height_) {
+        o.tex_ = 0; o.width_ = 0; o.height_ = 0;
+    }
+    Texture& operator=(Texture&& o) noexcept {
+        if (this != &o) {
+            destroy();
+            tex_ = o.tex_; width_ = o.width_; height_ = o.height_;
+            o.tex_ = 0; o.width_ = 0; o.height_ = 0;
+        }
+        return *this;
+    }
 
     // Load from a PNG/JPG/etc. via stb_image, or a DDS (BC1/BC3) file.
     // Dispatches on file extension.

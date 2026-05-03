@@ -40,7 +40,12 @@ public:
         // each frame from the lane state below.
         Vehicle vehicle;
 
-        // Paint variant index into the shared paints list.
+        // Which body model this car uses (Car5, Car8, …). Selects the body
+        // mesh, paint palette, wheel mount geometry, and the tuning applied
+        // to `vehicle` (mass, max_speed, etc).
+        int model_id = 0;
+
+        // Paint variant index into the per-model paints list.
         int paint_idx = 0;
 
         // ---- AI lane state (used when driver == AI) ----------------------
@@ -134,8 +139,8 @@ private:
 
     // Spawn helpers.
     bool try_spawn_ai(const glm::vec3& camera_pos);
-    Car* create_car_at_pose(const glm::vec3& pos, float yaw_deg, int paint_idx,
-                             Driver driver);
+    Car* create_car_at_pose(const glm::vec3& pos, float yaw_deg, int model_id,
+                             int paint_idx, Driver driver);
     void destroy_car(std::size_t idx);
 
     // Traffic lights — one signal per approach direction at every loaded

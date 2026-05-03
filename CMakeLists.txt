@@ -118,6 +118,7 @@ add_library(pengine_core STATIC
     src/world/ipl_loader.cpp
     src/game/vehicle.cpp
     src/game/traffic.cpp
+    src/game/car_models.cpp
 )
 
 target_include_directories(pengine_core PUBLIC src)
