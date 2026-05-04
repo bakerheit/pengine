@@ -66,6 +66,20 @@ public:
             wheels_[static_cast<std::size_t>(idx)].mount_local = mount_local;
     }
 
+    // Body-local AABB of the actual rendered visual mesh. Used by the
+    // chassis-corner contact + position-correction code so the eight
+    // sample points line up with the visible bodywork instead of the
+    // hand-tuned chassis_full_extents box (which is a rough proxy and is
+    // typically smaller than the truck/sedan visual). spawn() initialises
+    // this from the chassis box; traffic.cpp overrides it once the model's
+    // mesh bounds are known.
+    void set_visual_aabb_local(const glm::vec3& mn, const glm::vec3& mx) {
+        visual_aabb_min_ = mn;
+        visual_aabb_max_ = mx;
+    }
+    glm::vec3 visual_aabb_min_local() const { return visual_aabb_min_; }
+    glm::vec3 visual_aabb_max_local() const { return visual_aabb_max_; }
+
     // Stamp the rigid-body pose without running physics. Used by AI traffic
     // cars (kinematic): they update position + orientation each frame from
     // a lane-following script, with velocities zeroed.
@@ -106,6 +120,8 @@ public:
 private:
     RigidBody              body_;
     std::array<Wheel, 4>   wheels_;
+    glm::vec3              visual_aabb_min_{0.f};
+    glm::vec3              visual_aabb_max_{0.f};
 
     float throttle_  = 0.f;
     float brake_     = 0.f;

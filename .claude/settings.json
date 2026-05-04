@@ -72,7 +72,8 @@
       "Bash(awk -v ground_y=0.1 -v max_wheel_height=1.2 -v min_offset=0.5 -f /tmp/strip_wheel_components.awk 'assets/Vehicles_psx/Car 08/Car8.obj')",
       "Bash(wait %1)",
       "Bash(grep -n \"lane_offset_ + c.ai_swerve\\\\|lane_offset_$\\\\|lane_offset_;\" /Users/andrewbaker/workspace/pengine/src/game/traffic.cpp)",
-      "Bash(cmake --build /Users/andrewbaker/workspace/pengine/build --target pengine_core -j)"
+      "Bash(cmake --build /Users/andrewbaker/workspace/pengine/build --target pengine_core -j)",
+      "Bash(ctest --test-dir build --output-on-failure -R traffic)"
     ],
     "additionalDirectories": [
       "/tmp",

@@ -200,6 +200,8 @@ struct TrafficSystem::Assets {
 
         glm::vec3 body_visual_scale  {1.f};   // uniform scale to fit chassis length
         glm::vec3 body_visual_offset {0.f};   // chassis-local offset for body child
+        glm::vec3 visual_aabb_min    {0.f};   // body-local visual AABB (post scale + offset)
+        glm::vec3 visual_aabb_max    {0.f};
         glm::vec3 wheel_mount[4]     {};      // chassis-local positions
 
         // Where the chassis-centre sits above the ground at static rest, for
@@ -293,6 +295,15 @@ bool TrafficSystem::init(Scene& scene, const LightVisuals& lights,
         ma.static_visual_drop =
             std::max(0.f, ref.suspension_rest - static_compress);
 
+        // Body-local AABB of the actual rendered mesh (post scale + offset).
+        // The visual rotation (def.yaw_offset_deg, ±180° about Y for these
+        // PSX assets) leaves the AABB extent invariant — only sign-flips
+        // the X/Z bounds — so we can ignore it here. Used by the per-corner
+        // ground contact logic in vehicle.cpp so collision matches what the
+        // player sees instead of the smaller hand-tuned chassis box.
+        ma.visual_aabb_min = mn * s + ma.body_visual_offset;
+        ma.visual_aabb_max = mx * s + ma.body_visual_offset;
+
         // Wheel mount positions (chassis-local) from this model's mesh-native
         // wheel positions, scaled by the body-fit factor `s`. Mount Y matches
         // the body origin's offset above the wheel mounts (= the CoM height).
@@ -358,10 +369,14 @@ TrafficSystem::Car* TrafficSystem::create_car_at_pose(const glm::vec3& pos,
     apply_model_tuning(car->vehicle, def);
 
     // Configure the rigid body. spawn() resets velocity + sets default
-    // wheel mounts; we then override wheel mounts to this model's positions.
+    // wheel mounts and a chassis-box visual AABB; we then override both
+    // with the model's mesh-derived values.
     car->vehicle.spawn(pos, yaw_deg);
     for (int wi = 0; wi < 4; ++wi)
         car->vehicle.set_wheel_mount(wi, ma.wheel_mount[wi]);
+    if (ma.body_ok)
+        car->vehicle.set_visual_aabb_local(ma.visual_aabb_min,
+                                           ma.visual_aabb_max);
 
     // ---- Scene graph: chassis (rigid-body pose) → body_visual + 4 wheels --
     car->chassis_node     = scene_->create_node();
@@ -477,6 +492,9 @@ bool TrafficSystem::set_player_driver(Car* target) {
         target->ai_state = TrafficAgentState::PhysicsFallback;
     target->driver = Driver::Player;
     target->vehicle.set_inputs(0.f, 0.f, 0.f, /*handbrake=*/ false);
+    // The player taking over cancels any pending auto-recovery on this car.
+    target->ai_recovery_pending = false;
+    target->ai_recovery_timer   = 0.f;
     player_car_ = target;
     return true;
 }
@@ -590,23 +608,29 @@ void TrafficSystem::resolve_vehicle_collisions() {
                 float push = depth + SLOP;
 
                 // If a dynamic car hits an AI, promote that AI to Parked so
-                // it picks up real physics. From here on it's a free-floating
-                // chassis (lane script no longer drives it); the spawner
-                // refills the AI population toward target_ai_count_, so this
-                // doesn't deplete traffic. We deliberately do NOT promote on
-                // AI ↔ AI contact — that would turn every traffic jam into a
-                // pile of inert wrecks.
+                // it picks up real physics for the impact. We flag it for
+                // recovery (try_ai_recover) so once the chassis has settled
+                // — upright, slowed, still near its assigned lane — it
+                // snaps back onto the lane and resumes AI driving. Cars
+                // that end up flipped or knocked far off the road simply
+                // never satisfy the recovery conditions and stay parked.
+                // We deliberately do NOT promote on AI ↔ AI contact — that
+                // would turn every traffic jam into a pile of inert wrecks.
                 bool a_was_ai = (a.driver == Driver::AI);
                 bool b_was_ai = (b.driver == Driver::AI);
                 if (a_was_ai && !b_was_ai) {
                     a.driver = Driver::Parked;
                     a.ai_state = TrafficAgentState::PhysicsFallback;
                     a.vehicle.set_inputs(0.f, 0.f, 0.f, false);
+                    a.ai_recovery_pending = true;
+                    a.ai_recovery_timer   = 0.f;
                 }
                 if (b_was_ai && !a_was_ai) {
                     b.driver = Driver::Parked;
                     b.ai_state = TrafficAgentState::PhysicsFallback;
                     b.vehicle.set_inputs(0.f, 0.f, 0.f, false);
+                    b.ai_recovery_pending = true;
+                    b.ai_recovery_timer   = 0.f;
                 }
 
                 bool a_dyn = (a.driver != Driver::AI);
@@ -973,7 +997,8 @@ void TrafficSystem::ai_advance(Car& c, float dt) {
         ai_extend_route(c);
     }
 
-    if (c.ai_in_turn && c.ai_distance_along > 14.f)
+    // Match the Bezier post-arc length in update_ai_kinematic (TURN_POST = 8 m).
+    if (c.ai_in_turn && c.ai_distance_along > 8.f)
         c.ai_in_turn = false;
 
     c.ai_next_lane = c.ai_lane;
@@ -991,26 +1016,83 @@ void TrafficSystem::update_ai_kinematic(Car& c, float dt, double time_seconds) {
     if (c.driver != Driver::AI) return;
 
     TrafficLaneGraph lane_graph(*graph_);
-    glm::vec3 xz = lane_graph.lane_pose(c.ai_lane, c.ai_distance_along,
-                                        lane_offset_, c.ai_lateral_offset);
     TrafficDirInfo info = traffic_dir_info(c.ai_lane.dir);
-    float yaw = info.yaw_deg;
+
+    // Turn region: a quadratic Bezier through the corner so position and
+    // heading evolve together (the previous linear blend held velocity
+    // direction constant while yaw rotated separately, which read as a
+    // mid-intersection "snap"). The arc starts TURN_PRE before the
+    // intersection on the from-lane and ends TURN_POST past it on the
+    // to-lane. P1 is where the two lane tangent lines meet, so the Bezier's
+    // tangent matches each lane's direction at the endpoints.
+    constexpr float TURN_PRE  = 8.f;
+    constexpr float TURN_POST = 8.f;
+    constexpr float TURN_LEN  = TURN_PRE + TURN_POST;
+
+    bool   in_turn_region = false;
+    LaneId from_id{}, to_id{};
+    float  turn_t = 0.f;
 
     if (c.ai_in_turn) {
-        constexpr float TURN_BLEND_DIST = 14.f;
-        float t = std::clamp(c.ai_distance_along / TURN_BLEND_DIST, 0.f, 1.f);
-        t = t * t * (3.f - 2.f * t);
-        glm::vec3 prev_end = lane_graph.lane_pose(c.ai_prev_lane, ROAD_PITCH,
-                                                  lane_offset_, 0.f);
-        glm::vec3 next_pose = lane_graph.lane_pose(c.ai_lane,
-                                                   c.ai_distance_along,
-                                                   lane_offset_, 0.f);
-        xz = prev_end * (1.f - t) + next_pose * t;
-        TrafficDirInfo prev = traffic_dir_info(c.ai_prev_lane.dir);
-        float yaw_delta = yaw - prev.yaw_deg;
-        while (yaw_delta > 180.f) yaw_delta -= 360.f;
-        while (yaw_delta < -180.f) yaw_delta += 360.f;
-        yaw = prev.yaw_deg + yaw_delta * t;
+        // Just past the lane handoff: turn_t covers the post-intersection
+        // half of the arc.
+        from_id = c.ai_prev_lane;
+        to_id   = c.ai_lane;
+        turn_t  = (TURN_PRE + c.ai_distance_along) / TURN_LEN;
+        in_turn_region = true;
+    } else if (c.ai_lane != c.ai_next_lane
+               && c.ai_lane.dir != c.ai_next_lane.dir) {
+        // Approaching the intersection on the from-lane: start arcing as
+        // soon as we cross the TURN_PRE threshold. U-turns have parallel
+        // lane tangents (no intersection point), so fall through to the
+        // straight lane_pose path for those.
+        TrafficTurnKind k = TrafficLaneGraph::turn_kind(c.ai_lane.dir,
+                                                        c.ai_next_lane.dir);
+        if (k != TrafficTurnKind::UTurn) {
+            float dist_to_int = ROAD_PITCH - c.ai_distance_along;
+            if (dist_to_int < TURN_PRE) {
+                from_id = c.ai_lane;
+                to_id   = c.ai_next_lane;
+                turn_t  = (TURN_PRE - dist_to_int) / TURN_LEN;
+                in_turn_region = true;
+            }
+        }
+    }
+
+    glm::vec3 xz;
+    float yaw;
+
+    if (in_turn_region) {
+        turn_t = std::clamp(turn_t, 0.f, 1.f);
+        TrafficDirInfo from_info = traffic_dir_info(from_id.dir);
+        TrafficDirInfo to_info   = traffic_dir_info(to_id.dir);
+        glm::vec3 isect = RoadGraph::intersection_pos(
+            from_id.i + from_info.di, from_id.j + from_info.dj, 0.f);
+        glm::vec3 A = isect + from_info.right * lane_offset_; // end of from
+        glm::vec3 B = isect + to_info.right   * lane_offset_; // start of to
+        // Tangent intersection. For perpendicular L/R turns this is the
+        // inside corner; the Bezier curve sweeps from P0 to P2 staying on
+        // the convex side, so left turns cut wide through the box and right
+        // turns hug the corner — matches the look of real lane geometry.
+        float     s  = glm::dot(B - A, from_info.unit);
+        glm::vec3 P1 = A + from_info.unit * s;
+        glm::vec3 P0 = A - from_info.unit * TURN_PRE;
+        glm::vec3 P2 = B + to_info.unit   * TURN_POST;
+
+        float u = turn_t, omu = 1.f - u;
+        xz = omu*omu*P0 + 2.f*u*omu*P1 + u*u*P2;
+        glm::vec3 tan = 2.f*omu*(P1 - P0) + 2.f*u*(P2 - P1);
+        // Engine convention: yaw 0/90/180/270° = S/W/N/E with body +Z fwd
+        // mapped via the rotation. atan2(-tan.x, -tan.z) reproduces the
+        // table in traffic_dir_info().
+        if (glm::length(tan) > 1e-4f)
+            yaw = glm::degrees(std::atan2(-tan.x, -tan.z));
+        else
+            yaw = info.yaw_deg;
+    } else {
+        xz = lane_graph.lane_pose(c.ai_lane, c.ai_distance_along,
+                                  lane_offset_, c.ai_lateral_offset);
+        yaw = info.yaw_deg;
     }
 
     float ground = Heightmap::sample(xz.x, xz.z);
@@ -1032,6 +1114,86 @@ void TrafficSystem::update_ai_kinematic(Car& c, float dt, double time_seconds) {
         c.wheel_spin_rad += c.ai_speed * dt
                           / assets_->wheel_visible_radius;
     }
+}
+
+// =============================================================================
+// AI recovery after collision
+// =============================================================================
+
+void TrafficSystem::try_ai_recover(Car& c, float dt) {
+    // Only Parked cars carrying an intact AI route are eligible. (Player
+    // demotions and route-invalidation despawns also use PhysicsFallback,
+    // but they don't set ai_recovery_pending.)
+    if (!c.ai_recovery_pending || c.driver != Driver::Parked) return;
+
+    c.ai_recovery_timer += dt;
+
+    // Give the chassis a moment to bleed off the impact before we test for
+    // a re-attach. Tuned by feel: short enough that the player still sees
+    // the AI try to keep going, long enough that the recovery snap doesn't
+    // happen mid-bounce.
+    constexpr float RECOVERY_DELAY  = 1.5f;   // s before first attempt
+    constexpr float MAX_RECOVERY    = 8.0f;   // s before we give up entirely
+    constexpr float MAX_SPEED       = 6.0f;   // m/s — must have slowed down
+    constexpr float MIN_UPRIGHT_DOT = 0.6f;   // chassis up vs world up
+    constexpr float MAX_LANE_OFFSET = 5.0f;   // m perp distance from lane line
+
+    if (c.ai_recovery_timer < RECOVERY_DELAY) return;
+
+    if (c.ai_recovery_timer > MAX_RECOVERY) {
+        // Wreck never recovered — leave it parked permanently. The spawner
+        // will keep AI population topped up regardless.
+        c.ai_recovery_pending = false;
+        return;
+    }
+
+    // Need a loaded lane to snap onto. If the area has streamed out, just
+    // wait — try_ai_recover will run again next frame.
+    if (!graph_ || !ai_route_valid(c)) return;
+
+    glm::vec3 pos = c.vehicle.position();
+    glm::vec3 up_world{0.f, 1.f, 0.f};
+    if (glm::dot(c.vehicle.up(), up_world) < MIN_UPRIGHT_DOT) return;
+    if (c.vehicle.speed() > MAX_SPEED) return;
+
+    // Project the chassis onto its assigned lane. If the impact knocked
+    // the car too far sideways or behind/past the lane segment, bail and
+    // try again next frame (the car may still be sliding into range).
+    TrafficLaneGraph lane_graph(*graph_);
+    TrafficLane      L     = lane_graph.lane(c.ai_lane, lane_offset_);
+    glm::vec3        delta = pos - L.start;
+    float along = glm::dot(delta, L.unit);
+    if (along < 0.f || along > ROAD_PITCH) return;
+    glm::vec3 perp = delta - L.unit * along;
+    perp.y = 0.f;
+    if (glm::length(perp) > MAX_LANE_OFFSET) return;
+
+    // All clear — snap pose to the lane and hand control back to the AI
+    // script. Reset transient lane-change / turn state so the agent
+    // doesn't think it's mid-manoeuvre.
+    glm::vec3 snap_xz = lane_graph.lane_pose(c.ai_lane, along,
+                                             lane_offset_, 0.f);
+    float ground = Heightmap::sample(snap_xz.x, snap_xz.z);
+    const auto& ma = assets_->models[static_cast<std::size_t>(c.model_id)];
+    glm::vec3 snap_pos{snap_xz.x, ground + ma.ride_height_at_rest, snap_xz.z};
+
+    TrafficDirInfo info = traffic_dir_info(c.ai_lane.dir);
+    glm::quat snap_rot = glm::angleAxis(glm::radians(info.yaw_deg),
+                                        glm::vec3{0.f, 1.f, 0.f});
+    c.vehicle.set_kinematic_pose(snap_pos, snap_rot);
+
+    c.ai_distance_along       = along;
+    c.ai_speed                = 0.f;
+    c.ai_in_turn              = false;
+    c.ai_lateral_offset       = 0.f;
+    c.ai_lateral_rate         = 0.f;
+    c.ai_pass_until_distance  = 0.f;
+    c.ai_lane_change          = LaneChangeIntent::None;
+    c.ai_blocked_timer        = 0.f;
+    c.ai_state                = TrafficAgentState::Cruise;
+    c.ai_recovery_pending     = false;
+    c.ai_recovery_timer       = 0.f;
+    c.driver                  = Driver::AI;
 }
 
 // =============================================================================
@@ -1150,6 +1312,9 @@ void TrafficSystem::update(float dt, double time_seconds,
     // (otherwise overlapping cars would render mid-collision for one frame).
     for (auto& cp : cars_) {
         Car& c = *cp;
+        // Parked cars flagged after a hit get a chance to re-attach to the
+        // AI script before this frame's physics runs.
+        try_ai_recover(c, dt);
         switch (c.driver) {
             case Driver::AI:
                 update_ai_kinematic(c, dt, time_seconds);

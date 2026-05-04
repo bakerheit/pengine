@@ -45,6 +45,16 @@ void Vehicle::spawn(const glm::vec3& spawn_pos, float yaw_deg) {
     wheels_[2] = Wheel{}; wheels_[2].mount_local = {-hx, hy,  hz}; wheels_[2].is_steering = false; wheels_[2].is_driven = true;  // RL
     wheels_[3] = Wheel{}; wheels_[3].mount_local = { hx, hy,  hz}; wheels_[3].is_steering = false; wheels_[3].is_driven = true;  // RR
 
+    // Default visual AABB = the chassis box, asymmetric about origin to
+    // account for the CoM sitting low. traffic.cpp overrides this with
+    // the true mesh bounds for cars that have a body model.
+    float vex = chassis_full_extents.x * 0.5f;
+    float vez = chassis_full_extents.z * 0.5f;
+    visual_aabb_min_ = {-vex, -com_height_above_mount, -vez};
+    visual_aabb_max_ = {+vex,
+                         chassis_full_extents.y - com_height_above_mount,
+                         +vez};
+
     throttle_ = brake_ = steer_in_ = steer_rad_ = 0.f;
     handbrake_ = false;
 }
@@ -303,13 +313,12 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
     // never produced a toppling moment) and the bespoke linear/angular drag
     // code (subsumed by per-corner friction).
     {
-        const glm::vec3 he = chassis_full_extents * 0.5f;
-        // Body origin sits at the CoM, which is com_height_above_mount above
-        // the chassis bottom. So the box runs from y = -com_height_above_mount
-        // (bottom) to y = chassis_full_extents.y - com_height_above_mount
-        // (top) in body-local space — asymmetric about the origin.
-        const float chassis_y_lo = -com_height_above_mount;
-        const float chassis_y_hi = chassis_full_extents.y - com_height_above_mount;
+        // Sample the eight corners of the visual mesh's body-local AABB,
+        // not the hand-tuned chassis box: the visual extends well below
+        // the chassis on truck-like models (front bumper, frame rails),
+        // and we want what the player sees to be what the ground stops.
+        const glm::vec3& vmin = visual_aabb_min_;
+        const glm::vec3& vmax = visual_aabb_max_;
         const glm::vec3 N{0.f, 1.f, 0.f};
         constexpr float K_NORMAL    = 400000.f;  // N/m
         constexpr float C_NORMAL    =  18000.f;  // N·s/m
@@ -327,12 +336,13 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
         for (const Wheel& w : wheels_) if (w.grounded) { any_wheel_grounded = true; break; }
         const float fn_per_corn = any_wheel_grounded ? 4000.f : 60000.f;
 
-        for (int sx = -1; sx <= 1; sx += 2)
+        for (int sx = 0; sx <= 1; ++sx)
         for (int sy = 0; sy <= 1; ++sy)
-        for (int sz = -1; sz <= 1; sz += 2) {
-            float cy = (sy == 0) ? chassis_y_lo : chassis_y_hi;
-            glm::vec3 c_world = body_.to_world_point(
-                {he.x * sx, cy, he.z * sz});
+        for (int sz = 0; sz <= 1; ++sz) {
+            float cx = (sx == 0) ? vmin.x : vmax.x;
+            float cy = (sy == 0) ? vmin.y : vmax.y;
+            float cz = (sz == 0) ? vmin.z : vmax.z;
+            glm::vec3 c_world = body_.to_world_point({cx, cy, cz});
             float ground = Heightmap::sample(c_world.x, c_world.z);
             float pen    = ground - c_world.y;
             if (pen <= 0.f) continue;
@@ -362,6 +372,37 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
                 float fric_mag  = std::min(fric_max, fric_stop);
                 body_.apply_force_at(-(v_tan / v_tan_mag) * fric_mag, c_world);
             }
+        }
+
+        // Position-correction pass: the per-corner spring above caps grounded
+        // force at fn_per_corn (4 kN), which is intentionally low so a V-shape
+        // valley can't launch the car — but it's also too weak to stop a
+        // hard-cornering chassis from sinking its outside corner below the
+        // terrain. Find the deepest penetrating corner after this substep
+        // and translate the body straight up so that corner sits flush on
+        // the ground. Translation only: roll angle is preserved so the
+        // corner stays in contact across frames while the cornering force
+        // continues to push it down. (Wheels above the corrected position
+        // simply lose a bit of suspension compression for one substep,
+        // which the next raycast resolves cleanly.)
+        float deepest_pen = 0.f;
+        for (int sx = 0; sx <= 1; ++sx)
+        for (int sy = 0; sy <= 1; ++sy)
+        for (int sz = 0; sz <= 1; ++sz) {
+            float cx = (sx == 0) ? vmin.x : vmax.x;
+            float cy = (sy == 0) ? vmin.y : vmax.y;
+            float cz = (sz == 0) ? vmin.z : vmax.z;
+            glm::vec3 c_world = body_.to_world_point({cx, cy, cz});
+            float ground = Heightmap::sample(c_world.x, c_world.z);
+            float pen = ground - c_world.y;
+            if (pen > deepest_pen) deepest_pen = pen;
+        }
+        if (deepest_pen > 0.f) {
+            body_.position.y += deepest_pen;
+            // Cancel any remaining downward CoM velocity — a corner sitting
+            // on the ground shouldn't keep accelerating into it. We don't
+            // touch upward velocity (a hard impact still bounces).
+            if (body_.linear_vel.y < 0.f) body_.linear_vel.y = 0.f;
         }
     }
 }

@@ -106,7 +106,7 @@ const CarModelDef CAR_MODELS[] = {
         /*linear_drag*/        0.55f,
         /*lateral_grip*/      20.f,   // high grip + tall CoM — tips easily
         /*chassis_height*/     2.0f,  // tall box truck — visual / collision box
-        /*com_height_above_mount*/ 0.55f, // CoM ~1.30 m above ground → a_tip ≈ 8.3 m/s² (just under μg, tips in hard corners and on bumps)
+        /*com_height_above_mount*/ 0.6f, // CoM ~1.30 m above ground → a_tip ≈ 8.3 m/s² (just under μg, tips in hard corners and on bumps)
         /*spring_k*/        45000.f,  // soft suspension → more body roll
         /*damper_k*/         5000.f,
 

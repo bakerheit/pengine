@@ -77,6 +77,14 @@ public:
         bool             ai_turn_signal_right = false;
         bool             ai_honking = false;
 
+        // Set when an AI car is demoted to Parked by a collision and the
+        // route state is still intact, so we can try to put the AI back in
+        // control once the chassis has settled. ai_recovery_timer counts up
+        // each frame the car spends in Parked + recovery_pending; the
+        // recovery attempt fires once it crosses the threshold.
+        bool             ai_recovery_pending = false;
+        float            ai_recovery_timer   = 0.f;
+
         // ---- Visual scene-graph (always present) -------------------------
         SceneNode* chassis_node     = nullptr;       // rigid-body pose
         SceneNode* body_visual_node = nullptr;       // model offset / scale / yaw fix
@@ -162,6 +170,11 @@ private:
     bool ai_safe_to_shift(const Car& c, float clear_dist) const;
     bool ai_route_valid(const Car& c) const;
     void ai_extend_route(Car& c);
+
+    // Tick a Parked car flagged for recovery. Snaps it back onto its
+    // assigned lane and re-promotes to Driver::AI once it has settled
+    // (upright, slow, still near the lane).
+    void try_ai_recover(Car& c, float dt);
 
     // Spawn helpers.
     bool try_spawn_ai(const glm::vec3& camera_pos);
