@@ -216,6 +216,9 @@ bool Application::init() {
     last_frame_  = Clock::now();
     running_     = true;
 
+    if (!audio_.init())
+        PE_WARN("AudioEngine init failed — running without audio");
+
     PE_INFO("Phase 7 ready. WASD walk, mouse look, Space jump. F enter/exit car. "
             "C toggle debug fly. ESC release mouse. Ctrl+Q quit.");
     return true;
@@ -269,6 +272,7 @@ int Application::run() {
 }
 
 void Application::shutdown() {
+    audio_.shutdown();
     traffic_.shutdown();
     streamer_.shutdown();
     SDL_SetRelativeMouseMode(SDL_FALSE);
@@ -545,6 +549,21 @@ void Application::update(double dt) {
     // every car all happen here.
     traffic_.update(fdt, world_time_, camera_.position, world_collision_);
     scene_.update();
+
+    {
+        const bool in_veh = (mode_ == Mode::InVehicle);
+        float spd     = 0.f;
+        float max_spd = 1.f;
+        if (in_veh) {
+            if (const auto* pc = traffic_.player_car()) {
+                spd     = pc->vehicle.speed_kmh();
+                max_spd = pc->vehicle.max_speed * 3.6f;
+            }
+        }
+        audio_.update(spd, max_spd, in_veh,
+                      /*horn*/       input_.pressed(SDL_SCANCODE_H),
+                      /*handbrake*/  input_.pressed(SDL_SCANCODE_SPACE));
+    }
 }
 
 

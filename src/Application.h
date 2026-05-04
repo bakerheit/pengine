@@ -4,6 +4,7 @@
 
 #include <glm/glm.hpp>
 
+#include "audio/audio_engine.h"
 #include "core/time.h"
 #include "game/traffic.h"
 #include "physics/character_controller.h"
@@ -87,6 +88,7 @@ private:
     SpringArm           spring_;
     RoadGraph           road_graph_;
     TrafficSystem       traffic_;
+    AudioEngine         audio_;
 
     SceneNode*          character_node_      = nullptr;  // pose root: feet pos + facing
     SceneNode*          character_visual_node_ = nullptr; // child: model offset + scale

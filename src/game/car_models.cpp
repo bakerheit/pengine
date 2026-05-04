@@ -61,11 +61,15 @@ const CarModelDef CAR_MODELS[] = {
 
         /*chassis_mass*/    1500.f,
         /*max_speed_kmh*/     100.f,
-        /*max_reverse_kmh*/   40.f,
+        /*max_reverse_kmh*/   50.f,
         /*engine_force*/   16000.f,
         /*reverse_force*/  13000.f,
         /*brake_force*/    36000.f,
         /*linear_drag*/        0.50f,
+        /*lateral_grip*/      10.f,   // slides before it rolls — hard to tip
+        /*chassis_height*/     0.8f,
+        /*spring_k*/       130000.f,
+        /*damper_k*/        13000.f,
 
         /*spawn_weight*/   10,
         /*body_has_built_in_wheels*/ false,
@@ -93,14 +97,18 @@ const CarModelDef CAR_MODELS[] = {
         /*wheel_zr_native*/       2.12f,
 
         /*chassis_mass*/    1800.f,
-        /*max_speed_kmh*/     30.f,
+        /*max_speed_kmh*/     40.f,
         /*max_reverse_kmh*/   16.f,
         /*engine_force*/   18000.f,
         /*reverse_force*/  14000.f,
         /*brake_force*/    40000.f,
         /*linear_drag*/        0.55f,
+        /*lateral_grip*/      20.f,   // high grip + tall CoM — tips easily
+        /*chassis_height*/     2.0f,  // tall box truck — CoM 0.6 m higher than sedan
+        /*spring_k*/        45000.f,  // soft suspension → more body roll
+        /*damper_k*/         5000.f,
 
-        /*spawn_weight*/    2,
+        /*spawn_weight*/    4,
         /*body_has_built_in_wheels*/ false,
     },
 
@@ -127,6 +135,10 @@ const CarModelDef CAR_MODELS[] = {
     //     /*reverse_force*/   ...,
     //     /*brake_force*/     ...,
     //     /*linear_drag*/     ...,
+    //     /*lateral_grip*/    ...,
+    //     /*chassis_height*/  ...,
+    //     /*spring_k*/        ...,
+    //     /*damper_k*/        ...,
     //
     //     /*spawn_weight*/    ...,
     //     /*body_has_built_in_wheels*/ false,
@@ -142,7 +154,11 @@ void apply_model_tuning(Vehicle& v, const CarModelDef& def) {
     v.engine_force  = def.engine_force;
     v.reverse_force = def.reverse_force;
     v.brake_force   = def.brake_force;
-    v.linear_drag   = def.linear_drag;
+    v.linear_drag            = def.linear_drag;
+    v.lateral_grip           = def.lateral_grip;
+    v.chassis_full_extents.y = def.chassis_height;
+    v.spring_k               = def.spring_k;
+    v.damper_k               = def.damper_k;
 }
 
 }  // namespace pengine

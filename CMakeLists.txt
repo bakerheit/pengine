@@ -63,6 +63,18 @@ if(NOT stb_POPULATED)
     FetchContent_Populate(stb)
 endif()
 
+# --- miniaudio (single-header audio; OGG via built-in stb_vorbis) -----------
+FetchContent_Declare(
+    miniaudio
+    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+    GIT_TAG 0.11.21
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(miniaudio)
+if(NOT miniaudio_POPULATED)
+    FetchContent_Populate(miniaudio)
+endif()
+
 # --- Assimp (meshconv only — never linked into engine) ----------------------
 # Only OBJ, FBX and glTF importers; no exporters; no tests.
 set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
@@ -86,6 +98,8 @@ FetchContent_MakeAvailable(assimp)
 
 # stb_impl.cpp is a pure C header expanded into C++; suppress all warnings on it.
 set_source_files_properties(src/render/stb_impl.cpp PROPERTIES COMPILE_OPTIONS "-w")
+# miniaudio_impl.c is third-party C; suppress all warnings.
+set_source_files_properties(src/audio/miniaudio_impl.c PROPERTIES COMPILE_OPTIONS "-w")
 
 # --- Engine library ---------------------------------------------------------
 add_library(pengine_core STATIC
@@ -120,10 +134,12 @@ add_library(pengine_core STATIC
     src/game/vehicle.cpp
     src/game/traffic.cpp
     src/game/car_models.cpp
+    src/audio/audio_engine.cpp
+    src/audio/miniaudio_impl.c
 )
 
 target_include_directories(pengine_core PUBLIC src)
-target_include_directories(pengine_core PRIVATE ${stb_SOURCE_DIR})
+target_include_directories(pengine_core PRIVATE ${stb_SOURCE_DIR} ${miniaudio_SOURCE_DIR})
 
 target_compile_definitions(pengine_core PRIVATE
     ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
@@ -138,7 +154,13 @@ target_link_libraries(pengine_core
 )
 
 if(APPLE)
-    target_link_libraries(pengine_core PUBLIC "-framework OpenGL")
+    target_link_libraries(pengine_core PUBLIC
+        "-framework OpenGL"
+        "-framework CoreAudio"
+        "-framework AudioUnit"
+        "-framework AudioToolbox"
+        "-framework CoreFoundation"
+    )
 endif()
 
 # Strict warnings on engine code only (not on third_party).

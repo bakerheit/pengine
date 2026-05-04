@@ -40,13 +40,6 @@ namespace WheelAsset {
     constexpr float       VISIBLE_RADIUS = 0.275f;
 }
 
-// ---- Suspension overrides --------------------------------------------------
-// Stiffer than Vehicle defaults: less pitch under accel/brake, less roll on
-// tight corners. Applied to every car so a stolen AI handles the same.
-namespace SuspensionOverride {
-    constexpr float SPRING_K = 130000.f;
-    constexpr float DAMPER_K =  13000.f;  // ζ ≈ 0.93 — just shy of critical
-}
 
 // ---- AI lane-follow tuning -------------------------------------------------
 constexpr float ACCEL_MAX     = 5.f;
@@ -310,7 +303,7 @@ bool TrafficSystem::init(Scene& scene, const LightVisuals& lights,
                                + ref.wheel_radius;
         const float static_compress =
             (ref.chassis_mass * std::abs(ref.gravity))
-                / (4.f * SuspensionOverride::SPRING_K);
+                / (4.f * ref.spring_k);
         ma.static_visual_drop =
             std::max(0.f, ref.suspension_rest - static_compress);
 
@@ -379,8 +372,6 @@ TrafficSystem::Car* TrafficSystem::create_car_at_pose(const glm::vec3& pos,
 
     // Configure the rigid body. spawn() resets velocity + sets default
     // wheel mounts; we then override wheel mounts to this model's positions.
-    car->vehicle.spring_k = SuspensionOverride::SPRING_K;
-    car->vehicle.damper_k = SuspensionOverride::DAMPER_K;
     car->vehicle.spawn(pos, yaw_deg);
     for (int wi = 0; wi < 4; ++wi)
         car->vehicle.set_wheel_mount(wi, ma.wheel_mount[wi]);

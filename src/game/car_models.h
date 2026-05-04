@@ -42,6 +42,10 @@ struct CarModelDef {
     float reverse_force;    // total reverse force at 0 m/s (N)
     float brake_force;      // total brake force (N)
     float linear_drag;      // 1/s air drag
+    float lateral_grip;     // per-wheel lateral velocity-kill rate (higher → grips harder → more roll → tips easier)
+    float chassis_height;   // chassis_full_extents.y (m) — raises CoM above wheel mounts; taller = more top-heavy = tips easier
+    float spring_k;         // suspension spring stiffness (N/m)
+    float damper_k;         // suspension damping (N·s/m)
 
     // ---- AI traffic mix ---------------------------------------------------
     // Relative weight in the AI traffic mix: models with higher weight spawn
@@ -62,9 +66,8 @@ struct CarModelDef {
 extern const CarModelDef CAR_MODELS[];
 extern const int         NUM_CAR_MODELS;
 
-// Stamp the model's tuning (mass, speed, engine/brake force, drag) onto a
-// Vehicle instance. Suspension is uniform across all models — see
-// SuspensionOverride in traffic.cpp.
+// Stamp the model's tuning onto a Vehicle instance (mass, speed, forces,
+// drag, lateral grip, chassis height, and per-model suspension).
 void apply_model_tuning(Vehicle& v, const CarModelDef& def);
 
 }  // namespace pengine
