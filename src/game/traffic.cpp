@@ -276,7 +276,7 @@ bool TrafficSystem::init(Scene& scene, const LightVisuals& lights,
         float native_length = std::max(0.001f, mx.z - mn.z);
         float target_length = ref.chassis_full_extents.z;
         float s             = target_length / native_length;
-        float wheel_chassis_y = -ref.chassis_full_extents.y * 0.5f
+        float wheel_chassis_y = -ref.com_height_above_mount
                                  - ref.suspension_rest;
         ma.body_visual_scale  = glm::vec3{s};
         ma.body_visual_offset = {
@@ -284,7 +284,7 @@ bool TrafficSystem::init(Scene& scene, const LightVisuals& lights,
             wheel_chassis_y - def.arch_centre_y_native * s,
             -(mn.z + mx.z) * 0.5f * s,
         };
-        ma.ride_height_at_rest = ref.chassis_full_extents.y * 0.5f
+        ma.ride_height_at_rest = ref.com_height_above_mount
                                + ref.suspension_rest
                                + ref.wheel_radius;
         const float static_compress =
@@ -294,8 +294,9 @@ bool TrafficSystem::init(Scene& scene, const LightVisuals& lights,
             std::max(0.f, ref.suspension_rest - static_compress);
 
         // Wheel mount positions (chassis-local) from this model's mesh-native
-        // wheel positions, scaled by the body-fit factor `s`.
-        const float mount_y  = -ref.chassis_full_extents.y * 0.5f;
+        // wheel positions, scaled by the body-fit factor `s`. Mount Y matches
+        // the body origin's offset above the wheel mounts (= the CoM height).
+        const float mount_y  = -ref.com_height_above_mount;
         const float wheel_x  = def.wheel_x_native  * s;
         const float wheel_zf = def.wheel_zf_native * s;
         const float wheel_zr = def.wheel_zr_native * s;

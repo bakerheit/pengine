@@ -68,6 +68,7 @@ const CarModelDef CAR_MODELS[] = {
         /*linear_drag*/        0.50f,
         /*lateral_grip*/      10.f,   // slides before it rolls — hard to tip
         /*chassis_height*/     0.8f,
+        /*com_height_above_mount*/ 0.05f, // CoM ~0.80 m above ground → a_tip ≈ 12.7 m/s² (well above μg)
         /*spring_k*/       130000.f,
         /*damper_k*/        13000.f,
 
@@ -92,19 +93,20 @@ const CarModelDef CAR_MODELS[] = {
 
         /*yaw_offset_deg*/        180.f,
         /*arch_centre_y_native*/  0.525f,
-        /*wheel_x_native*/        1.10f,
-        /*wheel_zf_native*/       1.82f,
-        /*wheel_zr_native*/       2.12f,
+        /*wheel_x_native*/        1.1f,
+        /*wheel_zf_native*/       1.65f,
+        /*wheel_zr_native*/       2.25f,
 
         /*chassis_mass*/    1800.f,
-        /*max_speed_kmh*/     40.f,
+        /*max_speed_kmh*/     60.f,
         /*max_reverse_kmh*/   16.f,
         /*engine_force*/   18000.f,
         /*reverse_force*/  14000.f,
-        /*brake_force*/    40000.f,
+        /*brake_force*/    30000.f,
         /*linear_drag*/        0.55f,
         /*lateral_grip*/      20.f,   // high grip + tall CoM — tips easily
-        /*chassis_height*/     2.0f,  // tall box truck — CoM 0.6 m higher than sedan
+        /*chassis_height*/     2.0f,  // tall box truck — visual / collision box
+        /*com_height_above_mount*/ 0.55f, // CoM ~1.30 m above ground → a_tip ≈ 8.3 m/s² (just under μg, tips in hard corners and on bumps)
         /*spring_k*/        45000.f,  // soft suspension → more body roll
         /*damper_k*/         5000.f,
 
@@ -156,9 +158,10 @@ void apply_model_tuning(Vehicle& v, const CarModelDef& def) {
     v.brake_force   = def.brake_force;
     v.linear_drag            = def.linear_drag;
     v.lateral_grip           = def.lateral_grip;
-    v.chassis_full_extents.y = def.chassis_height;
-    v.spring_k               = def.spring_k;
-    v.damper_k               = def.damper_k;
+    v.chassis_full_extents.y    = def.chassis_height;
+    v.com_height_above_mount    = def.com_height_above_mount;
+    v.spring_k                  = def.spring_k;
+    v.damper_k                  = def.damper_k;
 }
 
 }  // namespace pengine

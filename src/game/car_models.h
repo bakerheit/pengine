@@ -43,7 +43,8 @@ struct CarModelDef {
     float brake_force;      // total brake force (N)
     float linear_drag;      // 1/s air drag
     float lateral_grip;     // per-wheel lateral velocity-kill rate (higher → grips harder → more roll → tips easier)
-    float chassis_height;   // chassis_full_extents.y (m) — raises CoM above wheel mounts; taller = more top-heavy = tips easier
+    float chassis_height;   // chassis_full_extents.y (m) — visual + collision box height (does NOT set CoM height)
+    float com_height_above_mount; // height of CoM above wheel mounts (m). Tip threshold a_tip = g·(track/2)/(this + suspension_rest + wheel_radius). Real cars are ~0.05–0.30 m; raise above ~0.4 and corners start to roll the car.
     float spring_k;         // suspension spring stiffness (N/m)
     float damper_k;         // suspension damping (N·s/m)
 

@@ -34,9 +34,10 @@ void Vehicle::spawn(const glm::vec3& spawn_pos, float yaw_deg) {
     body_.linear_vel  = {0.f, 0.f, 0.f};
     body_.angular_vel = {0.f, 0.f, 0.f};
 
-    // Mounts at chassis bottom corners, slightly inset.
+    // Mounts sit one CoM-height below the body origin (= a real car's CoM
+    // sits just above the floor / drivetrain). Inset slightly along X/Z.
     float hx = chassis_full_extents.x * 0.5f - 0.15f;
-    float hy = -chassis_full_extents.y * 0.5f;
+    float hy = -com_height_above_mount;
     float hz = chassis_full_extents.z * 0.5f - 0.5f;
 
     wheels_[0] = Wheel{}; wheels_[0].mount_local = {-hx, hy, -hz}; wheels_[0].is_steering = true;  wheels_[0].is_driven = false; // FL
@@ -221,19 +222,27 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
 
         // Lateral grip: kill sideways velocity at the contact point. Apply as
         // an impulse this substep (capped by friction circle vs normal force).
+        // Like drive force above, the impulse is applied at the wheel MOUNT
+        // rather than the contact patch — the "anti-roll" analogue of the
+        // anti-squat trick. Routing lateral load through the contact gives a
+        // moment arm of (chassis_height/2 + suspension_rest + wheel_radius),
+        // which drops the static tip threshold below the friction cap (~μg)
+        // and rolls cars on ordinary corners. Real suspensions transmit
+        // lateral load to the body at the roll centre, which sits near mount
+        // level; doing the same here restores the intended thresholds (sedan
+        // ~25 m/s², truck ~11 m/s²) so sedans slide and only trucks tip.
+        // v_lat is still measured at the contact (where the tire actually
+        // grips the ground); only the application point moves.
         float v_lat = glm::dot(v_contact, lat_g);
         float grip  = lateral_grip;
         if (handbrake_ && !w.is_steering) grip = handbrake_grip; // rear loose
         // Required impulse to kill v_lat over this substep (per wheel, mass/4).
         float wanted_impulse = -v_lat * (body_.mass / 4.f) * std::min(1.f, grip * dt);
         // Friction circle cap: total horizontal friction <= mu * N.
-        // μ = 0.9 caps lateral accel at ~g, just below a low-CoM sedan's
-        // static tip threshold (~16 m/s²) but well above a tall truck's
-        // (~11 m/s²) — sedans slide, trucks tip.
         float mu = 0.9f;
         float max_friction_impulse = mu * w.normal_force * dt;
         wanted_impulse = clampf(wanted_impulse, -max_friction_impulse, max_friction_impulse);
-        body_.apply_impulse_at(lat_g * wanted_impulse, w.contact_world);
+        body_.apply_impulse_at(lat_g * wanted_impulse, mount_w);
     }
 
     // Drag compensation, applied centrally so it doesn't add pitch torque
@@ -265,7 +274,7 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
     // ---- Cylinder vs buildings (XZ) ----------------------------------------
     {
         glm::vec2 xz{body_.position.x, body_.position.z};
-        float feet_y = body_.position.y - chassis_full_extents.y * 0.5f - suspension_rest;
+        float feet_y = body_.position.y - com_height_above_mount - suspension_rest;
         glm::vec2 fixed = world.resolve_cylinder_xz(xz, feet_y,
                                                      chassis_full_extents.y + suspension_rest,
                                                      chassis_collision_radius);
@@ -295,6 +304,12 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
     // code (subsumed by per-corner friction).
     {
         const glm::vec3 he = chassis_full_extents * 0.5f;
+        // Body origin sits at the CoM, which is com_height_above_mount above
+        // the chassis bottom. So the box runs from y = -com_height_above_mount
+        // (bottom) to y = chassis_full_extents.y - com_height_above_mount
+        // (top) in body-local space — asymmetric about the origin.
+        const float chassis_y_lo = -com_height_above_mount;
+        const float chassis_y_hi = chassis_full_extents.y - com_height_above_mount;
         const glm::vec3 N{0.f, 1.f, 0.f};
         constexpr float K_NORMAL    = 400000.f;  // N/m
         constexpr float C_NORMAL    =  18000.f;  // N·s/m
@@ -313,10 +328,11 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
         const float fn_per_corn = any_wheel_grounded ? 4000.f : 60000.f;
 
         for (int sx = -1; sx <= 1; sx += 2)
-        for (int sy = -1; sy <= 1; sy += 2)
+        for (int sy = 0; sy <= 1; ++sy)
         for (int sz = -1; sz <= 1; sz += 2) {
+            float cy = (sy == 0) ? chassis_y_lo : chassis_y_hi;
             glm::vec3 c_world = body_.to_world_point(
-                {he.x * sx, he.y * sy, he.z * sz});
+                {he.x * sx, cy, he.z * sz});
             float ground = Heightmap::sample(c_world.x, c_world.z);
             float pen    = ground - c_world.y;
             if (pen <= 0.f) continue;

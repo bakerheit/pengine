@@ -29,6 +29,13 @@ class Vehicle {
 public:
     // ---- Tuning (tweak freely) ---------------------------------------------
     glm::vec3 chassis_full_extents = {2.0f, 0.8f, 4.0f};
+    // Height of the CoM (= body origin) above the wheel mounts. Real cars
+    // carry their mass low (engine, fuel, frame, drivetrain at floor level),
+    // so this is much smaller than chassis_full_extents.y/2. Tip threshold is
+    // a_lat = g · (track/2) / (com_height_above_mount + suspension_rest +
+    // wheel_radius); keep this well below the friction-cap accel (~μg) or the
+    // car will roll in normal cornering.
+    float com_height_above_mount = 0.05f;
     float chassis_mass     = 1500.f;
     float wheel_radius     = 0.35f;
     float suspension_rest  = 0.40f;
