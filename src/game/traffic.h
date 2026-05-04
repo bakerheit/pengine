@@ -9,6 +9,7 @@
 #include <glm/glm.hpp>
 
 #include "game/vehicle.h"
+#include "game/traffic_ai.h"
 #include "render/mesh.h"
 #include "render/texture.h"
 #include "world/road_graph.h"
@@ -16,6 +17,7 @@
 namespace pengine {
 
 struct Frustum;
+class DebugDraw;
 class Scene;
 class SceneNode;
 class Shader;
@@ -48,25 +50,32 @@ public:
         // Paint variant index into the per-model paints list.
         int paint_idx = 0;
 
-        // ---- AI lane state (used when driver == AI) ----------------------
-        int     ai_i = 0, ai_j = 0;          // intersection just left
-        GridDir ai_dir = GridDir::East;
-        float   ai_distance_along = 0.f;     // metres from (i, j) toward neighbour
-        float   ai_speed          = 0.f;     // current AI-script speed (m/s)
-        float   ai_target_speed   = 12.f;    // free-flow desired speed (m/s)
+        // ---- AI route state (used when driver == AI) ---------------------
+        TrafficAgentState ai_state = TrafficAgentState::Cruise;
+        DriverProfile     ai_profile{};
+        TrafficRoute      ai_route;
+        std::size_t       ai_route_index = 0;
+        LaneId            ai_lane{};
+        LaneId            ai_next_lane{};
+        LaneId            ai_prev_lane{};
+        float             ai_distance_along = 0.f;  // metres from lane start
+        float             ai_speed          = 0.f;  // current script speed (m/s)
+        float             ai_target_speed   = 12.f; // free-flow desired speed (m/s)
+        bool              ai_in_turn        = false;
 
-        // Patience + swerve state. ai_patience accumulates while we're stuck
-        // close behind a blocker; once it crosses PATIENCE_LIMIT and the
-        // opposing lane is clear, ai_swerving flips true and ai_swerve
-        // animates from 0 toward −2·lane_offset_ (the opposing lane). The
-        // blocker's world position is snapshotted into ai_swerve_anchor so
-        // we can detect when we've passed it and retract back to the normal
-        // lane, even though our leader projection no longer sees it.
-        float     ai_patience      = 0.f;
-        float     ai_swerve        = 0.f;
-        float     ai_swerve_rate   = 0.f;     // d(ai_swerve)/dt (m/s); drives yaw lean
-        bool      ai_swerving      = false;
-        glm::vec3 ai_swerve_anchor {0.f};
+        // Lane-change / avoidance. One-lane-per-direction v1 means a lawful
+        // lane change is a temporary, cautious move toward the centreline or
+        // opposing lane to clear a static/dynamic blocker, then a return.
+        LaneChangeIntent ai_lane_change = LaneChangeIntent::None;
+        float            ai_lateral_offset = 0.f;
+        float            ai_lateral_rate   = 0.f;
+        float            ai_pass_until_distance = 0.f;
+        float            ai_blocked_timer  = 0.f;
+        float            ai_honk_timer     = 0.f;
+        float            ai_panic_timer    = 0.f;
+        bool             ai_turn_signal_left  = false;
+        bool             ai_turn_signal_right = false;
+        bool             ai_honking = false;
 
         // ---- Visual scene-graph (always present) -------------------------
         SceneNode* chassis_node     = nullptr;       // rigid-body pose
@@ -128,6 +137,7 @@ public:
     // tint=1, uv_scale=1). No-op if the wheel asset failed to load — in that
     // case wheel rendering happens through the regular Scene::draw path.
     void draw_wheels(Shader& shader, const Frustum& frustum) const;
+    void debug_draw(DebugDraw& debug) const;
 
 private:
     // Tunable visual params, derived from the car5 + Wheel.obj assets at
@@ -149,10 +159,9 @@ private:
     // AI helpers (kinematic lane follow).
     void ai_update_speed(Car& c, float dt, double time_seconds);
     void ai_advance(Car& c, float dt);
-    // True if no car sits in the opposing lane within `clear_dist` ahead of
-    // `c`. Consulted before committing to a swerve, so the AI doesn't pull
-    // out into oncoming traffic.
-    bool opposing_lane_clear(const Car& c, float clear_dist) const;
+    bool ai_safe_to_shift(const Car& c, float clear_dist) const;
+    bool ai_route_valid(const Car& c) const;
+    void ai_extend_route(Car& c);
 
     // Spawn helpers.
     bool try_spawn_ai(const glm::vec3& camera_pos);

@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(pengine LANGUAGES C CXX)
+enable_testing()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -133,6 +134,7 @@ add_library(pengine_core STATIC
     src/world/ipl_loader.cpp
     src/game/vehicle.cpp
     src/game/traffic.cpp
+    src/game/traffic_ai.cpp
     src/game/car_models.cpp
     src/audio/audio_engine.cpp
     src/audio/miniaudio_impl.c
@@ -195,3 +197,13 @@ set_target_properties(meshconv PROPERTIES
 # --- Executable -------------------------------------------------------------
 add_executable(pengine src/main.cpp)
 target_link_libraries(pengine PRIVATE pengine_core)
+
+# --- Lightweight non-render traffic tests -----------------------------------
+add_executable(traffic_ai_tests
+    tests/traffic_ai_tests.cpp
+    src/game/traffic_ai.cpp
+    src/world/road_graph.cpp
+)
+target_include_directories(traffic_ai_tests PRIVATE src)
+target_link_libraries(traffic_ai_tests PRIVATE glm::glm Threads::Threads)
+add_test(NAME traffic_ai_tests COMMAND traffic_ai_tests)

@@ -800,6 +800,9 @@ void Application::render(double /*alpha*/) {
         debug_draw_.cylinder_xz(base, ENTRY_RADIUS, 0.05f, 32);
     }
 
+    if (mode_ == Mode::DebugFly)
+        traffic_.debug_draw(debug_draw_);
+
     debug_draw_.flush(vp, glm::vec3{1.f, 0.85f, 0.2f});
 
     // ---- Minimap (HUD overlay) ---------------------------------------------
