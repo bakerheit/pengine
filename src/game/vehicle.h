@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <vector>
 
 #include <glm/glm.hpp>
 
@@ -36,6 +37,18 @@ public:
     // wheel_radius); keep this well below the friction-cap accel (~μg) or the
     // car will roll in normal cornering.
     float com_height_above_mount = 0.05f;
+
+    // Per-axis multipliers on the uniform-box inertia, applied at spawn().
+    // pitch_inertia_scale boosts I_x (rotation about the body's right axis,
+    // i.e. nose-up / nose-down), roll_inertia_scale boosts I_z (about the
+    // forward axis, i.e. side-to-side tip). Use these to make a truck
+    // pitch-resistant without also making it roll-resistant — a uniform
+    // box overstates how readily a long cargo body should pitch under
+    // brake/throttle, since real mass is distributed along the length.
+    // 1.0 = uniform box.
+    float pitch_inertia_scale = 1.f;
+    float roll_inertia_scale  = 1.f;
+
     float chassis_mass     = 1500.f;
     float wheel_radius     = 0.35f;
     float suspension_rest  = 0.40f;
@@ -64,6 +77,19 @@ public:
     void set_wheel_mount(int idx, const glm::vec3& mount_local) {
         if (idx >= 0 && idx < 4)
             wheels_[static_cast<std::size_t>(idx)].mount_local = mount_local;
+    }
+
+    // Reported contact point each substep where the chassis (visual AABB)
+    // is scraping the ground. The list is cleared by clear_scrape_contacts()
+    // before each frame's substeps and appended to inside substep(); the
+    // VFX system reads it after physics to spawn sparks.
+    struct ScrapeContact {
+        glm::vec3 world_pos{0.f}; // contact point on the ground
+        glm::vec3 world_vel{0.f}; // tangential velocity of the corner
+    };
+    void clear_scrape_contacts() { scrape_contacts_.clear(); }
+    const std::vector<ScrapeContact>& scrape_contacts() const {
+        return scrape_contacts_;
     }
 
     // Body-local AABB of the actual rendered visual mesh. Used by the
@@ -95,6 +121,13 @@ public:
     // adds to linear velocity at the centre of mass.
     void translate(const glm::vec3& delta)              { body_.position += delta; }
     void apply_impulse_central(const glm::vec3& imp)    { body_.linear_vel += imp / body_.mass; }
+    // Apply a linear impulse at a world-space point. Generates angular
+    // velocity proportional to (point - CoM) × impulse — used by the
+    // car-vs-car collision so off-centre hits actually flip cars instead
+    // of giving them a pure linear push.
+    void apply_impulse_at(const glm::vec3& imp, const glm::vec3& world_pt) {
+        body_.apply_impulse_at(imp, world_pt);
+    }
 
     // Per-frame inputs (clamped internally). throttle is signed:
     // +1 = forward full, -1 = reverse full.
@@ -122,6 +155,7 @@ private:
     std::array<Wheel, 4>   wheels_;
     glm::vec3              visual_aabb_min_{0.f};
     glm::vec3              visual_aabb_max_{0.f};
+    std::vector<ScrapeContact> scrape_contacts_;
 
     float throttle_  = 0.f;
     float brake_     = 0.f;

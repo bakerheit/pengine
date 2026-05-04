@@ -16,6 +16,7 @@
 #include "render/debug_draw.h"
 #include "render/mesh.h"
 #include "render/minimap.h"
+#include "render/particles.h"
 #include "render/shader.h"
 #include "render/speedometer.h"
 #include "render/skeleton.h"
@@ -84,6 +85,7 @@ private:
     CharacterController character_;
     DebugDraw           debug_draw_;
     Minimap             minimap_;
+    Particles           particles_;
     Speedometer         speedometer_;
     SpringArm           spring_;
     RoadGraph           road_graph_;
@@ -134,6 +136,11 @@ private:
     float     last_ray_dist_ = 0.f;
 
     double    world_time_    = 0.0;  // accumulates fixed-timestep seconds
+
+    // Time since last on-foot footstep sound. Reset when stationary so
+    // the next forward step plays after a normal cadence (rather than
+    // immediately if the player happened to stop mid-stride).
+    float     footstep_timer_ = 0.f;
 };
 
 } // namespace pengine

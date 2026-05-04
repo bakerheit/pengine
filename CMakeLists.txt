@@ -118,6 +118,7 @@ add_library(pengine_core STATIC
     src/scene/scene.cpp
     src/render/debug_draw.cpp
     src/render/minimap.cpp
+    src/render/particles.cpp
     src/render/speedometer.cpp
     src/render/spring_arm.cpp
     src/render/skinned_mesh.cpp

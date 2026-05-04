@@ -28,6 +28,11 @@ glm::vec3 project_on_plane(const glm::vec3& d, const glm::vec3& n) {
 void Vehicle::spawn(const glm::vec3& spawn_pos, float yaw_deg) {
     body_ = RigidBody{};
     body_.set_box_inertia(chassis_mass, chassis_full_extents);
+    // Apply asymmetric scales: smaller inv_inertia = harder to rotate that
+    // axis. Lets a truck be pitch-stiff (long mass distribution) while
+    // staying roll-soft (high CoM still tips on corners).
+    if (pitch_inertia_scale > 0.f) body_.inv_inertia_diag.x /= pitch_inertia_scale;
+    if (roll_inertia_scale  > 0.f) body_.inv_inertia_diag.z /= roll_inertia_scale;
     body_.position    = spawn_pos;
     body_.orientation = glm::angleAxis(glm::radians(yaw_deg + 90.f),
                                         glm::vec3{0.f, 1.f, 0.f});
@@ -195,7 +200,8 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
         // to COM produces unrealistic pitch torque (visible wheelies); real
         // drivetrains transmit longitudinal load through the suspension link
         // at mount level — this is the "anti-squat" geometry trick. Lateral
-        // grip and brake still go through the contact, where they belong.
+        // grip goes through the contact patch (real tires); brake load
+        // goes through the mount (anti-dive geometry, see comment below).
         glm::vec3 mount_w = body_.to_world_point(w.mount_local);
         if (w.is_driven && throttle_ > 0.f) {
             float per_wheel = (engine_force * drive_factor_fwd)
@@ -207,7 +213,15 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
             body_.apply_force_at(fwd_g * per_wheel * throttle_, mount_w);
         }
 
-        // Brake (all wheels). Opposes current contact-point velocity along fwd_g.
+        // Brake (all wheels). Opposes current contact-point velocity along
+        // fwd_g. Velocity is sampled at the contact (where the tire actually
+        // grips), but the resulting force is applied at the wheel MOUNT —
+        // the anti-dive analogue of anti-squat. Routing through the contact
+        // gives the brake the full chassis_h/2 + suspension + wheel_radius
+        // moment arm into the CoM, which on a tall truck is enough to flip
+        // the chassis nose-down on hard braking. Real cars channel braking
+        // load into the body via the suspension link; doing the same here
+        // produces a moderate, realistic forward dive.
         glm::vec3 v_contact = body_.point_velocity(w.contact_world);
         float v_long = glm::dot(v_contact, fwd_g);
         if (brake_ > 0.f) {
@@ -216,18 +230,19 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
             float impulse_cap = std::abs(v_long) * (body_.mass / 4.f) / std::max(dt, 1e-5f);
             float bmag = std::min(bf, impulse_cap);
             if (v_long > 0.f) bmag = -bmag;
-            body_.apply_force_at(fwd_g * bmag, w.contact_world);
+            body_.apply_force_at(fwd_g * bmag, mount_w);
         } else if (throttle_ == 0.f) {
             // Engine braking + rolling resistance on coast. Strong enough to
             // hold the car on a gentle slope, weak enough not to stop it
-            // unrealistically fast at speed.
+            // unrealistically fast at speed. Same anti-dive routing as the
+            // explicit brake above.
             float coast_force = 250.f + std::abs(v_long) * 80.f;
             float impulse_cap = std::abs(v_long) * (body_.mass / 4.f) / std::max(dt, 1e-5f);
             float cmag = std::min(coast_force, impulse_cap);
             if (v_long > 0.f)      cmag = -cmag;
             else if (v_long < 0.f) {/* already +ve */}
             else                   cmag = 0.f;
-            body_.apply_force_at(fwd_g * cmag, w.contact_world);
+            body_.apply_force_at(fwd_g * cmag, mount_w);
         }
 
         // Lateral grip: kill sideways velocity at the contact point. Apply as
@@ -281,18 +296,53 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
         body_.angular_vel *= std::exp(-angular_drag * dt);
     }
 
-    // ---- Cylinder vs buildings (XZ) ----------------------------------------
+    // ---- OBB vs buildings (XZ) ---------------------------------------------
+    // The chassis footprint is a rectangle aligned with the car's facing
+    // direction, sized AND positioned from the visual AABB. (Centring the
+    // OBB on body.position instead of the visual AABB's centre creates a
+    // phantom gap on whichever side the rendered mesh is offset from the
+    // body origin — see make_obb_xz for the matching fix on car-vs-car.)
     {
-        glm::vec2 xz{body_.position.x, body_.position.z};
-        float feet_y = body_.position.y - com_height_above_mount - suspension_rest;
-        glm::vec2 fixed = world.resolve_cylinder_xz(xz, feet_y,
-                                                     chassis_full_extents.y + suspension_rest,
-                                                     chassis_collision_radius);
+        glm::vec3 ax_x_world = body_.to_world_dir({1.f, 0.f, 0.f});
+        glm::vec3 ax_z_world = body_.to_world_dir({0.f, 0.f, 1.f});
+        glm::vec2 ax_x{ax_x_world.x, ax_x_world.z};
+        glm::vec2 ax_z{ax_z_world.x, ax_z_world.z};
+        float lx = glm::length(ax_x);
+        float lz = glm::length(ax_z);
+        ax_x = (lx > 1e-6f) ? ax_x / lx : glm::vec2{1.f, 0.f};
+        ax_z = (lz > 1e-6f) ? ax_z / lz : glm::vec2{0.f, 1.f};
+
+        // Visual AABB centre lifted to world space (the AABB is body-local).
+        glm::vec3 vctr_local = (visual_aabb_min_ + visual_aabb_max_) * 0.5f;
+        glm::vec3 vctr_world = body_.to_world_point(vctr_local);
+        glm::vec2 xz{vctr_world.x, vctr_world.z};
+
+        // Inset the OBB slightly so the corners don't catch on building
+        // edges that the visual mesh would graze past — a small kerb of
+        // forgiveness keeps tight alley driving feeling fair.
+        constexpr float COLLISION_INSET = 0.05f; // metres
+        glm::vec2 half_ext{
+            std::max(0.f, (visual_aabb_max_.x - visual_aabb_min_.x) * 0.5f
+                          - COLLISION_INSET),
+            std::max(0.f, (visual_aabb_max_.z - visual_aabb_min_.z) * 0.5f
+                          - COLLISION_INSET)};
+
+        // Vertical extent: the visual mesh's body-local Y range, transformed
+        // to a world-space [feet_y, head_y] using body height. Use the
+        // chassis box's world-y bottom plus full visual height as an
+        // approximation (good enough — buildings are tall AABBs).
+        float feet_y = body_.position.y + visual_aabb_min_.y;
+        float height = visual_aabb_max_.y - visual_aabb_min_.y;
+
+        glm::vec2 fixed = world.resolve_obb_xz(xz, ax_x, ax_z, half_ext,
+                                                feet_y, height);
         if (fixed != xz) {
-            // Position correction: also kill velocity along the push direction.
+            // Push body.position by the same delta we pushed the visual
+            // centre — the centre is rigidly attached so the displacement
+            // is identical.
             glm::vec3 push{fixed.x - xz.x, 0.f, fixed.y - xz.y};
-            body_.position.x = fixed.x;
-            body_.position.z = fixed.y;
+            body_.position.x += push.x;
+            body_.position.z += push.z;
             float plen = glm::length(push);
             if (plen > 1e-4f) {
                 glm::vec3 n = push / plen;
@@ -330,11 +380,14 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
         // top of that, narrow features (a V-shaped valley, where two opposite
         // chassis corners penetrate the V walls while the wheels are happily
         // on the slopes) can launch the car. Cap the corner force tightly
-        // while any wheel is grounded; the cap relaxes the moment the car is
-        // genuinely unsupported (mid-air, tipped over, etc.).
+        // while any wheel is grounded; relax the cap when the car is genuinely
+        // unsupported (mid-air, on its side after a wreck) but keep it well
+        // below the truck-launching territory the old 60 kN/corner used —
+        // four-corner contact at that level produced a 7×-weight upward
+        // bounce that left tipped chassis floating after each impact.
         bool any_wheel_grounded = false;
         for (const Wheel& w : wheels_) if (w.grounded) { any_wheel_grounded = true; break; }
-        const float fn_per_corn = any_wheel_grounded ? 4000.f : 60000.f;
+        const float fn_per_corn = any_wheel_grounded ? 4000.f : 15000.f;
 
         for (int sx = 0; sx <= 1; ++sx)
         for (int sy = 0; sy <= 1; ++sy)
@@ -350,19 +403,24 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
             glm::vec3 v_corner = body_.point_velocity(c_world);
             float     v_normal = glm::dot(v_corner, N);
 
-            // Spring + damper. Damper only resists incoming motion (don't
-            // pull the corner back down once it lifts off). The damper
-            // velocity is capped so a high-speed impact doesn't fire a
-            // single-substep impulse big enough to launch the car.
+            // Spring + damper applied as IMPULSES (force × dt) instead of
+            // accumulated forces. The chassis-corner block runs after
+            // body_.integrate(dt), so apply_force_at would let the upward
+            // kick sit in force_accum until next substep — at which point
+            // the position-correction pass below has already lifted the
+            // body to no-penetration, so the carry-over kick is "free
+            // energy" and a tipped truck floats. Impulses take effect
+            // this substep and play nicely with the position correction.
+            // Damper still one-sided (only resists incoming motion).
             float v_n_in = std::min(std::max(0.f, -v_normal), V_DAMP_CAP);
             float fn     = pen * K_NORMAL + v_n_in * C_NORMAL;
             fn           = std::min(fn, fn_per_corn);
-            body_.apply_force_at(N * fn, c_world);
+            body_.apply_impulse_at(N * (fn * dt), c_world);
 
             // Coulomb friction at the contact point: opposes tangential
             // velocity, capped by μ * normal force. Capped a second time so
             // we can't overshoot and reverse the tangential motion within a
-            // single substep.
+            // single substep. Same impulse routing as the spring above.
             glm::vec3 v_tan     = v_corner - N * v_normal;
             float     v_tan_mag = glm::length(v_tan);
             if (v_tan_mag > 1e-4f) {
@@ -370,7 +428,8 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
                 float fric_stop = v_tan_mag * (body_.mass / 8.f)
                                   / std::max(dt, 1e-5f);
                 float fric_mag  = std::min(fric_max, fric_stop);
-                body_.apply_force_at(-(v_tan / v_tan_mag) * fric_mag, c_world);
+                body_.apply_impulse_at(-(v_tan / v_tan_mag) * (fric_mag * dt),
+                                       c_world);
             }
         }
 
@@ -385,7 +444,9 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
         // continues to push it down. (Wheels above the corrected position
         // simply lose a bit of suspension compression for one substep,
         // which the next raycast resolves cleanly.)
-        float deepest_pen = 0.f;
+        float     deepest_pen = 0.f;
+        glm::vec3 deepest_corner_world{0.f};
+        glm::vec3 deepest_corner_vel{0.f};
         for (int sx = 0; sx <= 1; ++sx)
         for (int sy = 0; sy <= 1; ++sy)
         for (int sz = 0; sz <= 1; ++sz) {
@@ -395,7 +456,11 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
             glm::vec3 c_world = body_.to_world_point({cx, cy, cz});
             float ground = Heightmap::sample(c_world.x, c_world.z);
             float pen = ground - c_world.y;
-            if (pen > deepest_pen) deepest_pen = pen;
+            if (pen > deepest_pen) {
+                deepest_pen          = pen;
+                deepest_corner_world = c_world;
+                deepest_corner_vel   = body_.point_velocity(c_world);
+            }
         }
         if (deepest_pen > 0.f) {
             body_.position.y += deepest_pen;
@@ -403,6 +468,17 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
             // on the ground shouldn't keep accelerating into it. We don't
             // touch upward velocity (a hard impact still bounces).
             if (body_.linear_vel.y < 0.f) body_.linear_vel.y = 0.f;
+
+            // Record the contact for VFX (spark emission). The contact
+            // point is at ground level (the deepest corner *was* below the
+            // terrain by `deepest_pen` before we lifted the body); the
+            // tangential velocity drives spark direction.
+            ScrapeContact sc;
+            sc.world_pos = {deepest_corner_world.x,
+                             deepest_corner_world.y + deepest_pen,
+                             deepest_corner_world.z};
+            sc.world_vel = deepest_corner_vel;
+            scrape_contacts_.push_back(sc);
         }
     }
 }

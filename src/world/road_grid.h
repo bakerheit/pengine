@@ -20,6 +20,23 @@ constexpr int   ROADS_PER_CELL  = 4;     // = cell_size / ROAD_PITCH
 // across [centerline ± ROAD_HALF_WIDTH].
 constexpr float ROAD_HALF_WIDTH = STREET_WIDTH * 0.5f;
 
+// Width of the sidewalk strip that runs between the road edge and the
+// building plot's interior. Mirrors the SIDEWALK constant used in
+// city_layout.cpp during plot generation. Anything outside (road +
+// sidewalk) is plot interior or terrain.
+constexpr float SIDEWALK_WIDTH = 3.f;
+
+// True when (wx, wz) lies on a paved surface — road carriageway OR the
+// sidewalk strip immediately bordering it. Used by VFX (sparks) and any
+// other code that wants to gate effects to "the street."
+inline bool is_paved_surface(float wx, float wz) {
+    constexpr float PAVED_HALF = ROAD_HALF_WIDTH + SIDEWALK_WIDTH;
+    float ns_x = std::round(wx / ROAD_PITCH) * ROAD_PITCH;
+    float ew_z = std::round(wz / ROAD_PITCH) * ROAD_PITCH;
+    return std::abs(wx - ns_x) <= PAVED_HALF
+        || std::abs(wz - ew_z) <= PAVED_HALF;
+}
+
 // Classify a world-space (wx, wz) point against the road grid. Returns the
 // nearest centerline coordinates and band-membership flags. The caller is
 // responsible for combining these into a carved heightmap value (see

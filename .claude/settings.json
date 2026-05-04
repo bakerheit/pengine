@@ -73,7 +73,8 @@
       "Bash(wait %1)",
       "Bash(grep -n \"lane_offset_ + c.ai_swerve\\\\|lane_offset_$\\\\|lane_offset_;\" /Users/andrewbaker/workspace/pengine/src/game/traffic.cpp)",
       "Bash(cmake --build /Users/andrewbaker/workspace/pengine/build --target pengine_core -j)",
-      "Bash(ctest --test-dir build --output-on-failure -R traffic)"
+      "Bash(ctest --test-dir build --output-on-failure -R traffic)",
+      "Bash(ctest --test-dir build --output-on-failure)"
     ],
     "additionalDirectories": [
       "/tmp",

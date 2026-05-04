@@ -50,6 +50,7 @@ bool Application::init() {
                                ASSETS_DIR "/shaders/lit.frag")) return false;
     if (!debug_draw_.init(ASSETS_DIR)) return false;
     if (!minimap_.init(ASSETS_DIR)) return false;
+    if (!particles_.init(ASSETS_DIR)) return false;
     if (!speedometer_.init(ASSETS_DIR)) return false;
 
     {
@@ -278,6 +279,7 @@ void Application::shutdown() {
     SDL_SetRelativeMouseMode(SDL_FALSE);
     debug_draw_.shutdown();
     minimap_.shutdown();
+    particles_.shutdown();
     speedometer_.shutdown();
     lit_shader_.destroy();
     lit_instanced_shader_.destroy();
@@ -413,6 +415,32 @@ void Application::update_on_foot(float dt, float mdx, float mdy) {
     camera_.position = spring_.camera_position;
     camera_.yaw      = spring_.yaw_deg;
     camera_.pitch    = spring_.pitch_deg;
+
+    // Footstep audio: tick a timer paced by current ground speed so steps
+    // come faster when sprinting. Gated to (a) actually moving, (b) on
+    // the ground, and (c) the foot is over a paved surface — grass / dirt
+    // shouldn't trigger the concrete sample.
+    {
+        glm::vec3 step_vh = character_.velocity();
+        step_vh.y = 0.f;
+        float speed = glm::length(step_vh);
+        const bool moving = speed > 0.5f && character_.grounded();
+        if (moving) {
+            // ~0.55 s/step at MOVE_SPEED; scales inversely with speed so
+            // sprint cadence quickens automatically.
+            float interval = 0.55f * CharacterController::MOVE_SPEED
+                                   / std::max(speed, 0.5f);
+            footstep_timer_ += dt;
+            if (footstep_timer_ >= interval) {
+                footstep_timer_ -= interval;
+                glm::vec3 fp = character_.feet_position();
+                if (is_paved_surface(fp.x, fp.z))
+                    audio_.play_footstep_concrete();
+            }
+        } else {
+            footstep_timer_ = 0.f;
+        }
+    }
 }
 
 void Application::update_in_vehicle(float dt, float mdx, float mdy) {
@@ -548,6 +576,61 @@ void Application::update(double dt) {
     // parked physics substeps, traffic-light state, and visual sync for
     // every car all happen here.
     traffic_.update(fdt, world_time_, camera_.position, world_collision_);
+
+    // Spark emission + scrape audio: any car whose substep recorded a
+    // scraping chassis corner over a paved surface (road or sidewalk)
+    // both sprays a burst of sparks and contributes to the looping
+    // metal-scrape sound. Gated to paved surfaces so dirt / grass
+    // off-road slides stay silent and visually clean.
+    float scrape_max_speed = 0.f;
+    {
+        auto try_emit = [&](const TrafficSystem::Car& c) {
+            for (const auto& sc : c.vehicle.scrape_contacts()) {
+                if (!is_paved_surface(sc.world_pos.x, sc.world_pos.z))
+                    continue;
+                // Tangential speed gates emission and density — slow drags
+                // get a couple of weak sparks; high-speed scrapes shower.
+                glm::vec3 tan = sc.world_vel; tan.y = 0.f;
+                float tan_speed = glm::length(tan);
+                if (tan_speed < 2.0f) continue;
+                int count = 3 + static_cast<int>(std::min(10.f,
+                                tan_speed * 0.4f));
+                particles_.emit_sparks(sc.world_pos, sc.world_vel, count);
+                if (tan_speed > scrape_max_speed)
+                    scrape_max_speed = tan_speed;
+            }
+        };
+        if (auto* pc = traffic_.player_car()) try_emit(*pc);
+        // Parked cars (e.g. just-hit AI) might also be scraping. AI cars
+        // are kinematic and never populate scrape_contacts, so the filter
+        // is defensive rather than load-bearing.
+        for (const auto& cp : traffic_.cars()) {
+            if (!cp || cp.get() == traffic_.player_car()) continue;
+            if (cp->driver != TrafficSystem::Driver::AI) try_emit(*cp);
+        }
+    }
+    particles_.update(fdt);
+
+    // Drive the looping metal-scrape sound off the same per-frame max.
+    // Sample is already a real metal-on-concrete scrape, so pitch sits
+    // near 1.0 — small speed-driven nudges add life without changing
+    // the timbre. The sample itself is mastered quiet, so we drive
+    // intensity well above 1.0 (miniaudio amplifies past unity) and
+    // floor it with a non-zero MIN so even slow drags are audible.
+    {
+        constexpr float REF_SPEED   = 12.f;  // m/s for full-intensity scrape
+        constexpr float MAX_VOLUME  = 4.0f;
+        constexpr float MIN_VOLUME  = 1.2f;  // floor when scrape is just starting
+        constexpr float BASE_PITCH  = 0.85f;
+        constexpr float PITCH_RANGE = 0.30f;
+        float t = std::min(1.f, scrape_max_speed / REF_SPEED);
+        float intensity = (scrape_max_speed > 0.f)
+                            ? MIN_VOLUME + (MAX_VOLUME - MIN_VOLUME) * t
+                            : 0.f;
+        float pitch     = BASE_PITCH + PITCH_RANGE * t;
+        audio_.update_scrape(fdt, intensity, pitch);
+    }
+
     scene_.update();
 
     {
@@ -563,6 +646,30 @@ void Application::update(double dt) {
         audio_.update(spd, max_spd, in_veh,
                       /*horn*/       input_.pressed(SDL_SCANCODE_H),
                       /*handbrake*/  input_.pressed(SDL_SCANCODE_SPACE));
+
+        // Spatialised AI traffic: each running AI car contributes an engine
+        // voice positioned at its world-space chassis. The pool inside
+        // AudioEngine picks the nearest 8 within audible range and lets
+        // miniaudio handle inverse-distance falloff. AI cars are kinematic
+        // (their RigidBody linear_vel is zeroed each frame by
+        // set_kinematic_pose), so vehicle.speed_kmh() is always 0 for
+        // them — the real ground speed lives on Car.ai_speed in m/s.
+        std::vector<AudioEngine::TrafficSource> sources;
+        sources.reserve(traffic_.cars().size());
+        for (const auto& cp : traffic_.cars()) {
+            if (!cp) continue;
+            // The player's own engine is mixed first-person via update()
+            // above; parked / wrecked cars don't run engines.
+            if (cp.get() == traffic_.player_car()) continue;
+            if (cp->driver != TrafficSystem::Driver::AI) continue;
+            AudioEngine::TrafficSource ts;
+            ts.id            = cp.get();
+            ts.position      = cp->vehicle.position();
+            ts.speed_kmh     = cp->ai_speed * 3.6f;
+            ts.max_speed_kmh = cp->vehicle.max_speed * 3.6f;
+            sources.push_back(ts);
+        }
+        audio_.update_traffic(camera_.position, sources);
     }
 }
 
@@ -770,6 +877,10 @@ void Application::render(double /*alpha*/) {
         else                     checker_tex_.bind(0);
         character_skinned_mesh_.draw();
     }
+
+    // ---- Particle effects (sparks etc.) ------------------------------------
+    particles_.render(vp, camera_.position,
+                      static_cast<float>(window_.height()));
 
     // ---- Debug overlay -----------------------------------------------------
     debug_draw_.clear();

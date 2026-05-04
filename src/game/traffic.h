@@ -122,6 +122,11 @@ public:
 
     int active() const { return static_cast<int>(cars_.size()); }
 
+    // Read-only view of every spawned car. Storage is unique_ptr so the
+    // lambda gets a raw `Car*` per slot. Stable across frames except when
+    // a car despawns (the slot is removed).
+    const std::vector<std::unique_ptr<Car>>& cars() const { return cars_; }
+
     // Closest car (any driver) to `point` within `radius`. Null if none.
     Car* find_nearest(const glm::vec3& point, float radius) const;
 

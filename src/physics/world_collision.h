@@ -43,6 +43,16 @@ public:
     glm::vec2 resolve_cylinder_xz(glm::vec2 pos_xz, float feet_y, float height,
                                    float radius) const;
 
+    // Resolve an oriented bounding box in the XZ plane against all loaded
+    // buildings (each is an AABB). `ax_x`/`ax_z` are the unit axes of the
+    // box in world XZ; `half_ext` is the box's half-size along those axes.
+    // Vertical extent is [feet_y, feet_y+height]. Returns the corrected XZ
+    // centre. Used for cars: a single inscribed cylinder is wrong for a
+    // 4 m × 2 m chassis, this matches the visual rectangle.
+    glm::vec2 resolve_obb_xz(glm::vec2 center, glm::vec2 ax_x,
+                              glm::vec2 ax_z, glm::vec2 half_ext,
+                              float feet_y, float height) const;
+
 private:
     struct Cell {
         std::vector<AABB> buildings;

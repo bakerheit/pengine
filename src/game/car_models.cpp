@@ -69,6 +69,8 @@ const CarModelDef CAR_MODELS[] = {
         /*lateral_grip*/      10.f,   // slides before it rolls — hard to tip
         /*chassis_height*/     0.8f,
         /*com_height_above_mount*/ 0.05f, // CoM ~0.80 m above ground → a_tip ≈ 12.7 m/s² (well above μg)
+        /*pitch_inertia_scale*/    1.f,   // uniform-box pitch — sedan is short, normal nose dip on hard brakes is fine
+        /*roll_inertia_scale*/     1.f,
         /*spring_k*/       130000.f,
         /*damper_k*/        13000.f,
 
@@ -106,7 +108,9 @@ const CarModelDef CAR_MODELS[] = {
         /*linear_drag*/        0.55f,
         /*lateral_grip*/      20.f,   // high grip + tall CoM — tips easily
         /*chassis_height*/     2.0f,  // tall box truck — visual / collision box
-        /*com_height_above_mount*/ 0.6f, // CoM ~1.30 m above ground → a_tip ≈ 8.3 m/s² (just under μg, tips in hard corners and on bumps)
+        /*com_height_above_mount*/ 0.80f, // CoM ~1.55 m above ground → a_tip ≈ 6.96 m/s² (well below μg, tips on aggressive cornering and any side-impact bump)
+        /*pitch_inertia_scale*/    3.f,   // long cargo body — mass is distributed lengthwise, so pitch is much harder than uniform box predicts. Keeps the nose down on hard brakes while CoM stays high enough for roll-tipping.
+        /*roll_inertia_scale*/     1.f,   // box-default — high CoM + low roll inertia = side-tippy by design
         /*spring_k*/        45000.f,  // soft suspension → more body roll
         /*damper_k*/         5000.f,
 
@@ -139,6 +143,9 @@ const CarModelDef CAR_MODELS[] = {
     //     /*linear_drag*/     ...,
     //     /*lateral_grip*/    ...,
     //     /*chassis_height*/  ...,
+    //     /*com_height_above_mount*/ ...,
+    //     /*pitch_inertia_scale*/    ...,
+    //     /*roll_inertia_scale*/     ...,
     //     /*spring_k*/        ...,
     //     /*damper_k*/        ...,
     //
@@ -160,6 +167,8 @@ void apply_model_tuning(Vehicle& v, const CarModelDef& def) {
     v.lateral_grip           = def.lateral_grip;
     v.chassis_full_extents.y    = def.chassis_height;
     v.com_height_above_mount    = def.com_height_above_mount;
+    v.pitch_inertia_scale       = def.pitch_inertia_scale;
+    v.roll_inertia_scale        = def.roll_inertia_scale;
     v.spring_k                  = def.spring_k;
     v.damper_k                  = def.damper_k;
 }

@@ -187,4 +187,60 @@ glm::vec2 WorldCollision::resolve_cylinder_xz(glm::vec2 pos_xz, float feet_y,
     return pos_xz;
 }
 
+// ----------------------------------------------------------------------------
+// OBB-vs-AABB resolution (XZ plane only). SAT against four candidate axes
+// (the OBB's two axes and the AABB's world X/Z), push along the smallest
+// overlap. Iterates a few times for corner stacks.
+// ----------------------------------------------------------------------------
+glm::vec2 WorldCollision::resolve_obb_xz(glm::vec2 center,
+                                          glm::vec2 ax_x, glm::vec2 ax_z,
+                                          glm::vec2 half_ext,
+                                          float feet_y, float height) const {
+    std::lock_guard<std::mutex> lk(mu_);
+    const float head_y = feet_y + height;
+
+    constexpr glm::vec2 AAX{1.f, 0.f};
+    constexpr glm::vec2 AAZ{0.f, 1.f};
+    const glm::vec2 axes[4] = {ax_x, ax_z, AAX, AAZ};
+
+    for (int pass = 0; pass < 3; ++pass) {
+        bool any = false;
+        for (const auto& kv : cells_) {
+            for (const AABB& b : kv.second.buildings) {
+                if (head_y < b.min.y || feet_y > b.max.y) continue;
+
+                glm::vec2 b_center{(b.min.x + b.max.x) * 0.5f,
+                                    (b.min.z + b.max.z) * 0.5f};
+                glm::vec2 b_half  {(b.max.x - b.min.x) * 0.5f,
+                                    (b.max.z - b.min.z) * 0.5f};
+                glm::vec2 d = center - b_center;
+
+                float min_overlap = 1e9f;
+                glm::vec2 mtv{1.f, 0.f};
+                bool separated = false;
+                for (int i = 0; i < 4; ++i) {
+                    const glm::vec2& n = axes[i];
+                    float r_obb  = std::abs(glm::dot(ax_x * half_ext.x, n))
+                                 + std::abs(glm::dot(ax_z * half_ext.y, n));
+                    float r_aabb = b_half.x * std::abs(n.x)
+                                 + b_half.y * std::abs(n.y);
+                    float dist   = std::abs(glm::dot(d, n));
+                    float overlap = r_obb + r_aabb - dist;
+                    if (overlap <= 0.f) { separated = true; break; }
+                    if (overlap < min_overlap) {
+                        min_overlap = overlap;
+                        mtv = n;
+                    }
+                }
+                if (separated) continue;
+                if (glm::dot(d, mtv) < 0.f) mtv = -mtv;
+                center += mtv * min_overlap;
+                any = true;
+            }
+        }
+        if (!any) break;
+    }
+    return center;
+}
+
 } // namespace pengine

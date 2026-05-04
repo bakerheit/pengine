@@ -4,8 +4,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cfloat>
 #include <cmath>
 #include <limits>
+
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include "core/log.h"
 #include "physics/world_collision.h"
@@ -131,12 +135,22 @@ struct OBBxz {
 
 OBBxz make_obb_xz(const Vehicle& v) {
     OBBxz o;
-    glm::vec3 p  = v.position();
     glm::vec3 ax = v.right();        // body +X
     glm::vec3 az = -v.forward();     // body +Z (forward() is body -Z)
-    o.center     = {p.x, p.z};
-    o.half_ext   = {v.chassis_full_extents.x * 0.5f,
-                    v.chassis_full_extents.z * 0.5f};
+    // Footprint half-extents from the visual mesh's body-local AABB so
+    // car-vs-car contact matches what the player sees, not the chassis box.
+    // The AABB is generally NOT centred on the body origin (the rendered
+    // mesh sits a bit forward/back of body+0 depending on how the OBJ
+    // was authored), so the OBB centre is the world-space transform of
+    // the AABB centre — using body.position would shift the rectangle
+    // off the visible body and cause a phantom gap.
+    glm::vec3 vmin   = v.visual_aabb_min_local();
+    glm::vec3 vmax   = v.visual_aabb_max_local();
+    glm::vec3 vctr   = (vmin + vmax) * 0.5f;
+    glm::vec3 wctr   = v.position() + v.orientation() * vctr;
+    o.center     = {wctr.x, wctr.z};
+    o.half_ext   = {(vmax.x - vmin.x) * 0.5f,
+                    (vmax.z - vmin.z) * 0.5f};
     glm::vec2 ax2{ax.x, ax.z};
     glm::vec2 az2{az.x, az.z};
     float lx = glm::length(ax2);
@@ -295,14 +309,29 @@ bool TrafficSystem::init(Scene& scene, const LightVisuals& lights,
         ma.static_visual_drop =
             std::max(0.f, ref.suspension_rest - static_compress);
 
-        // Body-local AABB of the actual rendered mesh (post scale + offset).
-        // The visual rotation (def.yaw_offset_deg, ±180° about Y for these
-        // PSX assets) leaves the AABB extent invariant — only sign-flips
-        // the X/Z bounds — so we can ignore it here. Used by the per-corner
-        // ground contact logic in vehicle.cpp so collision matches what the
-        // player sees instead of the smaller hand-tuned chassis box.
-        ma.visual_aabb_min = mn * s + ma.body_visual_offset;
-        ma.visual_aabb_max = mx * s + ma.body_visual_offset;
+        // Body-local AABB of the actual rendered mesh, computed by walking
+        // the eight native-bounds corners through the visual node's full
+        // transform (T * R * S). The rotation matters: when the native
+        // mesh isn't symmetric around its own origin, applying yaw_offset
+        // shifts where the rendered mesh actually sits relative to the
+        // body. The previous (mn*s + offset, mx*s + offset) shortcut
+        // assumed centering and gave a phantom collision box at the front
+        // of trucks whose mesh wasn't bilaterally Z-centred.
+        glm::mat4 visual_xform =
+            glm::translate(glm::mat4{1.f}, ma.body_visual_offset) *
+            glm::mat4_cast(glm::angleAxis(
+                glm::radians(def.yaw_offset_deg), glm::vec3{0.f, 1.f, 0.f})) *
+            glm::scale(glm::mat4{1.f}, ma.body_visual_scale);
+        ma.visual_aabb_min = glm::vec3{ FLT_MAX,  FLT_MAX,  FLT_MAX};
+        ma.visual_aabb_max = glm::vec3{-FLT_MAX, -FLT_MAX, -FLT_MAX};
+        for (int corner = 0; corner < 8; ++corner) {
+            glm::vec3 c{(corner & 1) ? mx.x : mn.x,
+                        (corner & 2) ? mx.y : mn.y,
+                        (corner & 4) ? mx.z : mn.z};
+            glm::vec3 cw = glm::vec3(visual_xform * glm::vec4{c, 1.f});
+            ma.visual_aabb_min = glm::min(ma.visual_aabb_min, cw);
+            ma.visual_aabb_max = glm::max(ma.visual_aabb_max, cw);
+        }
 
         // Wheel mount positions (chassis-local) from this model's mesh-native
         // wheel positions, scaled by the body-fit factor `s`. Mount Y matches
@@ -637,22 +666,57 @@ void TrafficSystem::resolve_vehicle_collisions() {
                 bool b_dyn = (b.driver != Driver::AI);
 
                 if (a_dyn && b_dyn) {
-                    // Both dynamic — separate proportional to inverse mass and
-                    // exchange momentum along the contact normal.
+                    // Both dynamic — separate proportional to inverse mass
+                    // and exchange momentum along the contact normal.
+                    // Position correction: translate apart by inverse-mass weights.
                     float ma = a.vehicle.body().mass;
                     float mb = b.vehicle.body().mass;
                     float mt = ma + mb;
                     a.vehicle.translate( n * (push * (mb / mt)));
                     b.vehicle.translate(-n * (push * (ma / mt)));
 
-                    glm::vec3 v_rel = a.vehicle.body().linear_vel
-                                    - b.vehicle.body().linear_vel;
+                    // Contact point: midpoint between the two visual centres
+                    // in XZ, with Y dropped to the average of the two cars'
+                    // visual bottoms ("bumper height"). Putting Y below both
+                    // CoMs is the load-bearing detail — the resulting r×n
+                    // arm produces a roll torque on side hits, so a fast
+                    // T-bone can flip a stationary car instead of just
+                    // shoving it.
+                    glm::vec3 ap = a.vehicle.position();
+                    glm::vec3 bp = b.vehicle.position();
+                    glm::vec3 a_min = a.vehicle.visual_aabb_min_local();
+                    glm::vec3 b_min = b.vehicle.visual_aabb_min_local();
+                    glm::vec3 contact{
+                        (ap.x + bp.x) * 0.5f,
+                        ((ap.y + a_min.y) + (bp.y + b_min.y)) * 0.5f,
+                        (ap.z + bp.z) * 0.5f};
+
+                    // Use point velocities (CoM linear + angular×r), not pure
+                    // linear, so a spinning car contributes its tangential
+                    // velocity at the contact correctly.
+                    glm::vec3 v_a_pt = a.vehicle.body().point_velocity(contact);
+                    glm::vec3 v_b_pt = b.vehicle.body().point_velocity(contact);
+                    glm::vec3 v_rel  = v_a_pt - v_b_pt;
                     float v_n = glm::dot(v_rel, n);
                     if (v_n < 0.f) {
-                        float jmag = -(1.f + RESTITUTION) * v_n
-                                     / (1.f / ma + 1.f / mb);
-                        a.vehicle.apply_impulse_central( n * jmag);
-                        b.vehicle.apply_impulse_central(-n * jmag);
+                        // Effective inverse mass at the contact accounts for
+                        // both linear and rotational compliance. Without the
+                        // (r×n)·I⁻¹(r×n) terms an off-centre impulse over-
+                        // bounces because we'd use the linear-only formula
+                        // while routing energy into rotation.
+                        glm::vec3 ra = contact - ap;
+                        glm::vec3 rb = contact - bp;
+                        glm::vec3 ra_x_n = glm::cross(ra, n);
+                        glm::vec3 rb_x_n = glm::cross(rb, n);
+                        glm::mat3 inv_I_a = a.vehicle.body().inv_inertia_world();
+                        glm::mat3 inv_I_b = b.vehicle.body().inv_inertia_world();
+                        float k =  1.f / ma + 1.f / mb
+                                + glm::dot(ra_x_n, inv_I_a * ra_x_n)
+                                + glm::dot(rb_x_n, inv_I_b * rb_x_n);
+                        float jmag = -(1.f + RESTITUTION) * v_n / k;
+                        glm::vec3 imp = n * jmag;
+                        a.vehicle.apply_impulse_at( imp, contact);
+                        b.vehicle.apply_impulse_at(-imp, contact);
                     }
                 } else {
                     // Both AI — split the push 50/50. Both will re-stamp from
@@ -1202,6 +1266,10 @@ void TrafficSystem::try_ai_recover(Car& c, float dt) {
 
 void TrafficSystem::integrate_player_or_parked(Car& c, float dt,
                                                 const WorldCollision& world) {
+    // Reset the per-frame VFX scratch (chassis-on-ground contact points).
+    // Substep appends to it; the renderer drains it each frame to spawn
+    // sparks.
+    c.vehicle.clear_scrape_contacts();
     // Two substeps at half-dt to match the player's old cadence.
     c.vehicle.substep(dt * 0.5f, world);
     c.vehicle.substep(dt * 0.5f, world);
