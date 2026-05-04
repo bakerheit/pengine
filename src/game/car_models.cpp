@@ -76,7 +76,7 @@ const CarModelDef CAR_MODELS[] = {
     },
 
     // ===== Car 8 =============================================================
-    // Heavier delivery truck. Slower top speed, rarer in AI traffic.
+    // Heavier delivery truck. Slower top speed.
     // car8.emesh built from Car8_nowheels.obj (Car8.obj with the 4 wheel
     // components stripped). Wheel mounts shifted ~0.15m rearward from the
     // raw wheel-component centroids so the dynamic wheels sit where the eye

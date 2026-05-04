@@ -140,12 +140,28 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
     // ---- Drive / brake -----------------------------------------------------
     int  driven_grounded = 0;
     for (const Wheel& w : wheels_) if (w.is_driven && w.grounded) ++driven_grounded;
+    bool any_driven_grounded = (driven_grounded > 0);
     if (driven_grounded == 0) driven_grounded = 1; // avoid /0
 
     glm::vec3 fwd_world = forward();
     float speed_signed  = glm::dot(body_.linear_vel, fwd_world);
     float drive_factor_fwd = clampf(1.f - std::max(0.f, speed_signed) / max_speed, 0.f, 1.f);
     float drive_factor_rev = clampf(1.f - std::max(0.f, -speed_signed) / max_reverse, 0.f, 1.f);
+    // Drag compensation. Without this, the (1 − v/max) torque curve drops to
+    // zero exactly where air drag is still pulling, so terminal velocity
+    // settles at engine_force / (m·linear_drag + engine_force/max_speed) —
+    // well below max_speed. Adding m·k·v of thrust at full throttle cancels
+    // the longitudinal drag, leaving net accel = engine·(1 − v/max)/m, which
+    // actually reaches max_speed. Applied as a central force (below) rather
+    // than through the wheel mounts: drag itself is a central body force, so
+    // its compensation has zero pitch arm. Routing it through the mounts
+    // would compound the engine's mount-level pitch torque and visibly
+    // wheelie the chassis at high speed. Capped at max_speed so we don't
+    // keep boosting past the rated top end.
+    float drag_comp_v_fwd  = std::min(std::max(0.f, speed_signed),  max_speed);
+    float drag_comp_v_rev  = std::min(std::max(0.f, -speed_signed), max_reverse);
+    float drag_comp_fwd    = chassis_mass * linear_drag * drag_comp_v_fwd;
+    float drag_comp_rev    = chassis_mass * linear_drag * drag_comp_v_rev;
 
     for (Wheel& w : wheels_) {
         if (!w.grounded) continue;
@@ -171,12 +187,12 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
         // grip and brake still go through the contact, where they belong.
         glm::vec3 mount_w = body_.to_world_point(w.mount_local);
         if (w.is_driven && throttle_ > 0.f) {
-            float per_wheel = (engine_force / static_cast<float>(driven_grounded))
-                              * drive_factor_fwd;
+            float per_wheel = (engine_force * drive_factor_fwd)
+                              / static_cast<float>(driven_grounded);
             body_.apply_force_at(fwd_g * per_wheel * throttle_, mount_w);
         } else if (w.is_driven && throttle_ < 0.f) {
-            float per_wheel = (reverse_force / static_cast<float>(driven_grounded))
-                              * drive_factor_rev;
+            float per_wheel = (reverse_force * drive_factor_rev)
+                              / static_cast<float>(driven_grounded);
             body_.apply_force_at(fwd_g * per_wheel * throttle_, mount_w);
         }
 
@@ -211,10 +227,25 @@ void Vehicle::substep(float dt, const WorldCollision& world) {
         // Required impulse to kill v_lat over this substep (per wheel, mass/4).
         float wanted_impulse = -v_lat * (body_.mass / 4.f) * std::min(1.f, grip * dt);
         // Friction circle cap: total horizontal friction <= mu * N.
-        float mu = 1.4f;
+        // μ = 0.9 caps lateral accel at ~g, just below a low-CoM sedan's
+        // static tip threshold (~16 m/s²) but well above a tall truck's
+        // (~11 m/s²) — sedans slide, trucks tip.
+        float mu = 0.9f;
         float max_friction_impulse = mu * w.normal_force * dt;
         wanted_impulse = clampf(wanted_impulse, -max_friction_impulse, max_friction_impulse);
         body_.apply_impulse_at(lat_g * wanted_impulse, w.contact_world);
+    }
+
+    // Drag compensation, applied centrally so it doesn't add pitch torque
+    // (see the drag_comp comment block above). Only fires when at least one
+    // driven wheel is on the ground — a wheels-up car shouldn't get a free
+    // forward shove.
+    if (any_driven_grounded) {
+        if (throttle_ > 0.f) {
+            body_.apply_central_force(fwd_world * (drag_comp_fwd * throttle_));
+        } else if (throttle_ < 0.f) {
+            body_.apply_central_force(fwd_world * (drag_comp_rev * throttle_));
+        }
     }
 
     // ---- Integrate ---------------------------------------------------------
