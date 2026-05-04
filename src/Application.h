@@ -16,6 +16,7 @@
 #include "render/mesh.h"
 #include "render/minimap.h"
 #include "render/shader.h"
+#include "render/speedometer.h"
 #include "render/skeleton.h"
 #include "render/skinned_mesh.h"
 #include "render/spring_arm.h"
@@ -82,6 +83,7 @@ private:
     CharacterController character_;
     DebugDraw           debug_draw_;
     Minimap             minimap_;
+    Speedometer         speedometer_;
     SpringArm           spring_;
     RoadGraph           road_graph_;
     TrafficSystem       traffic_;

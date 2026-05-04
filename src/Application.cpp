@@ -50,6 +50,7 @@ bool Application::init() {
                                ASSETS_DIR "/shaders/lit.frag")) return false;
     if (!debug_draw_.init(ASSETS_DIR)) return false;
     if (!minimap_.init(ASSETS_DIR)) return false;
+    if (!speedometer_.init(ASSETS_DIR)) return false;
 
     {
         std::vector<Vertex>   verts;
@@ -273,6 +274,7 @@ void Application::shutdown() {
     SDL_SetRelativeMouseMode(SDL_FALSE);
     debug_draw_.shutdown();
     minimap_.shutdown();
+    speedometer_.shutdown();
     lit_shader_.destroy();
     lit_instanced_shader_.destroy();
     cube_mesh_.destroy();
@@ -800,6 +802,16 @@ void Application::render(double /*alpha*/) {
             ms.player_yaw_deg   = character_facing_yaw_deg_ + 90.f;
         }
         minimap_.draw(ms);
+    }
+
+    if (mode_ == Mode::InVehicle) {
+        if (auto* pc = traffic_.player_car()) {
+            Speedometer::DrawState ss;
+            ss.speed_kmh = pc->vehicle.speed_kmh();
+            ss.viewport_size_px = {static_cast<float>(window_.width()),
+                                   static_cast<float>(window_.height())};
+            speedometer_.draw(ss);
+        }
     }
 
     window_.swap();
