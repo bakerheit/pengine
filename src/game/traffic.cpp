@@ -48,6 +48,18 @@ constexpr float TIME_HEADWAY  = 1.4f;
 constexpr float MIN_GAP       = 2.5f;
 constexpr float STOP_BACK     = 6.f;
 
+// ---- Impatient swerve tuning -----------------------------------------------
+// Cars stuck behind a blocker grow ai_patience. Past PATIENCE_LIMIT, if the
+// opposing lane is clear within OPP_CLEAR_DIST ahead, they commit to a swerve
+// — animating ai_swerve from 0 toward −2·lane_offset_ at SWERVE_RATE m/s
+// lateral, then retracting once the blocker is PASS_BUFFER metres behind.
+constexpr float STUCK_SPEED    = 1.5f;
+constexpr float STUCK_GAP      = 8.0f;
+constexpr float PATIENCE_LIMIT = 4.0f;
+constexpr float SWERVE_RATE    = 1.5f;
+constexpr float OPP_CLEAR_DIST = 30.0f;
+constexpr float PASS_BUFFER    = 4.0f;
+
 // ---- Traffic-light cycle ---------------------------------------------------
 constexpr float LIGHT_PERIOD  = 20.f;
 constexpr float LIGHT_HALF    = LIGHT_PERIOD * 0.5f;
@@ -692,26 +704,150 @@ bool TrafficSystem::try_spawn_ai(const glm::vec3& camera_pos) {
     return false;
 }
 
+bool TrafficSystem::opposing_lane_clear(const Car& c, float clear_dist) const {
+    DirInfo info = dir_info(c.ai_dir);
+    glm::vec3 from = RoadGraph::intersection_pos(c.ai_i, c.ai_j, 0.f);
+    glm::vec3 unit{static_cast<float>(info.di), 0.f,
+                   static_cast<float>(info.dj)};
+    // Opposing-lane center: same intersection, mirrored across the road centerline.
+    glm::vec3 opp_origin = from - info.right_offset * lane_offset_;
+    constexpr float LANE_HALF_WIDTH = 2.0f;
+
+    for (const auto& op : cars_) {
+        const Car& o = *op;
+        if (&o == &c) continue;
+        glm::vec3 op_pos = o.vehicle.position();
+
+        auto in_window = [&](glm::vec3 origin, float min_along, float max_along) {
+            glm::vec3 d = op_pos - origin;
+            float along = glm::dot(d, unit);
+            float lat   = glm::dot(d, info.right_offset);
+            return std::abs(lat) <= LANE_HALF_WIDTH
+                && along >= min_along && along <= max_along;
+        };
+
+        // Current opposing segment: from a few metres behind us out to clear_dist.
+        if (in_window(opp_origin, c.ai_distance_along - 5.f,
+                      std::min(c.ai_distance_along + clear_dist, ROAD_PITCH))) {
+            return false;
+        }
+        // Continuation past the next intersection if the lookahead reaches that far.
+        float remaining = (c.ai_distance_along + clear_dist) - ROAD_PITCH;
+        if (remaining > 0.f
+            && in_window(opp_origin + unit * ROAD_PITCH, 0.f, remaining)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void TrafficSystem::ai_update_speed(Car& c, float dt, double time_seconds) {
     // Free-flow target.
     float target = c.ai_target_speed;
 
-    // Leader: same segment + lane + direction, ahead of us.
+    // Leader detection: project every other car (AI, player, parked) onto our
+    // predicted path — current segment, then the same-direction segment beyond
+    // the next intersection. Uses world position rather than lane state so the
+    // player and parked cars (which don't track ai_i/ai_j) are visible too,
+    // and so the lookahead extends through intersections. Projection origin
+    // includes ai_swerve so a swerving AI sees oncoming traffic in the
+    // opposing lane (and stops seeing the blocker it's passing — see the
+    // ai_swerve_anchor logic below for how we know when we're past it).
+    float best_gap = std::numeric_limits<float>::infinity();
+    const Car* best_leader = nullptr;
     {
-        float best_gap = std::numeric_limits<float>::infinity();
+        DirInfo info = dir_info(c.ai_dir);
+        glm::vec3 from = RoadGraph::intersection_pos(c.ai_i, c.ai_j, 0.f);
+        glm::vec3 unit{static_cast<float>(info.di), 0.f,
+                       static_cast<float>(info.dj)};
+        // While committed to a swerve, plan from the target opposing-lane's
+        // perspective: the blocker we're passing sits in the normal lane, so
+        // it's outside the target lane's tube and stops dragging the AI's
+        // target speed down. Oncoming traffic is in the target lane and still
+        // slows us if it appears.
+        float plan_lat = c.ai_swerving ? -lane_offset_
+                                       : (lane_offset_ + c.ai_swerve);
+        glm::vec3 lane_origin = from + info.right_offset * plan_lat;
+        constexpr float LANE_HALF_WIDTH = 2.0f;  // ~half a 4m-wide directional lane
+        constexpr float CAR_LENGTH      = 4.f;
+
         for (const auto& op : cars_) {
             const Car& o = *op;
             if (&o == &c) continue;
-            if (o.driver != Driver::AI) continue;
-            if (o.ai_i != c.ai_i || o.ai_j != c.ai_j || o.ai_dir != c.ai_dir) continue;
-            if (o.ai_distance_along <= c.ai_distance_along) continue;
-            constexpr float CAR_LENGTH = 4.f;
-            float gap = o.ai_distance_along - c.ai_distance_along - CAR_LENGTH;
-            if (gap < best_gap) best_gap = gap;
+            glm::vec3 op_pos = o.vehicle.position();
+
+            // Current segment.
+            glm::vec3 d   = op_pos - lane_origin;
+            float    along = glm::dot(d, unit);
+            float    lat   = glm::dot(d, info.right_offset);
+            if (std::abs(lat) <= LANE_HALF_WIDTH
+                && along > c.ai_distance_along && along <= ROAD_PITCH) {
+                float gap = along - c.ai_distance_along - CAR_LENGTH;
+                if (gap < best_gap) { best_gap = gap; best_leader = &o; }
+                continue;
+            }
+
+            // Same-direction continuation segment beyond the next intersection.
+            // Assumes the AI keeps going straight — which it usually does, and
+            // when it doesn't, slowing for a queue we won't actually enter is
+            // preferable to ploughing into one we will.
+            glm::vec3 d2   = op_pos - (lane_origin + unit * ROAD_PITCH);
+            float    along2 = glm::dot(d2, unit);
+            float    lat2   = glm::dot(d2, info.right_offset);
+            if (std::abs(lat2) <= LANE_HALF_WIDTH
+                && along2 >= 0.f && along2 <= ROAD_PITCH) {
+                float gap = (ROAD_PITCH - c.ai_distance_along)
+                            + along2 - CAR_LENGTH;
+                if (gap < best_gap) { best_gap = gap; best_leader = &o; }
+            }
         }
         if (std::isfinite(best_gap)) {
             float t = (best_gap - MIN_GAP) / TIME_HEADWAY;
             target = std::min(target, std::max(0.f, t));
+        }
+    }
+
+    // Patience + swerve state machine. Builds patience while stuck, commits
+    // to a swerve when patience runs out and the opposing lane is clear,
+    // retracts once the snapshotted blocker is behind us.
+    {
+        bool blocked = std::isfinite(best_gap)
+                    && best_gap < STUCK_GAP
+                    && c.ai_speed < STUCK_SPEED;
+        if (blocked) c.ai_patience += dt;
+        else         c.ai_patience  = std::max(0.f, c.ai_patience - dt * 2.f);
+
+        if (!c.ai_swerving
+            && c.ai_patience >= PATIENCE_LIMIT
+            && best_leader != nullptr
+            && opposing_lane_clear(c, OPP_CLEAR_DIST)) {
+            c.ai_swerving      = true;
+            c.ai_swerve_anchor = best_leader->vehicle.position();
+        }
+
+        if (c.ai_swerving) {
+            glm::vec3 fwd = c.vehicle.forward();
+            glm::vec3 rel = c.ai_swerve_anchor - c.vehicle.position();
+            if (glm::dot(rel, fwd) < -PASS_BUFFER) {
+                c.ai_swerving = false;
+                c.ai_patience = 0.f;
+            }
+        }
+
+        float target_swerve = c.ai_swerving ? (-2.f * lane_offset_) : 0.f;
+        float diff = target_swerve - c.ai_swerve;
+        float step = std::min(std::abs(diff), SWERVE_RATE * dt);
+        float prev_swerve = c.ai_swerve;
+        c.ai_swerve += (diff > 0.f) ? step : -step;
+        c.ai_swerve_rate = (c.ai_swerve - prev_swerve) / std::max(dt, 1e-5f);
+
+        // Early-swerve speed cap: while we're still mostly in the normal lane
+        // (haven't crossed the road centerline), cap forward speed so we
+        // don't barrel into the blocker before our lateral progress has
+        // moved us out of its lane.
+        if (c.ai_swerving && c.ai_swerve > -lane_offset_) {
+            constexpr float CREEP_SPEED = 4.f;
+            target = std::min(target, CREEP_SPEED);
         }
     }
 
@@ -772,12 +908,25 @@ void TrafficSystem::update_ai_kinematic(Car& c, float dt, double time_seconds) {
     glm::vec3 from = RoadGraph::intersection_pos(c.ai_i, c.ai_j, 0.f);
     glm::vec3 unit{static_cast<float>(info.di), 0.f, static_cast<float>(info.dj)};
     glm::vec3 xz   = from + unit * c.ai_distance_along
-                          + info.right_offset * lane_offset_;
+                          + info.right_offset * (lane_offset_ + c.ai_swerve);
     float ground   = Heightmap::sample(xz.x, xz.z);
 
     const auto& ma = assets_->models[static_cast<std::size_t>(c.model_id)];
     glm::vec3 pos{xz.x, ground + ma.ride_height_at_rest, xz.z};
-    glm::quat rot = glm::angleAxis(glm::radians(info.yaw_deg),
+    // Face the actual velocity direction (lane-forward + lateral swerve)
+    // rather than always-pure lane direction. Without this, a swerving AI
+    // appears to slide sideways like a hovercraft. Deviation is capped at
+    // ±30° so a swerve initiated from a near-standstill doesn't snap the
+    // body 90° off-axis (atan2 explodes when v_fwd is small).
+    float dev = 0.f;
+    if (std::abs(c.ai_swerve_rate) > 1e-3f) {
+        constexpr float MAX_DEV = glm::radians(30.f);
+        float v_fwd_floor = std::max(c.ai_speed, 0.5f);
+        // ai_swerve_rate is along right_offset; positive = drifting right.
+        dev = std::atan2(c.ai_swerve_rate, v_fwd_floor);
+        dev = std::clamp(dev, -MAX_DEV, MAX_DEV);
+    }
+    glm::quat rot = glm::angleAxis(glm::radians(info.yaw_deg) + dev,
                                     glm::vec3{0.f, 1.f, 0.f});
     c.vehicle.set_kinematic_pose(pos, rot);
 

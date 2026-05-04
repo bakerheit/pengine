@@ -70,7 +70,8 @@
       "Bash(awk -v cx=1.05 -v cy=0.4 -v cz_f=2.6 -v cz_r=2.6 -v r=0.65 -f /tmp/strip_wheels.awk 'assets/Vehicles_psx/Car 08/Car8.obj')",
       "Bash(./build/bin/meshconv \"assets/Vehicles_psx/Car 08/Car8_nowheels.obj\" assets/models/vehicles/car8)",
       "Bash(awk -v ground_y=0.1 -v max_wheel_height=1.2 -v min_offset=0.5 -f /tmp/strip_wheel_components.awk 'assets/Vehicles_psx/Car 08/Car8.obj')",
-      "Bash(wait %1)"
+      "Bash(wait %1)",
+      "Bash(grep -n \"lane_offset_ + c.ai_swerve\\\\|lane_offset_$\\\\|lane_offset_;\" /Users/andrewbaker/workspace/pengine/src/game/traffic.cpp)"
     ],
     "additionalDirectories": [
       "/tmp",

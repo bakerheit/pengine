@@ -55,6 +55,19 @@ public:
         float   ai_speed          = 0.f;     // current AI-script speed (m/s)
         float   ai_target_speed   = 12.f;    // free-flow desired speed (m/s)
 
+        // Patience + swerve state. ai_patience accumulates while we're stuck
+        // close behind a blocker; once it crosses PATIENCE_LIMIT and the
+        // opposing lane is clear, ai_swerving flips true and ai_swerve
+        // animates from 0 toward −2·lane_offset_ (the opposing lane). The
+        // blocker's world position is snapshotted into ai_swerve_anchor so
+        // we can detect when we've passed it and retract back to the normal
+        // lane, even though our leader projection no longer sees it.
+        float     ai_patience      = 0.f;
+        float     ai_swerve        = 0.f;
+        float     ai_swerve_rate   = 0.f;     // d(ai_swerve)/dt (m/s); drives yaw lean
+        bool      ai_swerving      = false;
+        glm::vec3 ai_swerve_anchor {0.f};
+
         // ---- Visual scene-graph (always present) -------------------------
         SceneNode* chassis_node     = nullptr;       // rigid-body pose
         SceneNode* body_visual_node = nullptr;       // model offset / scale / yaw fix
@@ -136,6 +149,10 @@ private:
     // AI helpers (kinematic lane follow).
     void ai_update_speed(Car& c, float dt, double time_seconds);
     void ai_advance(Car& c, float dt);
+    // True if no car sits in the opposing lane within `clear_dist` ahead of
+    // `c`. Consulted before committing to a swerve, so the AI doesn't pull
+    // out into oncoming traffic.
+    bool opposing_lane_clear(const Car& c, float clear_dist) const;
 
     // Spawn helpers.
     bool try_spawn_ai(const glm::vec3& camera_pos);
