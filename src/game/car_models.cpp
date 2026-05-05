@@ -24,6 +24,7 @@ constexpr const char* CAR5_PAINTS[] = {
     ASSETS_DIR "/vehicles/Vehicles_psx/Car 05/car5.png",
     ASSETS_DIR "/vehicles/Vehicles_psx/Car 05/car5_green.png",
     ASSETS_DIR "/vehicles/Vehicles_psx/Car 05/car5_grey.png",
+    ASSETS_DIR "/vehicles/Vehicles_psx/Car 05/car5_police.png",
 };
 
 constexpr const char* CAR8_PAINTS[] = {

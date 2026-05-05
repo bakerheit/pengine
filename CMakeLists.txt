@@ -121,6 +121,7 @@ add_library(pengine_core STATIC
     src/render/particles.cpp
     src/render/speedometer.cpp
     src/render/crosshair.cpp
+    src/render/wanted_stars.cpp
     src/render/spring_arm.cpp
     src/render/skinned_mesh.cpp
     src/render/skeleton.cpp

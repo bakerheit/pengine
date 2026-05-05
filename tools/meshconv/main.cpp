@@ -347,6 +347,29 @@ int main(int argc, char* argv[]) {
     } // end if (skinned)
 
     // ----- Write .eanim (one animation per file; first one wins for now) -----
+    // aiProcess_PreTransformVertices on the primary import bakes node
+    // transforms into vertex positions and as a side effect strips the
+    // animation channels. For anim-only FBXs (Mixamo "in-place" exports
+    // that nonetheless ship a placeholder mesh, e.g. "Dying Backwards"),
+    // re-import without that flag and adopt the new scene's animations.
+    // imp2 is at function scope so the aiAnimation* pointers below stay
+    // valid for the rest of main.
+    Assimp::Importer imp2;
+    if (scene->mNumAnimations == 0) {
+        const aiScene* anim_scene = imp2.ReadFile(in_path,
+            aiProcess_Triangulate       |
+            aiProcess_GenSmoothNormals  |
+            aiProcess_CalcTangentSpace  |
+            aiProcess_JoinIdenticalVertices |
+            aiProcess_LimitBoneWeights  |
+            aiProcess_SortByPType);
+        if (anim_scene && anim_scene->mNumAnimations > 0) {
+            std::printf("meshconv: re-imported without PreTransformVertices"
+                        " for animation extraction (%u anims)\n",
+                        anim_scene->mNumAnimations);
+            scene = anim_scene;
+        }
+    }
     if (scene->mNumAnimations == 0) return 0;
     {
         const aiAnimation* a = scene->mAnimations[0];

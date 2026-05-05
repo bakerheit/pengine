@@ -25,6 +25,7 @@
 #include "render/skinned_mesh.h"
 #include "render/spring_arm.h"
 #include "render/texture.h"
+#include "render/wanted_stars.h"
 #include "scene/scene.h"
 #include "world/model_registry.h"
 #include "world/road_graph.h"
@@ -53,6 +54,8 @@ private:
     void log_debug_area();
     void update_on_foot(float dt, float mdx, float mdy);
     void update_in_vehicle(float dt, float mdx, float mdy);
+    void add_wanted_heat(float heat);
+    void update_wanted(float dt);
     void sync_character_scene();
     void compute_procedural_walk_pose(float phase, bool moving);
     void fire_pistol();
@@ -99,6 +102,7 @@ private:
     Particles           particles_;
     Speedometer         speedometer_;
     Crosshair           crosshair_;
+    WantedStars         wanted_stars_;
     SpringArm           spring_;
     RoadGraph           road_graph_;
     TrafficSystem       traffic_;
@@ -154,6 +158,12 @@ private:
     // the next forward step plays after a normal cadence (rather than
     // immediately if the player happened to stop mid-stride).
     float     footstep_timer_ = 0.f;
+
+    float     wanted_heat_ = 0.f;
+    float     wanted_decay_delay_ = 0.f;
+    int       wanted_level_ = 0;
+    float     player_health_ = 100.f;
+    glm::vec3 initial_player_spawn_{0.f};
 };
 
 } // namespace pengine

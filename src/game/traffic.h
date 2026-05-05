@@ -30,7 +30,7 @@ class WorldCollision;
 // entities. Pressing F simply transfers the Player driver flag.
 class TrafficSystem {
 public:
-    enum class Driver : std::uint8_t { AI, Player, Parked };
+    enum class Driver : std::uint8_t { AI, Player, Parked, Police };
 
     // A single car. Identical layout for player and AI; the only difference
     // is which `Driver` is updating its inputs each frame.
@@ -49,6 +49,7 @@ public:
 
         // Paint variant index into the per-model paints list.
         int paint_idx = 0;
+        bool police_unit = false;
 
         // ---- AI route state (used when driver == AI) ---------------------
         TrafficAgentState ai_state = TrafficAgentState::Cruise;
@@ -145,6 +146,10 @@ public:
     void set_player_inputs(float throttle, float brake, float steer,
                             bool handbrake);
 
+    // Wanted-system hook. Application owns crime/wanted timing; TrafficSystem
+    // turns that into police cars that spawn near and chase this target.
+    void set_police_response(int wanted_level, const glm::vec3& target_pos);
+
     // Draw every visible car's wheels in a single instanced draw. Caller must
     // have bound `shader` and set its globals (view_proj, lights, diffuse=0,
     // tint=1, uv_scale=1). No-op if the wheel asset failed to load — in that
@@ -161,6 +166,7 @@ private:
 
     // Per-frame per-car logic split by driver.
     void update_ai_kinematic(Car& c, float dt, double time_seconds);
+    void update_police_dynamic(Car& c, float dt);
     void integrate_player_or_parked(Car& c, float dt,
                                      const WorldCollision& world);
     void sync_visuals(Car& c);
@@ -183,6 +189,7 @@ private:
 
     // Spawn helpers.
     bool try_spawn_ai(const glm::vec3& camera_pos);
+    bool try_spawn_police();
     Car* create_car_at_pose(const glm::vec3& pos, float yaw_deg, int model_id,
                              int paint_idx, Driver driver);
     void destroy_car(std::size_t idx);
@@ -209,10 +216,13 @@ private:
     RoadGraph*    graph_       = nullptr;
 
     int   target_ai_count_ = 0;
+    int   wanted_level_    = 0;
+    float police_spawn_timer_ = 0.f;
     float spawn_min_       = 25.f;
     float spawn_max_       = 140.f;
     float despawn_dist_    = 200.f;
     float lane_offset_     = 2.f;
+    glm::vec3 police_target_pos_{0.f};
 
     std::vector<std::unique_ptr<Car>> cars_;
     Car*                              player_car_ = nullptr;

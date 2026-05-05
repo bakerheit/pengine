@@ -114,6 +114,12 @@ constexpr float LANE_HALF_WIDTH = 2.0f;
 constexpr float CAR_LENGTH      = 4.0f;
 constexpr float ROUTE_REFRESH_AT = ROAD_PITCH - 12.f;
 constexpr int   ROUTE_LANES      = 8;
+constexpr int   POLICE_MODEL_ID  = 0; // Car5 sedan
+constexpr int   POLICE_PAINT_IDX = 3; // car5_police.png
+constexpr int   POLICE_MAX_CARS  = 8;
+constexpr float POLICE_SPAWN_MIN = 55.f;
+constexpr float POLICE_SPAWN_MAX = 135.f;
+constexpr float POLICE_DESPAWN_DIST = 280.f;
 
 inline std::uint64_t pack_ij(int i, int j) {
     return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(i)) << 32)
@@ -470,6 +476,12 @@ TrafficSystem::Car* TrafficSystem::spawn_player_car(const glm::vec3& pos,
     return c;
 }
 
+void TrafficSystem::set_police_response(int wanted_level,
+                                         const glm::vec3& target_pos) {
+    wanted_level_ = std::clamp(wanted_level, 0, 5);
+    police_target_pos_ = target_pos;
+}
+
 void TrafficSystem::destroy_car(std::size_t idx) {
     if (idx >= cars_.size()) return;
     Car& c = *cars_[idx];
@@ -520,6 +532,7 @@ bool TrafficSystem::set_player_driver(Car* target) {
     if (target->driver == Driver::AI)
         target->ai_state = TrafficAgentState::PhysicsFallback;
     target->driver = Driver::Player;
+    target->police_unit = false;
     target->vehicle.set_inputs(0.f, 0.f, 0.f, /*handbrake=*/ false);
     // The player taking over cancels any pending auto-recovery on this car.
     target->ai_recovery_pending = false;
@@ -785,9 +798,11 @@ bool TrafficSystem::try_spawn_ai(const glm::vec3& camera_pos) {
             r -= CAR_MODELS[m].spawn_weight;
             if (r < 0) { model_id = m; break; }
         }
+        int paint_count = CAR_MODELS[model_id].paint_count;
+        if (model_id == POLICE_MODEL_ID)
+            paint_count = std::min(paint_count, POLICE_PAINT_IDX);
         int paint_idx = static_cast<int>(rng_() %
-                            static_cast<std::uint32_t>(
-                                CAR_MODELS[model_id].paint_count));
+                            static_cast<std::uint32_t>(paint_count));
 
         // Place the chassis at the lane position, lifted to chassis-centre
         // height so the visual matches a player-driven car.
@@ -816,6 +831,65 @@ bool TrafficSystem::try_spawn_ai(const glm::vec3& camera_pos) {
         c->ai_target_speed *= c->ai_profile.speed_mul;
         c->ai_speed = c->ai_target_speed * 0.6f;
         c->ai_state = TrafficAgentState::Cruise;
+        return true;
+    }
+    return false;
+}
+
+bool TrafficSystem::try_spawn_police() {
+    if (!graph_ || graph_->loaded_cell_count() == 0 || !assets_) return false;
+    TrafficLaneGraph lane_graph(*graph_);
+
+    for (int attempt = 0; attempt < 32; ++attempt) {
+        int i, j;
+        if (!graph_->random_loaded_intersection(rng_, i, j)) return false;
+
+        std::array<GridDir, 4> options;
+        int n = graph_->outgoing(i, j, options);
+        if (n == 0) continue;
+        GridDir dir = options[rng_() % static_cast<unsigned>(n)];
+        LaneId lane{i, j, dir};
+        if (!lane_graph.lane_loaded(lane)) continue;
+
+        float along = static_cast<float>(rng_() & 0xFFFFu) / 65535.f * ROAD_PITCH;
+        glm::vec3 spawn_xz = lane_graph.lane_pose(lane, along,
+                                                  lane_offset_, 0.f);
+        float dx = spawn_xz.x - police_target_pos_.x;
+        float dz = spawn_xz.z - police_target_pos_.z;
+        float dist = std::sqrt(dx*dx + dz*dz);
+        if (dist < POLICE_SPAWN_MIN || dist > POLICE_SPAWN_MAX) continue;
+
+        bool occupied = false;
+        for (const auto& other : cars_) {
+            glm::vec3 p = other->vehicle.position();
+            float ox = p.x - spawn_xz.x;
+            float oz = p.z - spawn_xz.z;
+            if ((ox*ox + oz*oz) < 100.f) {
+                occupied = true;
+                break;
+            }
+        }
+        if (occupied) continue;
+
+        float ground = Heightmap::sample(spawn_xz.x, spawn_xz.z);
+        const auto& ma = assets_->models[static_cast<std::size_t>(POLICE_MODEL_ID)];
+        glm::vec3 spawn_pos{spawn_xz.x, ground + ma.ride_height_at_rest, spawn_xz.z};
+        TrafficDirInfo info = traffic_dir_info(dir);
+
+        int paint_idx = std::min(POLICE_PAINT_IDX,
+                                 CAR_MODELS[POLICE_MODEL_ID].paint_count - 1);
+        Car* c = create_car_at_pose(spawn_pos, info.yaw_deg - 90.f,
+                                     POLICE_MODEL_ID, paint_idx,
+                                     Driver::Police);
+        if (!c) return false;
+        c->police_unit = true;
+
+        // Slightly hotter than civilian sedans, but still using the same
+        // suspension/collision setup so police rams stay fair.
+        c->vehicle.max_speed    = std::max(c->vehicle.max_speed, 34.f);
+        c->vehicle.engine_force = std::max(c->vehicle.engine_force, 21000.f);
+        c->vehicle.brake_force  = std::max(c->vehicle.brake_force, 42000.f);
+        c->vehicle.lateral_grip = std::max(c->vehicle.lateral_grip, 12.f);
         return true;
     }
     return false;
@@ -1264,6 +1338,48 @@ void TrafficSystem::try_ai_recover(Car& c, float dt) {
 // Player / Parked physics
 // =============================================================================
 
+void TrafficSystem::update_police_dynamic(Car& c, float dt) {
+    (void)dt;
+    glm::vec3 to_target = police_target_pos_ - c.vehicle.position();
+    to_target.y = 0.f;
+    float dist = glm::length(to_target);
+    if (dist < 1e-3f) {
+        c.vehicle.set_inputs(0.f, 1.f, 0.f, false);
+        return;
+    }
+
+    glm::vec3 dir = to_target / dist;
+    float ahead = glm::dot(c.vehicle.forward(), dir);
+    float side  = glm::dot(c.vehicle.right(), dir);
+    float speed = c.vehicle.speed();
+
+    float steer = std::clamp(side * 2.2f, -1.f, 1.f);
+    float throttle = 1.f;
+    float brake = 0.f;
+
+    // If the target is behind us, brake into a turn first; once nearly
+    // stopped, reverse so officers can recover from missed passes.
+    if (ahead < -0.25f) {
+        if (speed > 5.f) {
+            throttle = 0.f;
+            brake = 0.75f;
+        } else {
+            throttle = -0.65f;
+            brake = 0.f;
+        }
+    }
+
+    // Don't endlessly shove at walking speed when already on top of the
+    // player; brake unless we are lined up for an actual ram.
+    if (dist < 8.f && ahead > 0.3f) {
+        throttle = 0.35f;
+        if (speed > 10.f) brake = 0.5f;
+    }
+
+    bool handbrake = std::abs(side) > 0.75f && ahead > 0.1f && speed > 14.f;
+    c.vehicle.set_inputs(throttle, brake, steer, handbrake);
+}
+
 void TrafficSystem::integrate_player_or_parked(Car& c, float dt,
                                                 const WorldCollision& world) {
     // Reset the per-frame VFX scratch (chassis-on-ground contact points).
@@ -1354,25 +1470,50 @@ void TrafficSystem::update(float dt, double time_seconds,
     if (!graph_) return;
 
     // Despawn AI cars whose intersection is no longer loaded, or that are
-    // far from the camera. Player and Parked cars are NEVER despawned —
-    // they stay where the player left them.
+    // far from the camera. Police cars are removed once the wanted level
+    // clears or the chase has moved far away. Player and Parked cars are
+    // NEVER despawned — they stay where the player left them.
     for (std::size_t k = cars_.size(); k-- > 0;) {
         Car& c = *cars_[k];
-        if (c.driver != Driver::AI) continue;
-        bool unloaded = !ai_route_valid(c);
         glm::vec3 p = c.vehicle.position();
         float dx = p.x - camera_pos.x, dz = p.z - camera_pos.z;
-        bool too_far = (dx*dx + dz*dz) > (despawn_dist_ * despawn_dist_);
-        if (unloaded || too_far) destroy_car(k);
+        if (c.driver == Driver::AI) {
+            bool unloaded = !ai_route_valid(c);
+            bool too_far = (dx*dx + dz*dz) > (despawn_dist_ * despawn_dist_);
+            if (unloaded || too_far) destroy_car(k);
+        } else if (c.driver == Driver::Police ||
+                   (c.driver == Driver::Parked && c.police_unit && wanted_level_ <= 0)) {
+            bool chase_over = wanted_level_ <= 0;
+            bool too_far = (dx*dx + dz*dz)
+                         > (POLICE_DESPAWN_DIST * POLICE_DESPAWN_DIST);
+            if (chase_over || too_far) destroy_car(k);
+        }
     }
 
     // Spawn AI cars to fill toward the target count.
     int ai_count = 0;
-    for (const auto& cp : cars_) if (cp->driver == Driver::AI) ++ai_count;
+    int police_count = 0;
+    for (const auto& cp : cars_) {
+        if (cp->driver == Driver::AI) ++ai_count;
+        else if (cp->driver == Driver::Police ||
+                 (cp->driver == Driver::Parked && cp->police_unit)) ++police_count;
+    }
     int budget = 2;
     while (ai_count < target_ai_count_ && budget-- > 0) {
         if (!try_spawn_ai(camera_pos)) break;
         ++ai_count;
+    }
+    int target_police = wanted_level_ <= 0
+                      ? 0
+                      : std::min(POLICE_MAX_CARS, wanted_level_ + 1);
+    if (police_count < target_police) {
+        police_spawn_timer_ -= dt;
+        if (police_spawn_timer_ <= 0.f) {
+            if (try_spawn_police()) ++police_count;
+            police_spawn_timer_ = wanted_level_ >= 2 ? 0.8f : 1.4f;
+        }
+    } else {
+        police_spawn_timer_ = 0.f;
     }
 
     // Per-driver update. sync_visuals is deferred until after collision
@@ -1386,6 +1527,10 @@ void TrafficSystem::update(float dt, double time_seconds,
         switch (c.driver) {
             case Driver::AI:
                 update_ai_kinematic(c, dt, time_seconds);
+                break;
+            case Driver::Police:
+                update_police_dynamic(c, dt);
+                integrate_player_or_parked(c, dt, world);
                 break;
             case Driver::Player:
             case Driver::Parked:

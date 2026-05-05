@@ -78,6 +78,7 @@ bool Application::init() {
     if (!particles_.init(ASSETS_DIR)) return false;
     if (!speedometer_.init(ASSETS_DIR)) return false;
     if (!crosshair_.init(ASSETS_DIR)) return false;
+    if (!wanted_stars_.init(ASSETS_DIR)) return false;
 
     {
         std::vector<Vertex>   verts;
@@ -244,6 +245,7 @@ bool Application::init() {
 
     glm::vec3 spawn = intersection;
     spawn.y = Heightmap::sample(spawn.x, spawn.z);
+    initial_player_spawn_ = spawn;
     character_.teleport(spawn);
 
     // Player car — one block east of the central intersection. spawn_player_car
@@ -332,19 +334,21 @@ int Application::run() {
             char title[400];
             std::snprintf(title, sizeof(title),
                           "pengine | %s | cells:%d bld:%d traffic:%d"
-                          " | fps:%d worst:%.1fms | car:%.0fkm/h%s%s",
+                          " | fps:%d worst:%.1fms | wanted:%d hp:%.0f | car:%.0fkm/h%s%s",
                           mode_name(mode_),
                           st.loaded_cells, world_collision_.building_count(),
                           traffic_.active(),
-                          fps_frames_, max_frame_ms_,
+                          fps_frames_, max_frame_ms_, wanted_level_,
+                          player_health_,
                           traffic_.player_car()
                               ? traffic_.player_car()->vehicle.speed_kmh() : 0.f,
                           traffic_.player_car() && traffic_.player_car()->vehicle.airborne()
                               ? " AIR" : "",
                           can_enter_car_ ? "  [F to enter]" : "");
             SDL_SetWindowTitle(window_.sdl(), title);
-            PE_INFO("%s  fps=%d worst=%.1fms  car=%.0fkm/h%s  traffic=%d%s",
+            PE_INFO("%s  fps=%d worst=%.1fms  wanted=%d hp=%.0f  car=%.0fkm/h%s  traffic=%d%s",
                     mode_name(mode_), fps_frames_, max_frame_ms_,
+                    wanted_level_, player_health_,
                     traffic_.player_car()
                         ? traffic_.player_car()->vehicle.speed_kmh() : 0.f,
                     traffic_.player_car() && traffic_.player_car()->vehicle.airborne()
@@ -370,6 +374,7 @@ void Application::shutdown() {
     particles_.shutdown();
     speedometer_.shutdown();
     crosshair_.shutdown();
+    wanted_stars_.shutdown();
     lit_shader_.destroy();
     lit_instanced_shader_.destroy();
     cube_mesh_.destroy();
@@ -409,6 +414,10 @@ void Application::try_toggle_vehicle() {
         // No teleport — the car the player walked up to stays in place; the
         // previously-driven car (if any) is left as Parked.
         if (steal_target_) {
+            if (steal_target_->driver == TrafficSystem::Driver::AI ||
+                steal_target_->driver == TrafficSystem::Driver::Police) {
+                add_wanted_heat(2.5f);
+            }
             traffic_.set_player_driver(steal_target_);
             enter_mode(Mode::InVehicle);
         }
@@ -570,15 +579,26 @@ void Application::fire_pistol() {
         }
     }
 
-    // Pedestrians — closest one within current max range dies.
+    // Pedestrians — distance-falloff damage. ~3 shots at typical range.
     auto ped_hit = pedestrians_.raycast(origin, dir, closest_t);
     if (ped_hit.hit) {
         hit_point = ped_hit.position;
         particles_.emit_sparks(ped_hit.position, glm::vec3{0.f, 2.f, 0.f}, 16);
-        pedestrians_.kill(ped_hit.ped_idx);
+        // Linear falloff: 60 dmg at point-blank → 25 dmg at >=30 m.
+        // 100 HP with this curve drops in ~2 shots up close, ~3 shots
+        // at urban range (~12 m), ~4 shots at the falloff floor.
+        constexpr float DMG_NEAR     = 60.f;
+        constexpr float DMG_FAR      = 25.f;
+        constexpr float DMG_FALLOFF_M = 30.f;
+        float t_far = glm::clamp(ped_hit.t / DMG_FALLOFF_M, 0.f, 1.f);
+        float damage = DMG_NEAR * (1.f - t_far) + DMG_FAR * t_far;
+        pedestrians_.apply_damage(ped_hit.ped_idx, damage, origin);
+        add_wanted_heat(3.0f);
     }
 
+    add_wanted_heat(0.6f);
     audio_.play_gunshot();
+    pedestrians_.notify_gunshot(origin);
     debug_draw_.line(origin + dir * 0.3f, hit_point);
 }
 
@@ -593,6 +613,39 @@ void Application::update_in_vehicle(float dt, float mdx, float mdy) {
     camera_.yaw      = spring_.yaw_deg;
     camera_.pitch    = spring_.pitch_deg;
     (void)dt;
+}
+
+void Application::add_wanted_heat(float heat) {
+    wanted_heat_ = std::clamp(wanted_heat_ + heat, 0.f, 15.f);
+    wanted_decay_delay_ = 10.f;
+    wanted_level_ = wanted_heat_ >= 12.f ? 5
+                  : wanted_heat_ >=  9.f ? 4
+                  : wanted_heat_ >=  6.f ? 3
+                  : wanted_heat_ >=  3.f ? 2
+                  : wanted_heat_ >   0.f ? 1 : 0;
+}
+
+void Application::update_wanted(float dt) {
+    if (wanted_heat_ <= 0.f) {
+        wanted_heat_ = 0.f;
+        wanted_level_ = 0;
+        wanted_decay_delay_ = 0.f;
+        return;
+    }
+
+    if (wanted_decay_delay_ > 0.f) {
+        wanted_decay_delay_ = std::max(0.f, wanted_decay_delay_ - dt);
+    } else {
+        // A level-1 mistake clears quickly; higher levels take longer but
+        // still decay for this first playable pass.
+        wanted_heat_ = std::max(0.f, wanted_heat_ - dt * 0.22f);
+    }
+
+    wanted_level_ = wanted_heat_ >= 12.f ? 5
+                  : wanted_heat_ >=  9.f ? 4
+                  : wanted_heat_ >=  6.f ? 3
+                  : wanted_heat_ >=  3.f ? 2
+                  : wanted_heat_ >   0.f ? 1 : 0;
 }
 
 void Application::update(double dt) {
@@ -722,11 +775,96 @@ void Application::update(double dt) {
     sync_character_scene();
     streamer_.pump(camera_.position);
     world_time_ += dt;
+    update_wanted(fdt);
+    glm::vec3 police_target = character_.feet_position();
+    if (mode_ == Mode::InVehicle && traffic_.player_car()) {
+        police_target = traffic_.player_car()->vehicle.position();
+    }
+    {
+        traffic_.set_police_response(wanted_level_, police_target);
+        pedestrians_.set_police_context(wanted_level_, police_target);
+    }
     // Single per-frame entry point: AI lane-follow (kinematic), player +
     // parked physics substeps, traffic-light state, and visual sync for
     // every car all happen here.
     traffic_.update(fdt, world_time_, camera_.position, world_collision_);
-    pedestrians_.update(fdt, camera_.position);
+
+    if (wanted_level_ > 3) {
+        for (const auto& cp : traffic_.cars()) {
+            if (!cp || cp->driver != TrafficSystem::Driver::Police) continue;
+            if (pedestrians_.has_police_for_car(cp.get())) continue;
+            glm::vec3 car_pos = cp->vehicle.position();
+            glm::vec3 d = police_target - car_pos;
+            d.y = 0.f;
+            if (glm::dot(d, d) > 45.f * 45.f) continue;
+
+            glm::vec3 exit = car_pos - cp->vehicle.right() * 2.0f;
+            exit.y = Heightmap::sample(exit.x, exit.z);
+            glm::vec3 to_target = police_target - exit;
+            to_target.y = 0.f;
+            float yaw = glm::length(to_target) > 1e-4f
+                ? glm::degrees(std::atan2(to_target.z, to_target.x))
+                : 0.f;
+            if (pedestrians_.spawn_police_officer(exit, yaw, cp.get())) {
+                cp->driver = TrafficSystem::Driver::Parked;
+                cp->vehicle.set_inputs(0.f, 0.f, 0.f, true);
+            }
+        }
+    }
+
+    pedestrians_.update(fdt, camera_.position, world_collision_);
+
+    for (const auto& ev : pedestrians_.police_vehicle_events()) {
+        for (const auto& cp : traffic_.cars()) {
+            if (!cp || cp.get() != ev.car_id) continue;
+            if (cp->driver == TrafficSystem::Driver::Parked) {
+                cp->driver = TrafficSystem::Driver::Police;
+                cp->vehicle.set_inputs(0.f, 0.f, 0.f, false);
+            }
+            break;
+        }
+    }
+
+    for (const auto& shot : pedestrians_.police_shots()) {
+        glm::vec3 to_player = shot.target - shot.origin;
+        float dist = glm::length(to_player);
+        if (dist < 1e-4f) continue;
+        glm::vec3 dir = to_player / dist;
+        RayHit block = world_collision_.raycast(shot.origin, dir, dist);
+        if (block.hit && block.t < dist - 0.6f) continue;
+
+        audio_.play_gunshot();
+        pedestrians_.notify_gunshot(shot.origin);
+        debug_draw_.line(shot.origin, shot.target);
+        particles_.emit_sparks(shot.target, -dir * 2.f, 4);
+
+        // Distance-spread aim (pedestrian.cpp:advance_police) means the
+        // shot ray may now miss the player entirely. Treat the player as
+        // a vertical capsule of radius PLAYER_HIT_RADIUS_M centred on
+        // the same torso point the police aimed for, and only deduct HP
+        // if the ray's closest approach is inside that radius.
+        constexpr float PLAYER_HIT_RADIUS_M = 0.45f;
+        glm::vec3 player_torso = police_target + glm::vec3{0.f, 1.2f, 0.f};
+        float t_close = glm::clamp(
+            glm::dot(player_torso - shot.origin, dir), 0.f, dist);
+        glm::vec3 closest = shot.origin + dir * t_close;
+        if (glm::length(player_torso - closest) > PLAYER_HIT_RADIUS_M)
+            continue;
+
+        player_health_ = std::max(0.f, player_health_ - 8.f);
+        if (player_health_ <= 0.f) {
+            if (mode_ == Mode::InVehicle) {
+                traffic_.set_player_driver(nullptr);
+                enter_mode(Mode::OnFoot);
+            }
+            character_.teleport(initial_player_spawn_);
+            player_health_ = 100.f;
+            wanted_heat_ = 0.f;
+            wanted_level_ = 0;
+            wanted_decay_delay_ = 0.f;
+            break;
+        }
+    }
 
     // Spark emission + scrape audio: any car whose substep recorded a
     // scraping chassis corner over a paved surface (road or sidewalk)
@@ -812,11 +950,14 @@ void Application::update(double dt) {
             // The player's own engine is mixed first-person via update()
             // above; parked / wrecked cars don't run engines.
             if (cp.get() == traffic_.player_car()) continue;
-            if (cp->driver != TrafficSystem::Driver::AI) continue;
+            if (cp->driver != TrafficSystem::Driver::AI &&
+                cp->driver != TrafficSystem::Driver::Police) continue;
             AudioEngine::TrafficSource ts;
             ts.id            = cp.get();
             ts.position      = cp->vehicle.position();
-            ts.speed_kmh     = cp->ai_speed * 3.6f;
+            ts.speed_kmh     = cp->driver == TrafficSystem::Driver::AI
+                             ? cp->ai_speed * 3.6f
+                             : cp->vehicle.speed_kmh();
             ts.max_speed_kmh = cp->vehicle.max_speed * 3.6f;
             sources.push_back(ts);
         }
@@ -1077,8 +1218,8 @@ void Application::render(double /*alpha*/) {
     }
 
     // ---- AI pedestrians (skinned, one draw per ped) ------------------------
-    pedestrians_.render(skinned_shader_, vp, camera_.position,
-                        checker_tex_, frustum);
+    pedestrians_.render(skinned_shader_, lit_shader_, vp, camera_.position,
+                        checker_tex_, gun_mesh_, gun_grip_offset_, frustum);
 
     // ---- Particle effects (sparks etc.) ------------------------------------
     particles_.render(vp, camera_.position,
@@ -1154,6 +1295,19 @@ void Application::render(double /*alpha*/) {
         cs.viewport_size_px = {static_cast<float>(window_.width()),
                                static_cast<float>(window_.height())};
         crosshair_.draw(cs);
+    }
+
+    {
+        WantedStars::DrawState ws;
+        ws.wanted_level = wanted_level_;
+        ws.health = player_health_;
+        ws.armor = 0.f;
+        ws.money = 0;
+        ws.hour = 12;
+        ws.minute = 0;
+        ws.viewport_size_px = {static_cast<float>(window_.width()),
+                               static_cast<float>(window_.height())};
+        wanted_stars_.draw(ws);
     }
 
     window_.swap();
