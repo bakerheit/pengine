@@ -4,9 +4,11 @@
 #include <glad/gl.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 
 #include "core/log.h"
 #include "render/mesh.h"
@@ -22,6 +24,29 @@
 #endif
 
 namespace pengine {
+
+// Ray vs axis-aligned box (slab test). Returns true if the ray hits the box
+// at a positive t, with `out_t` set to the entry distance (or 0 if origin
+// is inside). dir need not be normalised.
+static bool ray_vs_aabb(const glm::vec3& origin, const glm::vec3& dir,
+                         const glm::vec3& mn, const glm::vec3& mx,
+                         float& out_t) {
+    constexpr float INF = std::numeric_limits<float>::infinity();
+    const glm::vec3 inv{
+        dir.x != 0.f ? 1.f / dir.x : INF,
+        dir.y != 0.f ? 1.f / dir.y : INF,
+        dir.z != 0.f ? 1.f / dir.z : INF,
+    };
+    const glm::vec3 t1 = (mn - origin) * inv;
+    const glm::vec3 t2 = (mx - origin) * inv;
+    const glm::vec3 tmin3 = glm::min(t1, t2);
+    const glm::vec3 tmax3 = glm::max(t1, t2);
+    const float tmin = std::max({tmin3.x, tmin3.y, tmin3.z});
+    const float tmax = std::min({tmax3.x, tmax3.y, tmax3.z});
+    if (tmax < 0.f || tmin > tmax) return false;
+    out_t = tmin >= 0.f ? tmin : tmax;
+    return out_t > 0.f;
+}
 
 static const char* mode_name(Application::Mode m) {
     switch (m) {
@@ -52,6 +77,7 @@ bool Application::init() {
     if (!minimap_.init(ASSETS_DIR)) return false;
     if (!particles_.init(ASSETS_DIR)) return false;
     if (!speedometer_.init(ASSETS_DIR)) return false;
+    if (!crosshair_.init(ASSETS_DIR)) return false;
 
     {
         std::vector<Vertex>   verts;
@@ -107,7 +133,67 @@ bool Application::init() {
                 walk_bones_.spine);
     }
 
-    if (!character_tex_.load_file(ASSETS_DIR "/Characters_psx/Textures/Character_01.png"))
+    // Pistol locomotion + Glock equip wiring. Pistol anims rebind against
+    // the player skeleton; missing bone-name channels silently fall back
+    // to bind pose, so the player won't T-pose if a future asset breaks.
+    if (character_skinned_) {
+        if (!character_anim_pistol_walk_.load(
+                ASSETS_DIR "/models/characters/pistol_walk.eanim",
+                character_skeleton_))
+            PE_WARN("Pistol walk anim failed; armed walk will fall back to unarmed");
+        if (!character_anim_pistol_run_.load(
+                ASSETS_DIR "/models/characters/pistol_run.eanim",
+                character_skeleton_))
+            PE_WARN("Pistol run anim failed; armed sprint will fall back to unarmed");
+        if (!character_anim_pistol_idle_.load(
+                ASSETS_DIR "/models/characters/pistol_idle.eanim",
+                character_skeleton_))
+            PE_WARN("Pistol idle anim failed; armed idle will fall back to unarmed");
+
+        // Right-hand bone: cached so we can recover its world transform
+        // each frame from the skin matrices (skin = world * inv_bind, so
+        // world = skin * inverse(inv_bind); inv_bind is constant, invert
+        // it once at init).
+        right_hand_bone_idx_ =
+            character_skeleton_.find_bone("mixamorig:RightHand");
+        if (right_hand_bone_idx_ >= 0) {
+            right_hand_bind_world_ = glm::inverse(
+                character_skeleton_.bone(right_hand_bone_idx_).inv_bind);
+        } else {
+            PE_WARN("RightHand bone not found; gun render disabled");
+        }
+
+        // Static gun mesh. One static .emesh, drawn with lit_shader_.
+        if (!load_static_emesh(
+                ASSETS_DIR "/models/weapons/glock17.emesh", gun_mesh_)) {
+            PE_WARN("Glock 17 mesh failed to load; equip will be invisible");
+        } else {
+            glm::vec3 mn = gun_mesh_.bounds_min();
+            glm::vec3 mx = gun_mesh_.bounds_max();
+            PE_INFO("Glock bounds min=(%.3f,%.3f,%.3f) max=(%.3f,%.3f,%.3f) "
+                    "size=(%.3f,%.3f,%.3f)",
+                    mn.x, mn.y, mn.z, mx.x, mx.y, mx.z,
+                    mx.x - mn.x, mx.y - mn.y, mx.z - mn.z);
+        }
+    }
+
+    // Baked grip offset from live-tuning (rotation hotkeys [/]/;/' /,/.
+    // then translation hotkeys with the same keys). Composition
+    // (innermost-first on gun-local vertices):
+    //   T(0, 5, -85) cm — slide along gun's local Z so grip lands in palm.
+    //   R_z(-90)            — final roll to seat the grip.
+    //   R_y(-180)           — face barrel forward.
+    //   R_x(-90)            — stand the gun upright (grip down).
+    gun_grip_offset_ = glm::rotate(glm::mat4{1.f}, glm::radians(-90.f),
+                                    glm::vec3{1.f, 0.f, 0.f})
+                     * glm::rotate(glm::mat4{1.f}, glm::radians(-180.f),
+                                    glm::vec3{0.f, 1.f, 0.f})
+                     * glm::rotate(glm::mat4{1.f}, glm::radians(-90.f),
+                                    glm::vec3{0.f, 0.f, 1.f})
+                     * glm::translate(glm::mat4{1.f},
+                                       glm::vec3{0.f, 5.f, -85.f});
+
+    if (!character_tex_.load_file(ASSETS_DIR "/characters/Characters_psx/Textures/Character_01.png"))
         PE_WARN("Falling back to checker for character (texture load failed)");
 
     // World model registry. Step 1 of the IDE/IPL migration: load defs from
@@ -154,6 +240,7 @@ bool Application::init() {
     tvis.cube_mesh   = &cube_mesh_;
     tvis.checker_tex = &checker_tex_;
     traffic_.init(scene_, tvis, road_graph_, /*target_ai_count=*/ 30);
+    pedestrians_.init(scene_, road_graph_, /*target_count=*/ 30);
 
     glm::vec3 spawn = intersection;
     spawn.y = Heightmap::sample(spawn.x, spawn.z);
@@ -275,12 +362,14 @@ int Application::run() {
 void Application::shutdown() {
     audio_.shutdown();
     traffic_.shutdown();
+    pedestrians_.shutdown();
     streamer_.shutdown();
     SDL_SetRelativeMouseMode(SDL_FALSE);
     debug_draw_.shutdown();
     minimap_.shutdown();
     particles_.shutdown();
     speedometer_.shutdown();
+    crosshair_.shutdown();
     lit_shader_.destroy();
     lit_instanced_shader_.destroy();
     cube_mesh_.destroy();
@@ -360,6 +449,7 @@ void Application::process_events() {
                     SDL_SetRelativeMouseMode(SDL_TRUE);
                     mouse_captured_ = true;
                 }
+                input_.handle_event(e);
                 break;
             default:
                 input_.handle_event(e);
@@ -396,6 +486,8 @@ void Application::update_on_foot(float dt, float mdx, float mdy) {
     spring_.update(world_collision_);
 
     sprinting_ = input_.down(SDL_SCANCODE_LSHIFT) || input_.down(SDL_SCANCODE_RSHIFT);
+    if (input_.pressed(SDL_SCANCODE_E)) armed_ = !armed_;
+    if (armed_ && input_.mouse_pressed(SDL_BUTTON_LEFT)) fire_pistol();
     character_.update(dt, input_, spring_.yaw_deg, sprinting_, world_collision_);
 
     // Face the direction we're walking when moving; otherwise face the
@@ -441,6 +533,53 @@ void Application::update_on_foot(float dt, float mdx, float mdy) {
             footstep_timer_ = 0.f;
         }
     }
+}
+
+void Application::fire_pistol() {
+    constexpr float MAX_RANGE = 200.f;
+    const glm::vec3 origin = camera_.position;
+    const glm::vec3 dir    = camera_.forward();
+
+    float     closest_t = MAX_RANGE;
+    glm::vec3 hit_point = origin + dir * MAX_RANGE;
+
+    // Static world (terrain + buildings) — bullets don't pass through walls.
+    RayHit world_hit = world_collision_.raycast(origin, dir, closest_t);
+    if (world_hit.hit && world_hit.t < closest_t) {
+        closest_t = world_hit.t;
+        hit_point = world_hit.position;
+    }
+
+    // AI cars — occlude only, no damage in phase 1. The chassis box is in
+    // local space; we use position ± half-extents as a generous AABB. A few
+    // metres of imprecision at car-yaw extremes is fine for occlusion.
+    for (const auto& car_ptr : traffic_.cars()) {
+        const Vehicle& v = car_ptr->vehicle;
+        const glm::vec3 half = v.chassis_full_extents * 0.5f;
+        // Inflate xz by sqrt(2) so a car turned 45° still occludes its
+        // full silhouette.
+        constexpr float YAW_INFLATE = 1.4143f;
+        const glm::vec3 box_min = v.position()
+            - glm::vec3{half.x * YAW_INFLATE, half.y, half.z * YAW_INFLATE};
+        const glm::vec3 box_max = v.position()
+            + glm::vec3{half.x * YAW_INFLATE, half.y, half.z * YAW_INFLATE};
+        float t;
+        if (ray_vs_aabb(origin, dir, box_min, box_max, t) && t < closest_t) {
+            closest_t = t;
+            hit_point = origin + dir * t;
+        }
+    }
+
+    // Pedestrians — closest one within current max range dies.
+    auto ped_hit = pedestrians_.raycast(origin, dir, closest_t);
+    if (ped_hit.hit) {
+        hit_point = ped_hit.position;
+        particles_.emit_sparks(ped_hit.position, glm::vec3{0.f, 2.f, 0.f}, 16);
+        pedestrians_.kill(ped_hit.ped_idx);
+    }
+
+    audio_.play_gunshot();
+    debug_draw_.line(origin + dir * 0.3f, hit_point);
 }
 
 void Application::update_in_vehicle(float dt, float mdx, float mdy) {
@@ -535,14 +674,25 @@ void Application::update(double dt) {
 
         // Pick the anim driving the current frame. Walking and sprint loop
         // at speed-tied stride frequency; idle plays the breathing-idle
-        // loop in real time.
+        // loop in real time. When armed, swap to the pistol-locomotion
+        // variants — same phase / cadence semantics, just different rigs.
+        // Each armed slot falls back to its unarmed counterpart if the
+        // pistol anim failed to load.
+        auto pick_armed = [this](const Animation& armed,
+                                  const Animation& unarmed)
+                            -> const Animation* {
+            return (armed_ && armed.duration() > 0.f) ? &armed : &unarmed;
+        };
         const Animation* anim_to_use = nullptr;
         float            phase       = 0.f;
         if (char_moving) {
-            anim_to_use = use_sprint ? &character_anim_sprint_ : &character_anim_;
+            anim_to_use = use_sprint
+                ? pick_armed(character_anim_pistol_run_,  character_anim_sprint_)
+                : pick_armed(character_anim_pistol_walk_, character_anim_);
             phase       = static_cast<float>(walk_phase_);
         } else if (character_anim_idle_.duration() > 0.f) {
-            anim_to_use = &character_anim_idle_;
+            anim_to_use = pick_armed(character_anim_pistol_idle_,
+                                      character_anim_idle_);
             phase       = static_cast<float>(world_time_);
         }
 
@@ -576,6 +726,7 @@ void Application::update(double dt) {
     // parked physics substeps, traffic-light state, and visual sync for
     // every car all happen here.
     traffic_.update(fdt, world_time_, camera_.position, world_collision_);
+    pedestrians_.update(fdt, camera_.position);
 
     // Spark emission + scrape audio: any car whose substep recorded a
     // scraping chassis corner over a paved surface (road or sidewalk)
@@ -670,6 +821,16 @@ void Application::update(double dt) {
             sources.push_back(ts);
         }
         audio_.update_traffic(camera_.position, sources);
+
+        // Pedestrian footsteps: drain step events recorded during
+        // pedestrians_.update() and play each as a spatialised one-shot.
+        // Gated to paved surfaces (parity with the spark gating) so peds
+        // jaywalking onto grass in phase 3 won't echo a concrete sample.
+        // Listener was already positioned by update_traffic above.
+        for (const auto& ev : pedestrians_.step_events()) {
+            if (!is_paved_surface(ev.pos.x, ev.pos.z)) continue;
+            audio_.play_ped_footstep(ev.pos);
+        }
     }
 }
 
@@ -878,6 +1039,47 @@ void Application::render(double /*alpha*/) {
         character_skinned_mesh_.draw();
     }
 
+    // ---- Equipped weapon (static mesh attached to right-hand bone) --------
+    // Recover the right-hand bone's world matrix from the skin matrices
+    // we already computed above: skin = world_bone * inv_bind, so
+    // world_bone = skin * inverse(inv_bind). We cached inverse(inv_bind)
+    // at init since it doesn't change. Then transform up through the
+    // visual node and apply the hand-tuned grip offset to align the
+    // mesh origin with the palm.
+    if (armed_ && character_skinned_ && right_hand_bone_idx_ >= 0
+        && gun_mesh_.index_count() > 0
+        && right_hand_bone_idx_ < static_cast<int>(char_skin_matrices_.size())) {
+        glm::mat4 bone_world = char_skin_matrices_[
+            static_cast<std::size_t>(right_hand_bone_idx_)]
+                              * right_hand_bind_world_;
+        // GUN_SCALE: with PreTransformVertices on, the FBX root node's
+        // unit-scale (often 100 for Blender's cm→m export) gets baked
+        // into vertex positions, making the gun much bigger than its
+        // pre-transform size. Drop the scale until it sits right.
+        constexpr float GUN_SCALE = 0.3f;
+        glm::mat4 scale_mat = glm::scale(glm::mat4{1.f},
+                                           glm::vec3{GUN_SCALE});
+        glm::mat4 gun_world = character_visual_node_->world_matrix()
+                            * bone_world * scale_mat * gun_grip_offset_;
+        lit_shader_.use();
+        lit_shader_.set("u_view_proj",   vp);
+        lit_shader_.set("u_cam_pos",     camera_.position);
+        lit_shader_.set("u_light_dir",
+                         glm::normalize(glm::vec3{0.6f, 1.f, 0.4f}));
+        lit_shader_.set("u_light_color", glm::vec3{1.f, 0.95f, 0.85f});
+        lit_shader_.set("u_ambient",     glm::vec3{0.18f, 0.22f, 0.28f});
+        lit_shader_.set("u_diffuse",     0);
+        lit_shader_.set("u_model",       gun_world);
+        lit_shader_.set("u_normal_mat",
+                         glm::mat3(glm::inverseTranspose(gun_world)));
+        checker_tex_.bind(0);
+        gun_mesh_.draw();
+    }
+
+    // ---- AI pedestrians (skinned, one draw per ped) ------------------------
+    pedestrians_.render(skinned_shader_, vp, camera_.position,
+                        checker_tex_, frustum);
+
     // ---- Particle effects (sparks etc.) ------------------------------------
     particles_.render(vp, camera_.position,
                       static_cast<float>(window_.height()));
@@ -945,6 +1147,13 @@ void Application::render(double /*alpha*/) {
                                    static_cast<float>(window_.height())};
             speedometer_.draw(ss);
         }
+    }
+
+    if (armed_ && mode_ == Mode::OnFoot) {
+        Crosshair::DrawState cs;
+        cs.viewport_size_px = {static_cast<float>(window_.width()),
+                               static_cast<float>(window_.height())};
+        crosshair_.draw(cs);
     }
 
     window_.swap();

@@ -41,7 +41,7 @@ namespace {
 // ---- Separate wheel mesh ---------------------------------------------------
 namespace WheelAsset {
     constexpr const char* MESH_PATH    = ASSETS_DIR "/models/vehicles/wheel.emesh";
-    constexpr const char* TEXTURE_PATH = ASSETS_DIR "/Vehicles_psx/Wheel/wheel.png";
+    constexpr const char* TEXTURE_PATH = ASSETS_DIR "/vehicles/Vehicles_psx/Wheel/wheel.png";
     constexpr float       VISIBLE_RADIUS = 0.275f;
 }
 

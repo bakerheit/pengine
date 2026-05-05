@@ -57,9 +57,22 @@ int main(int argc, char* argv[]) {
         aiProcess_CalcTangentSpace  |
         aiProcess_JoinIdenticalVertices |
         aiProcess_LimitBoneWeights  |  // cap to 4 bones per vertex
+        aiProcess_PreTransformVertices | // bake node transforms into static
+                                         // mesh vertices; Assimp safely skips
+                                         // this for skinned meshes (bone
+                                         // hierarchy needs to stay intact).
+                                         // Without it, multi-submesh static
+                                         // models like the Glock 17 collapse
+                                         // each submesh to its node-local
+                                         // origin and the slide/barrel/grip
+                                         // pile up at the wrong positions.
         aiProcess_SortByPType);
 
-    if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
+    // Anim-only FBXs (Mixamo "in-place animation" exports) carry no mesh
+    // and so trip AI_SCENE_FLAGS_INCOMPLETE — that's fine, we just emit
+    // the .eanim and skip the .emesh / .eskel writers below. Hard fail
+    // only if Assimp returned nothing at all or no root node.
+    if (!scene || !scene->mRootNode) {
         std::fprintf(stderr, "meshconv: Assimp error: %s\n", imp.GetErrorString());
         return 1;
     }
@@ -221,8 +234,9 @@ int main(int argc, char* argv[]) {
         string_block.push_back('\0');
     }
 
-    // ----- Write .emesh -----
-    {
+    // ----- Write .emesh (skip entirely for anim-only inputs) -----
+    const bool has_mesh = !verts_static.empty() || !verts_skinned.empty();
+    if (has_mesh) {
         EmeshHeader hdr{};
         hdr.magic             = EMESH_MAGIC;
         hdr.version           = EMESH_VERSION;
@@ -253,7 +267,9 @@ int main(int argc, char* argv[]) {
                     hdr.vertex_count, hdr.index_count, hdr.submesh_count);
     }
 
-    if (!skinned) return 0;
+    // Skip skeleton write if no skin data; we may still have animation
+    // channels to emit below (anim-only FBXs go through that path).
+    if (skinned) {
 
     // ----- Build skeleton: parent indices + bind_local from inv_bind --------
     std::vector<EskelBone>     bones(bone_inv_bind.size());
@@ -328,6 +344,7 @@ int main(int argc, char* argv[]) {
         std::printf("meshconv: wrote %s  %u bones\n",
                     out_path.c_str(), hdr.bone_count);
     }
+    } // end if (skinned)
 
     // ----- Write .eanim (one animation per file; first one wins for now) -----
     if (scene->mNumAnimations == 0) return 0;

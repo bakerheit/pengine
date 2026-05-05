@@ -50,6 +50,17 @@ public:
     void update_traffic(const glm::vec3& listener_pos,
                         const std::vector<TrafficSource>& sources);
 
+    // Trigger a spatialised pedestrian footstep at `world_pos`. Voices are
+    // rotated round-robin and pitched ±5% per call, so a crowd doesn't
+    // sound like one synchronised marching column. Caller is responsible
+    // for ensuring the listener has been positioned this frame (we rely
+    // on the same listener that update_traffic just set).
+    void play_ped_footstep(const glm::vec3& world_pos);
+
+    // Trigger a one-shot pistol gunshot. 2D unspatialised — the player's
+    // own gun is always at the listener.
+    void play_gunshot();
+
 private:
     struct Impl;
     Impl* impl_ = nullptr;

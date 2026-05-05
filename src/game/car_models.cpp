@@ -1,7 +1,7 @@
 // car_models.cpp — single source of truth for every car in the game.
 //
 // To add a new car: drop the body OBJ + paint PNGs under
-// assets/Vehicles_psx/Car NN/, run meshconv to produce car<NN>.emesh, then
+// assets/vehicles/Vehicles_psx/Car NN/, run meshconv to produce car<NN>.emesh, then
 // append a new row to CAR_MODELS[] below. No other code changes needed.
 
 #include "game/car_models.h"
@@ -21,16 +21,16 @@ namespace pengine {
 namespace {
 
 constexpr const char* CAR5_PAINTS[] = {
-    ASSETS_DIR "/Vehicles_psx/Car 05/car5.png",
-    ASSETS_DIR "/Vehicles_psx/Car 05/car5_green.png",
-    ASSETS_DIR "/Vehicles_psx/Car 05/car5_grey.png",
+    ASSETS_DIR "/vehicles/Vehicles_psx/Car 05/car5.png",
+    ASSETS_DIR "/vehicles/Vehicles_psx/Car 05/car5_green.png",
+    ASSETS_DIR "/vehicles/Vehicles_psx/Car 05/car5_grey.png",
 };
 
 constexpr const char* CAR8_PAINTS[] = {
-    ASSETS_DIR "/Vehicles_psx/Car 08/Car8.png",
-    ASSETS_DIR "/Vehicles_psx/Car 08/Car8_grey.png",
-    ASSETS_DIR "/Vehicles_psx/Car 08/Car8_purple.png",
-    ASSETS_DIR "/Vehicles_psx/Car 08/Car8_mail.png",
+    ASSETS_DIR "/vehicles/Vehicles_psx/Car 08/Car8.png",
+    ASSETS_DIR "/vehicles/Vehicles_psx/Car 08/Car8_grey.png",
+    ASSETS_DIR "/vehicles/Vehicles_psx/Car 08/Car8_purple.png",
+    ASSETS_DIR "/vehicles/Vehicles_psx/Car 08/Car8_mail.png",
 };
 
 }  // namespace

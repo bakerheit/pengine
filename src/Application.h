@@ -6,6 +6,7 @@
 
 #include "audio/audio_engine.h"
 #include "core/time.h"
+#include "game/pedestrian.h"
 #include "game/traffic.h"
 #include "physics/character_controller.h"
 #include "physics/world_collision.h"
@@ -13,6 +14,7 @@
 #include "platform/window.h"
 #include "render/animation.h"
 #include "render/camera.h"
+#include "render/crosshair.h"
 #include "render/debug_draw.h"
 #include "render/mesh.h"
 #include "render/minimap.h"
@@ -53,6 +55,7 @@ private:
     void update_in_vehicle(float dt, float mdx, float mdy);
     void sync_character_scene();
     void compute_procedural_walk_pose(float phase, bool moving);
+    void fire_pistol();
 
     Window         window_;
     Input          input_;
@@ -65,11 +68,19 @@ private:
 
     SkinnedMesh    character_skinned_mesh_;
     Skeleton       character_skeleton_;
-    Animation      character_anim_;          // walk loop
-    Animation      character_anim_sprint_;   // sprint loop (shift held)
-    Animation      character_anim_idle_;     // breathing idle (no input)
+    Animation      character_anim_;          // walk loop (unarmed)
+    Animation      character_anim_sprint_;   // sprint loop (unarmed)
+    Animation      character_anim_idle_;     // breathing idle (unarmed)
+    Animation      character_anim_pistol_walk_;   // walk loop (armed)
+    Animation      character_anim_pistol_run_;    // run loop  (armed)
+    Animation      character_anim_pistol_idle_;   // idle loop (armed)
     bool           character_skinned_ = false;
     bool           sprinting_         = false; // set in update_on_foot
+    bool           armed_             = false; // E toggles equip
+    Mesh           gun_mesh_;                 // Glock 17, attached to right hand
+    int            right_hand_bone_idx_   = -1;
+    glm::mat4      right_hand_bind_world_ = glm::mat4{1.f};
+    glm::mat4      gun_grip_offset_       = glm::mat4{1.f};
     Texture        checker_tex_;
     Texture        asphalt_tex_;
     Texture        grass_tex_;
@@ -87,9 +98,11 @@ private:
     Minimap             minimap_;
     Particles           particles_;
     Speedometer         speedometer_;
+    Crosshair           crosshair_;
     SpringArm           spring_;
     RoadGraph           road_graph_;
     TrafficSystem       traffic_;
+    PedestrianSystem    pedestrians_;
     AudioEngine         audio_;
 
     SceneNode*          character_node_      = nullptr;  // pose root: feet pos + facing

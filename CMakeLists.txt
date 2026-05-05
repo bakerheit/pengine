@@ -120,6 +120,7 @@ add_library(pengine_core STATIC
     src/render/minimap.cpp
     src/render/particles.cpp
     src/render/speedometer.cpp
+    src/render/crosshair.cpp
     src/render/spring_arm.cpp
     src/render/skinned_mesh.cpp
     src/render/skeleton.cpp
@@ -137,6 +138,8 @@ add_library(pengine_core STATIC
     src/game/traffic.cpp
     src/game/traffic_ai.cpp
     src/game/car_models.cpp
+    src/game/pedestrian.cpp
+    src/game/pedestrian_ai.cpp
     src/audio/audio_engine.cpp
     src/audio/miniaudio_impl.c
 )
