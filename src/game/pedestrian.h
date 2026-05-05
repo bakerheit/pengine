@@ -112,6 +112,25 @@ public:
     void apply_damage(std::size_t ped_idx, float amount,
                       const glm::vec3& shot_origin);
 
+    // Top-down OBB the application fills in once per frame from each
+    // vehicle's pose + chassis dimensions. Velocity is the world-space
+    // m/s vector — process_vehicle_impacts compares its magnitude to a
+    // minimum speed threshold so parked cars can't kill peds.
+    struct CarHitbox {
+        glm::vec3 center;
+        glm::vec3 forward_xz;     // unit, world-space, Y=0
+        glm::vec3 right_xz;       // unit, world-space, Y=0
+        float     half_length;    // along forward
+        float     half_width;     // along right
+        float     half_height;    // along Y
+        glm::vec3 velocity;       // m/s
+    };
+    // Test every living ped against every car in the list; meaningful
+    // contact (car speed above CAR_HIT_MIN_SPEED_MPS) instantly kills
+    // the ped and triggers the hit-by-car death anim. Safe to call
+    // every frame.
+    void process_vehicle_impacts(const std::vector<CarHitbox>& cars);
+
     // Civilian peds within hearing radius panic and sprint away from the
     // sound source: the ped flips edge direction if their current travel
     // would take them toward the gunshot, switches to Sprinting state
@@ -130,23 +149,26 @@ private:
         Animation             pistol_walk;     // police only
         Animation             pistol_run;      // police only
         Animation             pistol_idle;     // police only
-        Animation             dying;           // backward fall (default)
-        Animation             dying_forward;   // forward fall (shot in back)
-        bool                  idle_loaded          = false;
-        bool                  sprint_loaded        = false;
-        bool                  pistol_walk_loaded   = false;
-        bool                  pistol_run_loaded    = false;
-        bool                  pistol_idle_loaded   = false;
-        bool                  dying_loaded         = false;
-        bool                  dying_forward_loaded = false;
-        bool                  police_model         = false;
+        Animation             dying;            // backward fall (default)
+        Animation             dying_forward;    // forward fall (shot in back)
+        Animation             dying_hit_by_car; // body thrown by a car
+        bool                  idle_loaded             = false;
+        bool                  sprint_loaded           = false;
+        bool                  pistol_walk_loaded      = false;
+        bool                  pistol_run_loaded       = false;
+        bool                  pistol_idle_loaded      = false;
+        bool                  dying_loaded            = false;
+        bool                  dying_forward_loaded    = false;
+        bool                  dying_hit_by_car_loaded = false;
+        bool                  police_model            = false;
         // Root-bone translation sampled from each dying anim at the trim
         // point. compute_pose anchors the corpse at bind translation and
         // adds (anim_t - dying_t0) so the body starts at standing height
         // (seamless transition from walk) and the anim's own delta
         // drives the fall.
-        glm::vec3             dying_t0_root_trans         {0.f};
-        glm::vec3             dying_forward_t0_root_trans {0.f};
+        glm::vec3             dying_t0_root_trans            {0.f};
+        glm::vec3             dying_forward_t0_root_trans    {0.f};
+        glm::vec3             dying_hit_by_car_t0_root_trans {0.f};
         std::vector<Texture>  textures;        // variant palette
         float                 model_scale   = 1.f;
         glm::vec3             visual_offset {0.f};
@@ -189,6 +211,12 @@ private:
         float      health      = 100.f;
         float      death_timer = 0.f;     // seconds since entering Dying
         bool       dying_forward = false; // true ⇒ play forward-fall anim (shot from behind)
+        bool       dying_hit_by_car = false; // true ⇒ play hit-by-car anim (overrides forward)
+        // Ballistic body velocity in m/s. Driven by car-impact impulse,
+        // integrated each frame in update()'s Dying branch with gravity
+        // + ground collision + friction. Only meaningful while
+        // dying_hit_by_car is true; otherwise unused.
+        glm::vec3  velocity {0.f};
         float      flee_remaining = 0.f;  // gunshot panic; reverts to Walking at 0
         // Tracks the last half-stride bucket we emitted a footstep for.
         // When floor(anim_phase / step_period) advances past this, fire
@@ -209,6 +237,10 @@ private:
                         const WorldCollision& world_col);
     void compute_pose(Pedestrian& p);
     void sync_visual(Pedestrian& p);
+    // Shared death-state transition. Caller sets the death-pose flags
+    // (dying_forward / dying_hit_by_car) before invoking; this just
+    // flips state to Dying and resets the timing fields.
+    void enter_dying_state(Pedestrian& p);
 
     Scene*     scene_ = nullptr;
     RoadGraph* graph_ = nullptr;

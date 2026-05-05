@@ -17,6 +17,7 @@
 #include "scene/frustum.h"
 #include "scene/scene.h"
 #include "scene/scene_node.h"
+#include "world/city_layout.h"
 #include "world/road_graph.h"
 
 #ifndef ASSETS_DIR
@@ -79,11 +80,32 @@ constexpr const char* PED_DYING_ANIM_PATH =
     ASSETS_DIR "/models/characters/dying_backwards.eanim";
 constexpr const char* PED_DYING_FORWARD_ANIM_PATH =
     ASSETS_DIR "/models/characters/dying_forwards.eanim";
+constexpr const char* PED_DYING_HIT_BY_CAR_ANIM_PATH =
+    ASSETS_DIR "/models/characters/hit_by_car.eanim";
+
+// Vehicle impact tuning. Cars below this speed can't injure peds —
+// avoids parking-maneuver kills. At or above, contact is instantly
+// lethal and triggers the hit-by-car anim. PED_RADIUS matches the
+// raycast/cylinder used for police collision so the hitbox math is
+// consistent with what the bullet ray sees.
+constexpr float CAR_HIT_MIN_SPEED_MPS = 2.0f;
+constexpr float CAR_HIT_PED_RADIUS_M  = 0.4f;
+constexpr float CAR_HIT_VERTICAL_M    = 3.0f;
+// Hit-by-car horizontal slide. The ped picks up a fraction of the car's
+// velocity in XZ and decays it via friction; vertical motion is owned
+// by the dying anim's root Y delta.
+constexpr float CAR_HIT_VELOCITY_TRANSFER = 0.6f;
+constexpr float RAGDOLL_FRICTION_HZ   = 1.6f;    // exp horizontal decay
+constexpr float RAGDOLL_REST_VEL_MPS  = 0.4f;    // below this, snap to rest
 constexpr float PED_DEATH_DESPAWN_S = 8.0f;
 // Trim the lead-in flinch on the dying anim. Mixamo's "Dying Backwards"
 // spends the first beat winding up before the actual fall begins; jump
 // past it so death reads as more reactive to the bullet.
 constexpr float PED_DYING_TRIM_S = 0.4f;
+// Mixamo's "Hit By Car" stands still for ~10 frames before the impact
+// reaction begins. At the export's 30 fps that's ~0.33 s; skip past it
+// so the body reacts immediately on contact.
+constexpr float PED_HIT_BY_CAR_TRIM_S = 20.f / 30.f;
 // Gunshot panic. Civilian peds within FLEE_RADIUS_M of the shot origin
 // switch to Sprinting (along the sidewalk, U-turning if the sound is
 // ahead of them) for FLEE_DURATION_S, then revert to walking. The
@@ -206,6 +228,29 @@ bool PedestrianSystem::init(Scene& scene, RoadGraph& graph, int target_count) {
             for (int b = 0; b < m->skeleton.bone_count(); ++b) {
                 if (m->skeleton.bone(b).parent < 0) {
                     m->dying_forward_t0_root_trans =
+                        glm::vec3(t0_pose[static_cast<std::size_t>(b)][3]);
+                    break;
+                }
+            }
+        }
+        m->dying_hit_by_car_loaded = m->dying_hit_by_car.load(
+            PED_DYING_HIT_BY_CAR_ANIM_PATH, m->skeleton);
+        if (!m->dying_hit_by_car_loaded) {
+            PE_WARN("PedestrianSystem: hit_by_car anim load failed for %s "
+                    "(car kills will use backward fall)", def.eskel_path);
+        } else {
+            // Sample at t=0 (no trim — Mixamo "Hit By Car" doesn't have
+            // the wind-up flinch the dying-from-bullet anims do; the
+            // impact starts immediately).
+            std::vector<glm::mat4> t0_pose;
+            // Sample at the trim point — that's what compute_pose's
+            // bind+delta anchor uses as t=0, so peds starting their
+            // hit-by-car death don't pop relative to the trimmed start.
+            m->dying_hit_by_car.sample(PED_HIT_BY_CAR_TRIM_S, m->skeleton,
+                                        t0_pose);
+            for (int b = 0; b < m->skeleton.bone_count(); ++b) {
+                if (m->skeleton.bone(b).parent < 0) {
+                    m->dying_hit_by_car_t0_root_trans =
                         glm::vec3(t0_pose[static_cast<std::size_t>(b)][3]);
                     break;
                 }
@@ -345,6 +390,29 @@ void PedestrianSystem::update(float dt, const glm::vec3& camera_pos,
     for (std::size_t k = peds_.size(); k-- > 0;) {
         Pedestrian& p = *peds_[k];
         if (p.state == State::Dying) {
+            // Hit-by-car kinematics. Vertical motion comes from the
+            // dying anim's root Y delta (compute_pose anchors at bind +
+            // anim delta), so we only integrate horizontal slide here:
+            // body decelerates with friction and snaps to rest below
+            // a small threshold. Applying gravity to world_pos.y on top
+            // of the anim's drop double-counts and either sinks the
+            // body below the ground or fights the anim's authored arc.
+            if (p.dying_hit_by_car) {
+                p.world_pos.x += p.velocity.x * dt;
+                p.world_pos.z += p.velocity.z * dt;
+                float decay = std::exp(-RAGDOLL_FRICTION_HZ * dt);
+                p.velocity.x *= decay;
+                p.velocity.z *= decay;
+                if (std::abs(p.velocity.x) < RAGDOLL_REST_VEL_MPS)
+                    p.velocity.x = 0.f;
+                if (std::abs(p.velocity.z) < RAGDOLL_REST_VEL_MPS)
+                    p.velocity.z = 0.f;
+                // Pin Y to the current ground sample so a body launched
+                // off a kerb lands on whatever surface is under them.
+                p.world_pos.y = city_ground_sample(p.world_pos.x,
+                                                    p.world_pos.z);
+            }
+
             // Death anim plays once and freezes at the last frame so the
             // body holds the final pose. death_timer drives the despawn.
             // Clamp against whichever anim is actually playing — forward
@@ -355,12 +423,16 @@ void PedestrianSystem::update(float dt, const glm::vec3& camera_pos,
             const ModelAsset& dm =
                 *models_[static_cast<std::size_t>(p.model_id)];
             float dur = 0.f;
-            if (p.dying_forward && dm.dying_forward_loaded)
+            if (p.dying_hit_by_car && dm.dying_hit_by_car_loaded)
+                dur = dm.dying_hit_by_car.duration();
+            else if (p.dying_forward && dm.dying_forward_loaded)
                 dur = dm.dying_forward.duration();
             else if (dm.dying_loaded)
                 dur = dm.dying.duration();
             else if (dm.dying_forward_loaded)
                 dur = dm.dying_forward.duration();
+            else if (dm.dying_hit_by_car_loaded)
+                dur = dm.dying_hit_by_car.duration();
             if (dur > 0.f) {
                 p.anim_phase += dt;
                 if (p.anim_phase > dur - 0.01f) p.anim_phase = dur - 0.01f;
@@ -533,6 +605,29 @@ void PedestrianSystem::destroy_at(std::size_t idx) {
                 static_cast<std::ptrdiff_t>(idx));
 }
 
+void PedestrianSystem::enter_dying_state(Pedestrian& p) {
+    p.state            = State::Dying;
+    // Hit-by-car has no flinch wind-up — start at the very first frame.
+    p.anim_phase       = p.dying_hit_by_car ? PED_HIT_BY_CAR_TRIM_S
+                                              : PED_DYING_TRIM_S;
+    p.death_timer      = 0.f;
+    p.last_step_bucket = -1;     // suppress further footsteps
+    // Effectively disable any in-flight police behavior. shoot_cooldown
+    // is consulted by advance_police, but the Dying short-circuit in
+    // update() runs first; this is belt-and-braces.
+    p.shoot_cooldown   = 1e9f;
+    // Snapshot the current sidewalk position into world_pos so all
+    // Dying peds (civilian + police) follow the same render path —
+    // sync_visual reads world_pos for any Dying ped, which lets the
+    // hit-by-car ragdoll integrator drive the body in world space.
+    if (p.role != Role::Police) {
+        p.world_pos = sidewalk_pose(p.edge, p.dist_along, p.side);
+    }
+    // Bullet/forward/backward kills don't move the body. Hit-by-car
+    // overwrites this immediately after with the impact impulse.
+    p.velocity = glm::vec3{0.f};
+}
+
 void PedestrianSystem::apply_damage(std::size_t ped_idx, float amount,
                                     const glm::vec3& shot_origin) {
     if (ped_idx >= peds_.size()) return;
@@ -554,16 +649,74 @@ void PedestrianSystem::apply_damage(std::size_t ped_idx, float amount,
     float yaw_rad = glm::radians(p.yaw_deg);
     glm::vec3 ped_forward{std::cos(yaw_rad), 0.f, std::sin(yaw_rad)};
     float facing_dot = glm::dot(to_ped, ped_forward);
-    p.dying_forward = (facing_dot > 0.f);
+    p.dying_forward    = (facing_dot > 0.f);
+    p.dying_hit_by_car = false;
+    enter_dying_state(p);
+}
 
-    p.state            = State::Dying;
-    p.anim_phase       = PED_DYING_TRIM_S;
-    p.death_timer      = 0.f;
-    p.last_step_bucket = -1;     // suppress further footsteps
-    // Effectively disable any in-flight police behavior. shoot_cooldown
-    // is consulted by advance_police, but the Dying short-circuit in
-    // update() runs first; this is belt-and-braces.
-    p.shoot_cooldown   = 1e9f;
+void PedestrianSystem::process_vehicle_impacts(
+        const std::vector<CarHitbox>& cars) {
+    if (peds_.empty() || cars.empty()) return;
+
+    for (const CarHitbox& car : cars) {
+        float speed = glm::length(car.velocity);
+        if (speed < CAR_HIT_MIN_SPEED_MPS) continue;
+
+        for (auto& pp : peds_) {
+            Pedestrian& p = *pp;
+            if (p.state == State::Dying) continue;
+
+            glm::vec3 ped_pos = (p.role == Role::Police)
+                ? p.world_pos
+                : sidewalk_pose(p.edge, p.dist_along, p.side);
+
+            // Vertical filter — keeps a car driving on a road below the
+            // ped's hill (or above, on a flyover) from registering hits.
+            if (std::abs(ped_pos.y - car.center.y) > CAR_HIT_VERTICAL_M)
+                continue;
+
+            // Project ped XZ into the car's local frame; a hit is the
+            // OBB inflated by the ped's body radius along both axes.
+            glm::vec3 rel = ped_pos - car.center;
+            float local_fwd = glm::dot(rel, car.forward_xz);
+            float local_rgt = glm::dot(rel, car.right_xz);
+            if (std::abs(local_fwd) > car.half_length + CAR_HIT_PED_RADIUS_M)
+                continue;
+            if (std::abs(local_rgt) > car.half_width  + CAR_HIT_PED_RADIUS_M)
+                continue;
+
+            // Direct kill. Cars at or above the threshold are lethal —
+            // the hit_by_car anim plays the throw-and-tumble; no need
+            // to scale damage since 100 HP is below any car contact's
+            // realistic energy.
+            p.health           = 0.f;
+            p.dying_hit_by_car = true;
+            p.dying_forward    = false;
+
+            // Yaw the body so its forward (= anim's "forward fall"
+            // direction) points along the throw vector. Without this
+            // a ped facing south hit by a car going east would slide
+            // east while their pose folds south — looks like sliding
+            // sideways. atan2(z, x) matches sidewalk_yaw_deg.
+            glm::vec2 vh{car.velocity.x, car.velocity.z};
+            float vh_len = glm::length(vh);
+            if (vh_len > 1e-4f) {
+                p.yaw_deg = glm::degrees(std::atan2(vh.y, vh.x));
+            }
+
+            enter_dying_state(p);
+
+            // Horizontal slide impulse only. Vertical motion is owned
+            // by the hit-by-car anim's root Y delta — compute_pose
+            // anchors at bind + (anim_t - dying_hit_by_car_t0) so the
+            // hip falls with the anim. Adding a Y upkick here would
+            // raise world_pos.y while the anim simultaneously drops
+            // the hip in mesh space, double-displacing the body.
+            p.velocity = glm::vec3{car.velocity.x * CAR_HIT_VELOCITY_TRANSFER,
+                                    0.f,
+                                    car.velocity.z * CAR_HIT_VELOCITY_TRANSFER};
+        }
+    }
 }
 
 void PedestrianSystem::notify_gunshot(const glm::vec3& origin) {
@@ -915,7 +1068,12 @@ void PedestrianSystem::advance(Pedestrian& p, float dt) {
 }
 
 void PedestrianSystem::sync_visual(Pedestrian& p) {
-    glm::vec3 wp = p.role == Role::Police
+    // Police always use freeform world_pos. Civilians normally use the
+    // road-graph-driven sidewalk_pose, but once they're Dying we route
+    // them through world_pos too — that's the only path the hit-by-car
+    // ragdoll integrator can drive, and bullet-kill peds simply have
+    // their world_pos snapshotted at death and held constant.
+    glm::vec3 wp = (p.role == Role::Police || p.state == State::Dying)
         ? p.world_pos
         : sidewalk_pose(p.edge, p.dist_along, p.side);
 
@@ -956,14 +1114,19 @@ void PedestrianSystem::compute_pose(Pedestrian& p) {
             else if (m.sprint_loaded)      anim = &m.sprint;
             break;
         case State::Dying:
-            // Pick forward or backward fall based on entry direction.
-            // Each falls back to the other dying anim, then idle.
-            if (p.dying_forward && m.dying_forward_loaded)
+            // Pick the death anim by cause-of-death flags. Each falls
+            // back to a sibling anim, then to idle, so a missing asset
+            // never T-poses.
+            if (p.dying_hit_by_car && m.dying_hit_by_car_loaded)
+                anim = &m.dying_hit_by_car;
+            else if (p.dying_forward && m.dying_forward_loaded)
                 anim = &m.dying_forward;
             else if (m.dying_loaded)
                 anim = &m.dying;
             else if (m.dying_forward_loaded)
                 anim = &m.dying_forward;
+            else if (m.dying_hit_by_car_loaded)
+                anim = &m.dying_hit_by_car;
             else if (m.idle_loaded)
                 anim = &m.idle;
             break;
@@ -990,14 +1153,24 @@ void PedestrianSystem::compute_pose(Pedestrian& p) {
     // body fall and slide back as the anim authored.
     int n = m.skeleton.bone_count();
     const bool dying_anim_active = (p.state == State::Dying)
-        && (m.dying_loaded || m.dying_forward_loaded);
+        && (m.dying_loaded || m.dying_forward_loaded
+            || m.dying_hit_by_car_loaded);
     if (dying_anim_active) {
-        // Pick the t=0 baseline that matches whichever death anim
-        // compute_pose actually selected above.
-        const bool used_forward = p.dying_forward && m.dying_forward_loaded;
-        const glm::vec3 t0_trans = used_forward
-            ? m.dying_forward_t0_root_trans
-            : m.dying_t0_root_trans;
+        // Anchor the rig at bind translation, then add the active anim's
+        // delta from its own t=0 (or from the trim point for the bullet
+        // anims that have a wind-up flinch). For hit-by-car this is what
+        // drops the body to the ground as it goes from standing to lying
+        // — without it, the hip stays at bind height while the limbs
+        // rotate around, and the body floats horizontally ~1 m up.
+        const bool used_hit_by_car = p.dying_hit_by_car
+                                   && m.dying_hit_by_car_loaded;
+        const bool used_forward    = !used_hit_by_car
+                                   && p.dying_forward
+                                   && m.dying_forward_loaded;
+        const glm::vec3 t0_trans = used_hit_by_car
+            ? m.dying_hit_by_car_t0_root_trans
+            : (used_forward ? m.dying_forward_t0_root_trans
+                            : m.dying_t0_root_trans);
         for (int b = 0; b < n; ++b) {
             if (m.skeleton.bone(b).parent < 0) {
                 glm::vec3 bind_t{m.skeleton.bone(b).bind_local[3]};

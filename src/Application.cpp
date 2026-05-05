@@ -3,7 +3,6 @@
 #include <SDL.h>
 #include <glad/gl.h>
 #include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/matrix_inverse.hpp>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -24,29 +23,6 @@
 #endif
 
 namespace pengine {
-
-// Ray vs axis-aligned box (slab test). Returns true if the ray hits the box
-// at a positive t, with `out_t` set to the entry distance (or 0 if origin
-// is inside). dir need not be normalised.
-static bool ray_vs_aabb(const glm::vec3& origin, const glm::vec3& dir,
-                         const glm::vec3& mn, const glm::vec3& mx,
-                         float& out_t) {
-    constexpr float INF = std::numeric_limits<float>::infinity();
-    const glm::vec3 inv{
-        dir.x != 0.f ? 1.f / dir.x : INF,
-        dir.y != 0.f ? 1.f / dir.y : INF,
-        dir.z != 0.f ? 1.f / dir.z : INF,
-    };
-    const glm::vec3 t1 = (mn - origin) * inv;
-    const glm::vec3 t2 = (mx - origin) * inv;
-    const glm::vec3 tmin3 = glm::min(t1, t2);
-    const glm::vec3 tmax3 = glm::max(t1, t2);
-    const float tmin = std::max({tmin3.x, tmin3.y, tmin3.z});
-    const float tmax = std::min({tmax3.x, tmax3.y, tmax3.z});
-    if (tmax < 0.f || tmin > tmax) return false;
-    out_t = tmin >= 0.f ? tmin : tmax;
-    return out_t > 0.f;
-}
 
 static const char* mode_name(Application::Mode m) {
     switch (m) {
@@ -74,11 +50,8 @@ bool Application::init() {
     if (!skinned_shader_.load(ASSETS_DIR "/shaders/skinned.vert",
                                ASSETS_DIR "/shaders/lit.frag")) return false;
     if (!debug_draw_.init(ASSETS_DIR)) return false;
-    if (!minimap_.init(ASSETS_DIR)) return false;
     if (!particles_.init(ASSETS_DIR)) return false;
-    if (!speedometer_.init(ASSETS_DIR)) return false;
-    if (!crosshair_.init(ASSETS_DIR)) return false;
-    if (!wanted_stars_.init(ASSETS_DIR)) return false;
+    if (!hud_.init(ASSETS_DIR)) return false;
 
     {
         std::vector<Vertex>   verts;
@@ -93,109 +66,7 @@ bool Application::init() {
     facade_tex_.load_facade();
     sidewalk_tex_.load_sidewalk();
 
-    // Player character: skinned mesh + skeleton + walk animation.
-    character_skinned_ =
-        load_skinned_emesh(ASSETS_DIR "/models/characters/character_01.emesh",
-                           character_skinned_mesh_) &&
-        character_skeleton_.load (ASSETS_DIR "/models/characters/character_01.eskel") &&
-        character_anim_   .load  (ASSETS_DIR "/models/characters/walking.eanim",
-                                   character_skeleton_);
-    if (!character_skinned_)
-        PE_WARN("Falling back to cube character (skinning load failed)");
-
-    // Sprint loop is optional: if it fails to load we just stay on the walk
-    // anim while shift is held (movement still speeds up).
-    if (character_skinned_ &&
-        !character_anim_sprint_.load(ASSETS_DIR "/models/characters/sprint.eanim",
-                                     character_skeleton_)) {
-        PE_WARN("Sprint animation failed to load; shift will still speed up movement");
-    }
-
-    // Breathing idle loop is optional: if missing we fall back to bind pose
-    // with the walk anim's root rotation (see render path).
-    if (character_skinned_ &&
-        !character_anim_idle_.load(ASSETS_DIR "/models/characters/breathing_idle.eanim",
-                                    character_skeleton_)) {
-        PE_WARN("Idle animation failed to load; using bind pose for idle");
-    }
-
-    if (character_skinned_) {
-        walk_bones_.left_upleg  = character_skeleton_.find_bone("mixamorig:LeftUpLeg");
-        walk_bones_.right_upleg = character_skeleton_.find_bone("mixamorig:RightUpLeg");
-        walk_bones_.left_leg    = character_skeleton_.find_bone("mixamorig:LeftLeg");
-        walk_bones_.right_leg   = character_skeleton_.find_bone("mixamorig:RightLeg");
-        walk_bones_.left_arm    = character_skeleton_.find_bone("mixamorig:LeftArm");
-        walk_bones_.right_arm   = character_skeleton_.find_bone("mixamorig:RightArm");
-        walk_bones_.spine       = character_skeleton_.find_bone("mixamorig:Spine");
-        PE_INFO("Walk bones: LU=%d RU=%d LK=%d RK=%d LA=%d RA=%d S=%d",
-                walk_bones_.left_upleg, walk_bones_.right_upleg,
-                walk_bones_.left_leg,   walk_bones_.right_leg,
-                walk_bones_.left_arm,   walk_bones_.right_arm,
-                walk_bones_.spine);
-    }
-
-    // Pistol locomotion + Glock equip wiring. Pistol anims rebind against
-    // the player skeleton; missing bone-name channels silently fall back
-    // to bind pose, so the player won't T-pose if a future asset breaks.
-    if (character_skinned_) {
-        if (!character_anim_pistol_walk_.load(
-                ASSETS_DIR "/models/characters/pistol_walk.eanim",
-                character_skeleton_))
-            PE_WARN("Pistol walk anim failed; armed walk will fall back to unarmed");
-        if (!character_anim_pistol_run_.load(
-                ASSETS_DIR "/models/characters/pistol_run.eanim",
-                character_skeleton_))
-            PE_WARN("Pistol run anim failed; armed sprint will fall back to unarmed");
-        if (!character_anim_pistol_idle_.load(
-                ASSETS_DIR "/models/characters/pistol_idle.eanim",
-                character_skeleton_))
-            PE_WARN("Pistol idle anim failed; armed idle will fall back to unarmed");
-
-        // Right-hand bone: cached so we can recover its world transform
-        // each frame from the skin matrices (skin = world * inv_bind, so
-        // world = skin * inverse(inv_bind); inv_bind is constant, invert
-        // it once at init).
-        right_hand_bone_idx_ =
-            character_skeleton_.find_bone("mixamorig:RightHand");
-        if (right_hand_bone_idx_ >= 0) {
-            right_hand_bind_world_ = glm::inverse(
-                character_skeleton_.bone(right_hand_bone_idx_).inv_bind);
-        } else {
-            PE_WARN("RightHand bone not found; gun render disabled");
-        }
-
-        // Static gun mesh. One static .emesh, drawn with lit_shader_.
-        if (!load_static_emesh(
-                ASSETS_DIR "/models/weapons/glock17.emesh", gun_mesh_)) {
-            PE_WARN("Glock 17 mesh failed to load; equip will be invisible");
-        } else {
-            glm::vec3 mn = gun_mesh_.bounds_min();
-            glm::vec3 mx = gun_mesh_.bounds_max();
-            PE_INFO("Glock bounds min=(%.3f,%.3f,%.3f) max=(%.3f,%.3f,%.3f) "
-                    "size=(%.3f,%.3f,%.3f)",
-                    mn.x, mn.y, mn.z, mx.x, mx.y, mx.z,
-                    mx.x - mn.x, mx.y - mn.y, mx.z - mn.z);
-        }
-    }
-
-    // Baked grip offset from live-tuning (rotation hotkeys [/]/;/' /,/.
-    // then translation hotkeys with the same keys). Composition
-    // (innermost-first on gun-local vertices):
-    //   T(0, 5, -85) cm — slide along gun's local Z so grip lands in palm.
-    //   R_z(-90)            — final roll to seat the grip.
-    //   R_y(-180)           — face barrel forward.
-    //   R_x(-90)            — stand the gun upright (grip down).
-    gun_grip_offset_ = glm::rotate(glm::mat4{1.f}, glm::radians(-90.f),
-                                    glm::vec3{1.f, 0.f, 0.f})
-                     * glm::rotate(glm::mat4{1.f}, glm::radians(-180.f),
-                                    glm::vec3{0.f, 1.f, 0.f})
-                     * glm::rotate(glm::mat4{1.f}, glm::radians(-90.f),
-                                    glm::vec3{0.f, 0.f, 1.f})
-                     * glm::translate(glm::mat4{1.f},
-                                       glm::vec3{0.f, 5.f, -85.f});
-
-    if (!character_tex_.load_file(ASSETS_DIR "/characters/Characters_psx/Textures/Character_01.png"))
-        PE_WARN("Falling back to checker for character (texture load failed)");
+    weapons_.init(ASSETS_DIR);
 
     // World model registry. Step 1 of the IDE/IPL migration: load defs from
     // disk and resolve their mesh/texture handles. Streamer still uses the
@@ -245,8 +116,8 @@ bool Application::init() {
 
     glm::vec3 spawn = intersection;
     spawn.y = Heightmap::sample(spawn.x, spawn.z);
-    initial_player_spawn_ = spawn;
-    character_.teleport(spawn);
+    if (!player_.init(scene_, ASSETS_DIR, spawn)) return false;
+    player_.sync_scene_to_initial_pose();
 
     // Player car — one block east of the central intersection. spawn_player_car
     // creates the entity, sets driver = Player, and registers it as the car
@@ -255,48 +126,11 @@ bool Application::init() {
     car_spawn.y = Heightmap::sample(car_spawn.x, car_spawn.z) + 1.5f;
     traffic_.spawn_player_car(car_spawn, /*yaw_deg=*/ -90.f);
 
-    AABB cube_aabb;
-    cube_aabb.min = cube_mesh_.bounds_min();
-    cube_aabb.max = cube_mesh_.bounds_max();
-
-    // Build renderables with an explicit texture so they don't accidentally
-    // inherit whatever the previous draw bound.
-    auto make_renderable = [&](const glm::vec3& tint) {
-        return Renderable{&cube_mesh_, cube_aabb, tint,
-                          glm::vec2{1.f, 1.f}, &checker_tex_};
-    };
-
-    // Character: pose root (feet pos + facing yaw) with a visual child that
-    // carries model offset + uniform scale. The skinned mesh is drawn out-of-
-    // band by Application::render (Scene::draw can't handle skinning today).
-    // If skinning load failed, fall back to a tan cube renderable here.
-    character_node_ = scene_.create_node();
-    character_visual_node_ = scene_.create_node(character_node_);
-    if (character_skinned_) {
-        glm::vec3 mn = character_skinned_mesh_.bounds_min();
-        glm::vec3 mx = character_skinned_mesh_.bounds_max();
-        float h_native = std::max(0.001f, mx.y - mn.y);
-        constexpr float TARGET_HEIGHT = 1.8f;
-        character_model_scale_  = TARGET_HEIGHT / h_native;
-        character_model_offset_ = {
-            -(mn.x + mx.x) * 0.5f * character_model_scale_,
-            -mn.y                  * character_model_scale_,
-            -(mn.z + mx.z) * 0.5f * character_model_scale_,
-        };
-        // No renderable: scene::draw skips. Drawn manually in render().
-        PE_INFO("Character: skinned y=[%.3f,%.3f] -> scale %.4f anim=%.2fs",
-                mn.y, mx.y, character_model_scale_, character_anim_.duration());
-    } else {
-        character_visual_node_->renderable = make_renderable({0.65f, 0.55f, 0.45f});
-    }
-
-    sync_character_scene();
-
     // Spring arm starts behind the character looking forward (yaw=-90 = -Z).
     spring_.yaw_deg      = -90.f;
     spring_.pitch_deg    = -10.f;
     spring_.desired_dist = 4.5f;
-    spring_.anchor       = character_.eye_position();
+    spring_.anchor       = player_.eye_position();
     spring_.update(world_collision_);
     camera_.position = spring_.camera_position;
     camera_.yaw      = spring_.yaw_deg;
@@ -338,8 +172,8 @@ int Application::run() {
                           mode_name(mode_),
                           st.loaded_cells, world_collision_.building_count(),
                           traffic_.active(),
-                          fps_frames_, max_frame_ms_, wanted_level_,
-                          player_health_,
+                          fps_frames_, max_frame_ms_, wanted_.level(),
+                          player_.health(),
                           traffic_.player_car()
                               ? traffic_.player_car()->vehicle.speed_kmh() : 0.f,
                           traffic_.player_car() && traffic_.player_car()->vehicle.airborne()
@@ -348,7 +182,7 @@ int Application::run() {
             SDL_SetWindowTitle(window_.sdl(), title);
             PE_INFO("%s  fps=%d worst=%.1fms  wanted=%d hp=%.0f  car=%.0fkm/h%s  traffic=%d%s",
                     mode_name(mode_), fps_frames_, max_frame_ms_,
-                    wanted_level_, player_health_,
+                    wanted_.level(), player_.health(),
                     traffic_.player_car()
                         ? traffic_.player_car()->vehicle.speed_kmh() : 0.f,
                     traffic_.player_car() && traffic_.player_car()->vehicle.airborne()
@@ -370,11 +204,10 @@ void Application::shutdown() {
     streamer_.shutdown();
     SDL_SetRelativeMouseMode(SDL_FALSE);
     debug_draw_.shutdown();
-    minimap_.shutdown();
     particles_.shutdown();
-    speedometer_.shutdown();
-    crosshair_.shutdown();
-    wanted_stars_.shutdown();
+    hud_.shutdown();
+    weapons_.shutdown();
+    player_.shutdown();
     lit_shader_.destroy();
     lit_instanced_shader_.destroy();
     cube_mesh_.destroy();
@@ -383,7 +216,6 @@ void Application::shutdown() {
     grass_tex_.destroy();
     facade_tex_.destroy();
     sidewalk_tex_.destroy();
-    character_tex_.destroy();
     window_.shutdown();
 }
 
@@ -393,8 +225,8 @@ void Application::enter_mode(Mode m) {
     if (m == Mode::OnFoot) {
         // Make sure character is grounded before re-entering on-foot.
         spring_.desired_dist = 4.5f;
-        spring_.anchor       = character_.eye_position();
-        character_node_->visible = true;
+        spring_.anchor       = player_.eye_position();
+        player_.set_visible(true);
     } else if (m == Mode::InVehicle) {
         spring_.desired_dist = 8.5f;
         // Match camera yaw to vehicle heading so the player faces the road.
@@ -403,7 +235,7 @@ void Application::enter_mode(Mode m) {
             spring_.yaw_deg = glm::degrees(std::atan2(vfwd.z, vfwd.x));
             spring_.pitch_deg = -12.f;
         }
-        character_node_->visible = false;
+        player_.set_visible(false);
     }
     mode_ = m;
 }
@@ -416,7 +248,7 @@ void Application::try_toggle_vehicle() {
         if (steal_target_) {
             if (steal_target_->driver == TrafficSystem::Driver::AI ||
                 steal_target_->driver == TrafficSystem::Driver::Police) {
-                add_wanted_heat(2.5f);
+                wanted_.add_heat(2.5f);
             }
             traffic_.set_player_driver(steal_target_);
             enter_mode(Mode::InVehicle);
@@ -428,7 +260,7 @@ void Application::try_toggle_vehicle() {
             glm::vec3 exit = pc->vehicle.position()
                            + pc->vehicle.right() * (-2.5f);
             exit.y = Heightmap::sample(exit.x, exit.z);
-            character_.teleport(exit);
+            player_.controller().teleport(exit);
         }
         traffic_.set_player_driver(nullptr); // demote previous player → Parked
         enter_mode(Mode::OnFoot);
@@ -489,119 +321,6 @@ void Application::process_events() {
     }
 }
 
-void Application::update_on_foot(float dt, float mdx, float mdy) {
-    spring_.apply_mouse(mdx, mdy);
-    spring_.anchor = character_.eye_position();
-    spring_.update(world_collision_);
-
-    sprinting_ = input_.down(SDL_SCANCODE_LSHIFT) || input_.down(SDL_SCANCODE_RSHIFT);
-    if (input_.pressed(SDL_SCANCODE_E)) armed_ = !armed_;
-    if (armed_ && input_.mouse_pressed(SDL_BUTTON_LEFT)) fire_pistol();
-    character_.update(dt, input_, spring_.yaw_deg, sprinting_, world_collision_);
-
-    // Face the direction we're walking when moving; otherwise face the
-    // camera. Lerp gently so quick mouse turns don't snap the body around.
-    // Without the idle branch, releasing W mid-mouse-turn freezes facing
-    // partway through the lerp, leaving the character pointing off to the
-    // side of where the camera is now looking.
-    glm::vec3 vh = character_.velocity();
-    vh.y = 0.f;
-    float target = (glm::length(vh) > 0.5f)
-                    ? glm::degrees(std::atan2(vh.z, vh.x))
-                    : spring_.yaw_deg;
-    // wrap to [-180, 180]
-    float diff = std::fmod(target - character_facing_yaw_deg_ + 540.f, 360.f) - 180.f;
-    character_facing_yaw_deg_ += diff * std::min(1.f, 12.f * dt);
-
-    camera_.position = spring_.camera_position;
-    camera_.yaw      = spring_.yaw_deg;
-    camera_.pitch    = spring_.pitch_deg;
-
-    // Footstep audio: tick a timer paced by current ground speed so steps
-    // come faster when sprinting. Gated to (a) actually moving, (b) on
-    // the ground, and (c) the foot is over a paved surface — grass / dirt
-    // shouldn't trigger the concrete sample.
-    {
-        glm::vec3 step_vh = character_.velocity();
-        step_vh.y = 0.f;
-        float speed = glm::length(step_vh);
-        const bool moving = speed > 0.5f && character_.grounded();
-        if (moving) {
-            // ~0.55 s/step at MOVE_SPEED; scales inversely with speed so
-            // sprint cadence quickens automatically.
-            float interval = 0.55f * CharacterController::MOVE_SPEED
-                                   / std::max(speed, 0.5f);
-            footstep_timer_ += dt;
-            if (footstep_timer_ >= interval) {
-                footstep_timer_ -= interval;
-                glm::vec3 fp = character_.feet_position();
-                if (is_paved_surface(fp.x, fp.z))
-                    audio_.play_footstep_concrete();
-            }
-        } else {
-            footstep_timer_ = 0.f;
-        }
-    }
-}
-
-void Application::fire_pistol() {
-    constexpr float MAX_RANGE = 200.f;
-    const glm::vec3 origin = camera_.position;
-    const glm::vec3 dir    = camera_.forward();
-
-    float     closest_t = MAX_RANGE;
-    glm::vec3 hit_point = origin + dir * MAX_RANGE;
-
-    // Static world (terrain + buildings) — bullets don't pass through walls.
-    RayHit world_hit = world_collision_.raycast(origin, dir, closest_t);
-    if (world_hit.hit && world_hit.t < closest_t) {
-        closest_t = world_hit.t;
-        hit_point = world_hit.position;
-    }
-
-    // AI cars — occlude only, no damage in phase 1. The chassis box is in
-    // local space; we use position ± half-extents as a generous AABB. A few
-    // metres of imprecision at car-yaw extremes is fine for occlusion.
-    for (const auto& car_ptr : traffic_.cars()) {
-        const Vehicle& v = car_ptr->vehicle;
-        const glm::vec3 half = v.chassis_full_extents * 0.5f;
-        // Inflate xz by sqrt(2) so a car turned 45° still occludes its
-        // full silhouette.
-        constexpr float YAW_INFLATE = 1.4143f;
-        const glm::vec3 box_min = v.position()
-            - glm::vec3{half.x * YAW_INFLATE, half.y, half.z * YAW_INFLATE};
-        const glm::vec3 box_max = v.position()
-            + glm::vec3{half.x * YAW_INFLATE, half.y, half.z * YAW_INFLATE};
-        float t;
-        if (ray_vs_aabb(origin, dir, box_min, box_max, t) && t < closest_t) {
-            closest_t = t;
-            hit_point = origin + dir * t;
-        }
-    }
-
-    // Pedestrians — distance-falloff damage. ~3 shots at typical range.
-    auto ped_hit = pedestrians_.raycast(origin, dir, closest_t);
-    if (ped_hit.hit) {
-        hit_point = ped_hit.position;
-        particles_.emit_sparks(ped_hit.position, glm::vec3{0.f, 2.f, 0.f}, 16);
-        // Linear falloff: 60 dmg at point-blank → 25 dmg at >=30 m.
-        // 100 HP with this curve drops in ~2 shots up close, ~3 shots
-        // at urban range (~12 m), ~4 shots at the falloff floor.
-        constexpr float DMG_NEAR     = 60.f;
-        constexpr float DMG_FAR      = 25.f;
-        constexpr float DMG_FALLOFF_M = 30.f;
-        float t_far = glm::clamp(ped_hit.t / DMG_FALLOFF_M, 0.f, 1.f);
-        float damage = DMG_NEAR * (1.f - t_far) + DMG_FAR * t_far;
-        pedestrians_.apply_damage(ped_hit.ped_idx, damage, origin);
-        add_wanted_heat(3.0f);
-    }
-
-    add_wanted_heat(0.6f);
-    audio_.play_gunshot();
-    pedestrians_.notify_gunshot(origin);
-    debug_draw_.line(origin + dir * 0.3f, hit_point);
-}
-
 void Application::update_in_vehicle(float dt, float mdx, float mdy) {
     spring_.apply_mouse(mdx, mdy);
     if (auto* pc = traffic_.player_car()) {
@@ -613,39 +332,6 @@ void Application::update_in_vehicle(float dt, float mdx, float mdy) {
     camera_.yaw      = spring_.yaw_deg;
     camera_.pitch    = spring_.pitch_deg;
     (void)dt;
-}
-
-void Application::add_wanted_heat(float heat) {
-    wanted_heat_ = std::clamp(wanted_heat_ + heat, 0.f, 15.f);
-    wanted_decay_delay_ = 10.f;
-    wanted_level_ = wanted_heat_ >= 12.f ? 5
-                  : wanted_heat_ >=  9.f ? 4
-                  : wanted_heat_ >=  6.f ? 3
-                  : wanted_heat_ >=  3.f ? 2
-                  : wanted_heat_ >   0.f ? 1 : 0;
-}
-
-void Application::update_wanted(float dt) {
-    if (wanted_heat_ <= 0.f) {
-        wanted_heat_ = 0.f;
-        wanted_level_ = 0;
-        wanted_decay_delay_ = 0.f;
-        return;
-    }
-
-    if (wanted_decay_delay_ > 0.f) {
-        wanted_decay_delay_ = std::max(0.f, wanted_decay_delay_ - dt);
-    } else {
-        // A level-1 mistake clears quickly; higher levels take longer but
-        // still decay for this first playable pass.
-        wanted_heat_ = std::max(0.f, wanted_heat_ - dt * 0.22f);
-    }
-
-    wanted_level_ = wanted_heat_ >= 12.f ? 5
-                  : wanted_heat_ >=  9.f ? 4
-                  : wanted_heat_ >=  6.f ? 3
-                  : wanted_heat_ >=  3.f ? 2
-                  : wanted_heat_ >   0.f ? 1 : 0;
 }
 
 void Application::update(double dt) {
@@ -685,7 +371,21 @@ void Application::update(double dt) {
     if (mode_ == Mode::DebugFly) {
         camera_.update(fdt, input_, mdx, mdy);
     } else if (mode_ == Mode::OnFoot) {
-        update_on_foot(fdt, mdx, mdy);
+        bool wants_fire = player_.update_on_foot(fdt, input_, camera_, spring_,
+                                                  world_collision_, audio_,
+                                                  mdx, mdy);
+        if (wants_fire) {
+            glm::vec3 origin = camera_.position;
+            glm::vec3 dir    = camera_.forward();
+            auto fr = weapons_.fire(origin, dir, world_collision_, traffic_,
+                                    pedestrians_);
+            if (fr.hit_ped)
+                particles_.emit_sparks(fr.hit_point, glm::vec3{0.f, 2.f, 0.f}, 16);
+            audio_.play_gunshot();
+            pedestrians_.notify_gunshot(origin);
+            debug_draw_.line(origin + dir * 0.3f, fr.hit_point);
+            wanted_.add_heat(fr.heat_delta);
+        }
     } else /* InVehicle */ {
         update_in_vehicle(fdt, mdx, mdy);
     }
@@ -696,100 +396,29 @@ void Application::update(double dt) {
     steal_target_  = nullptr;
     can_enter_car_ = false;
     if (mode_ == Mode::OnFoot) {
-        steal_target_ = traffic_.find_nearest(character_.feet_position(),
+        steal_target_ = traffic_.find_nearest(player_.feet_position(),
                                                ENTRY_RADIUS);
         can_enter_car_ = (steal_target_ != nullptr);
     }
 
-    // Advance the walk-anim time accumulator (seconds). Mixamo loops are
-    // 1 stride each, so we scale by current speed / reference speed of the
-    // anim that's actually playing — keeps stride frequency tied to ground
-    // speed regardless of which clip is sampled.
-    // Idle: freeze on first frame instead of playing in place.
-    bool char_moving;
-    bool use_sprint;
-    {
-        glm::vec3 vh = character_.velocity();
-        vh.y = 0.f;
-        float speed = glm::length(vh);
-        char_moving = speed > 0.5f;
-        use_sprint  = sprinting_ && char_moving &&
-                      character_anim_sprint_.duration() > 0.f;
-        float ref = use_sprint ? CharacterController::SPRINT_SPEED
-                               : CharacterController::MOVE_SPEED;
-        if (char_moving) walk_phase_ += dt * double(speed / ref);
-        else             walk_phase_  = 0.0;   // freeze at first frame
-    }
-
-    if (character_skinned_) {
-        const int n = character_skeleton_.bone_count();
-        char_local_poses_.resize(static_cast<std::size_t>(n));
-
-        // Pick the anim driving the current frame. Walking and sprint loop
-        // at speed-tied stride frequency; idle plays the breathing-idle
-        // loop in real time. When armed, swap to the pistol-locomotion
-        // variants — same phase / cadence semantics, just different rigs.
-        // Each armed slot falls back to its unarmed counterpart if the
-        // pistol anim failed to load.
-        auto pick_armed = [this](const Animation& armed,
-                                  const Animation& unarmed)
-                            -> const Animation* {
-            return (armed_ && armed.duration() > 0.f) ? &armed : &unarmed;
-        };
-        const Animation* anim_to_use = nullptr;
-        float            phase       = 0.f;
-        if (char_moving) {
-            anim_to_use = use_sprint
-                ? pick_armed(character_anim_pistol_run_,  character_anim_sprint_)
-                : pick_armed(character_anim_pistol_walk_, character_anim_);
-            phase       = static_cast<float>(walk_phase_);
-        } else if (character_anim_idle_.duration() > 0.f) {
-            anim_to_use = pick_armed(character_anim_pistol_idle_,
-                                      character_anim_idle_);
-            phase       = static_cast<float>(world_time_);
-        }
-
-        if (anim_to_use && anim_to_use->duration() > 0.f) {
-            anim_to_use->sample(phase, character_skeleton_, char_local_poses_);
-            // Strip root motion: gameplay drives world position, so the
-            // root bone's translation must come from the bind pose, not
-            // the anim.
-            for (int b = 0; b < n; ++b) {
-                if (character_skeleton_.bone(b).parent < 0) {
-                    glm::vec3 bind_t{character_skeleton_.bone(b).bind_local[3]};
-                    char_local_poses_[static_cast<std::size_t>(b)][3] =
-                        glm::vec4{bind_t, 1.f};
-                }
-            }
-        } else {
-            // No anim available — fall back to bind pose.
-            for (int b = 0; b < n; ++b)
-                char_local_poses_[static_cast<std::size_t>(b)] =
-                    character_skeleton_.bone(b).bind_local;
-        }
-
-        character_skeleton_.compute_skin_matrices(char_local_poses_,
-                                                    char_skin_matrices_);
-    }
-
-    sync_character_scene();
+    player_.update_pose(dt, world_time_);
     streamer_.pump(camera_.position);
     world_time_ += dt;
-    update_wanted(fdt);
-    glm::vec3 police_target = character_.feet_position();
+    wanted_.update(fdt);
+    glm::vec3 police_target = player_.feet_position();
     if (mode_ == Mode::InVehicle && traffic_.player_car()) {
         police_target = traffic_.player_car()->vehicle.position();
     }
     {
-        traffic_.set_police_response(wanted_level_, police_target);
-        pedestrians_.set_police_context(wanted_level_, police_target);
+        traffic_.set_police_response(wanted_.level(), police_target);
+        pedestrians_.set_police_context(wanted_.level(), police_target);
     }
     // Single per-frame entry point: AI lane-follow (kinematic), player +
     // parked physics substeps, traffic-light state, and visual sync for
     // every car all happen here.
     traffic_.update(fdt, world_time_, camera_.position, world_collision_);
 
-    if (wanted_level_ > 3) {
+    if (wanted_.level() > 3) {
         for (const auto& cp : traffic_.cars()) {
             if (!cp || cp->driver != TrafficSystem::Driver::Police) continue;
             if (pedestrians_.has_police_for_car(cp.get())) continue;
@@ -813,6 +442,38 @@ void Application::update(double dt) {
     }
 
     pedestrians_.update(fdt, camera_.position, world_collision_);
+
+    // Vehicle-vs-pedestrian impacts. Build a flat hitbox per car from
+    // its current pose + chassis dims; a meaningful-speed contact kills
+    // the ped and triggers the hit-by-car death anim.
+    {
+        std::vector<PedestrianSystem::CarHitbox> car_hits;
+        car_hits.reserve(traffic_.cars().size());
+        for (const auto& car_ptr : traffic_.cars()) {
+            if (!car_ptr) continue;
+            const Vehicle& v = car_ptr->vehicle;
+            glm::vec3 fwd = v.forward(); fwd.y = 0.f;
+            glm::vec3 rgt = v.right();   rgt.y = 0.f;
+            float fl = glm::length(fwd);
+            float rl = glm::length(rgt);
+            if (fl < 1e-4f || rl < 1e-4f) continue;
+            PedestrianSystem::CarHitbox h;
+            h.center       = v.position();
+            h.forward_xz   = fwd / fl;
+            h.right_xz     = rgt / rl;
+            // chassis_full_extents is {width(X), height(Y), length(Z)};
+            // forward in vehicle space is -Z, so half-length = Z/2.
+            h.half_length  = v.chassis_full_extents.z * 0.5f;
+            h.half_width   = v.chassis_full_extents.x * 0.5f;
+            h.half_height  = v.chassis_full_extents.y * 0.5f;
+            // Approximate world velocity from speed along forward —
+            // Vehicle doesn't expose linear_vel publicly and pure
+            // forward speed is a fine proxy for impact damage.
+            h.velocity     = v.forward() * v.speed();
+            car_hits.push_back(h);
+        }
+        pedestrians_.process_vehicle_impacts(car_hits);
+    }
 
     for (const auto& ev : pedestrians_.police_vehicle_events()) {
         for (const auto& cp : traffic_.cars()) {
@@ -851,17 +512,14 @@ void Application::update(double dt) {
         if (glm::length(player_torso - closest) > PLAYER_HIT_RADIUS_M)
             continue;
 
-        player_health_ = std::max(0.f, player_health_ - 8.f);
-        if (player_health_ <= 0.f) {
+        player_.apply_damage(8.f);
+        if (player_.is_dead()) {
             if (mode_ == Mode::InVehicle) {
                 traffic_.set_player_driver(nullptr);
                 enter_mode(Mode::OnFoot);
             }
-            character_.teleport(initial_player_spawn_);
-            player_health_ = 100.f;
-            wanted_heat_ = 0.f;
-            wanted_level_ = 0;
-            wanted_decay_delay_ = 0.f;
+            player_.respawn();
+            wanted_.reset();
             break;
         }
     }
@@ -991,8 +649,8 @@ void Application::log_debug_area() {
         fwd = traffic_.player_car()->vehicle.orientation() *
               glm::vec3{0.f, 0.f, -1.f};
     } else {
-        pos = character_.feet_position();
-        float yr = glm::radians(character_facing_yaw_deg_);
+        pos = player_.feet_position();
+        float yr = glm::radians(player_.facing_yaw_deg());
         fwd = {std::cos(yr), 0.f, std::sin(yr)};
     }
 
@@ -1059,70 +717,6 @@ void Application::log_debug_area() {
     PE_INFO("===== END #%d =====", counter);
 }
 
-void Application::compute_procedural_walk_pose(float phase, bool moving) {
-    const int n = character_skeleton_.bone_count();
-    char_local_poses_.resize(static_cast<std::size_t>(n));
-
-    // Default: bind pose for every bone.
-    for (int b = 0; b < n; ++b)
-        char_local_poses_[static_cast<std::size_t>(b)] =
-            character_skeleton_.bone(b).bind_local;
-
-    if (!moving) return;
-
-    constexpr float TWO_PI = 6.2831853f;
-    // Drive ~2 strides per second of phase. With phase = walk_phase_ in
-    // seconds (advances at speed/WALK_REF), this gives 2 strides/sec at
-    // full speed.
-    float a = phase * TWO_PI * 2.f;
-    float s = std::sin(a);
-
-    auto rotate_local = [&](int b, const glm::vec3& axis, float angle) {
-        if (b < 0) return;
-        char_local_poses_[static_cast<std::size_t>(b)] =
-            character_skeleton_.bone(b).bind_local *
-            glm::mat4_cast(glm::angleAxis(angle, axis));
-    };
-
-    float thigh = glm::radians(30.f) * s;
-    float arm   = glm::radians(25.f) * s;
-    float knee_l = glm::radians(45.f) * std::max(0.f, -s);
-    float knee_r = glm::radians(45.f) * std::max(0.f,  s);
-
-    rotate_local(walk_bones_.left_upleg,  {1, 0, 0}, +thigh);
-    rotate_local(walk_bones_.right_upleg, {1, 0, 0}, -thigh);
-    rotate_local(walk_bones_.left_leg,    {1, 0, 0}, knee_l);
-    rotate_local(walk_bones_.right_leg,   {1, 0, 0}, knee_r);
-    rotate_local(walk_bones_.left_arm,    {1, 0, 0}, -arm);
-    rotate_local(walk_bones_.right_arm,   {1, 0, 0}, +arm);
-}
-
-void Application::sync_character_scene() {
-    if (!character_node_) return;
-
-    // Pose root at feet, rotated by facing yaw.
-    glm::vec3 feet = character_.feet_position();
-    character_node_->transform.position = feet;
-    character_node_->transform.rotation =
-        glm::angleAxis(glm::radians(-character_facing_yaw_deg_ + 90.f),
-                        glm::vec3{0.f, 1.f, 0.f});
-    character_node_->transform.scale    = {1.f, 1.f, 1.f};
-    character_node_->mark_dirty();
-
-    // Visual child: model offset + uniform scale (skeletal animation handles
-    // body motion). Cube fallback if no skinned model.
-    if (character_skinned_) {
-        character_visual_node_->transform.position = character_model_offset_;
-        character_visual_node_->transform.rotation = glm::quat{1.f, 0.f, 0.f, 0.f};
-        character_visual_node_->transform.scale    = glm::vec3{character_model_scale_};
-    } else {
-        character_visual_node_->transform.position = {0.f, 0.9f, 0.f};
-        character_visual_node_->transform.rotation = glm::quat{1.f, 0.f, 0.f, 0.f};
-        character_visual_node_->transform.scale    = {0.55f, 1.8f, 0.4f};
-    }
-    character_visual_node_->mark_dirty();
-}
-
 void Application::render(double /*alpha*/) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -1157,69 +751,19 @@ void Application::render(double /*alpha*/) {
     traffic_.draw_wheels(lit_instanced_shader_, frustum);
 
     // ---- Skinned character (manual draw — Scene::draw doesn't skin) --------
-    if (character_skinned_ && character_node_->visible
-        && !char_skin_matrices_.empty()) {
-        skinned_shader_.use();
-        skinned_shader_.set("u_view_proj",   vp);
-        skinned_shader_.set("u_cam_pos",     camera_.position);
-        skinned_shader_.set("u_light_dir",   glm::normalize(glm::vec3{0.6f, 1.f, 0.4f}));
-        skinned_shader_.set("u_light_color", glm::vec3{1.f, 0.95f, 0.85f});
-        skinned_shader_.set("u_ambient",     glm::vec3{0.18f, 0.22f, 0.28f});
-        skinned_shader_.set("u_diffuse",     0);
-        skinned_shader_.set("u_tint",        glm::vec3{1.f});
-        skinned_shader_.set("u_uv_scale",    glm::vec2{1.f, 1.f});
-        skinned_shader_.set("u_model",       character_visual_node_->world_matrix());
-        skinned_shader_.set("u_normal_mat",
-            glm::mat3(glm::inverseTranspose(character_visual_node_->world_matrix())));
-        int n = static_cast<int>(char_skin_matrices_.size());
-        if (n > 64) n = 64;
-        skinned_shader_.set_mat4_array("u_bones", char_skin_matrices_.data(), n);
-
-        if (character_tex_.id()) character_tex_.bind(0);
-        else                     checker_tex_.bind(0);
-        character_skinned_mesh_.draw();
-    }
+    player_.render(skinned_shader_, vp, camera_.position, checker_tex_);
 
     // ---- Equipped weapon (static mesh attached to right-hand bone) --------
-    // Recover the right-hand bone's world matrix from the skin matrices
-    // we already computed above: skin = world_bone * inv_bind, so
-    // world_bone = skin * inverse(inv_bind). We cached inverse(inv_bind)
-    // at init since it doesn't change. Then transform up through the
-    // visual node and apply the hand-tuned grip offset to align the
-    // mesh origin with the palm.
-    if (armed_ && character_skinned_ && right_hand_bone_idx_ >= 0
-        && gun_mesh_.index_count() > 0
-        && right_hand_bone_idx_ < static_cast<int>(char_skin_matrices_.size())) {
-        glm::mat4 bone_world = char_skin_matrices_[
-            static_cast<std::size_t>(right_hand_bone_idx_)]
-                              * right_hand_bind_world_;
-        // GUN_SCALE: with PreTransformVertices on, the FBX root node's
-        // unit-scale (often 100 for Blender's cm→m export) gets baked
-        // into vertex positions, making the gun much bigger than its
-        // pre-transform size. Drop the scale until it sits right.
-        constexpr float GUN_SCALE = 0.3f;
-        glm::mat4 scale_mat = glm::scale(glm::mat4{1.f},
-                                           glm::vec3{GUN_SCALE});
-        glm::mat4 gun_world = character_visual_node_->world_matrix()
-                            * bone_world * scale_mat * gun_grip_offset_;
-        lit_shader_.use();
-        lit_shader_.set("u_view_proj",   vp);
-        lit_shader_.set("u_cam_pos",     camera_.position);
-        lit_shader_.set("u_light_dir",
-                         glm::normalize(glm::vec3{0.6f, 1.f, 0.4f}));
-        lit_shader_.set("u_light_color", glm::vec3{1.f, 0.95f, 0.85f});
-        lit_shader_.set("u_ambient",     glm::vec3{0.18f, 0.22f, 0.28f});
-        lit_shader_.set("u_diffuse",     0);
-        lit_shader_.set("u_model",       gun_world);
-        lit_shader_.set("u_normal_mat",
-                         glm::mat3(glm::inverseTranspose(gun_world)));
+    if (player_.armed() && player_.has_right_hand() && weapons_.ready()) {
         checker_tex_.bind(0);
-        gun_mesh_.draw();
+        weapons_.render(lit_shader_, vp, camera_.position,
+                        player_.right_hand_world_xform());
     }
 
     // ---- AI pedestrians (skinned, one draw per ped) ------------------------
     pedestrians_.render(skinned_shader_, lit_shader_, vp, camera_.position,
-                        checker_tex_, gun_mesh_, gun_grip_offset_, frustum);
+                        checker_tex_, weapons_.mesh(), weapons_.grip_offset(),
+                        frustum);
 
     // ---- Particle effects (sparks etc.) ------------------------------------
     particles_.render(vp, camera_.position,
@@ -1259,55 +803,31 @@ void Application::render(double /*alpha*/) {
 
     debug_draw_.flush(vp, glm::vec3{1.f, 0.85f, 0.2f});
 
-    // ---- Minimap (HUD overlay) ---------------------------------------------
+    // ---- HUD overlay -------------------------------------------------------
     {
-        Minimap::DrawState ms;
-        ms.viewport_size_px = {static_cast<float>(window_.width()),
-                                static_cast<float>(window_.height())};
+        Hud::State s;
+        s.viewport_size_px = {static_cast<float>(window_.width()),
+                              static_cast<float>(window_.height())};
+        s.show_speedometer = (mode_ == Mode::InVehicle)
+                          && traffic_.player_car() != nullptr;
+        s.show_crosshair   = player_.armed() && mode_ == Mode::OnFoot;
+        s.wanted_level     = wanted_.level();
+        s.health           = player_.health();
         if (mode_ == Mode::InVehicle) {
             if (auto* pc = traffic_.player_car()) {
-                ms.player_pos_world = pc->vehicle.position();
+                s.player_pos_world = pc->vehicle.position();
                 glm::vec3 fwd = pc->vehicle.orientation() * glm::vec3{0.f, 0.f, -1.f};
-                ms.player_yaw_deg = glm::degrees(std::atan2(fwd.x, -fwd.z));
+                s.player_yaw_deg   = glm::degrees(std::atan2(fwd.x, -fwd.z));
+                s.speed_kmh        = pc->vehicle.speed_kmh();
             } else {
-                ms.player_pos_world = camera_.position;
-                ms.player_yaw_deg   = 0.f;
+                s.player_pos_world = camera_.position;
+                s.player_yaw_deg   = 0.f;
             }
         } else {
-            ms.player_pos_world = character_.feet_position();
-            ms.player_yaw_deg   = character_facing_yaw_deg_ + 90.f;
+            s.player_pos_world = player_.feet_position();
+            s.player_yaw_deg   = player_.facing_yaw_deg() + 90.f;
         }
-        minimap_.draw(ms);
-    }
-
-    if (mode_ == Mode::InVehicle) {
-        if (auto* pc = traffic_.player_car()) {
-            Speedometer::DrawState ss;
-            ss.speed_kmh = pc->vehicle.speed_kmh();
-            ss.viewport_size_px = {static_cast<float>(window_.width()),
-                                   static_cast<float>(window_.height())};
-            speedometer_.draw(ss);
-        }
-    }
-
-    if (armed_ && mode_ == Mode::OnFoot) {
-        Crosshair::DrawState cs;
-        cs.viewport_size_px = {static_cast<float>(window_.width()),
-                               static_cast<float>(window_.height())};
-        crosshair_.draw(cs);
-    }
-
-    {
-        WantedStars::DrawState ws;
-        ws.wanted_level = wanted_level_;
-        ws.health = player_health_;
-        ws.armor = 0.f;
-        ws.money = 0;
-        ws.hour = 12;
-        ws.minute = 0;
-        ws.viewport_size_px = {static_cast<float>(window_.width()),
-                               static_cast<float>(window_.height())};
-        wanted_stars_.draw(ws);
+        hud_.render(s);
     }
 
     window_.swap();
