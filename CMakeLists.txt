@@ -123,6 +123,7 @@ add_library(pengine_core STATIC
     src/render/crosshair.cpp
     src/render/wanted_stars.cpp
     src/render/hud.cpp
+    src/render/debug_overlay.cpp
     src/render/spring_arm.cpp
     src/render/skinned_mesh.cpp
     src/render/skeleton.cpp
@@ -145,6 +146,8 @@ add_library(pengine_core STATIC
     src/game/player.cpp
     src/game/weapons.cpp
     src/game/wanted_system.cpp
+    src/game/police_system.cpp
+    src/game/vehicle_effects.cpp
     src/audio/audio_engine.cpp
     src/audio/miniaudio_impl.c
 )

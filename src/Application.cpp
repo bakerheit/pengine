@@ -7,13 +7,14 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
-#include <limits>
 
 #include "core/log.h"
+#include "game/police_system.h"
+#include "game/vehicle_effects.h"
+#include "render/debug_overlay.h"
 #include "render/mesh.h"
 #include "scene/frustum.h"
 #include "scene/scene_node.h"
-#include "world/cell_coord.h"
 #include "world/heightmap.h"
 #include "world/road_grid.h"
 #include "world/world_defs.h"
@@ -308,7 +309,22 @@ void Application::process_events() {
         running_ = false;
 
     if (input_.pressed(SDL_SCANCODE_F)) try_toggle_vehicle();
-    if (input_.pressed(SDL_SCANCODE_M)) log_debug_area();
+    if (input_.pressed(SDL_SCANCODE_M)) {
+        glm::vec3 pos, fwd;
+        const char* label;
+        if (mode_ == Mode::InVehicle && traffic_.player_car()) {
+            pos = traffic_.player_car()->vehicle.position();
+            fwd = traffic_.player_car()->vehicle.orientation()
+                * glm::vec3{0.f, 0.f, -1.f};
+            label = "drive";
+        } else {
+            pos = player_.feet_position();
+            float yr = glm::radians(player_.facing_yaw_deg());
+            fwd = {std::cos(yr), 0.f, std::sin(yr)};
+            label = (mode_ == Mode::DebugFly) ? "fly" : "on-foot";
+        }
+        debug_overlay::log_world_area(pos, fwd, label);
+    }
 
     if (input_.pressed(SDL_SCANCODE_C)) {
         if (mode_ == Mode::DebugFly) {
@@ -418,28 +434,8 @@ void Application::update(double dt) {
     // every car all happen here.
     traffic_.update(fdt, world_time_, camera_.position, world_collision_);
 
-    if (wanted_.level() > 3) {
-        for (const auto& cp : traffic_.cars()) {
-            if (!cp || cp->driver != TrafficSystem::Driver::Police) continue;
-            if (pedestrians_.has_police_for_car(cp.get())) continue;
-            glm::vec3 car_pos = cp->vehicle.position();
-            glm::vec3 d = police_target - car_pos;
-            d.y = 0.f;
-            if (glm::dot(d, d) > 45.f * 45.f) continue;
-
-            glm::vec3 exit = car_pos - cp->vehicle.right() * 2.0f;
-            exit.y = Heightmap::sample(exit.x, exit.z);
-            glm::vec3 to_target = police_target - exit;
-            to_target.y = 0.f;
-            float yaw = glm::length(to_target) > 1e-4f
-                ? glm::degrees(std::atan2(to_target.z, to_target.x))
-                : 0.f;
-            if (pedestrians_.spawn_police_officer(exit, yaw, cp.get())) {
-                cp->driver = TrafficSystem::Driver::Parked;
-                cp->vehicle.set_inputs(0.f, 0.f, 0.f, true);
-            }
-        }
-    }
+    police::spawn_from_cars(wanted_.level(), police_target,
+                             traffic_, pedestrians_);
 
     pedestrians_.update(fdt, camera_.position, world_collision_);
 
@@ -475,108 +471,25 @@ void Application::update(double dt) {
         pedestrians_.process_vehicle_impacts(car_hits);
     }
 
-    for (const auto& ev : pedestrians_.police_vehicle_events()) {
-        for (const auto& cp : traffic_.cars()) {
-            if (!cp || cp.get() != ev.car_id) continue;
-            if (cp->driver == TrafficSystem::Driver::Parked) {
-                cp->driver = TrafficSystem::Driver::Police;
-                cp->vehicle.set_inputs(0.f, 0.f, 0.f, false);
-            }
-            break;
-        }
-    }
+    police::promote_reentered_cars(pedestrians_, traffic_);
 
-    for (const auto& shot : pedestrians_.police_shots()) {
-        glm::vec3 to_player = shot.target - shot.origin;
-        float dist = glm::length(to_player);
-        if (dist < 1e-4f) continue;
-        glm::vec3 dir = to_player / dist;
-        RayHit block = world_collision_.raycast(shot.origin, dir, dist);
-        if (block.hit && block.t < dist - 0.6f) continue;
-
-        audio_.play_gunshot();
-        pedestrians_.notify_gunshot(shot.origin);
-        debug_draw_.line(shot.origin, shot.target);
-        particles_.emit_sparks(shot.target, -dir * 2.f, 4);
-
-        // Distance-spread aim (pedestrian.cpp:advance_police) means the
-        // shot ray may now miss the player entirely. Treat the player as
-        // a vertical capsule of radius PLAYER_HIT_RADIUS_M centred on
-        // the same torso point the police aimed for, and only deduct HP
-        // if the ray's closest approach is inside that radius.
-        constexpr float PLAYER_HIT_RADIUS_M = 0.45f;
+    {
         glm::vec3 player_torso = police_target + glm::vec3{0.f, 1.2f, 0.f};
-        float t_close = glm::clamp(
-            glm::dot(player_torso - shot.origin, dir), 0.f, dist);
-        glm::vec3 closest = shot.origin + dir * t_close;
-        if (glm::length(player_torso - closest) > PLAYER_HIT_RADIUS_M)
-            continue;
-
-        player_.apply_damage(8.f);
-        if (player_.is_dead()) {
+        auto shots = police::resolve_shots(pedestrians_, world_collision_,
+                                            player_torso, player_,
+                                            audio_, particles_, debug_draw_);
+        if (shots.player_died) {
             if (mode_ == Mode::InVehicle) {
                 traffic_.set_player_driver(nullptr);
                 enter_mode(Mode::OnFoot);
             }
             player_.respawn();
             wanted_.reset();
-            break;
         }
     }
 
-    // Spark emission + scrape audio: any car whose substep recorded a
-    // scraping chassis corner over a paved surface (road or sidewalk)
-    // both sprays a burst of sparks and contributes to the looping
-    // metal-scrape sound. Gated to paved surfaces so dirt / grass
-    // off-road slides stay silent and visually clean.
-    float scrape_max_speed = 0.f;
-    {
-        auto try_emit = [&](const TrafficSystem::Car& c) {
-            for (const auto& sc : c.vehicle.scrape_contacts()) {
-                if (!is_paved_surface(sc.world_pos.x, sc.world_pos.z))
-                    continue;
-                // Tangential speed gates emission and density — slow drags
-                // get a couple of weak sparks; high-speed scrapes shower.
-                glm::vec3 tan = sc.world_vel; tan.y = 0.f;
-                float tan_speed = glm::length(tan);
-                if (tan_speed < 2.0f) continue;
-                int count = 3 + static_cast<int>(std::min(10.f,
-                                tan_speed * 0.4f));
-                particles_.emit_sparks(sc.world_pos, sc.world_vel, count);
-                if (tan_speed > scrape_max_speed)
-                    scrape_max_speed = tan_speed;
-            }
-        };
-        if (auto* pc = traffic_.player_car()) try_emit(*pc);
-        // Parked cars (e.g. just-hit AI) might also be scraping. AI cars
-        // are kinematic and never populate scrape_contacts, so the filter
-        // is defensive rather than load-bearing.
-        for (const auto& cp : traffic_.cars()) {
-            if (!cp || cp.get() == traffic_.player_car()) continue;
-            if (cp->driver != TrafficSystem::Driver::AI) try_emit(*cp);
-        }
-    }
+    vehicle_effects::update(fdt, traffic_, particles_, audio_);
     particles_.update(fdt);
-
-    // Drive the looping metal-scrape sound off the same per-frame max.
-    // Sample is already a real metal-on-concrete scrape, so pitch sits
-    // near 1.0 — small speed-driven nudges add life without changing
-    // the timbre. The sample itself is mastered quiet, so we drive
-    // intensity well above 1.0 (miniaudio amplifies past unity) and
-    // floor it with a non-zero MIN so even slow drags are audible.
-    {
-        constexpr float REF_SPEED   = 12.f;  // m/s for full-intensity scrape
-        constexpr float MAX_VOLUME  = 4.0f;
-        constexpr float MIN_VOLUME  = 1.2f;  // floor when scrape is just starting
-        constexpr float BASE_PITCH  = 0.85f;
-        constexpr float PITCH_RANGE = 0.30f;
-        float t = std::min(1.f, scrape_max_speed / REF_SPEED);
-        float intensity = (scrape_max_speed > 0.f)
-                            ? MIN_VOLUME + (MAX_VOLUME - MIN_VOLUME) * t
-                            : 0.f;
-        float pitch     = BASE_PITCH + PITCH_RANGE * t;
-        audio_.update_scrape(fdt, intensity, pitch);
-    }
 
     scene_.update();
 
@@ -634,89 +547,6 @@ void Application::update(double dt) {
 }
 
 
-void Application::log_debug_area() {
-    // Snapshot the world geometry around the player at the moment M is
-    // pressed. Easiest debug surface for roads — copy the output and feed
-    // it back so I can correlate visible artifacts with carved/raw heights
-    // and road-segment sample positions.
-    static int counter = 0;
-    ++counter;
-
-    glm::vec3 pos;
-    glm::vec3 fwd;
-    if (mode_ == Mode::InVehicle && traffic_.player_car()) {
-        pos = traffic_.player_car()->vehicle.position();
-        fwd = traffic_.player_car()->vehicle.orientation() *
-              glm::vec3{0.f, 0.f, -1.f};
-    } else {
-        pos = player_.feet_position();
-        float yr = glm::radians(player_.facing_yaw_deg());
-        fwd = {std::cos(yr), 0.f, std::sin(yr)};
-    }
-
-    CellCoord cell = world_to_cell(pos.x, pos.z, 256.f);
-
-    // Nearest NS / EW road centerlines.
-    int   ns_k = static_cast<int>(std::round(pos.x / ROAD_PITCH));
-    int   ew_k = static_cast<int>(std::round(pos.z / ROAD_PITCH));
-    float ns_x = static_cast<float>(ns_k) * ROAD_PITCH;
-    float ew_z = static_cast<float>(ew_k) * ROAD_PITCH;
-
-    float h_raw_p    = Heightmap::raw_sample(pos.x, pos.z);
-    float h_carved_p = Heightmap::sample(pos.x, pos.z);
-
-    PE_INFO("===== DEBUG #%d =====", counter);
-    PE_INFO("Player    pos=(%.2f, %.2f, %.2f)  cell=(%d, %d)  mode=%s",
-            pos.x, pos.y, pos.z, cell.x, cell.z,
-            mode_ == Mode::InVehicle ? "drive" :
-            mode_ == Mode::DebugFly  ? "fly"   : "on-foot");
-    PE_INFO("Forward   (%.3f, %.3f, %.3f)  bearing=%.1f deg",
-            fwd.x, fwd.y, fwd.z,
-            glm::degrees(std::atan2(fwd.x, -fwd.z)));
-    PE_INFO("Heightmap raw=%.3f  carved=%.3f  delta=%.3f",
-            h_raw_p, h_carved_p, h_carved_p - h_raw_p);
-    PE_INFO("Nearest   NS road x=%.0f (%+.2fm)   EW road z=%.0f (%+.2fm)",
-            ns_x, pos.x - ns_x, ew_z, pos.z - ew_z);
-
-    // 5x5 carved heightmap grid centred on the player, 4 m spacing.
-    PE_INFO("Carved heightmap grid (5x5, 4m, dz row x dx col):");
-    for (int dz = -2; dz <= 2; ++dz) {
-        char line[256] = {};
-        int  n = 0;
-        for (int dx = -2; dx <= 2; ++dx) {
-            float qx = pos.x + static_cast<float>(dx) * 4.f;
-            float qz = pos.z + static_cast<float>(dz) * 4.f;
-            n += std::snprintf(line + n,
-                               sizeof(line) - static_cast<std::size_t>(n),
-                               " %7.2f", Heightmap::sample(qx, qz));
-        }
-        PE_INFO("  z%+3d:%s", dz * 4, line);
-    }
-
-    // Sweep 4m steps for ±20m along nearest NS road centerline.
-    PE_INFO("NS road slab samples at x=%.0f, z = player_z (-20 .. +20):", ns_x);
-    for (int i = -5; i <= 5; ++i) {
-        float qz       = pos.z + static_cast<float>(i) * 4.f;
-        float carved   = Heightmap::sample(ns_x, qz);
-        float raw      = Heightmap::raw_sample(ns_x, qz);
-        PE_INFO("  z=%-9.2f  carved=%-7.3f  raw=%-7.3f  delta=%+.3f",
-                qz, carved, raw, carved - raw);
-    }
-
-    // Same for nearest EW road centerline.
-    PE_INFO("EW road slab samples at z=%.0f, x = player_x (-20 .. +20):", ew_z);
-    for (int i = -5; i <= 5; ++i) {
-        float qx       = pos.x + static_cast<float>(i) * 4.f;
-        float carved   = Heightmap::sample(qx, ew_z);
-        float raw      = Heightmap::raw_sample(qx, ew_z);
-        PE_INFO("  x=%-9.2f  carved=%-7.3f  raw=%-7.3f  delta=%+.3f",
-                qx, carved, raw, carved - raw);
-    }
-
-    PE_INFO("Cell IPL  assets/world/cells/cell_%d_%d.ipl", cell.x, cell.z);
-    PE_INFO("===== END #%d =====", counter);
-}
-
 void Application::render(double /*alpha*/) {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -770,38 +600,19 @@ void Application::render(double /*alpha*/) {
                       static_cast<float>(window_.height()));
 
     // ---- Debug overlay -----------------------------------------------------
-    debug_draw_.clear();
-
-    // Forward raycast (only really useful in DebugFly; harmless otherwise).
-    if (mode_ == Mode::DebugFly) {
-        glm::vec3 ray_origin = camera_.position;
-        glm::vec3 ray_dir    = camera_.forward();
-        RayHit    hit        = world_collision_.raycast(ray_origin, ray_dir, 200.f);
-        last_ray_hit_  = hit.hit;
-        last_ray_dist_ = hit.t;
-        if (hit.hit) { debug_draw_.line(ray_origin, hit.position);
-                       debug_draw_.cross(hit.position, 0.4f); }
-        else         { debug_draw_.line(ray_origin, ray_origin + ray_dir * 200.f); }
-    }
-
-    // Wheel contact markers (player car only; AI cars are kinematic).
-    if (auto* pc = traffic_.player_car()) {
-        for (const Wheel& w : pc->vehicle.wheels()) {
-            if (w.grounded) debug_draw_.cross(w.contact_world, 0.2f);
+    {
+        debug_overlay::RenderState ds;
+        ds.in_debug_fly      = (mode_ == Mode::DebugFly);
+        ds.show_enter_prompt = can_enter_car_ && steal_target_ != nullptr;
+        if (ds.show_enter_prompt) {
+            glm::vec3 base = steal_target_->vehicle.position();
+            base.y -= steal_target_->vehicle.chassis_full_extents.y * 0.5f;
+            ds.enter_prompt_base   = base;
+            ds.enter_prompt_radius = ENTRY_RADIUS;
         }
+        debug_overlay::render(ds, debug_draw_, camera_, vp,
+                               world_collision_, traffic_);
     }
-
-    // Enter-vehicle prompt: ring around the targeted car (parked / AI alike).
-    if (can_enter_car_ && steal_target_) {
-        glm::vec3 base = steal_target_->vehicle.position();
-        base.y -= steal_target_->vehicle.chassis_full_extents.y * 0.5f;
-        debug_draw_.cylinder_xz(base, ENTRY_RADIUS, 0.05f, 32);
-    }
-
-    if (mode_ == Mode::DebugFly)
-        traffic_.debug_draw(debug_draw_);
-
-    debug_draw_.flush(vp, glm::vec3{1.f, 0.85f, 0.2f});
 
     // ---- HUD overlay -------------------------------------------------------
     {

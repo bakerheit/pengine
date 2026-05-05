@@ -41,7 +41,6 @@ private:
 
     void enter_mode(Mode m);
     void try_toggle_vehicle();
-    void log_debug_area();
     void update_in_vehicle(float dt, float mdx, float mdy);
 
     Window         window_;
@@ -98,9 +97,6 @@ private:
     int       fps_frames_  = 0;
     double    max_frame_ms_ = 0.0;
     TimePoint last_frame_{};
-
-    bool      last_ray_hit_  = false;
-    float     last_ray_dist_ = 0.f;
 
     double    world_time_    = 0.0;  // accumulates fixed-timestep seconds
 };
