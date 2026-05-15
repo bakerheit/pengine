@@ -689,19 +689,33 @@ void TrafficSystem::resolve_vehicle_collisions() {
                     b.vehicle.translate(-n * (push * (ma / mt)));
 
                     // Contact point: midpoint between the two visual centres
-                    // in XZ, with Y dropped to the average of the two cars'
-                    // visual bottoms ("bumper height"). Putting Y below both
-                    // CoMs is the load-bearing detail — the resulting r×n
-                    // arm produces a roll torque on side hits, so a fast
-                    // T-bone can flip a stationary car instead of just
-                    // shoving it.
+                    // in XZ. The Y is interpolated between bumper height and
+                    // CoM height based on how head-on the hit is. Below-CoM
+                    // contacts are load-bearing for SIDE hits — the r×n arm
+                    // produces a roll torque so a fast T-bone can flip a car
+                    // instead of just shoving it. But the same arm on a
+                    // longitudinal hit (rear-end / head-on) becomes pure
+                    // PITCH torque, which lifts the rear of the impacting car
+                    // off the ground in a way that takes too long to settle.
+                    // Solution: scale the bumper drop by min(longitudinality_a,
+                    // longitudinality_b), where longitudinality is |n·body_z|.
+                    // A pure rear-end (both cars longitudinal) → contact at
+                    // CoM-Y, no pitch torque. A T-bone (one car broadside) →
+                    // min is low, contact stays at bumper-Y so the side-hit
+                    // car still rolls.
                     glm::vec3 ap = a.vehicle.position();
                     glm::vec3 bp = b.vehicle.position();
                     glm::vec3 a_min = a.vehicle.visual_aabb_min_local();
                     glm::vec3 b_min = b.vehicle.visual_aabb_min_local();
+                    glm::vec3 n_local_a = glm::inverse(a.vehicle.orientation()) * n;
+                    glm::vec3 n_local_b = glm::inverse(b.vehicle.orientation()) * n;
+                    float long_a = std::abs(n_local_a.z);
+                    float long_b = std::abs(n_local_b.z);
+                    float drop_scale = 1.f - std::min(long_a, long_b);
                     glm::vec3 contact{
                         (ap.x + bp.x) * 0.5f,
-                        ((ap.y + a_min.y) + (bp.y + b_min.y)) * 0.5f,
+                        ((ap.y + a_min.y * drop_scale)
+                         + (bp.y + b_min.y * drop_scale)) * 0.5f,
                         (ap.z + bp.z) * 0.5f};
 
                     // Use point velocities (CoM linear + angular×r), not pure
