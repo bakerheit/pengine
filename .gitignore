@@ -11,3 +11,10 @@ compile_commands.json
 # encounter of a cell. Once we move to authored cells, specific files can
 # be force-added.
 assets/world/cells/*.ipl
+
+# Cooked binary assets — built by the meshconv pipeline (see
+# cmake/CookedAssets.cmake). Edit source art under assets/{characters,
+# vehicles,weapons}/<pack>/ and rebuild; never commit cooked output.
+assets/models/**/*.emesh
+assets/models/**/*.eskel
+assets/models/**/*.eanim
