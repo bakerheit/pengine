@@ -50,22 +50,23 @@ int main(int argc, char* argv[]) {
         out_base.compare(out_base.size() - 6, 6, ".emesh") == 0)
         out_base.resize(out_base.size() - 6);
 
+    // Two-pass import. The challenge: aiProcess_PreTransformVertices is
+    // needed for multi-submesh static models (Glock 17: slide/barrel/grip each
+    // at their own node-local origin would otherwise pile up wrong), BUT for
+    // these Characters_psx FBX exports it bakes bone-driven node transforms
+    // into vertex positions and strips the bone hierarchy as a side effect.
+    // The Assimp docs claim PreTransformVertices is skipped for skinned
+    // meshes; empirically it isn't, for these sources. So we probe first
+    // without it to detect skinning, then re-import with it only if the
+    // source is genuinely static.
     Assimp::Importer imp;
+    Assimp::Importer imp_static;
     const aiScene* scene = imp.ReadFile(in_path,
         aiProcess_Triangulate       |
         aiProcess_GenSmoothNormals  |
         aiProcess_CalcTangentSpace  |
         aiProcess_JoinIdenticalVertices |
         aiProcess_LimitBoneWeights  |  // cap to 4 bones per vertex
-        aiProcess_PreTransformVertices | // bake node transforms into static
-                                         // mesh vertices; Assimp safely skips
-                                         // this for skinned meshes (bone
-                                         // hierarchy needs to stay intact).
-                                         // Without it, multi-submesh static
-                                         // models like the Glock 17 collapse
-                                         // each submesh to its node-local
-                                         // origin and the slide/barrel/grip
-                                         // pile up at the wrong positions.
         aiProcess_SortByPType);
 
     // Anim-only FBXs (Mixamo "in-place animation" exports) carry no mesh
@@ -75,6 +76,32 @@ int main(int argc, char* argv[]) {
     if (!scene || !scene->mRootNode) {
         std::fprintf(stderr, "meshconv: Assimp error: %s\n", imp.GetErrorString());
         return 1;
+    }
+
+    bool source_has_bones = false;
+    for (unsigned int mi = 0; mi < scene->mNumMeshes; ++mi) {
+        if (scene->mMeshes[mi]->mNumBones > 0) {
+            source_has_bones = true;
+            break;
+        }
+    }
+
+    // Static sources: re-import with PreTransformVertices so multi-submesh
+    // models cook coherently. If the re-import fails we fall back to the
+    // probe scene — multi-submesh statics may then mis-position, but that's
+    // strictly better than failing the cook.
+    if (!source_has_bones) {
+        const aiScene* static_scene = imp_static.ReadFile(in_path,
+            aiProcess_Triangulate       |
+            aiProcess_GenSmoothNormals  |
+            aiProcess_CalcTangentSpace  |
+            aiProcess_JoinIdenticalVertices |
+            aiProcess_LimitBoneWeights  |
+            aiProcess_PreTransformVertices |
+            aiProcess_SortByPType);
+        if (static_scene && static_scene->mRootNode) {
+            scene = static_scene;
+        }
     }
 
     std::printf("meshconv: scene meshes=%u  animations=%u\n",
