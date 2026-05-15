@@ -1,6 +1,8 @@
 # Asset cooking
 
-This is the reference for cooking source art into the engine's binary formats. For a quickstart, see the "How to cook an asset" section in the [README](../README.md). This document covers the full procedure, conventions, and the silent-failure modes worth knowing about before you start.
+Reference for cooking source art into the engine's binary formats. For a quickstart, see the "How to cook an asset" section in the [README](../README.md).
+
+**Cooking is automated.** `cmake --build build` runs the cooker against any source whose cooked output is missing or older than the source — you don't normally invoke `meshconv` directly. The manifest of "which sources get cooked" lives in [`cmake/CookedAssets.cmake`](../cmake/CookedAssets.cmake); adding a new asset means appending one line there. This document covers the conventions, the intent-function choice, and the silent-failure modes that still apply.
 
 ## Directory conventions
 
@@ -22,13 +24,13 @@ If you cook output into the source tree, the engine won't find it and `git statu
 
 ## What `meshconv` does
 
-`meshconv` reads a source file via Assimp and writes one or more engine binary formats next to a basename you provide:
+`meshconv` reads a source file via Assimp and writes one or more engine binary formats. The shape of the output is determined by what's in the source:
 
-- Static mesh source → `.emesh`
-- Rigged mesh source → `.emesh` + `.eskel` + `.eanim`
-- Animation-only source (no mesh, e.g. Mixamo in-place animation) → `.eanim` only
+- Source with a single static mesh, no bones → `.emesh`
+- Source with a skinned mesh + bones (+ optional animation) → `.emesh` + `.eskel` + `.eanim`
+- Source with no mesh, only animation channels (Mixamo "in-place" export) → `.eanim`
 
-Invocation:
+Invocation when running by hand (rarely needed):
 
 ```sh
 ./build/bin/meshconv <source_file> <output_basename>
@@ -36,36 +38,27 @@ Invocation:
 
 The basename has no extension. `meshconv` appends `.emesh`, `.eskel`, `.eanim` as appropriate.
 
-## Procedure by asset type
+## Adding an asset
 
-### Static mesh (vehicle, weapon, world prop)
+Append one line to `cmake/CookedAssets.cmake` in the section that matches the source's shape. Three intent functions exist:
 
-```sh
-./build/bin/meshconv assets/vehicles/Vehicles_psx/Car\ 08/Car8.obj assets/models/vehicles/car8
-# Produces: assets/models/vehicles/car8.emesh
+```cmake
+# Static mesh — single .emesh output. Used for vehicles, weapons, world props.
+cook_static_mesh("vehicles/Vehicles_psx/Car NN/CarN.obj" "vehicles/carN")
+
+# Skinned mesh — produces .emesh + .eskel + .eanim. Used for characters AND for
+# animation FBX exports that ship an embedded skinned mesh (most Mixamo exports
+# from the Characters_psx pack fall here).
+cook_skinned_mesh("characters/Characters_psx/Models/Male/Character_NN.fbx" "characters/ped_NN")
+
+# Animation-only — produces .eanim. Used for Mixamo "in-place" exports that
+# carry no mesh data at all (the Pistol_Handgun Locomotion Pack files).
+cook_animation("characters/Characters_psx/Animations/Foo.fbx" "characters/foo")
 ```
 
-### Rigged character
+Source paths are relative to `assets/`; output basenames are relative to `assets/models/` and have no extension. The next `cmake --build build` cooks the new entry.
 
-```sh
-./build/bin/meshconv assets/characters/Characters_psx/hero.fbx assets/models/characters/hero
-# Produces: assets/models/characters/hero.emesh
-#           assets/models/characters/hero.eskel
-#           assets/models/characters/hero.eanim
-```
-
-All three files must land in the same directory with the same basename for the engine to load them as a set.
-
-### Animation-only file
-
-For Mixamo-style in-place animation FBX exports that have no mesh:
-
-```sh
-./build/bin/meshconv assets/characters/Characters_psx/walking.fbx assets/models/characters/walking
-# Produces: assets/models/characters/walking.eanim
-```
-
-The resulting `.eanim` can be applied to any character whose skeleton has matching bone names — see the bone-name gotcha below.
+**How to pick the right intent function:** if you're unsure, run `meshconv` by hand once against your source and look at its stdout. If it writes a `.emesh` and prints `bones=N` with N > 0, use `cook_skinned_mesh`. If `bones=0` with a mesh present, use `cook_static_mesh`. If meshconv writes only `.eanim` (no `.emesh`), use `cook_animation`. The choice declares CMake's output set — undeclaring an output file means CMake won't track it for cleaning or dependency invalidation.
 
 ## ⚠️ Source files must be Y-up
 
@@ -89,41 +82,27 @@ The animations already in `assets/models/characters/` work because their source 
 
 ## Verification
 
-There's no headless verifier tool. The realistic verification ladder, in order:
+No headless verifier tool exists. The realistic verification ladder:
 
-**1. Read `meshconv`'s stdout.** The tool prints what it saw in the source and what it wrote:
+**1. Watch `meshconv`'s output during the build.** CMake runs the cooker as part of `cmake --build`; lines like
 
 ```
 meshconv: scene meshes=1 animations=0
   mesh[0]: 'Body' verts=2104 faces=3680 bones=0
-meshconv: wrote assets/models/vehicles/car8.emesh (static) 2104 verts 11040 idx 1 submeshes
+meshconv: wrote ...car8.emesh (static) 2104 verts 11040 idx 1 submeshes
 ```
 
-If `bones=0` on something you expected to be rigged, your source was exported posed rather than rigged. If vertex or face counts look wildly off, the source is wrong. Catch these before launching.
+scroll past during build. If `bones=0` on something you expected to be rigged, your source was exported posed rather than rigged. If vertex or face counts look wildly off, the source is wrong. Build with `-v` (verbose) or scroll back through the build output to see them.
 
-**2. Watch for errors at game startup.** The loaders validate file magic and version on every load. A truncated or stale-format cook produces an error line in the terminal:
+**2. Watch for errors at game startup.** The loaders validate file magic and version on every load. A truncated or version-mismatched cook produces:
 
 ```
 [ERROR] mesh.cpp:185  Mesh: bad magic/version in assets/models/vehicles/car8.emesh
 ```
 
-The `[ERROR]` prefix and `<file>:<line>` are added by the logger. Grep for `[ERROR]` in your game output if you want to catch these cleanly.
+The `[ERROR]` prefix and `<file>:<line>` are added by the logger. Grep stderr for `[ERROR]` in your game output if you want to catch these cleanly. Should be rare now that cooking is automated — used to be the symptom of a stale cook, but stale cooks no longer exist by construction.
 
 **3. Launch and look.** No way around this for visual correctness. There is no preview tool.
-
-## "Did we re-cook?"
-
-The engine has no automated stale-content detection. If you edit a source `.obj` and forget to re-cook, the game loads the old `.emesh` with no warning. The diagnostic is mtime comparison:
-
-```sh
-# Flag any source file newer than the cooked-output directory
-find assets/vehicles assets/characters assets/weapons -name "*.obj" -newer assets/models -print
-find assets/vehicles assets/characters assets/weapons -name "*.fbx" -newer assets/models -print
-```
-
-Granularity is directory-level, not perfect, but it surfaces "you edited source and forgot to cook" cases quickly.
-
-If something looks wrong in-game, this is the first thing to check. Wiring cooking into the build graph is tracked as PBD-003 and will eliminate this class of problem.
 
 ## Other things worth knowing
 
@@ -137,4 +116,4 @@ If something looks wrong in-game, this is the first thing to check. Wiring cooki
 
 **World models use a separate registry.** Adding a model to the world also requires editing `assets/world/streets.ide`, loaded at startup by `ModelRegistry::load_ide`. This is a GTA-III-lineage Item Definition format with its own conventions, not covered in this document.
 
-**Multi-submesh static models need `PreTransformVertices`.** This is handled by `meshconv` automatically. If you ever see a static multi-part model exploding apart in-game with each piece at a different origin, that's the flag (or its absence) at work. See the comment in `tools/meshconv/main.cpp` for the why.
+**Multi-submesh static models need `PreTransformVertices`; rigged sources cannot have it.** `meshconv` decides per-source: it probes the file first without `PreTransformVertices`, detects whether any bones exist, and only re-imports with `PreTransformVertices` if the source is purely static. If you ever see a static multi-part model exploding apart with each piece at a different origin (the Glock 17 was the canonical case), the probe-then-decide logic isn't picking up the static-ness correctly. If you see a character cook as `(static)` with `bones=0` when the source is rigged, the probe import isn't seeing the bones. See `tools/meshconv/main.cpp` for the implementation.

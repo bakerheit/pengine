@@ -210,6 +210,11 @@ set_target_properties(meshconv PROPERTIES
 add_executable(pengine src/main.cpp)
 target_link_libraries(pengine PRIVATE pengine_core)
 
+# --- Cooked assets ----------------------------------------------------------
+# Wires meshconv into the build graph. See cmake/CookedAssets.cmake for the
+# full manifest. Must follow both the meshconv and pengine target definitions.
+include(${CMAKE_SOURCE_DIR}/cmake/CookedAssets.cmake)
+
 # --- Lightweight non-render traffic tests -----------------------------------
 add_executable(traffic_ai_tests
     tests/traffic_ai_tests.cpp
