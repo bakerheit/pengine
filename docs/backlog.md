@@ -41,7 +41,7 @@ Last updated: 2026-05-16 (EPIC-001 v1 shipped; EPIC-002 v1 design checkpoint sig
 | ID | Title | Status | Notes |
 |----|-------|--------|-------|
 | EPIC-001 | Create Map Builder | v1 shipped 2026-05-16 | Inspector-only v1. 5 PBDs (023–027) shipped. |
-| EPIC-002 | Map Builder editing | v1 polish complete; v2 in flight | v1 polish set (035–041) shipped 2026-05-16. v2 Phase A (placement controls 042–044) signed off 2026-05-16. Phase B (per-instance keyboard-modal edit) and Phase C (multi-select, deferred) to follow. |
+| EPIC-002 | Map Builder editing | v1 shipped; v2 Phase A shipped | v1 (030–034 + 035–041 polish) shipped 2026-05-16. v2 Phase A (042/043/033/044 placement controls + persistence + tests) shipped 2026-05-16. Phase B (per-instance keyboard-modal edit) deferred. Phase C (multi-select) deferred until asset variety lands. |
 | EPIC-003 | Authored road network (engine) | Planned (L, 4–6 PBDs) | Engine work. Replace constants-derived road grid with stored per-segment data. Heightmap reads from `RoadGraph` not `classify_road_band`. Unblocks real road add/remove tools. Not sized into PBDs yet. |
 | EPIC-004 | Curved roads (engine) | Spike pending | Major engine work. Touches road representation, mesh gen, AI lane following (rewrite), intersections, heightmap carving, streamer cell-alignment. Architect estimate: 6–10 PBDs, several L+. Next step: a single-PBD spike on the road-representation design, not a full epic scope yet. |
 
