@@ -224,3 +224,13 @@ add_executable(traffic_ai_tests
 target_include_directories(traffic_ai_tests PRIVATE src)
 target_link_libraries(traffic_ai_tests PRIVATE glm::glm Threads::Threads)
 add_test(NAME traffic_ai_tests COMMAND traffic_ai_tests)
+
+# --- TrafficSystem characterization tests (PBD-006) -------------------------
+# Heavier than traffic_ai_tests: instantiates a real TrafficSystem with Scene,
+# RoadGraph, and WorldCollision to pin down orchestration-level behavior
+# (spawning, lane assignment, recovery, patience) in advance of the PBD-007
+# split. Links the full pengine_core because the system pulls in scene /
+# physics / world infrastructure.
+add_executable(traffic_system_tests tests/traffic_system_tests.cpp)
+target_link_libraries(traffic_system_tests PRIVATE pengine_core)
+add_test(NAME traffic_system_tests COMMAND traffic_system_tests)
