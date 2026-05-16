@@ -186,6 +186,97 @@ constexpr std::array<Stroke, 2> G_DOT{{
     {{0.4f, 0.f}, {0.6f, 0.f}},
     {{0.4f, 0.f}, {0.6f, 0.f}}, // pad (same)
 }};
+constexpr std::array<Stroke, 2> G_COMMA{{
+    {{0.55f, 0.1f}, {0.4f, -0.1f}},
+    {{0.55f, 0.1f}, {0.4f, -0.1f}}, // pad
+}};
+constexpr std::array<Stroke, 2> G_COLON{{
+    {{0.4f, 0.7f}, {0.6f, 0.7f}},
+    {{0.4f, 0.3f}, {0.6f, 0.3f}},
+}};
+constexpr std::array<Stroke, 2> G_EQ{{
+    {{0.15f, 0.35f}, {0.85f, 0.35f}},
+    {{0.15f, 0.65f}, {0.85f, 0.65f}},
+}};
+constexpr std::array<Stroke, 1> G_SLASH{{
+    {{0.f, 0.f}, {1.f, 1.f}},
+}};
+constexpr std::array<Stroke, 3> G_LPAREN{{
+    {{0.7f, 1.f},  {0.3f, 0.7f}},
+    {{0.3f, 0.7f}, {0.3f, 0.3f}},
+    {{0.3f, 0.3f}, {0.7f, 0.f}},
+}};
+constexpr std::array<Stroke, 3> G_RPAREN{{
+    {{0.3f, 1.f},  {0.7f, 0.7f}},
+    {{0.7f, 0.7f}, {0.7f, 0.3f}},
+    {{0.7f, 0.3f}, {0.3f, 0.f}},
+}};
+constexpr std::array<Stroke, 2> G_PLUS{{
+    {{0.5f, 0.2f}, {0.5f, 0.8f}},
+    {{0.2f, 0.5f}, {0.8f, 0.5f}},
+}};
+
+// Digits 0-9.
+constexpr std::array<Stroke, 4> G_0{{
+    {{0.f, 0.f}, {0.f, 1.f}},
+    {{0.f, 1.f}, {1.f, 1.f}},
+    {{1.f, 1.f}, {1.f, 0.f}},
+    {{1.f, 0.f}, {0.f, 0.f}},
+}};
+constexpr std::array<Stroke, 2> G_1{{
+    {{0.4f, 0.8f}, {0.5f, 1.f}},
+    {{0.5f, 1.f},  {0.5f, 0.f}},
+}};
+constexpr std::array<Stroke, 5> G_2{{
+    {{0.f, 1.f},  {1.f, 1.f}},
+    {{1.f, 1.f},  {1.f, 0.5f}},
+    {{1.f, 0.5f}, {0.f, 0.5f}},
+    {{0.f, 0.5f}, {0.f, 0.f}},
+    {{0.f, 0.f},  {1.f, 0.f}},
+}};
+constexpr std::array<Stroke, 4> G_3{{
+    {{0.f, 1.f},  {1.f, 1.f}},
+    {{1.f, 1.f},  {1.f, 0.f}},
+    {{1.f, 0.f},  {0.f, 0.f}},
+    {{0.f, 0.5f}, {1.f, 0.5f}},
+}};
+constexpr std::array<Stroke, 3> G_4{{
+    {{0.f, 1.f},  {0.f, 0.5f}},
+    {{0.f, 0.5f}, {1.f, 0.5f}},
+    {{1.f, 1.f},  {1.f, 0.f}},
+}};
+constexpr std::array<Stroke, 5> G_5{{
+    {{1.f, 1.f},  {0.f, 1.f}},
+    {{0.f, 1.f},  {0.f, 0.5f}},
+    {{0.f, 0.5f}, {1.f, 0.5f}},
+    {{1.f, 0.5f}, {1.f, 0.f}},
+    {{1.f, 0.f},  {0.f, 0.f}},
+}};
+constexpr std::array<Stroke, 5> G_6{{
+    {{1.f, 1.f},  {0.f, 1.f}},
+    {{0.f, 1.f},  {0.f, 0.f}},
+    {{0.f, 0.f},  {1.f, 0.f}},
+    {{1.f, 0.f},  {1.f, 0.5f}},
+    {{1.f, 0.5f}, {0.f, 0.5f}},
+}};
+constexpr std::array<Stroke, 2> G_7{{
+    {{0.f, 1.f}, {1.f, 1.f}},
+    {{1.f, 1.f}, {0.f, 0.f}},
+}};
+constexpr std::array<Stroke, 5> G_8{{
+    {{0.f, 0.f},  {0.f, 1.f}},
+    {{0.f, 1.f},  {1.f, 1.f}},
+    {{1.f, 1.f},  {1.f, 0.f}},
+    {{1.f, 0.f},  {0.f, 0.f}},
+    {{0.f, 0.5f}, {1.f, 0.5f}},
+}};
+constexpr std::array<Stroke, 5> G_9{{
+    {{1.f, 0.f},  {1.f, 1.f}},
+    {{1.f, 1.f},  {0.f, 1.f}},
+    {{0.f, 1.f},  {0.f, 0.5f}},
+    {{0.f, 0.5f}, {1.f, 0.5f}},
+    {{1.f, 0.5f}, {0.f, 0.f}},
+}};
 
 // Dispatch: given a glyph char, append its strokes to `out`. Returns the
 // glyph's advance width in unit-box units (1.0 for letters, 0.4 for space).
@@ -224,8 +315,27 @@ GlyphInfo lookup(char c) {
         case 'X': return {G_X.data(),  2, 1.f};
         case 'Y': return {G_Y.data(),  3, 1.f};
         case 'Z': return {G_Z.data(),  3, 1.f};
-        case '-': return {G_DASH.data(), 1, 0.8f};
-        case '.': return {G_DOT.data(),  1, 0.4f};
+        case '0': return {G_0.data(), 4, 1.f};
+        case '1': return {G_1.data(), 2, 0.7f};
+        case '2': return {G_2.data(), 5, 1.f};
+        case '3': return {G_3.data(), 4, 1.f};
+        case '4': return {G_4.data(), 3, 1.f};
+        case '5': return {G_5.data(), 5, 1.f};
+        case '6': return {G_6.data(), 5, 1.f};
+        case '7': return {G_7.data(), 2, 1.f};
+        case '8': return {G_8.data(), 5, 1.f};
+        case '9': return {G_9.data(), 5, 1.f};
+        case '-': return {G_DASH.data(),   1, 0.8f};
+        case '.': return {G_DOT.data(),    1, 0.4f};
+        case ',': return {G_COMMA.data(),  1, 0.4f};
+        case ':': return {G_COLON.data(),  2, 0.5f};
+        case '=': return {G_EQ.data(),     2, 1.f};
+        case '/': return {G_SLASH.data(),  1, 0.8f};
+        case '(': return {G_LPAREN.data(), 3, 0.6f};
+        case ')': return {G_RPAREN.data(), 3, 0.6f};
+        case '+': return {G_PLUS.data(),   2, 0.8f};
+        case '|': return {G_DASH.data(),   1, 0.4f}; // approximate
+        case '_': return {G_DASH.data(),   1, 0.8f};
         case ' ': return {nullptr, 0, 0.5f};
         default:  return {nullptr, 0, 0.5f}; // unknown -> blank space
     }
@@ -472,6 +582,59 @@ void Menu::draw(const DrawState& s) {
     shader_.set("u_viewport_px",      s.viewport_size_px);
     // Effectively disable the unit-circle clip/rim that the minimap shader
     // uses for the radar.
+    shader_.set("u_clip_radius",      1.0e9f);
+    shader_.set("u_rim_radius",       1.0e9f);
+
+    glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(verts.size()));
+
+    glBindVertexArray(0);
+    if (depth_was) glEnable(GL_DEPTH_TEST);
+    if (cull_was)  glEnable(GL_CULL_FACE);
+}
+
+// PBD-026: small text-helper for the Map Builder inspector readout.
+// Renders a vertical stack of stroke-font lines without any of the
+// full-screen background / centering decoration that `draw()` does. Reuses
+// the same shader + VBO so we don't introduce a second text path.
+void Menu::draw_text_lines(const TextLines& t) {
+    if (t.viewport_size_px.x <= 0.f || t.viewport_size_px.y <= 0.f) return;
+    if (!t.lines || t.count <= 0) return;
+
+    std::vector<Vertex> verts;
+    verts.reserve(static_cast<std::size_t>(t.count) * 64u);
+
+    const float row_h = t.glyph_h_px * 1.45f;  // ~45% line gap, like the menu items
+    for (int i = 0; i < t.count; ++i) {
+        const char* s = t.lines[i] ? t.lines[i] : "";
+        glm::vec2 origin{t.origin_top_left_px.x,
+                          t.origin_top_left_px.y + static_cast<float>(i) * row_h};
+        emit_string(verts, s, origin, t.glyph_h_px,
+                    t.thickness_px, GLYPH_SPACING, t.color);
+    }
+
+    if (verts.empty()) return;
+
+    glBindVertexArray(vao_);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+    std::size_t bytes = verts.size() * sizeof(Vertex);
+    if (bytes > vbo_capacity_) {
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(bytes),
+                     verts.data(), GL_STREAM_DRAW);
+        vbo_capacity_ = bytes;
+    } else {
+        glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(bytes),
+                        verts.data());
+    }
+
+    GLboolean depth_was = glIsEnabled(GL_DEPTH_TEST);
+    GLboolean cull_was  = glIsEnabled(GL_CULL_FACE);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+
+    shader_.use();
+    shader_.set("u_screen_centre_px", glm::vec2{0.f, 0.f});
+    shader_.set("u_radius_px",        1.0f);
+    shader_.set("u_viewport_px",      t.viewport_size_px);
     shader_.set("u_clip_radius",      1.0e9f);
     shader_.set("u_rim_radius",       1.0e9f);
 

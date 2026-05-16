@@ -48,6 +48,23 @@ public:
 
     Stats stats() const;
 
+    // Result of a geometric pick. Returned by `query_instance_at` when a
+    // streamed instance's world-space AABB contains the query XZ point.
+    // `cell` is the cell that owned the instance at activation time.
+    struct PickResult {
+        bool        hit      = false;
+        CellCoord   cell     {};
+        InstanceDef instance {};       // copy — caller can outlive the streamer
+        AABB        world_aabb {};     // post-transform world-space bounds
+    };
+
+    // Find the topmost streamed instance whose world-space AABB contains
+    // (world_x, *, world_z). "Topmost" = the one with the highest aabb.max.y,
+    // which under the top-down inspector camera reads as "the thing the cursor
+    // is over." Safe to call from the main thread: only `pump()` mutates
+    // `loaded_`, and `pump()` is itself main-thread-only.
+    PickResult query_instance_at(float world_x, float world_z) const;
+
 private:
     void thread_func();
 
@@ -71,6 +88,13 @@ private:
     struct LoadedCell {
         std::vector<SceneNode*> nodes;
         Mesh                    terrain_mesh;
+        // PBD-026: keep the original IPL records and their world-space AABBs
+        // alongside the live scene nodes so the inspector can pick by XZ and
+        // surface model_id/lod_pair/etc. Parallel arrays: `instances[i]`
+        // corresponds to `instance_world_aabbs[i]`. The terrain pseudo-node
+        // is intentionally not represented here (no model_id, not pickable).
+        std::vector<InstanceDef> instances;
+        std::vector<AABB>        instance_world_aabbs;
     };
     std::unordered_map<CellCoord, LoadedCell, CellCoordHash> loaded_;
 

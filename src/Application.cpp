@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <unordered_set>
 #include <vector>
 
@@ -18,6 +19,7 @@
 #include "scene/frustum.h"
 #include "scene/scene_node.h"
 #include "world/heightmap.h"
+#include "world/model_def.h"
 #include "world/road_grid.h"
 #include "world/world_defs.h"
 
@@ -741,16 +743,135 @@ void Application::render_map_builder() {
         debug_draw_.flush(vp, glm::vec3{1.f, 1.f, 0.15f});
     }
 
-    // Footer hint via the existing menu widget. Title is empty so the widget
-    // only draws the footer band — keeps the world view uncluttered.
-    Menu::DrawState ms;
-    ms.viewport_size_px = {static_cast<float>(window_.width()),
-                            static_cast<float>(window_.height())};
-    ms.title      = "";
-    ms.items      = nullptr;
-    ms.item_count = 0;
-    ms.footer     = "WASD PAN   WHEEL ZOOM   ESC BACK";
-    menu_.draw(ms);
+    // ---- Inspector (PBD-026) -----------------------------------------------
+    // Screen-centre cursor: under the top-down camera (pitch ~ -89°), a ray
+    // through screen-centre hits world XZ essentially at the camera's own XZ,
+    // so we skip the unproject and just pick at (cam.x, cam.z). Mouse-position
+    // picking is deferred — screen-centre is enough for v1 (see PBD-026
+    // ticket scope) and reads naturally as "what is dead-centre of the view."
+    {
+        const float wx = map_cam_pos_.x;
+        const float wz = map_cam_pos_.z;
+        Streamer::PickResult pick = streamer_.query_instance_at(wx, wz);
+
+        // Centre crosshair — always drawn so the user can see what they're
+        // aiming at, even when the pick misses (e.g. cursor over terrain or
+        // an unloaded cell). Sized to read against both bright and dim
+        // overlays.
+        debug_draw_.clear();
+        {
+            const float y_lift   = 1.0f;
+            const float cs       = std::clamp(map_cam_pos_.y * 0.012f, 1.5f, 6.f);
+            const float y        = Heightmap::sample(wx, wz) + y_lift;
+            debug_draw_.line({wx - cs, y, wz}, {wx + cs, y, wz});
+            debug_draw_.line({wx, y, wz - cs}, {wx, y, wz + cs});
+        }
+        debug_draw_.flush(vp, glm::vec3{1.f, 1.f, 1.f});
+
+        // Format the readout. C-style strings owned by a local buffer pool;
+        // pointers fed to Menu::draw_text_lines outlive that single call.
+        constexpr int   MAX_LINES = 8;
+        char            line_buf[MAX_LINES][96];
+        const char*     lines[MAX_LINES] = {};
+        int             nlines = 0;
+        glm::vec3       text_col;
+
+        if (pick.hit) {
+            const ModelDef* mdef = world_models_.get(pick.instance.model_id);
+            const char* name = (mdef && !mdef->name.empty()) ? mdef->name.c_str()
+                                                              : "(unknown)";
+            const auto& p = pick.instance.transform.position;
+            const auto& s = pick.instance.transform.scale;
+            const uint32_t lod = pick.instance.lod_pair;
+
+            std::snprintf(line_buf[0], sizeof(line_buf[0]),
+                          "INSPECTOR");
+            std::snprintf(line_buf[1], sizeof(line_buf[1]),
+                          "ID  %u", pick.instance.model_id);
+            std::snprintf(line_buf[2], sizeof(line_buf[2]),
+                          "NAME  %s", name);
+            std::snprintf(line_buf[3], sizeof(line_buf[3]),
+                          "POS  (%.1f, %.1f, %.1f)", p.x, p.y, p.z);
+            std::snprintf(line_buf[4], sizeof(line_buf[4]),
+                          "SCL  (%.2f, %.2f, %.2f)", s.x, s.y, s.z);
+            std::snprintf(line_buf[5], sizeof(line_buf[5]),
+                          "CELL  (%d, %d)", pick.cell.x, pick.cell.z);
+            // IPL flags: the per-instance IPL has no flags field today, only
+            // an optional lod pair. Surface the lod_pair when set (0xFFFFFFFF
+            // is the "unset" sentinel — round-tripped IPLs always read as
+            // unset because save_ipl doesn't yet write it; tracked as a
+            // follow-up). Also include the model-level flags from the
+            // registry — those are what tooling actually wants when asking
+            // "is this a building/road/walk."
+            const char* mflags = mdef ? format_model_flags(mdef->flags) : "?";
+            if (lod == 0xFFFFFFFFu) {
+                std::snprintf(line_buf[6], sizeof(line_buf[6]),
+                              "FLAGS  %s   LOD  NONE", mflags);
+            } else {
+                std::snprintf(line_buf[6], sizeof(line_buf[6]),
+                              "FLAGS  %s   LOD  %u", mflags, lod);
+            }
+            for (int i = 0; i < 7; ++i) lines[i] = line_buf[i];
+            nlines = 7;
+            text_col = glm::vec3{0.95f, 0.92f, 0.55f};
+
+            // Outline the picked AABB so the user has visual confirmation
+            // the cursor and the readout are talking about the same thing.
+            debug_draw_.clear();
+            debug_draw_.box(pick.world_aabb.min, pick.world_aabb.max);
+            debug_draw_.flush(vp, glm::vec3{1.f, 0.3f, 1.f});
+        } else {
+            std::snprintf(line_buf[0], sizeof(line_buf[0]), "INSPECTOR");
+            std::snprintf(line_buf[1], sizeof(line_buf[1]), "NO SELECTION");
+            lines[0] = line_buf[0];
+            lines[1] = line_buf[1];
+            nlines   = 2;
+            text_col = glm::vec3{0.55f, 0.62f, 0.66f};
+        }
+
+        Menu::TextLines tl;
+        tl.lines              = lines;
+        tl.count              = nlines;
+        // Bottom-left, above the existing footer band (footer sits at vh-60
+        // with ~20px glyphs; leave room for ~7 inspector rows at 18px each).
+        tl.origin_top_left_px = {24.f,
+                                  static_cast<float>(window_.height()) -
+                                      60.f - 28.f -
+                                      static_cast<float>(nlines) * 26.f};
+        tl.glyph_h_px         = 18.f;
+        tl.thickness_px       = 2.f;
+        tl.color              = text_col;
+        tl.viewport_size_px   = {static_cast<float>(window_.width()),
+                                  static_cast<float>(window_.height())};
+        menu_.draw_text_lines(tl);
+    }
+
+    // Footer hint, rendered via the small text-helper rather than the full
+    // Menu widget. Menu::draw paints a full-screen background quad (intended
+    // for actual menu screens with no scene behind them) which would clobber
+    // the world view here; draw_text_lines doesn't, so the footer text sits
+    // cleanly over the rendered scene. (PBD-025 used menu_.draw here, which
+    // is the latent bug — see PBD-026 report.)
+    {
+        const char* footer = "WASD PAN   WHEEL ZOOM   ESC BACK";
+        const char* footer_lines[] = {footer};
+        Menu::TextLines fl;
+        fl.lines              = footer_lines;
+        fl.count              = 1;
+        // Approximate centring: use the same anchor Menu::draw used (cx -
+        // half the line width), at vh - 60 from the top.
+        const float vw = static_cast<float>(window_.width());
+        const float vh = static_cast<float>(window_.height());
+        // crude width estimate: 0.7 chars per unit-box-unit at glyph_h 20px.
+        const float approx_w = static_cast<float>(std::strlen(footer)) *
+                                20.f * 0.8f;
+        fl.origin_top_left_px = {vw * 0.5f - approx_w * 0.5f, vh - 60.f};
+        fl.glyph_h_px         = 20.f;
+        fl.thickness_px       = 2.f;
+        fl.color              = glm::vec3{0.55f, 0.62f, 0.66f};
+        fl.viewport_size_px   = {vw, vh};
+        menu_.draw_text_lines(fl);
+    }
 
     window_.swap();
 }

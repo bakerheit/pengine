@@ -34,6 +34,25 @@ public:
 
     void draw(const DrawState& s);
 
+    // Lightweight key/value readout helper (PBD-026). Draws a vertical stack
+    // of stroke-font lines anchored at `origin_top_left_px` in the same
+    // coordinate space as `draw()` (pixels, +Y down). Does NOT clear the
+    // framebuffer or draw a background — the caller has already rendered the
+    // scene and wants the text to overlay it.
+    //
+    // Used by the Map Builder inspector to render the picked-instance
+    // readout in a corner of the screen.
+    struct TextLines {
+        const char* const* lines = nullptr;   // array of C strings
+        int                count = 0;
+        glm::vec2          origin_top_left_px {0.f};
+        float              glyph_h_px         = 18.f;
+        float              thickness_px       = 2.f;
+        glm::vec3          color              {0.95f, 0.92f, 0.55f};
+        glm::vec2          viewport_size_px   {0.f};
+    };
+    void draw_text_lines(const TextLines& t);
+
     struct Vertex {
         glm::vec2 pos;     // pixel coords
         glm::vec3 color;
