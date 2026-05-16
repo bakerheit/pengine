@@ -1204,36 +1204,36 @@ void Application::render_map_builder() {
                               viewport_px);
 
             // Text pass: header first in its own colour, then the data rows.
-            // We render in two slices so the selected row can use a brighter
-            // colour against the highlight bar without colouring every row.
+            // Uses Text (TTF) to match the inspector + footer. PBD-030 was
+            // originally authored against Menu::draw_text_lines because the
+            // Text class was uncommitted when it was scoped; reconciled to
+            // Text here as part of the merge.
             {
                 const char* head_lines[1] = {row_ptrs[0]};
-                Menu::TextLines hl;
+                Text::DrawState hl;
                 hl.lines              = head_lines;
                 hl.count              = 1;
                 hl.origin_top_left_px = {pal_x, pal_y};
                 hl.glyph_h_px         = glyph_h;
-                hl.thickness_px       = 2.f;
-                hl.color              = glm::vec3{0.55f, 0.62f, 0.66f};
+                hl.color              = glm::vec3{0.70f, 0.76f, 0.82f};
                 hl.viewport_size_px   = viewport_px;
-                menu_.draw_text_lines(hl);
+                text_.draw_lines(hl);
             }
 
             for (int i = 0; i < max_data_rows; ++i) {
                 const char* one[1] = {row_ptrs[i + 1]};
-                Menu::TextLines rl;
+                Text::DrawState rl;
                 rl.lines              = one;
                 rl.count              = 1;
                 rl.origin_top_left_px = {pal_x,
                                           pal_y + title_h +
                                               static_cast<float>(i) * row_h};
                 rl.glyph_h_px         = glyph_h;
-                rl.thickness_px       = 2.f;
                 rl.color = (i == map_palette_selection_)
-                               ? glm::vec3{0.98f, 0.92f, 0.45f}
-                               : glm::vec3{0.86f, 0.90f, 0.92f};
+                               ? glm::vec3{1.0f, 0.95f, 0.55f}
+                               : glm::vec3{0.92f, 0.94f, 0.98f};
                 rl.viewport_size_px   = viewport_px;
-                menu_.draw_text_lines(rl);
+                text_.draw_lines(rl);
             }
         }
     }
