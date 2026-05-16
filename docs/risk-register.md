@@ -164,6 +164,8 @@ Works at team size two with high trust. Breaks the day a new dev's third commit 
 
 When raised, framing should be "here's what happened, here's what would have helped" rather than "we should mandate PRs." Concrete trigger beats abstract policy.
 
+**Trigger fired 2026-05-16:** team crossed three engineers (Frank, Marin, Mira, Priya all shipping concurrently), with Frank/Marin colliding on `Application.cpp` regions on day one. Response is PBD-047 (lightweight PR workflow, two-sprint trial, retro afterward). See `docs/pr_workflow.md`. Entry stays open until the trial retro; revisit if PBD-014 lands inside the window.
+
 ### Source art checked into the repo
 
 Tracked as PBD-012 in the active backlog. Not urgent today; gets meaningfully more expensive as the repo grows. The asset directory size estimate of "90+ MB" used earlier in conversation may have drifted — worth running `du -sh assets/` when PBD-012 is picked up and confirming the current figure. **Anticipated latent-state discovery:** PBD-012 will likely surface files that shouldn't have been in git in the first place (`.DS_Store`, build artifacts, accidentally-committed binaries). Pre-budgeted.
