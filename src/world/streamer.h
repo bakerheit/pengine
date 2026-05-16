@@ -127,6 +127,14 @@ public:
     void save_dirty_cell(CellCoord cell);
     void save_all_dirty_cells();
 
+    // PBD-034: snapshot of currently-loaded cell coordinates. Used by the
+    // Map Builder undo/redo stack to detect mid-frame evictions: each frame
+    // it compares this set against last frame's, and any cell that dropped
+    // out must have its pending undo/redo entries cleared (the streamer no
+    // longer holds the live instance state those entries refer to).
+    // Main-thread-only; same invariant as `add_instance` / `remove_instance`.
+    std::vector<CellCoord> loaded_cell_coords() const;
+
 private:
     void thread_func();
 

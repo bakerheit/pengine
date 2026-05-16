@@ -252,6 +252,16 @@ Streamer::Stats Streamer::stats() const {
     return {static_cast<int>(loaded_.size()), nodes};
 }
 
+// PBD-034: snapshot the currently-loaded cell coordinates so the Map Builder
+// can compute the per-frame evict delta. Same thread invariant as the other
+// `loaded_`-readers — caller is expected to be on the main thread post-pump.
+std::vector<CellCoord> Streamer::loaded_cell_coords() const {
+    std::vector<CellCoord> out;
+    out.reserve(loaded_.size());
+    for (const auto& kv : loaded_) out.push_back(kv.first);
+    return out;
+}
+
 // PBD-026: geometric instance pick for the Map Builder inspector.
 //
 // Thread safety: `loaded_` is only mutated inside `pump()`, which is itself

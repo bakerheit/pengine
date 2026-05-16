@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "audio/audio_engine.h"
@@ -277,6 +278,58 @@ private:
     static constexpr float MAP_PLACE_FREE_SCALE_MAX  = 8.0f;
     static constexpr float MAP_PLACE_FREE_SCALE_STEP = 0.10f; // per wheel tick
     static constexpr float MAP_PLACE_YAW_DETENT_DEG  = 15.0f;
+
+    // PBD-034: Map Builder undo/redo command stack. The vocabulary is two
+    // inverse pairs — Place's inverse is "remove the instance at the saved
+    // (cell, instance_def)"; Delete's inverse is "re-add it." We snapshot
+    // the full `InstanceDef` (position, scale, rotation, model id) into each
+    // command so redo restores exactly what was placed/removed.
+    //
+    // Stack semantics match standard text-editor conventions:
+    //   - Every successful place/delete pushes onto `undo_stack_` and clears
+    //     `redo_stack_` (any new edit invalidates the redo history).
+    //   - Ctrl+Z pops `undo_stack_`, applies the inverse, pushes the same
+    //     command onto `redo_stack_`.
+    //   - Ctrl+Y pops `redo_stack_`, re-applies, pushes back onto `undo_stack_`.
+    //
+    // Fixed depth (`MAX_UNDO_DEPTH`) — when the undo stack is full we drop
+    // the oldest entry (FIFO from the front) before pushing. Memory bound is
+    // 64 × sizeof(EditCommand) ≈ a few KB; negligible.
+    //
+    // V1 simplification: when a cell evicts, any undo entry referencing it
+    // is no longer safely replayable (the streamer's `loaded_[cell]` is gone
+    // and the on-disk IPL would clash on re-add). `last_loaded_cells_`
+    // tracks which cells were resident last frame; in `update_map_builder`
+    // we recompute the loaded set after `pump()` and drop matching entries
+    // from both stacks. Resets — like the placement state — on
+    // `enter_app_state(MapBuilder)`.
+    struct EditCommand {
+        enum class Kind { Place, Delete };
+        Kind        kind;
+        CellCoord   cell;
+        InstanceDef instance;
+    };
+    static constexpr std::size_t MAX_UNDO_DEPTH = 64;
+    std::vector<EditCommand> undo_stack_;
+    std::vector<EditCommand> redo_stack_;
+    std::unordered_set<CellCoord, CellCoordHash> last_loaded_cells_;
+
+    // Push a fresh edit onto the undo stack, clear the redo stack (standard
+    // "new edit invalidates redo history"), and cap depth at MAX_UNDO_DEPTH
+    // by dropping the oldest entry.
+    void push_edit_command(EditCommand cmd);
+    // Pop from undo, apply the inverse via the streamer, push onto redo.
+    // No-op if the undo stack is empty or the target cell isn't loaded
+    // (defensive — `drop_evicted_commands` should keep that from happening,
+    // but the streamer-call return values still gate the redo push).
+    void apply_undo();
+    // Symmetric: pop from redo, re-apply, push onto undo.
+    void apply_redo();
+    // Walk both stacks and erase any entry whose `cell` isn't in
+    // `currently_loaded`. Called from `update_map_builder` immediately after
+    // `streamer_.pump()` when an eviction is detected.
+    void drop_evicted_commands(
+        const std::unordered_set<CellCoord, CellCoordHash>& currently_loaded);
 
     // PBD-037: Map Builder bar hover state. Refreshed every frame in
     // `update_map_builder` by re-hit-testing the (DPI-scaled) mouse against

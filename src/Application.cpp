@@ -390,6 +390,16 @@ void Application::enter_app_state(AppState s) {
         // MapBuilder is a clean slate, same policy as `map_size_preset_`.
         map_place_free_scale_ = 1.0f;
         map_place_yaw_deg_    = 0.0f;
+        // PBD-034: undo/redo are intentionally NOT cross-session — the
+        // architect's "vanishes on app restart" doctrine. Re-entering
+        // MapBuilder is treated as a fresh session for that purpose too:
+        // any leftover stack from a previous session would point at cells
+        // we're not guaranteed to still have loaded the same way. The
+        // `last_loaded_cells_` snapshot also resets so the first
+        // post-entry `pump()` doesn't see a spurious eviction delta.
+        undo_stack_.clear();
+        redo_stack_.clear();
+        last_loaded_cells_.clear();
     }
 }
 
@@ -694,6 +704,25 @@ void Application::process_map_builder_events() {
     if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
         running_ = false;
 
+    // PBD-034: undo / redo hotkeys. Match the existing Ctrl+Q chord pattern
+    // (modifier `down`, action key `pressed`). Both LCTRL and RCTRL count —
+    // text editors that bind only one always annoy a fraction of users.
+    // Redo binding: Ctrl+Y. Ctrl+Shift+Z was the alternative; we picked
+    // Ctrl+Y for v1 because (a) it's a single-modifier chord (cheaper for
+    // the user's pinky during a rapid undo/redo dance), (b) the existing
+    // editor has no other Y binding to conflict with, and (c) the bottom-
+    // footer hint is shorter ("CTRL-Y REDO" vs "CTRL-SHIFT-Z REDO"), which
+    // matters now that the line is already at 1080p comfort limits
+    // post-PBD-043. Gated behind `!map_input_active_` like every other
+    // hotkey — Ctrl+Z while typing in the cell-jump prompt is reserved
+    // for future "undo last char" if anyone wants it.
+    if (!map_input_active_) {
+        const bool undo_ctrl_down = input_.down(SDL_SCANCODE_LCTRL) ||
+                                    input_.down(SDL_SCANCODE_RCTRL);
+        if (undo_ctrl_down && input_.pressed(SDL_SCANCODE_Z)) apply_undo();
+        if (undo_ctrl_down && input_.pressed(SDL_SCANCODE_Y)) apply_redo();
+    }
+
     // PBD-031 / PBD-032: left-click dispatch. Edge-triggered via Input's
     // mouse_pressed (set on SDL_MOUSEBUTTONDOWN, cleared by next
     // begin_frame), so one click produces exactly one action regardless of
@@ -945,6 +974,23 @@ void Application::update_map_builder(float dt) {
     if (map_input_active_) {
         streamer_.pump(map_cam_pos_);
         scene_.update();
+        // PBD-034: even during a cell-jump prompt the camera can jump on
+        // Enter, which can trigger evictions on the next frame's pump.
+        // Refresh the snapshot here so the post-jump frame's eviction
+        // detection has a current baseline. Stacks themselves don't
+        // mutate in this branch (no edits while typing).
+        if (!undo_stack_.empty() || !redo_stack_.empty()) {
+            std::vector<CellCoord> now = streamer_.loaded_cell_coords();
+            std::unordered_set<CellCoord, CellCoordHash> now_set;
+            now_set.reserve(now.size());
+            for (CellCoord c : now) now_set.insert(c);
+            bool any_evicted = false;
+            for (CellCoord c : last_loaded_cells_) {
+                if (!now_set.count(c)) { any_evicted = true; break; }
+            }
+            if (any_evicted) drop_evicted_commands(now_set);
+            last_loaded_cells_ = std::move(now_set);
+        }
         return;
     }
 
@@ -1020,6 +1066,39 @@ void Application::update_map_builder(float dt) {
 
     // Flush pending scene additions from streamer loads.
     scene_.update();
+
+    // PBD-034: detect cells that just evicted and drop any undo/redo entries
+    // referencing them. Eviction handling strategy: Application-side delta
+    // — snapshot `last_loaded_cells_` last frame, compare against the new
+    // set this frame, anything in the old set but not the new set just
+    // evicted. Cheaper than a Streamer-side callback and keeps the
+    // command-stack ownership entirely in Application. Note we only do
+    // this when at least one stack is non-empty; the common case (no
+    // pending edits) skips the comparison entirely.
+    if (!undo_stack_.empty() || !redo_stack_.empty()) {
+        std::vector<CellCoord> now = streamer_.loaded_cell_coords();
+        std::unordered_set<CellCoord, CellCoordHash> now_set;
+        now_set.reserve(now.size());
+        for (CellCoord c : now) now_set.insert(c);
+        // If any previously-loaded cell isn't loaded now, an evict happened
+        // — sweep the stacks. We could compute the symmetric difference
+        // and only sweep when it's non-empty, but the loop inside
+        // drop_evicted_commands is already O(stack-size) and stacks are
+        // tiny (≤64); the redundant call is invisible cost.
+        bool any_evicted = false;
+        for (CellCoord c : last_loaded_cells_) {
+            if (!now_set.count(c)) { any_evicted = true; break; }
+        }
+        if (any_evicted) drop_evicted_commands(now_set);
+        last_loaded_cells_ = std::move(now_set);
+    } else {
+        // Stacks are empty — still refresh the snapshot so the next edit's
+        // baseline is current. Cheap (vector of small structs).
+        std::vector<CellCoord> now = streamer_.loaded_cell_coords();
+        last_loaded_cells_.clear();
+        last_loaded_cells_.reserve(now.size());
+        for (CellCoord c : now) last_loaded_cells_.insert(c);
+    }
 
     // PBD-031: re-run the mouse unproject here too, using the camera state
     // we just updated. The render path also unprojects (for the inspector
@@ -1151,6 +1230,11 @@ void Application::update_map_builder(float dt) {
                             inst.transform.position.z,
                             cell.x, cell.z);
                     scene_.update();  // flush the new node into the scene
+                    // PBD-034: push a Place command. Stash the InstanceDef
+                    // exactly as handed to the streamer so an Undo→Redo
+                    // round-trip lands at the same XZ / scale / rotation as
+                    // the original click — the acceptance criterion.
+                    push_edit_command({EditCommand::Kind::Place, cell, inst});
                 } else {
                     // Cell not loaded (cursor over off-map / pre-load
                     // region) or model unresolved. Flash the cell-jump
@@ -1179,6 +1263,11 @@ void Application::update_map_builder(float dt) {
             Streamer::PickResult pick = streamer_.query_instance_at(
                 map_mouse_world_xz_.x, map_mouse_world_xz_.y);
             if (pick.hit) {
+                // PBD-034: save a copy of the InstanceDef *before* removing
+                // it — `pick.instance` is already a copy (PickResult docs
+                // confirm), so the saved data survives the streamer call.
+                InstanceDef saved = pick.instance;
+                CellCoord   saved_cell = pick.cell;
                 bool ok = streamer_.remove_instance(pick.cell,
                                                      pick.instance_index);
                 if (ok) {
@@ -1187,6 +1276,8 @@ void Application::update_map_builder(float dt) {
                             pick.instance.model_id,
                             pick.cell.x, pick.cell.z,
                             pick.instance_index);
+                    push_edit_command(
+                        {EditCommand::Kind::Delete, saved_cell, saved});
                 } else {
                     // Defensive — pick said hit, streamer said no. Could
                     // happen if the cell unloaded between the pick and the
@@ -1203,6 +1294,154 @@ void Application::update_map_builder(float dt) {
                 // inspector already conveys it.
             }
         }
+    }
+}
+
+// PBD-034: undo/redo command-stack helpers. All three live next to
+// `update_map_builder` because they're called from there (push) and from
+// `process_map_builder_events` (apply_undo / apply_redo). Implementation
+// detail kept inside .cpp — the only externally-visible surface is the
+// signatures in Application.h and `Streamer::loaded_cell_coords()`.
+
+void Application::push_edit_command(EditCommand cmd) {
+    // Standard text-editor semantics: a fresh edit invalidates the redo
+    // chain. Without this, an Undo → New Edit → Redo would replay the
+    // wrong command on top of the new state.
+    redo_stack_.clear();
+    // Cap depth. We drop the oldest (front), not the newest, so the user
+    // can always undo their most recent N edits — losing the very first
+    // edit of a long session is the lesser evil. erase(begin()) is O(N)
+    // on vector but N≤64; well under a microsecond on any modern CPU.
+    if (undo_stack_.size() >= MAX_UNDO_DEPTH) {
+        undo_stack_.erase(undo_stack_.begin());
+    }
+    undo_stack_.push_back(std::move(cmd));
+}
+
+void Application::apply_undo() {
+    if (undo_stack_.empty()) return;
+    EditCommand cmd = undo_stack_.back();
+    undo_stack_.pop_back();
+
+    bool ok = false;
+    if (cmd.kind == EditCommand::Kind::Place) {
+        // Inverse of Place: find the instance with matching transform +
+        // model id inside `loaded_[cmd.cell]` and remove it. We can't use
+        // the streamer's `remove_instance(cell, index)` directly because
+        // we don't store the index in the command — and the index would
+        // be stale across any intervening mutation anyway. Instead, pick
+        // by XZ at the saved position: that's the same path the user's
+        // delete-click takes and is robust to other edits that swap-
+        // and-pop'd around it.
+        const glm::vec3& pos = cmd.instance.transform.position;
+        Streamer::PickResult pick =
+            streamer_.query_instance_at(pos.x, pos.z);
+        if (pick.hit && pick.cell == cmd.cell &&
+            pick.instance.model_id == cmd.instance.model_id) {
+            ok = streamer_.remove_instance(pick.cell, pick.instance_index);
+        }
+        if (ok) {
+            PE_INFO("Map Builder: undo Place model id=%u cell (%d,%d)",
+                    cmd.instance.model_id, cmd.cell.x, cmd.cell.z);
+        } else {
+            PE_INFO("Map Builder: undo Place failed (cell (%d,%d) not "
+                    "loaded or instance gone)",
+                    cmd.cell.x, cmd.cell.z);
+        }
+    } else {  // Delete
+        // Inverse of Delete: re-add the saved instance to its original
+        // cell. The streamer rebuilds the scene node and parallel arrays
+        // (PBD-031 contract) so the re-added instance is immediately
+        // pickable and visible.
+        ok = streamer_.add_instance(cmd.cell, cmd.instance);
+        if (ok) {
+            PE_INFO("Map Builder: undo Delete model id=%u cell (%d,%d)",
+                    cmd.instance.model_id, cmd.cell.x, cmd.cell.z);
+            scene_.update();
+        } else {
+            PE_INFO("Map Builder: undo Delete failed (cell (%d,%d) not "
+                    "loaded or model unresolved)",
+                    cmd.cell.x, cmd.cell.z);
+        }
+    }
+    if (ok) {
+        redo_stack_.push_back(std::move(cmd));
+    } else {
+        // Couldn't apply the inverse — flash the error indicator so the
+        // user knows their keypress did nothing, and drop the command on
+        // the floor (don't push to redo). The most likely cause is a
+        // race we didn't anticipate; eviction-driven drops are already
+        // handled in `drop_evicted_commands`.
+        map_input_err_flash_s_ = 0.75f;
+    }
+}
+
+void Application::apply_redo() {
+    if (redo_stack_.empty()) return;
+    EditCommand cmd = redo_stack_.back();
+    redo_stack_.pop_back();
+
+    bool ok = false;
+    if (cmd.kind == EditCommand::Kind::Place) {
+        // Re-apply Place: re-add the original instance. Same path as the
+        // initial click took.
+        ok = streamer_.add_instance(cmd.cell, cmd.instance);
+        if (ok) {
+            scene_.update();
+            PE_INFO("Map Builder: redo Place model id=%u cell (%d,%d)",
+                    cmd.instance.model_id, cmd.cell.x, cmd.cell.z);
+        } else {
+            PE_INFO("Map Builder: redo Place failed cell (%d,%d)",
+                    cmd.cell.x, cmd.cell.z);
+        }
+    } else {  // Delete
+        // Re-apply Delete: pick at the saved position and remove. Mirrors
+        // `apply_undo`'s Place branch — same staleness rationale.
+        const glm::vec3& pos = cmd.instance.transform.position;
+        Streamer::PickResult pick =
+            streamer_.query_instance_at(pos.x, pos.z);
+        if (pick.hit && pick.cell == cmd.cell &&
+            pick.instance.model_id == cmd.instance.model_id) {
+            ok = streamer_.remove_instance(pick.cell, pick.instance_index);
+        }
+        if (ok) {
+            PE_INFO("Map Builder: redo Delete model id=%u cell (%d,%d)",
+                    cmd.instance.model_id, cmd.cell.x, cmd.cell.z);
+        } else {
+            PE_INFO("Map Builder: redo Delete failed cell (%d,%d)",
+                    cmd.cell.x, cmd.cell.z);
+        }
+    }
+    if (ok) {
+        undo_stack_.push_back(std::move(cmd));
+    } else {
+        map_input_err_flash_s_ = 0.75f;
+    }
+}
+
+void Application::drop_evicted_commands(
+    const std::unordered_set<CellCoord, CellCoordHash>& currently_loaded) {
+    // Architect's v1 simplification: any command referencing a cell that's
+    // no longer resident is dropped. The cell's on-disk IPL has the
+    // post-edit state (cells are saved on evict — PBD-033), so re-loading
+    // and then trying to apply a stale undo would either double-add or
+    // collide with the on-disk record. Easier to drop than reconcile.
+    auto drop_from = [&](std::vector<EditCommand>& stack) {
+        std::size_t before = stack.size();
+        stack.erase(
+            std::remove_if(stack.begin(), stack.end(),
+                [&](const EditCommand& c) {
+                    return currently_loaded.count(c.cell) == 0;
+                }),
+            stack.end());
+        return before - stack.size();
+    };
+    std::size_t dropped_undo = drop_from(undo_stack_);
+    std::size_t dropped_redo = drop_from(redo_stack_);
+    if (dropped_undo || dropped_redo) {
+        PE_INFO("Map Builder: dropped %zu undo / %zu redo entries on "
+                "cell evict",
+                dropped_undo, dropped_redo);
     }
 }
 
@@ -1673,14 +1912,22 @@ void Application::render_map_builder() {
             // together. Tilt is abbreviated to "R+WHL" to recover a few
             // characters at 1080p — the binding is still discoverable
             // and the meaning is unchanged.
+            // PBD-034: append "CTRL-Z UNDO / CTRL-Y REDO". The footer is
+            // long but readable at 1080p — the alternative (splitting to
+            // a second line) is a bigger UX cost than the squeeze. We
+            // tuck the undo/redo pair just before the navigation cluster
+            // (UP/DN PALETTE, G GO TO CELL, ESC BACK) so the edit-action
+            // hints stay grouped.
             footer = "WASD PAN   WHEEL ZOOM   R+WHL TILT   "
                      "LMB PLACE   1=PLACE 2=DELETE   3/4/5=SIZE   "
                      "Q/E ROTATE   SHIFT+WHL SCALE   "
+                     "CTRL-Z UNDO / CTRL-Y REDO   "
                      "UP/DN PALETTE   G GO TO CELL   ESC BACK";
         } else {
             footer = "WASD PAN   WHEEL ZOOM   R+WHL TILT   "
                      "LMB DELETE   1=PLACE 2=DELETE   3/4/5=SIZE   "
                      "Q/E ROTATE   SHIFT+WHL SCALE   "
+                     "CTRL-Z UNDO / CTRL-Y REDO   "
                      "UP/DN PALETTE   G GO TO CELL   ESC BACK";
         }
         const char* footer_lines[] = {footer};
