@@ -28,6 +28,18 @@
 namespace pengine {
 
 // =============================================================================
+// Shared constants used across traffic_*.cpp files.
+// Single-consumer constants live in their owning .cpp file's anon namespace;
+// only multi-consumer ones land here.
+// =============================================================================
+
+// Number of lanes a fresh AI route covers ahead of its starting cell.
+// Used by spawn (initial route construction) and drive (route extension).
+inline constexpr int ROUTE_LANES = 8;
+
+
+
+// =============================================================================
 // Assets — loaded once at init, shared across every Car.
 // =============================================================================
 struct TrafficSystem::Assets {
