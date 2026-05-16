@@ -38,7 +38,16 @@ Streamer::LoadJob Streamer::load_or_generate_cell(CellCoord coord) const {
         CityCellLayout layout = generate_city_cell(coord, cfg_.cell_size);
         job.instances      = std::move(layout.instances);
         job.building_aabbs = std::move(layout.collisions);
-        save_ipl(ipl, job.instances);
+        // PBD-053: do NOT write procedurally-generated cells back to disk.
+        // `generate_city_cell` is pure (seeded by `coord` only — see
+        // `city_layout.cpp`) and cheap, so regenerating on demand costs less
+        // than the working-tree pollution the cached write caused. PBD-033
+        // un-gitignored `assets/world/cells/*.ipl` on the premise "edited
+        // cells are source-of-truth", but the streamer was indiscriminately
+        // caching every cell it touched, which flooded `git status` with
+        // hundreds of phantom files. Authored cells (Map Builder edits) still
+        // reach disk via `save_dirty_cell` / `save_all_dirty_cells`, both of
+        // which default to `IplProvenance::Authored`.
     } else {
         // Reconstitute building collision AABBs from instances. Building model
         // ids are 11..15 (per world_model_ids.h). Step 5 will move collision

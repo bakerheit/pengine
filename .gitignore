@@ -11,10 +11,12 @@ compile_commands.json
 # Cell IPLs under assets/world/cells/ used to be ignored as lazily-generated
 # cache. As of PBD-033 they're source-of-truth: any cell the user edits in
 # the Map Builder is saved here on evict / exit and committed alongside the
-# rest of the world. Procedurally-generated unedited cells are still written
-# here on first encounter (load_or_generate_cell), but those are reproducible
-# from `generate_city_cell` and only need to be checked in once the user has
-# touched them.
+# rest of the world. PBD-053 closed the pollution loophole: the streamer no
+# longer writes procedurally-generated cells to disk on first encounter
+# (`load_or_generate_cell` regenerates them on demand instead — pure CPU,
+# seeded by coords). Only authored cells reach disk now, via
+# `save_dirty_cell` and `save_all_dirty_cells`, both stamping
+# `# source=authored` in the IPL header.
 
 # Cooked binary assets — built by the meshconv pipeline (see
 # cmake/CookedAssets.cmake). Edit source art under assets/{characters,

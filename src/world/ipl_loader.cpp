@@ -27,16 +27,49 @@ bool parse_uv(const std::string& v, glm::vec2& out) {
 }  // namespace
 
 bool load_ipl(const std::filesystem::path& path,
-              std::vector<InstanceDef>& out) {
+              std::vector<InstanceDef>& out,
+              IplProvenance* out_provenance) {
     std::ifstream in(path);
     if (!in) return false;
 
     out.clear();
+    // PBD-053: default to `Generated` if no header marker is present (matches
+    // the pre-PBD-053 file format).
+    if (out_provenance) *out_provenance = IplProvenance::Generated;
+
     int line_no = 0;
     int loaded  = 0;
     std::string line;
     while (std::getline(in, line)) {
         ++line_no;
+        // PBD-053: inspect the comment portion for `source=authored|generated`
+        // before stripping it. The marker only carries meaning when it appears
+        // in a `#`-prefixed comment line above the first instance, but we
+        // accept it anywhere in the file (the scanner just takes the last
+        // occurrence, which is fine — production saves it once at the top).
+        if (out_provenance) {
+            if (auto sp = line.find("source="); sp != std::string::npos) {
+                // Only honour markers inside a comment, to avoid colliding
+                // with a hypothetical future `source=` key=value token on an
+                // instance line (none today, but cheap insurance).
+                auto hash = line.find('#');
+                if (hash != std::string::npos && hash < sp) {
+                    std::string val = line.substr(sp + 7);  // strlen("source=")
+                    // Trim trailing whitespace from the value.
+                    while (!val.empty() &&
+                           (val.back() == ' ' || val.back() == '\t' ||
+                            val.back() == '\r' || val.back() == '\n'))
+                        val.pop_back();
+                    if (val == "authored") {
+                        *out_provenance = IplProvenance::Authored;
+                    } else if (val == "generated") {
+                        *out_provenance = IplProvenance::Generated;
+                    }
+                    // Unknown value: leave the prior setting in place.
+                }
+            }
+        }
+
         if (auto pos = line.find('#'); pos != std::string::npos) line.erase(pos);
         std::vector<std::string> tok = split_ws(line);
         if (tok.empty()) continue;
@@ -87,7 +120,8 @@ bool load_ipl(const std::filesystem::path& path,
 }
 
 bool save_ipl(const std::filesystem::path& path,
-              const std::vector<InstanceDef>& instances) {
+              const std::vector<InstanceDef>& instances,
+              IplProvenance provenance) {
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
     // Failure to create the directory isn't fatal here; the open below will
@@ -100,9 +134,23 @@ bool save_ipl(const std::filesystem::path& path,
     }
 
     out << "# Auto-generated cell IPL. model px py pz qx qy qz qw sx sy sz [kv...]\n";
+    // PBD-053: provenance marker. `authored` means a Map Builder edit; the
+    // streamer keeps these on disk and they're source-of-truth. `generated`
+    // means procedural output (regenerable from coords + RNG seed). Today the
+    // production flow never writes `generated` — we only honour the marker
+    // for back-compat readability of any pre-PBD-053 file that might exist.
+    out << "# source="
+        << (provenance == IplProvenance::Authored ? "authored" : "generated")
+        << '\n';
     for (const InstanceDef& i : instances) {
         const auto& p = i.transform.position;
-        const auto& q = i.transform.rotation;
+        // PBD-053 (Part B): quaternion hemisphere canon. `q` and `-q`
+        // represent the same rotation, but `%.6f` of each produces different
+        // bytes. Pinning `w >= 0` makes a no-edit re-save byte-identical to
+        // the original file (zero git diff noise) and keeps future LFS
+        // migration honest.
+        glm::quat q = i.transform.rotation;
+        if (q.w < 0.f) q = -q;
         const auto& s = i.transform.scale;
         char line[256];
         std::snprintf(line, sizeof(line),

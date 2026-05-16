@@ -110,11 +110,13 @@ void expect_scale_eq(const glm::vec3& a, const glm::vec3& b, const char* case_na
 }
 
 void expect_quat_eq(const glm::quat& a, const glm::quat& b, const char* case_name) {
-    // Quats q and -q describe the same rotation. The IPL format writes
-    // components verbatim and load_ipl reads them verbatim, so a save/load
-    // should not flip signs — but if the encoder ever normalises to a
-    // canonical hemisphere, this comparator would have to flip. For now we
-    // assert raw-component equality, which is what the ticket spec asks for.
+    // Quats q and -q describe the same rotation. PBD-053 canonicalises the
+    // saved hemisphere to `w >= 0` for diff stability. All test cases below
+    // use yaws in (-180, 180), which yield cos(yaw/2) > 0 → w > 0 from
+    // glm::quat(euler), so canonicalisation is a no-op here and raw-component
+    // equality still holds. If a future test ever feeds a w < 0 quat into
+    // round_trip(), update this comparator to canonicalise both sides before
+    // comparing.
     if (std::abs(a.x - b.x) > kQuatTol ||
         std::abs(a.y - b.y) > kQuatTol ||
         std::abs(a.z - b.z) > kQuatTol ||
