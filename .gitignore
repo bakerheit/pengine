@@ -6,6 +6,7 @@ compile_commands.json
 *.swp
 .vscode/
 .idea/
+.claude/
 
 # Generated IPL cell exports — produced lazily by the streamer on first
 # encounter of a cell. Once we move to authored cells, specific files can
