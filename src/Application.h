@@ -43,6 +43,24 @@ public:
     // selection_`; Delete mode ignores it).
     enum class MapTool { Place, Delete };
 
+    // PBD-042: Map Builder placement size preset. Three named uniform-scale
+    // multipliers selectable from the bottom bar (S/M/L buttons) or hotkeys
+    // 3/4/5. Multiplies `InstanceDef.transform.scale` at placement time;
+    // already-placed instances are unaffected (per Phase A scope — Phase B
+    // will add an edit affordance). Default Small (1.0×) preserves today's
+    // placement behaviour. Free scale + rotation are PBD-043.
+    enum class SizePreset { Small, Medium, Large };
+
+    static constexpr float size_preset_factor(SizePreset p) {
+        // Architect's suggested multipliers. Uniform across XYZ.
+        switch (p) {
+            case SizePreset::Small:  return 1.0f;
+            case SizePreset::Medium: return 2.0f;
+            case SizePreset::Large:  return 3.5f;
+        }
+        return 1.0f;
+    }
+
     // Outer application state. The main menu is shown before any gameplay
     // input/update runs; "New Game" transitions to Playing. Dev Tools is a
     // submenu (PBD-016) whose only entry, "Map Builder", drops into the
@@ -83,7 +101,7 @@ private:
     // world, and (b) in `render_map_builder` to draw the same geometry.
     // Pixel coordinates throughout — matches the DPI-scaled mouse coords
     // PBD-031 settled on.
-    enum class MapBarHitKind { None, ToolButton, AssetSlot };
+    enum class MapBarHitKind { None, ToolButton, AssetSlot, SizePreset };
     struct MapBarHit {
         MapBarHitKind kind = MapBarHitKind::None;
         // For ToolButton: the MapTool value the button selects.
@@ -233,6 +251,14 @@ private:
     // `update_map_builder` after `streamer_.pump()` runs.
     MapTool   map_tool_           = MapTool::Place;
     bool      map_delete_pending_ = false;
+
+    // PBD-042: active uniform scale preset for placement. Defaults to Small
+    // (1.0×) — preserves today's behaviour for users who never touch the
+    // buttons. Reset to Small on MapBuilder entry. Consumed by:
+    //   - the ghost-AABB renderer (so the preview reflects what'll land), and
+    //   - the placement path in update_map_builder (multiplies
+    //     `inst.transform.scale` before `streamer_.add_instance`).
+    SizePreset map_size_preset_   = SizePreset::Small;
 
     // PBD-037: Map Builder bar hover state. Refreshed every frame in
     // `update_map_builder` by re-hit-testing the (DPI-scaled) mouse against

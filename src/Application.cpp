@@ -371,6 +371,10 @@ void Application::enter_app_state(AppState s) {
         // latch from a previous session.
         map_tool_           = MapTool::Place;
         map_delete_pending_ = false;
+        // PBD-042: default to the smallest preset on entry so the first
+        // plop matches the pre-PBD-042 1.0× behaviour. Users who want a
+        // larger asset click M/L (or press 4/5) explicitly.
+        map_size_preset_    = SizePreset::Small;
     }
 }
 
@@ -524,13 +528,43 @@ Application::MapBarLayout Application::compute_map_builder_bar_layout() const {
 
     // Asset slots. Match the render path's "sort by id" so the index here
     // is the same one feeding `map_palette_selection_`.
+    //
+    // PBD-042: reserve room for the size-preset group on the right *before*
+    // walking the palette. Three 48px-wide buttons plus a divider gap; if
+    // the palette saturates the remaining width we'd rather truncate later
+    // models than push the size buttons off-screen (they're three out of
+    // three; the palette already truncates 8+).
+    const float preset_sz       = 48.f;
+    const float preset_gap_pre  = gap + 12.f;       // wider gap before group
+    const int   n_presets       = 3;
+    const float presets_width   = static_cast<float>(n_presets) * preset_sz
+                                   + static_cast<float>(n_presets - 1) * gap;
+    const float palette_x_limit = vw - pad - presets_width - preset_gap_pre;
+
     const int n = static_cast<int>(world_models_.size());
     for (int i = 0; i < n; ++i) {
-        if (x + slot_sz > vw - pad) break;  // bar saturated; later models truncate
+        if (x + slot_sz > palette_x_limit) break;  // reserve room for preset group
         L.regions.push_back({{x, row_y0}, {x + slot_sz, row_y1},
                               MapBarHitKind::AssetSlot, i});
         x += slot_sz + gap;
     }
+
+    // PBD-042: size-preset group (S/M/L). Anchored after the palette with a
+    // wider gap before it, mirroring the PBD-038 tool/asset divider. Indices
+    // are static_cast<int>(SizePreset::Small|Medium|Large), so the click
+    // handler can cast back the same way the ToolButton path does.
+    x += preset_gap_pre;
+    L.regions.push_back({{x, row_y0}, {x + preset_sz, row_y1},
+                          MapBarHitKind::SizePreset,
+                          static_cast<int>(SizePreset::Small)});
+    x += preset_sz + gap;
+    L.regions.push_back({{x, row_y0}, {x + preset_sz, row_y1},
+                          MapBarHitKind::SizePreset,
+                          static_cast<int>(SizePreset::Medium)});
+    x += preset_sz + gap;
+    L.regions.push_back({{x, row_y0}, {x + preset_sz, row_y1},
+                          MapBarHitKind::SizePreset,
+                          static_cast<int>(SizePreset::Large)});
 
     return L;
 }
@@ -683,6 +717,12 @@ void Application::process_map_builder_events() {
             } else if (hit.kind == MapBarHitKind::AssetSlot) {
                 map_palette_selection_ = hit.index;
                 map_tool_              = MapTool::Place;
+            } else if (hit.kind == MapBarHitKind::SizePreset) {
+                // PBD-042: pick a placement size. We don't force Place mode
+                // here — a user adjusting their size for the next plop while
+                // mid-bulldoze shouldn't get yanked out of Delete. The hotkey
+                // path (3/4/5) follows the same rule for the same reason.
+                map_size_preset_ = static_cast<SizePreset>(hit.index);
             }
             // Inside-bar-but-no-region: swallow the click. Never set a
             // world-action pending — that would let the user delete a
@@ -780,6 +820,14 @@ void Application::process_map_builder_events() {
     if (!map_input_active_) {
         if (input_.pressed(SDL_SCANCODE_1)) map_tool_ = MapTool::Place;
         if (input_.pressed(SDL_SCANCODE_2)) map_tool_ = MapTool::Delete;
+        // PBD-042: size-preset hotkeys. 3/4/5 are adjacent to the tool keys
+        // and don't collide with anything (numpad shares those scancodes
+        // but numpad keys emit SDL_SCANCODE_KP_3 etc., so the bind is
+        // top-row only). Gated by !map_input_active_ — already enforced by
+        // the outer block above but the redundant guard documents intent.
+        if (input_.pressed(SDL_SCANCODE_3)) map_size_preset_ = SizePreset::Small;
+        if (input_.pressed(SDL_SCANCODE_4)) map_size_preset_ = SizePreset::Medium;
+        if (input_.pressed(SDL_SCANCODE_5)) map_size_preset_ = SizePreset::Large;
     }
 
     // PBD-030: asset palette navigation. Up/Down only — WASD is bound to the
@@ -1022,8 +1070,14 @@ void Application::update_map_builder(float dt) {
                               Heightmap::sample(map_mouse_world_xz_.x,
                                                  map_mouse_world_xz_.y),
                               map_mouse_world_xz_.y};
-                // Identity rotation, default scale — per ticket's out-of-
-                // scope rules. uv_scale_override stays (0,0) → use model's.
+                // PBD-042: apply the active size preset's uniform multiplier
+                // to the default (1,1,1) scale before handing the InstanceDef
+                // to the streamer. Streamer signatures and save_ipl
+                // already round-trip the full vec3, so no plumbing changes;
+                // this is the entire "scale" half of EPIC-002 Phase A.
+                // Rotation is still identity — PBD-043's job.
+                inst.transform.scale *=
+                    size_preset_factor(map_size_preset_);
                 bool ok = streamer_.add_instance(cell, inst);
                 if (ok) {
                     PE_INFO("Map Builder: placed model id=%u at "
@@ -1473,6 +1527,11 @@ void Application::render_map_builder() {
                                         Heightmap::sample(map_mouse_world_xz_.x,
                                                           map_mouse_world_xz_.y),
                                         map_mouse_world_xz_.y};
+                // PBD-042: ghost AABB must reflect the active size preset
+                // so 3.5× shows up as a 3.5× box. Same multiplier the
+                // placement path applies, computed once here so the
+                // preview matches the post-click result byte-for-byte.
+                t.scale *= size_preset_factor(map_size_preset_);
                 AABB world = local.transform(t.matrix());
                 debug_draw_.clear();
                 debug_draw_.box(world.min, world.max);
@@ -1525,12 +1584,19 @@ void Application::render_map_builder() {
             // PBD-041: append "1=PLACE 2=DELETE" right after the LMB hint so
             // mouse and keyboard tool controls sit adjacent. Not abbreviating
             // the other hints — at 1080p+ the line still fits with margin.
+            // PBD-042: add "3/4/5=SIZE" abbreviated form. The architect's
+            // long form ("3=S 4=M 5=L") pushed the footer past comfortable
+            // width at 1080p once UP/DN PALETTE and G GO TO CELL are also
+            // present; the abbreviated form preserves discoverability
+            // (user sees a key range maps to "SIZE") without the per-bind
+            // breakdown — which is also surfaced visually by the three
+            // labelled buttons in the bar two rows up.
             footer = "WASD PAN   WHEEL ZOOM   R+WHEEL TILT   "
-                     "LMB PLACE   1=PLACE 2=DELETE   "
+                     "LMB PLACE   1=PLACE 2=DELETE   3/4/5=SIZE   "
                      "UP/DN PALETTE   G GO TO CELL   ESC BACK";
         } else {
             footer = "WASD PAN   WHEEL ZOOM   R+WHEEL TILT   "
-                     "LMB DELETE   1=PLACE 2=DELETE   "
+                     "LMB DELETE   1=PLACE 2=DELETE   3/4/5=SIZE   "
                      "UP/DN PALETTE   G GO TO CELL   ESC BACK";
         }
         const char* footer_lines[] = {footer};
@@ -1686,9 +1752,13 @@ void Application::render_map_builder() {
         for (const auto& r : layout.regions) {
             const bool is_tool   = (r.kind == MapBarHitKind::ToolButton);
             const bool is_slot   = (r.kind == MapBarHitKind::AssetSlot);
+            const bool is_preset = (r.kind == MapBarHitKind::SizePreset);
             const MapTool tool   = static_cast<MapTool>(r.index);
             const bool tool_act  = is_tool && tool == map_tool_;
             const bool slot_act  = is_slot && r.index == map_palette_selection_;
+            // PBD-042: size-preset active state.
+            const SizePreset preset = static_cast<SizePreset>(r.index);
+            const bool preset_act   = is_preset && preset == map_size_preset_;
 
             // Active state ring (5 px outset rectangle behind the fill).
             // Colour signals which tool / which slot is current.
@@ -1698,12 +1768,18 @@ void Application::render_map_builder() {
             // entirely while the palette is dimmed. Tool-button active
             // rings always draw.
             const bool draw_slot_ring = slot_act && palette_dim >= 1.0f;
-            if (tool_act || draw_slot_ring) {
+            if (tool_act || draw_slot_ring || preset_act) {
                 glm::vec3 ring_col;
                 if (tool_act && tool == MapTool::Place) {
                     ring_col = glm::vec3{0.2f, 0.9f, 0.3f};
                 } else if (tool_act && tool == MapTool::Delete) {
                     ring_col = glm::vec3{1.0f, 0.3f, 0.3f};
+                } else if (preset_act) {
+                    // PBD-042: cyan for the active size preset — distinct
+                    // from green (Place), red (Delete), and yellow (asset
+                    // slot selection). Reads as "different axis of choice"
+                    // alongside the tool/asset rings.
+                    ring_col = glm::vec3{0.2f, 0.8f, 1.0f};
                 } else {
                     // Asset-slot selection — yellow, matches the inspector
                     // highlight palette.
@@ -1728,6 +1804,16 @@ void Application::render_map_builder() {
                     fill = tool_act ? glm::vec3{0.50f, 0.12f, 0.12f}
                                      : glm::vec3{0.18f, 0.20f, 0.24f};
                 }
+            } else if (is_preset) {
+                // PBD-042: size-preset chrome. Active gets a cyan-tinted
+                // fill that echoes the ring colour at lower saturation;
+                // inactive shares the tool-button neutral chrome so the
+                // group reads as "buttons", not "asset swatches". Tool
+                // mode does not dim the size group — placement size is
+                // still a meaningful choice while bulldozing (the next
+                // plop will inherit the size you picked).
+                fill = preset_act ? glm::vec3{0.10f, 0.30f, 0.45f}
+                                  : glm::vec3{0.18f, 0.20f, 0.24f};
             } else {
                 // Asset slot — full slot tinted with the model's swatch.
                 // PBD-038: dim the swatch in Delete mode so the palette
@@ -1761,6 +1847,30 @@ void Application::render_map_builder() {
                 tl.count              = 1;
                 tl.origin_top_left_px = {gx, gy};
                 tl.glyph_h_px         = 20.f;
+                tl.color              = glm::vec3{1.0f, 1.0f, 1.0f};
+                tl.viewport_size_px   = viewport_px;
+                text_.draw_lines(tl);
+            } else if (r.kind == MapBarHitKind::SizePreset) {
+                // PBD-042: single-letter labels — "S" / "M" / "L". Centred
+                // horizontally in the button by measuring the glyph width
+                // (the atlas is not fixed-pitch, and the three letters
+                // have visibly different widths at 26px).
+                const SizePreset p = static_cast<SizePreset>(r.index);
+                const char* txt = (p == SizePreset::Small)  ? "S"
+                                : (p == SizePreset::Medium) ? "M"
+                                                             : "L";
+                const float glyph_h = 26.f;
+                const float label_w = text_.measure_width(txt, glyph_h);
+                const float slot_w  = r.max_px.x - r.min_px.x;
+                const float lx      = r.min_px.x + (slot_w - label_w) * 0.5f;
+                const float ly      = r.min_px.y +
+                    (r.max_px.y - r.min_px.y) * 0.5f - glyph_h * 0.5f;
+                const char* lines_one[1] = {txt};
+                Text::DrawState tl;
+                tl.lines              = lines_one;
+                tl.count              = 1;
+                tl.origin_top_left_px = {lx, ly};
+                tl.glyph_h_px         = glyph_h;
                 tl.color              = glm::vec3{1.0f, 1.0f, 1.0f};
                 tl.viewport_size_px   = viewport_px;
                 text_.draw_lines(tl);
