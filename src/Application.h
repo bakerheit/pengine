@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "audio/audio_engine.h"
 #include "core/time.h"
 #include "game/pedestrian.h"
@@ -118,6 +120,18 @@ private:
     // dt for pan/zoom (gameplay's fixed-timestep clock isn't appropriate here
     // because we don't tick a simulation while in MapBuilder).
     TimePoint map_last_frame_ {};
+
+    // PBD-027: typed cell-jump input. When `map_input_active_` is true, the
+    // map-builder event pump diverts keystrokes into `map_input_buf_` instead
+    // of treating them as WASD pan, and pops up a "GO TO CELL: <buf>_" prompt
+    // in the corner. Enter commits (parse "X,Z", clamp, re-centre camera);
+    // Esc cancels. The streamer naturally pages in the target cell on its
+    // next 100ms poll once map_cam_pos_ has moved.
+    bool          map_input_active_   = false;
+    std::string   map_input_buf_;
+    // Brief on-screen flash when an entered coord was clamped or unparseable.
+    // Set at commit-time, decays in update_map_builder.
+    float         map_input_err_flash_s_ = 0.f;
 
     // F-to-steal: when OnFoot and an AI car is the closest in-range target,
     // pressing F removes that AI from TrafficSystem and teleports the player

@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <unordered_set>
 #include <vector>
@@ -307,6 +308,15 @@ constexpr int DEVTOOLS_ITEM_COUNT =
 
 void Application::enter_app_state(AppState s) {
     if (app_state_ == s) return;
+    // PBD-027: ensure the SDL text-input session is closed if we were mid-
+    // typing when the state changed (e.g. the user hit Backspace/B to leave
+    // MapBuilder while the prompt was open). Otherwise SDL would keep
+    // synthesising TEXTINPUT events into the next state's pump.
+    if (map_input_active_) {
+        SDL_StopTextInput();
+        map_input_active_ = false;
+        map_input_buf_.clear();
+    }
     app_state_      = s;
     menu_selection_ = 0;
 
@@ -420,6 +430,18 @@ void Application::process_menu_events() {
 // the PBD-023 follow-up as the right refactor when MapBuilder grew input;
 // this is that moment. Keeps the menu pump small and lets the map-builder
 // path own its own keybindings without per-event app_state_ branches.
+//
+// PBD-027 adds a sub-mode: when `map_input_active_` is true, keystrokes are
+// captured as text into `map_input_buf_` (via SDL_TEXTINPUT events) instead of
+// being routed through the normal Input keymap. Enter commits the typed cell
+// coord and recentres the camera; Esc cancels. SDL_StartTextInput is required
+// to actually receive SDL_TEXTINPUT events on most platforms; it also enables
+// IME if the user has one configured (we ignore that — only ASCII digits and
+// commas are meaningful here, anything else is dropped during the commit).
+//
+// PBD-027 is the first use of SDL_TEXTINPUT in this codebase; if a second
+// text-input UI shows up we should hoist the buffer + StartTextInput plumbing
+// onto Input. For now, one local string + a bool is enough.
 void Application::process_map_builder_events() {
     input_.begin_frame();
 
@@ -438,6 +460,42 @@ void Application::process_map_builder_events() {
                     glViewport(0, 0, w, h);
                 }
                 break;
+            case SDL_TEXTINPUT:
+                if (map_input_active_) {
+                    // SDL hands us a UTF-8 string; we only accept ASCII digits,
+                    // commas, and spaces. Drop everything else silently. The
+                    // 16-char cap is far more than "NN,NN" needs and keeps the
+                    // buffer bounded against pathological IME paste.
+                    for (const char* p = e.text.text; *p; ++p) {
+                        const char c = *p;
+                        const bool ok = (c >= '0' && c <= '9') ||
+                                         c == ',' || c == ' ';
+                        if (ok && map_input_buf_.size() < 16) {
+                            map_input_buf_.push_back(c);
+                        }
+                    }
+                } else {
+                    // Don't route into Input — text events have no scancode
+                    // semantics. The KEYDOWN events that accompany them are
+                    // what Input cares about, and those are handled below.
+                    input_.handle_event(e);
+                }
+                break;
+            case SDL_KEYDOWN:
+                if (map_input_active_) {
+                    // Backspace handling has to live here because SDL doesn't
+                    // emit a SDL_TEXTINPUT for it.
+                    if (e.key.keysym.sym == SDLK_BACKSPACE &&
+                        !map_input_buf_.empty()) {
+                        map_input_buf_.pop_back();
+                    }
+                    // Enter/Esc are handled below via input_.pressed() so the
+                    // existing "pressed this frame" model keeps working.
+                    input_.handle_event(e);
+                } else {
+                    input_.handle_event(e);
+                }
+                break;
             default:
                 input_.handle_event(e);
                 break;
@@ -446,6 +504,72 @@ void Application::process_map_builder_events() {
 
     if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
         running_ = false;
+
+    if (map_input_active_) {
+        // While in text-input mode: only Enter/Esc do anything. WASD/zoom are
+        // suppressed (handled by update_map_builder reading map_input_active_).
+        if (input_.pressed(SDL_SCANCODE_RETURN) ||
+            input_.pressed(SDL_SCANCODE_KP_ENTER)) {
+            // Parse loosely. strtol skips leading whitespace; we accept any
+            // run of "<digits>[ws]*,[ws]*<digits>". Anything else flashes the
+            // error indicator and leaves the camera where it was.
+            const char* s = map_input_buf_.c_str();
+            char* end1 = nullptr;
+            long  x = std::strtol(s, &end1, 10);
+            bool  ok = (end1 != s);
+            long  z = 0;
+            if (ok) {
+                while (*end1 == ' ') ++end1;
+                if (*end1 != ',') ok = false;
+                else {
+                    ++end1;
+                    char* end2 = nullptr;
+                    z = std::strtol(end1, &end2, 10);
+                    if (end2 == end1) ok = false;
+                }
+            }
+            if (ok) {
+                WorldConfig wc;
+                // Clamp to valid cell range. Out-of-range inputs still jump —
+                // they just jump to the edge — and we flash the indicator so
+                // the user knows the value was massaged.
+                long cx_l = std::clamp<long>(x, 0, wc.world_cells_x - 1);
+                long cz_l = std::clamp<long>(z, 0, wc.world_cells_z - 1);
+                bool clamped = (cx_l != x || cz_l != z);
+
+                // Re-centre on the cell's centre, not its corner. Altitude is
+                // preserved so the user keeps the same zoom across jumps.
+                map_cam_pos_.x = (static_cast<float>(cx_l) + 0.5f) * wc.cell_size;
+                map_cam_pos_.z = (static_cast<float>(cz_l) + 0.5f) * wc.cell_size;
+                if (clamped) map_input_err_flash_s_ = 0.75f;
+                PE_INFO("Map Builder: jump to cell (%ld, %ld)%s",
+                        cx_l, cz_l, clamped ? " [clamped]" : "");
+            } else {
+                map_input_err_flash_s_ = 0.75f;
+                PE_INFO("Map Builder: unparseable cell input '%s'",
+                        map_input_buf_.c_str());
+            }
+            map_input_buf_.clear();
+            map_input_active_ = false;
+            SDL_StopTextInput();
+        } else if (input_.pressed(SDL_SCANCODE_ESCAPE)) {
+            map_input_buf_.clear();
+            map_input_active_ = false;
+            SDL_StopTextInput();
+        }
+        return;
+    }
+
+    // ----- Normal mode -----
+    if (input_.pressed(SDL_SCANCODE_G)) {
+        // Enter cell-jump input mode. SDL_StartTextInput is required to
+        // actually receive SDL_TEXTINPUT events on most platforms; first use
+        // in this codebase.
+        map_input_active_ = true;
+        map_input_buf_.clear();
+        SDL_StartTextInput();
+        return; // suppress any other key that fired this frame
+    }
 
     if (input_.pressed(SDL_SCANCODE_ESCAPE) ||
         input_.pressed(SDL_SCANCODE_BACKSPACE) ||
@@ -498,6 +622,23 @@ void Application::render_menu() {
 // PBD-025/026/027 and hang off this same render/event pair.
 
 void Application::update_map_builder(float dt) {
+    // Decay the cell-jump error flash regardless of input mode so it always
+    // disappears after ~0.75s.
+    if (map_input_err_flash_s_ > 0.f) {
+        map_input_err_flash_s_ -= dt;
+        if (map_input_err_flash_s_ < 0.f) map_input_err_flash_s_ = 0.f;
+    }
+
+    // PBD-027: while a cell-jump input is active, suppress pan/zoom so typing
+    // doesn't double up (W/S/A/D, wheel) with normal camera control. The
+    // streamer still pumps below so cells stay loaded around the (stationary)
+    // camera.
+    if (map_input_active_) {
+        streamer_.pump(map_cam_pos_);
+        scene_.update();
+        return;
+    }
+
     // ----- Zoom (wheel adjusts altitude) -----
     // Multiplicative step keeps zoom feel consistent at any altitude — a tick
     // takes you ~10% of the way toward/away from the ground.
@@ -853,7 +994,21 @@ void Application::render_map_builder() {
     // cleanly over the rendered scene. (PBD-025 used menu_.draw here, which
     // is the latent bug — see PBD-026 report.)
     {
-        const char* footer = "WASD PAN   WHEEL ZOOM   ESC BACK";
+        // PBD-027: footer swaps when a cell-jump input is active. In normal
+        // mode it advertises the G bind; in input mode it shows the echoed
+        // buffer with a trailing underscore as a crude cursor.
+        char input_line[64];
+        const char* footer;
+        if (map_input_active_) {
+            std::snprintf(input_line, sizeof(input_line),
+                          "GO TO CELL: %s_   ENTER OK   ESC CANCEL",
+                          map_input_buf_.c_str());
+            footer = input_line;
+        } else if (map_input_err_flash_s_ > 0.f) {
+            footer = "BAD CELL COORD";
+        } else {
+            footer = "WASD PAN   WHEEL ZOOM   G GO TO CELL   ESC BACK";
+        }
         const char* footer_lines[] = {footer};
         Menu::TextLines fl;
         fl.lines              = footer_lines;
@@ -868,7 +1023,14 @@ void Application::render_map_builder() {
         fl.origin_top_left_px = {vw * 0.5f - approx_w * 0.5f, vh - 60.f};
         fl.glyph_h_px         = 20.f;
         fl.thickness_px       = 2.f;
-        fl.color              = glm::vec3{0.55f, 0.62f, 0.66f};
+        // Yellow tint while inputting; red while flashing an error; default
+        // dim grey otherwise.
+        if (map_input_active_)
+            fl.color = glm::vec3{0.95f, 0.92f, 0.55f};
+        else if (map_input_err_flash_s_ > 0.f)
+            fl.color = glm::vec3{1.0f, 0.4f, 0.3f};
+        else
+            fl.color = glm::vec3{0.55f, 0.62f, 0.66f};
         fl.viewport_size_px   = {vw, vh};
         menu_.draw_text_lines(fl);
     }
