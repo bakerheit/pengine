@@ -1804,17 +1804,31 @@ void Application::render_map_builder() {
                 tl.count              = 1;
                 tl.origin_top_left_px = {gx, gy};
                 tl.glyph_h_px         = glyph_h;
-                // Dark text on the bright tint swatches so the id reads;
-                // some models (e.g. ROAD) have dark grey tints, so we
-                // bias toward near-black for contrast on the bright ones
-                // and accept the dark-on-dark case as a v1 wart (the
-                // selection ring still flags which slot is chosen).
-                // PBD-038: in Delete mode the swatch behind the label is
-                // already dimmed by `palette_dim`; multiplying the label
-                // colour by the same factor keeps the contrast ratio
-                // roughly constant while pulling the slot toward black.
-                tl.color              = glm::vec3{0.05f, 0.05f, 0.08f}
-                                        * palette_dim;
+                // PBD-039: per-slot label colour driven by the swatch's
+                // perceived luminance. Dark tints (e.g. ROAD's near-black)
+                // get a near-white label; bright/saturated tints keep the
+                // near-black label PBD-038 was using. Rec.709 coefficients
+                // — standard for sRGB, slightly truer to perceived
+                // brightness than Rec.601 on cool/blue tints (some of the
+                // building swatches sit in that range). Threshold 0.5 is
+                // the standard midpoint; none of the eight current models
+                // sit borderline enough to warrant tuning. Luminance is
+                // computed on the *raw* tint, not `tint * palette_dim` —
+                // otherwise Delete-mode dimming would push every swatch
+                // below 0.5 and flip every label to light, which is the
+                // exact regression we'd be chasing. palette_dim is then
+                // applied to the chosen label colour, matching PBD-038's
+                // "dim label tracks dim swatch" contract.
+                const auto luminance = [](const glm::vec3& c) {
+                    return glm::dot(c, glm::vec3{0.2126f, 0.7152f, 0.0722f});
+                };
+                const glm::vec3 raw_tint =
+                    ordered[static_cast<std::size_t>(r.index)]->tint;
+                const glm::vec3 near_black{0.05f, 0.05f, 0.08f};
+                const glm::vec3 near_white{0.95f, 0.95f, 0.95f};
+                const glm::vec3 label_col =
+                    (luminance(raw_tint) < 0.5f) ? near_white : near_black;
+                tl.color              = label_col * palette_dim;
                 tl.viewport_size_px   = viewport_px;
                 text_.draw_lines(tl);
             }
