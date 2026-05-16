@@ -1,4 +1,5 @@
 #include "game/traffic.h"
+#include "game/traffic_internal.h"
 
 #include "game/car_models.h"
 
@@ -198,47 +199,6 @@ bool obb_xz_intersect(const OBBxz& a, const OBBxz& b,
 }
 
 } // anonymous namespace
-
-// =============================================================================
-// Assets — loaded once at init, shared across every Car.
-// =============================================================================
-struct TrafficSystem::Assets {
-    // Wheel asset is shared across every car model.
-    Mesh    wheel_mesh;
-    Texture wheel_tex;
-    bool    wheel_ok            = false;
-    float   wheel_visual_scale  = 1.f;
-    float   wheel_visible_radius = 0.f;
-
-    // Per-car-model resources. Indexed by Car::model_id (which corresponds
-    // to the slot of CAR_MODELS[]). Each model is loaded independently — if
-    // one fails, init() bails for the whole TrafficSystem.
-    struct ModelAssets {
-        Mesh                 body_mesh;
-        std::vector<Texture> paints;          // sized to def.paint_count
-        bool                 body_ok = false;
-
-        glm::vec3 body_visual_scale  {1.f};   // uniform scale to fit chassis length
-        glm::vec3 body_visual_offset {0.f};   // chassis-local offset for body child
-        glm::vec3 visual_aabb_min    {0.f};   // body-local visual AABB (post scale + offset)
-        glm::vec3 visual_aabb_max    {0.f};
-        glm::vec3 wheel_mount[4]     {};      // chassis-local positions
-
-        // Where the chassis-centre sits above the ground at static rest, for
-        // AI cars (kinematic) to line up with player visually. Per-model
-        // because chassis dimensions and wheel/suspension tuning differ.
-        float ride_height_at_rest = 1.0f;
-
-        // Suspension extension at static rest. AI cars never run wheel
-        // raycasts so their Wheel::visual_drop stays zero — wheels would
-        // render at mount level (too high). We stamp this value in
-        // sync_visuals for AI cars so they match the physics-settled rest:
-        //   static_compression = mass * |gravity| / (4 * spring_k)
-        //   static_visual_drop = suspension_rest - static_compression
-        float static_visual_drop = 0.f;
-    };
-    std::vector<ModelAssets> models;   // sized to NUM_CAR_MODELS at init()
-};
 
 // =============================================================================
 // Lifecycle
