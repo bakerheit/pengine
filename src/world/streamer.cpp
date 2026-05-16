@@ -262,6 +262,47 @@ Streamer::Stats Streamer::stats() const {
 // model). For each instance whose XZ extent contains the point, keep the one
 // with the highest `aabb.max.y` (topmost). That matches the inspector's
 // mental model under the near-vertical camera.
+// PBD-031: Map Builder placement entry point. Mirrors the per-instance work
+// `pump()` does inside its load loop, but for a single InstanceDef into an
+// already-loaded cell. See header for full invariants.
+bool Streamer::add_instance(CellCoord cell, const InstanceDef& inst) {
+    auto it = loaded_.find(cell);
+    if (it == loaded_.end()) return false;
+
+    const ModelDef* m = registry_ ? registry_->get(inst.model_id) : nullptr;
+    if (!m || !m->mesh) {
+        PE_WARN("Streamer::add_instance: cell (%d,%d) unresolved model id %u",
+                cell.x, cell.z, inst.model_id);
+        return false;
+    }
+
+    LoadedCell& lc = it->second;
+
+    // Visible scene node — mirrors the per-instance work inside `pump()`.
+    SceneNode* n = scene_->create_node_static(nullptr, cell);
+    n->transform = inst.transform;
+    glm::vec2 uv = (inst.uv_scale_override.x > 0.f || inst.uv_scale_override.y > 0.f)
+                    ? inst.uv_scale_override : m->uv_scale;
+    n->renderable = Renderable{m->mesh, m->local_bounds, m->tint, uv, m->texture};
+    n->mark_dirty();
+    lc.nodes.push_back(n);
+
+    // Pick metadata (parallel-array invariant: `instances[i]` <->
+    // `instance_world_aabbs[i]`).
+    AABB local{m->local_bounds.min, m->local_bounds.max};
+    AABB world = local.transform(inst.transform.matrix());
+    lc.instances.push_back(inst);
+    lc.instance_world_aabbs.push_back(world);
+
+    // Collision: buildings only. Roads/walks/props don't participate today;
+    // matches the `load_or_generate_cell` filter (Building flag → AABB).
+    if (collision_ && (m->flags & ModelFlag::Building) != 0) {
+        collision_->add_building(cell, world);
+    }
+
+    return true;
+}
+
 Streamer::PickResult Streamer::query_instance_at(float wx, float wz) const {
     PickResult best;
     float       best_top = -FLT_MAX;

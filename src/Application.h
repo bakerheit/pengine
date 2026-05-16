@@ -143,6 +143,23 @@ private:
     // Set at commit-time, decays in update_map_builder.
     float         map_input_err_flash_s_ = 0.f;
 
+    // PBD-031: Map Builder cursor + placement state.
+    //
+    // `map_mouse_world_xz_` is the unprojected mouse position on the y=0 plane,
+    // computed once per render frame in `render_map_builder` (where the
+    // view/proj matrix is built) and stashed for the next `update_map_builder`
+    // tick to consume on a click. `map_mouse_valid_` is false until the first
+    // mouse motion event arrives or the unproject fails (e.g. ray points
+    // upward away from the ground — won't happen at -89° pitch but the guard
+    // is cheap).
+    //
+    // `map_place_pending_` is set in process_map_builder_events on a
+    // SDL_MOUSEBUTTONDOWN (left) and consumed by update_map_builder. Edge-
+    // triggered by virtue of being event-driven; one click → one place.
+    glm::vec2 map_mouse_world_xz_ {0.f, 0.f};
+    bool      map_mouse_valid_    = false;
+    bool      map_place_pending_  = false;
+
     // F-to-steal: when OnFoot and an AI car is the closest in-range target,
     // pressing F removes that AI from TrafficSystem and teleports the player
     // car to its pose. The target is recomputed every frame in update().

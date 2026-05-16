@@ -30,6 +30,13 @@ void Input::handle_event(const SDL_Event& e) {
     } else if (e.type == SDL_MOUSEMOTION) {
         mouse_dx_ += static_cast<float>(e.motion.xrel);
         mouse_dy_ += static_cast<float>(e.motion.yrel);
+        // Absolute pixel position. SDL gives us window-relative coords with
+        // origin at the top-left. PBD-031: consumed by the Map Builder cursor
+        // path. Both dx/dy (relative) and x/y (absolute) are captured so the
+        // gameplay relative-mouse path and the Map Builder absolute-mouse
+        // path can share one Input.
+        mouse_x_ = e.motion.x;
+        mouse_y_ = e.motion.y;
     } else if (e.type == SDL_MOUSEWHEEL) {
         // SDL flips e.wheel.y when direction == FLIPPED; preciseY exists on
         // 2.0.18+ for finer-grained trackpad scroll. Use preciseY when non-zero,

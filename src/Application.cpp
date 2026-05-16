@@ -30,6 +30,14 @@
 
 namespace pengine {
 
+// Forward decl for the PBD-031 unproject helper defined in the second anon
+// namespace below — used by both `update_map_builder` and `render_map_builder`,
+// which sit on either side of that namespace.
+namespace { bool unproject_mouse_to_ground(const glm::mat4& view_proj,
+                                            int mouse_x, int mouse_y,
+                                            int viewport_w, int viewport_h,
+                                            glm::vec2& out_xz); }
+
 static const char* mode_name(Application::Mode m) {
     switch (m) {
         case Application::Mode::OnFoot:    return "on-foot";
@@ -351,6 +359,11 @@ void Application::enter_app_state(AppState s) {
         // (PBD-031) there's no behaviour to preserve, and resetting keeps the
         // state machine simple.
         map_palette_selection_ = 0;
+        // PBD-031: clear any stale mouse-place state from a previous session.
+        // `map_mouse_valid_` becomes true again on the first mouse motion
+        // event after the user moves the cursor inside the Map Builder view.
+        map_mouse_valid_   = false;
+        map_place_pending_ = false;
     }
 }
 
@@ -511,6 +524,18 @@ void Application::process_map_builder_events() {
 
     if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
         running_ = false;
+
+    // PBD-031: left-click → place. Edge-triggered via Input's mouse_pressed
+    // (set on SDL_MOUSEBUTTONDOWN, cleared by next begin_frame), so one click
+    // produces exactly one placement regardless of how many frames the button
+    // stays held. The actual `Streamer::add_instance` call happens in
+    // `update_map_builder` after `streamer_.pump()` runs, so a click that
+    // landed the same frame as a fresh cell load still hits a loaded cell.
+    // Suppressed in `map_input_active_` mode so a click during cell-jump
+    // typing doesn't accidentally place.
+    if (!map_input_active_ && input_.mouse_pressed(SDL_BUTTON_LEFT)) {
+        map_place_pending_ = true;
+    }
 
     if (map_input_active_) {
         // While in text-input mode: only Enter/Esc do anything. WASD/zoom are
@@ -712,6 +737,96 @@ void Application::update_map_builder(float dt) {
 
     // Flush pending scene additions from streamer loads.
     scene_.update();
+
+    // PBD-031: re-run the mouse unproject here too, using the camera state
+    // we just updated. The render path also unprojects (for the inspector
+    // crosshair and ghost marker) — doing it twice is cheap (one mat4
+    // inverse) and lets a click that lands the same frame the mouse first
+    // moved still find a valid XZ, instead of being skipped because the
+    // previous render frame's cached value was stale/uninitialised.
+    {
+        Camera ucam = camera_;
+        ucam.position = map_cam_pos_;
+        ucam.yaw      = MAP_CAM_YAW_DEG;
+        ucam.pitch    = MAP_CAM_PITCH_DEG;
+        const float aspect = window_.height() > 0
+                              ? static_cast<float>(window_.width()) /
+                                 static_cast<float>(window_.height())
+                              : 1.f;
+        glm::mat4 vp = ucam.view_proj(aspect);
+        glm::vec2 mouse_xz;
+        if (unproject_mouse_to_ground(vp,
+                                       input_.mouse_x(), input_.mouse_y(),
+                                       window_.width(), window_.height(),
+                                       mouse_xz)) {
+            map_mouse_valid_   = true;
+            map_mouse_world_xz_ = mouse_xz;
+        }
+        // On failure leave the previous cached XZ alone — better than
+        // bouncing to (0,0). map_mouse_valid_ stays whatever it was.
+    }
+
+    // Consume a pending click. We need an up-to-date `loaded_` so this runs
+    // *after* `streamer_.pump()` and the unproject above.
+    //
+    // Persistence note: the placement only mutates the streamer's in-memory
+    // `loaded_[cell]`. The next evict-then-reload of `cell` rebuilds from
+    // the on-disk IPL, which doesn't know about the placement → the
+    // placement is lost. Acceptable for v1 per the ticket's out-of-scope
+    // list; PBD-033 wires up the IPL write.
+    if (map_place_pending_) {
+        map_place_pending_ = false;
+        if (map_mouse_valid_) {
+            CellCoord cell = world_to_cell(map_mouse_world_xz_.x,
+                                            map_mouse_world_xz_.y,
+                                            wc.cell_size);
+
+            const auto& defs = world_models_.all();
+            std::vector<const ModelDef*> ordered;
+            ordered.reserve(defs.size());
+            for (const auto& kv : defs) ordered.push_back(&kv.second);
+            std::sort(ordered.begin(), ordered.end(),
+                      [](const ModelDef* a, const ModelDef* b) {
+                          return a->id < b->id;
+                      });
+
+            if (!ordered.empty() &&
+                map_palette_selection_ >= 0 &&
+                map_palette_selection_ < static_cast<int>(ordered.size())) {
+                const ModelDef* sel = ordered[static_cast<std::size_t>(
+                                                map_palette_selection_)];
+                InstanceDef inst;
+                inst.model_id = sel->id;
+                inst.transform.position =
+                    glm::vec3{map_mouse_world_xz_.x,
+                              Heightmap::sample(map_mouse_world_xz_.x,
+                                                 map_mouse_world_xz_.y),
+                              map_mouse_world_xz_.y};
+                // Identity rotation, default scale — per ticket's out-of-
+                // scope rules. uv_scale_override stays (0,0) → use model's.
+                bool ok = streamer_.add_instance(cell, inst);
+                if (ok) {
+                    PE_INFO("Map Builder: placed model id=%u at "
+                            "(%.1f, %.1f, %.1f) in cell (%d,%d)",
+                            sel->id,
+                            inst.transform.position.x,
+                            inst.transform.position.y,
+                            inst.transform.position.z,
+                            cell.x, cell.z);
+                    scene_.update();  // flush the new node into the scene
+                } else {
+                    // Cell not loaded (cursor over off-map / pre-load
+                    // region) or model unresolved. Flash the cell-jump
+                    // error indicator — same channel, cheaper than adding
+                    // a second one for v1.
+                    map_input_err_flash_s_ = 0.75f;
+                    PE_INFO("Map Builder: placement rejected (cell (%d,%d) "
+                            "not loaded or model %u unresolved)",
+                            cell.x, cell.z, sel->id);
+                }
+            }
+        }
+    }
 }
 
 // PBD-025: Map Builder cell/road overlay. Draws four channels on top of the
@@ -737,6 +852,51 @@ float visible_xz_half(float altitude_m, float fov_y_deg, float aspect) {
     float half_z    = altitude_m * std::tan(fov_y_rad * 0.5f);
     float half_x    = half_z * aspect;
     return 1.25f * std::max(half_x, half_z);
+}
+
+// PBD-031: unproject a mouse pixel through the camera into a ray, then
+// intersect that ray with the y=0 plane. Returns true and writes (x, z) on
+// success; false if the ray is parallel to the plane (won't happen at the
+// Map Builder's -89° pitch but the guard catches degenerate camera state).
+//
+// We bypass glm::unProject and do the inverse-view-proj ourselves so the
+// caller can supply the same matrix render_map_builder hands the renderer
+// (no risk of mismatched aspect / near / far between picking and rendering).
+//
+// Coords: mouse_px is SDL-style (origin top-left, y down). GL clip space is
+// origin centre, y up, so we flip y inside this helper.
+bool unproject_mouse_to_ground(const glm::mat4& view_proj,
+                                int mouse_x, int mouse_y,
+                                int viewport_w, int viewport_h,
+                                glm::vec2& out_xz) {
+    if (viewport_w <= 0 || viewport_h <= 0) return false;
+
+    // Two points along the ray: at the near plane (z_ndc = -1) and the far
+    // plane (z_ndc = +1). Both in NDC; unproject and connect.
+    const float xn = (2.f * static_cast<float>(mouse_x) /
+                       static_cast<float>(viewport_w)) - 1.f;
+    const float yn = 1.f - (2.f * static_cast<float>(mouse_y) /
+                            static_cast<float>(viewport_h));  // flip y
+
+    glm::mat4 inv = glm::inverse(view_proj);
+    glm::vec4 near_h = inv * glm::vec4{xn, yn, -1.f, 1.f};
+    glm::vec4 far_h  = inv * glm::vec4{xn, yn,  1.f, 1.f};
+    if (near_h.w == 0.f || far_h.w == 0.f) return false;
+    glm::vec3 near_w{near_h.x / near_h.w, near_h.y / near_h.w, near_h.z / near_h.w};
+    glm::vec3 far_w {far_h.x  / far_h.w,  far_h.y  / far_h.w,  far_h.z  / far_h.w};
+
+    glm::vec3 dir = far_w - near_w;
+    // Intersect with y=0: t such that near_w.y + t * dir.y == 0.
+    if (std::abs(dir.y) < 1e-6f) return false;
+    float t = -near_w.y / dir.y;
+    // Allow negative t with a small leniency; under -89° pitch t is always
+    // positive and modest. If we got back a wildly negative t something is
+    // wrong with the matrix.
+    if (t < 0.f) return false;
+
+    glm::vec3 hit = near_w + dir * t;
+    out_xz = {hit.x, hit.z};
+    return true;
 }
 
 // Submit the 4 edge segments of a cell boundary square at (cx, cz) into
@@ -908,21 +1068,23 @@ void Application::render_map_builder() {
         debug_draw_.flush(vp, glm::vec3{1.f, 1.f, 0.15f});
     }
 
-    // ---- Inspector (PBD-026) -----------------------------------------------
-    // Screen-centre cursor: under the top-down camera (pitch ~ -89°), a ray
-    // through screen-centre hits world XZ essentially at the camera's own XZ,
-    // so we skip the unproject and just pick at (cam.x, cam.z). Mouse-position
-    // picking is deferred — screen-centre is enough for v1 (see PBD-026
-    // ticket scope) and reads naturally as "what is dead-centre of the view."
+    // ---- Inspector (PBD-026, mouse-cursor retrofit in PBD-031) ------------
+    // PBD-031: cursor follows the mouse, not screen-centre. The mouse XZ is
+    // computed by `update_map_builder` (one mat4 inverse per frame) and
+    // cached on `map_mouse_world_xz_`. We read it here; if it was never
+    // populated (first frame, no SDL_MOUSEMOTION yet) fall back to the
+    // pre-PBD-031 screen-centre behaviour so the inspector stays useful.
     {
-        const float wx = map_cam_pos_.x;
-        const float wz = map_cam_pos_.z;
+        const float wx = map_mouse_valid_ ? map_mouse_world_xz_.x : map_cam_pos_.x;
+        const float wz = map_mouse_valid_ ? map_mouse_world_xz_.y : map_cam_pos_.z;
         Streamer::PickResult pick = streamer_.query_instance_at(wx, wz);
 
-        // Centre crosshair — always drawn so the user can see what they're
-        // aiming at, even when the pick misses (e.g. cursor over terrain or
-        // an unloaded cell). Sized to read against both bright and dim
-        // overlays.
+        // Cursor crosshair — always drawn at the unprojected mouse XZ so the
+        // user can see what they're aiming at, even when the pick misses
+        // (e.g. cursor over terrain or an unloaded cell). Sized to read
+        // against both bright and dim overlays. PBD-031: was screen-centre
+        // pre-mouse-cursor; the variable name `cs` survives but means
+        // "cursor size".
         debug_draw_.clear();
         {
             const float y_lift   = 1.0f;
@@ -1012,6 +1174,51 @@ void Application::render_map_builder() {
         text_.draw_lines(tl);
     }
 
+    // ---- Placement ghost (PBD-031) ----------------------------------------
+    // While a palette item is highlighted and the cursor is over the world,
+    // draw a wireframe AABB at mouse XZ sized from the model's local_bounds
+    // and translated to the terrain Y at that XZ. Subtle cyan so it reads
+    // against both terrain and the magenta pick-AABB outline.
+    //
+    // Out of scope (per ticket): rotation, footprint-following-terrain,
+    // collision preview against existing buildings. The marker is a flat
+    // box at sampled Y — enough to communicate "your click lands here."
+    if (map_mouse_valid_) {
+        // Resolve the currently-highlighted palette model. The palette is
+        // sorted by id every frame inside the palette-render block below, so
+        // we re-do the cheap lookup here rather than caching a pointer.
+        const auto& defs = world_models_.all();
+        std::vector<const ModelDef*> ordered;
+        ordered.reserve(defs.size());
+        for (const auto& kv : defs) ordered.push_back(&kv.second);
+        std::sort(ordered.begin(), ordered.end(),
+                  [](const ModelDef* a, const ModelDef* b) {
+                      return a->id < b->id;
+                  });
+        if (!ordered.empty() &&
+            map_palette_selection_ >= 0 &&
+            map_palette_selection_ < static_cast<int>(ordered.size())) {
+            const ModelDef* sel = ordered[static_cast<std::size_t>(
+                                            map_palette_selection_)];
+            // World AABB at identity rotation + default scale (per the
+            // out-of-scope note: placement uses identity rotation today).
+            AABB local{sel->local_bounds.min, sel->local_bounds.max};
+            Transform t;
+            t.position = glm::vec3{map_mouse_world_xz_.x,
+                                    Heightmap::sample(map_mouse_world_xz_.x,
+                                                      map_mouse_world_xz_.y),
+                                    map_mouse_world_xz_.y};
+            // Identity rotation, default scale (1,1,1) — matches what the
+            // placement code below builds. The procedural cube's local
+            // bounds are roughly building-sized for buildings and slab-sized
+            // for roads, so the preview reads true to what lands.
+            AABB world = local.transform(t.matrix());
+            debug_draw_.clear();
+            debug_draw_.box(world.min, world.max);
+            debug_draw_.flush(vp, glm::vec3{0.2f, 1.0f, 0.85f});
+        }
+    }
+
     // Footer hint, rendered via the small text-helper rather than the full
     // Menu widget. Menu::draw paints a full-screen background quad (intended
     // for actual menu screens with no scene behind them) which would clobber
@@ -1032,7 +1239,7 @@ void Application::render_map_builder() {
         } else if (map_input_err_flash_s_ > 0.f) {
             footer = "BAD CELL COORD";
         } else {
-            footer = "WASD PAN   WHEEL ZOOM   G GO TO CELL   ESC BACK";
+            footer = "WASD PAN   WHEEL ZOOM   LMB PLACE   G GO TO CELL   ESC BACK";
         }
         const char* footer_lines[] = {footer};
         Text::DrawState fl;

@@ -65,6 +65,30 @@ public:
     // `loaded_`, and `pump()` is itself main-thread-only.
     PickResult query_instance_at(float world_x, float world_z) const;
 
+    // PBD-031: append a single InstanceDef to an already-loaded cell at
+    // runtime (Map Builder placement path). Main-thread-only — the loader
+    // thread doesn't touch `loaded_`; only `pump()` does, and callers of
+    // `add_instance` are expected to be on the same thread (same invariant
+    // as `query_instance_at`).
+    //
+    // Parallel-array invariant: every entry in `LoadedCell` lives across
+    // three pieces — `nodes` (visible scene node), `instances` (the IPL
+    // record itself), `instance_world_aabbs` (post-transform world-space
+    // bounds for picking). All three are appended together so the new
+    // instance is immediately pickable by `query_instance_at`. If the model
+    // carries the Building flag we also forward the world AABB to
+    // `WorldCollision::add_building` so freshly placed buildings collide.
+    //
+    // Returns true on success, false if (a) the cell isn't currently loaded
+    // (placement off-screen / over an unloaded cell), or (b) the model id
+    // can't be resolved through the registry. Caller can use the return to
+    // gate UI feedback.
+    //
+    // Persistence: this only mutates the in-memory `loaded_` state. The
+    // on-disk IPL is unchanged, so the placement is lost on the next
+    // evict-then-reload of the cell. PBD-033 fixes that.
+    bool add_instance(CellCoord cell, const InstanceDef& inst);
+
 private:
     void thread_func();
 

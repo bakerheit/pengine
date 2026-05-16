@@ -17,6 +17,11 @@ void WorldCollision::remove_cell(CellCoord coord) {
     cells_.erase(coord);
 }
 
+void WorldCollision::add_building(CellCoord coord, const AABB& b) {
+    std::lock_guard<std::mutex> lk(mu_);
+    cells_[coord].buildings.push_back(b);
+}
+
 void WorldCollision::clear() {
     std::lock_guard<std::mutex> lk(mu_);
     cells_.clear();

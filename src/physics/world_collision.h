@@ -31,6 +31,16 @@ public:
     void remove_cell(CellCoord coord);
     void clear();
 
+    // PBD-031: append a single building AABB to a cell's collision set.
+    // Sibling of `add_cell`, not a refactor of it — the bulk path stays the
+    // canonical way the streamer wires up newly-loaded cells; this is for the
+    // Map Builder placement verb where one instance lands at a time. If the
+    // cell isn't currently in `cells_` (placement into an unloaded cell) the
+    // entry is created empty and the AABB appended; cell evict still wipes
+    // it normally. Same threading invariants as the bulk path (main thread
+    // only today; mutex kept for future cross-thread).
+    void add_building(CellCoord coord, const AABB& building_aabb);
+
     int  building_count() const;
 
     // Trace `dir` (need not be normalised) up to `max_dist` metres from
