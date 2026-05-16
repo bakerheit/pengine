@@ -234,6 +234,15 @@ private:
     MapTool   map_tool_           = MapTool::Place;
     bool      map_delete_pending_ = false;
 
+    // PBD-037: Map Builder bar hover state. Refreshed every frame in
+    // `update_map_builder` by re-hit-testing the (DPI-scaled) mouse against
+    // the current bar layout; consumed by `render_map_builder` to draw a
+    // subtle highlight behind the hovered region. `kind == None` means
+    // "no hover" (mouse over world, or over the bar but in a gap between
+    // regions). Independent of selection / active-tool — hover is its own
+    // visual layer that sits behind both rings.
+    MapBarHit map_bar_hover_      {};
+
     // F-to-steal: when OnFoot and an AI car is the closest in-range target,
     // pressing F removes that AI from TrafficSystem and teleports the player
     // car to its pose. The target is recomputed every frame in update().

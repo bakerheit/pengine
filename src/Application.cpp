@@ -965,6 +965,20 @@ void Application::update_map_builder(float dt) {
         // bouncing to (0,0). map_mouse_valid_ stays whatever it was.
     }
 
+    // PBD-037: refresh bar hover state. Update lives here (not in render)
+    // so render stays a read-only consumer of state. hit_test returns
+    // MapBarHitKind::None for "mouse outside the bar" *and* for "inside
+    // the bar but in a gap between regions" — both collapse to "no
+    // highlight" which is what we want. DPI scale matches the world-pick
+    // path above (PBD-031); coords are in drawable pixels.
+    {
+        int mx_draw = 0, my_draw = 0;
+        scale_mouse_to_drawable(input_.mouse_x(), input_.mouse_y(),
+                                 mx_draw, my_draw);
+        MapBarLayout layout = compute_map_builder_bar_layout();
+        map_bar_hover_ = hit_test_map_builder_bar(layout, mx_draw, my_draw);
+    }
+
     // Consume a pending click. We need an up-to-date `loaded_` so this runs
     // *after* `streamer_.pump()` and the unproject above.
     //
@@ -1564,7 +1578,7 @@ void Application::render_map_builder() {
         // fills (selection rings drawn before slot fills so the ring
         // peeks out as an outline).
         std::vector<Menu::Rect> rects;
-        rects.reserve(2u + layout.regions.size() * 2u);
+        rects.reserve(2u + layout.regions.size() * 2u + 1u);  // +1: PBD-037 hover
 
         // Bar background: inspector-style dark navy, slightly translucent
         // would be nice but Menu::Rect is opaque-RGB only. Solid is fine —
@@ -1574,6 +1588,29 @@ void Application::render_map_builder() {
             layout.bar_max_px,
             glm::vec3{0.06f, 0.07f, 0.10f},
         });
+
+        // PBD-037: hover highlight. Drawn right after the bar backplate so
+        // it sits behind the per-region selection / active-tool rings and
+        // the slot fill — hover should suggest "you'd be acting on this"
+        // without competing with the stronger "this *is* selected" cue.
+        // Menu::Rect is opaque-RGB, so instead of a low-alpha tint we use
+        // a slightly brighter slate fill (~1.5× the inactive tool fill),
+        // outset by 3 px so it peeks out around the slot edge. hit_test
+        // returns None when the mouse is over the bar's empty gaps or off
+        // the bar entirely; both collapse to "draw nothing" here.
+        if (map_bar_hover_.kind != MapBarHitKind::None) {
+            for (const auto& r : layout.regions) {
+                if (r.kind == map_bar_hover_.kind &&
+                    r.index == map_bar_hover_.index) {
+                    rects.push_back(Menu::Rect{
+                        {r.min_px.x - 3.f, r.min_px.y - 3.f},
+                        {r.max_px.x + 3.f, r.max_px.y + 3.f},
+                        glm::vec3{0.30f, 0.35f, 0.45f},
+                    });
+                    break;
+                }
+            }
+        }
 
         // Per-region fills. Ordering: selection-ring/outline rect first
         // (drawn behind the slot fill), then the slot/tool fill on top.
