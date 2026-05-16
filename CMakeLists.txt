@@ -107,6 +107,7 @@ add_library(pengine_core STATIC
     src/platform/window.cpp
     src/platform/input.cpp
     src/Application.cpp
+    src/editor/map_builder.cpp
     src/render/shader.cpp
     src/render/mesh.cpp
     src/render/texture.cpp
