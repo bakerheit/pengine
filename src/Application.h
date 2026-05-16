@@ -108,6 +108,12 @@ private:
     MapBarLayout compute_map_builder_bar_layout() const;
     MapBarHit    hit_test_map_builder_bar(const MapBarLayout& layout,
                                           int x_px, int y_px) const;
+    // PBD-035: single source of truth for the Map Builder palette ordering.
+    // Returns ModelRegistry entries sorted by id (the underlying storage is
+    // an unordered_map). Read-only; callers cache the result if they need
+    // it more than once per frame. The bar layout (indices), the placement
+    // path, and the ghost-AABB resolver all index into this same ordering.
+    std::vector<const ModelDef*> sorted_palette() const;
     // DPI helper: SDL hands mouse coords in logical pixels (window size),
     // but the bar layout is in physical pixels (drawable size). Scale up
     // matching what PBD-031 did for the world-pick unproject.

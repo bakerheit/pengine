@@ -452,6 +452,26 @@ void Application::process_menu_events() {
     }
 }
 
+// PBD-035: hoisted from three identical sort-by-id walks in the map-builder
+// render and update paths. The underlying ModelRegistry storage is an
+// unordered_map; the palette ordering surface area (bar layout indices,
+// `map_palette_selection_`, the ghost-AABB resolver) needs a stable
+// id-sorted view. Keep this method read-only and side-effect-free — the
+// PBD-032 cost-trap note explicitly warned that any "active states" /
+// "tooltip anchors" / "drag handles" should live on `MapBarLayout::Region`,
+// not as parallel structures hung off here.
+std::vector<const ModelDef*> Application::sorted_palette() const {
+    const auto& defs = world_models_.all();
+    std::vector<const ModelDef*> ordered;
+    ordered.reserve(defs.size());
+    for (const auto& kv : defs) ordered.push_back(&kv.second);
+    std::sort(ordered.begin(), ordered.end(),
+              [](const ModelDef* a, const ModelDef* b) {
+                  return a->id < b->id;
+              });
+    return ordered;
+}
+
 // PBD-032: bottom-bar layout. Computed once per event-pump tick (for hit-
 // testing) and once per render tick (for drawing). Cheap — just arithmetic
 // over `world_models_.size()` (8 entries today). The two call sites must
@@ -960,14 +980,7 @@ void Application::update_map_builder(float dt) {
                                             map_mouse_world_xz_.y,
                                             wc.cell_size);
 
-            const auto& defs = world_models_.all();
-            std::vector<const ModelDef*> ordered;
-            ordered.reserve(defs.size());
-            for (const auto& kv : defs) ordered.push_back(&kv.second);
-            std::sort(ordered.begin(), ordered.end(),
-                      [](const ModelDef* a, const ModelDef* b) {
-                          return a->id < b->id;
-                      });
+            std::vector<const ModelDef*> ordered = sorted_palette();
 
             if (!ordered.empty() &&
                 map_palette_selection_ >= 0 &&
@@ -1314,7 +1327,14 @@ void Application::render_map_builder() {
             debug_draw_.line({wx - cs, y, wz}, {wx + cs, y, wz});
             debug_draw_.line({wx, y, wz - cs}, {wx, y, wz + cs});
         }
-        debug_draw_.flush(vp, glm::vec3{1.f, 1.f, 1.f});
+        // PBD-035: crosshair colour matches the active tool — green for
+        // Place (mirrors the ghost-AABB), red for Delete (mirrors the
+        // delete-highlight). Continues the colour-continuity pattern
+        // PBD-032 introduced for the bar buttons.
+        const glm::vec3 crosshair_col = (map_tool_ == MapTool::Place)
+            ? glm::vec3{0.2f, 1.0f, 0.2f}
+            : glm::vec3{1.0f, 0.2f, 0.2f};
+        debug_draw_.flush(vp, crosshair_col);
 
         // Format the readout. C-style strings owned by a local buffer pool;
         // pointers fed to Menu::draw_text_lines outlive that single call.
@@ -1370,7 +1390,9 @@ void Application::render_map_builder() {
             debug_draw_.flush(vp, glm::vec3{1.f, 0.3f, 1.f});
         } else {
             std::snprintf(line_buf[0], sizeof(line_buf[0]), "INSPECTOR");
-            std::snprintf(line_buf[1], sizeof(line_buf[1]), "NO SELECTION");
+            // PBD-035: v1 has no selection concept — the inspector is
+            // hover-only — so the empty readout should say so.
+            std::snprintf(line_buf[1], sizeof(line_buf[1]), "HOVER AN OBJECT");
             lines[0] = line_buf[0];
             lines[1] = line_buf[1];
             nlines   = 2;
@@ -1407,17 +1429,11 @@ void Application::render_map_builder() {
     // so the dangerous verb has its own colour signal).
     if (map_mouse_valid_) {
         if (map_tool_ == MapTool::Place) {
-            // Resolve the currently-highlighted palette model. Sorted by
-            // id every frame inside the palette-render block below; cheap
-            // re-do.
-            const auto& defs = world_models_.all();
-            std::vector<const ModelDef*> ordered;
-            ordered.reserve(defs.size());
-            for (const auto& kv : defs) ordered.push_back(&kv.second);
-            std::sort(ordered.begin(), ordered.end(),
-                      [](const ModelDef* a, const ModelDef* b) {
-                          return a->id < b->id;
-                      });
+            // Resolve the currently-highlighted palette model. The bar
+            // render block below builds the same sorted view once per
+            // frame; this is the second call. Acceptable — palette is
+            // tiny (~8 entries) and sort cost is invisible.
+            std::vector<const ModelDef*> ordered = sorted_palette();
             if (!ordered.empty() &&
                 map_palette_selection_ >= 0 &&
                 map_palette_selection_ < static_cast<int>(ordered.size())) {
@@ -1462,6 +1478,12 @@ void Application::render_map_builder() {
         // PBD-027: footer swaps when a cell-jump input is active. In normal
         // mode it advertises the G bind; in input mode it shows the echoed
         // buffer with a trailing underscore as a crude cursor.
+        // PBD-035: the normal-mode hint is now tool-aware — LMB PLACE vs
+        // LMB DELETE — and advertises the previously-hidden UP/DN palette
+        // nav binding. The Text atlas is ASCII-only (FIRST_CHAR=32,
+        // NUM_CHARS=96), so we spell it "UP/DN" rather than the up/down
+        // arrow glyphs. B/Backspace are convenience aliases for Esc and
+        // intentionally not advertised — keeps the footer width sane.
         char input_line[64];
         const char* footer;
         if (map_input_active_) {
@@ -1471,8 +1493,12 @@ void Application::render_map_builder() {
             footer = input_line;
         } else if (map_input_err_flash_s_ > 0.f) {
             footer = "BAD CELL COORD";
+        } else if (map_tool_ == MapTool::Place) {
+            footer = "WASD PAN   WHEEL ZOOM   R+WHEEL TILT   "
+                     "LMB PLACE   UP/DN PALETTE   G GO TO CELL   ESC BACK";
         } else {
-            footer = "WASD PAN   WHEEL ZOOM   R+WHEEL TILT   LMB ACT   G GO TO CELL   ESC BACK";
+            footer = "WASD PAN   WHEEL ZOOM   R+WHEEL TILT   "
+                     "LMB DELETE   UP/DN PALETTE   G GO TO CELL   ESC BACK";
         }
         const char* footer_lines[] = {footer};
         Text::DrawState fl;
@@ -1515,21 +1541,15 @@ void Application::render_map_builder() {
     //   3. Per-region text: PLACE / DELETE labels on tool buttons; model
     //      id + flag chip on each asset slot.
     //
-    // We re-do the sort-by-id walk here. compute_map_builder_bar_layout
-    // doesn't expose the ModelDef pointers (only indices) because we
-    // didn't want the layout helper to depend on registry types. The
-    // duplication is 8 entries × one std::sort per frame; invisible.
+    // We need the ModelDef pointers here; compute_map_builder_bar_layout
+    // only exposes indices because we didn't want the layout helper to
+    // depend on registry types. PBD-035 hoisted the walk into
+    // `sorted_palette()` — the layout still indexes by position, and we
+    // resolve those positions to defs via the helper.
     {
         MapBarLayout layout = compute_map_builder_bar_layout();
 
-        const auto& defs = world_models_.all();
-        std::vector<const ModelDef*> ordered;
-        ordered.reserve(defs.size());
-        for (const auto& kv : defs) ordered.push_back(&kv.second);
-        std::sort(ordered.begin(), ordered.end(),
-                  [](const ModelDef* a, const ModelDef* b) {
-                      return a->id < b->id;
-                  });
+        std::vector<const ModelDef*> ordered = sorted_palette();
 
         // Defensive: clamp selection in case the registry shrank.
         const int n = static_cast<int>(ordered.size());
