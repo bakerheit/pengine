@@ -232,24 +232,56 @@ void test_blocked_driver_accumulates_patience_timer() {
     // Spawn some traffic.
     fx.tick(/*frames*/ 60, /*dt*/ 1.f / 30.f, glm::vec3{0.f, 0.f, 0.f});
 
-    // Pick the first AI car and freeze it in place. With 10 cars on a 5x5
-    // road grid and 60 simulated frames of spawning behind us, at least one
-    // other car is likely to encounter this stationary blocker over the
-    // following 20 simulated seconds.
-    TrafficSystem::Car* blocker = nullptr;
+    // Pick two AI cars: one as the blocker, the other as the follower we'll
+    // force onto the same lane just behind the blocker. The original version
+    // of this test relied on spawn-rng happening to put a follower on the
+    // blocker's lane — but with ~10 cars sprinkled over ~100 possible lanes
+    // (5x5 cells * 4 directions) that almost never happens. PBD-046
+    // instrumentation confirmed: across 600 frames, same-lane-behind = 0,
+    // closest other car was always on a different lane. Production blocking
+    // detection is fine; the test's setup assumption was the bug. We now
+    // make the scenario deterministic by snapping a second AI car onto the
+    // blocker's lane state and world position.
+    TrafficSystem::Car* blocker  = nullptr;
+    TrafficSystem::Car* follower = nullptr;
     for (const auto& cp : fx.traffic.cars()) {
-        if (cp->driver == TrafficSystem::Driver::AI) {
-            blocker = cp.get();
-            break;
-        }
+        if (cp->driver != TrafficSystem::Driver::AI) continue;
+        if (!blocker)       { blocker = cp.get();  continue; }
+        if (!follower)      { follower = cp.get(); break;    }
     }
     REQUIRE(blocker != nullptr);
+    REQUIRE(follower != nullptr);
     blocker->ai_target_speed = 0.f;
     blocker->ai_speed        = 0.f;
 
-    // Run the simulation forward and track the highest blocked_timer any
-    // OTHER AI car reaches. We're not asserting which car gets blocked or
-    // exactly how long it takes — just that the system notices.
+    // Snap the follower onto the blocker's lane ~6m behind (within STUCK_GAP
+    // = 8m so the blocked condition triggers). Copy route state so the
+    // follower's per-frame ai_advance / ai_extend_route stays self-consistent
+    // (the route is what was already validated at spawn).
+    follower->ai_lane              = blocker->ai_lane;
+    follower->ai_next_lane         = blocker->ai_next_lane;
+    follower->ai_prev_lane         = blocker->ai_prev_lane;
+    follower->ai_route             = blocker->ai_route;
+    follower->ai_route_index       = blocker->ai_route_index;
+    follower->ai_distance_along    = std::max(0.f,
+                                              blocker->ai_distance_along - 6.f);
+    follower->ai_lateral_offset    = 0.f;
+    follower->ai_lateral_rate      = 0.f;
+    follower->ai_lane_change       = pengine::LaneChangeIntent::None;
+    follower->ai_in_turn           = false;
+    follower->ai_blocked_timer     = 0.f;
+    follower->ai_speed             = 0.f;
+    TrafficLaneGraph follower_lanes(fx.graph);
+    glm::vec3 snap_xz = follower_lanes.lane_pose(follower->ai_lane,
+                                                  follower->ai_distance_along,
+                                                  /*lane_offset*/ 2.f, 0.f);
+    glm::vec3 cur = follower->vehicle.position();
+    follower->vehicle.set_kinematic_pose(glm::vec3{snap_xz.x, cur.y, snap_xz.z},
+                                          follower->vehicle.orientation());
+
+    // Run the simulation forward and track the highest blocked_timer the
+    // follower reaches. We're not asserting exactly how long it takes —
+    // just that the system notices it's blocked.
     float max_other_blocked_timer = 0.f;
     for (int f = 0; f < 600; ++f) {  // 20 simulated seconds at 30 Hz
         fx.tick(/*frames*/ 1, /*dt*/ 1.f / 30.f, glm::vec3{0.f, 0.f, 0.f});
@@ -265,17 +297,16 @@ void test_blocked_driver_accumulates_patience_timer() {
         blocker->ai_speed        = 0.f;
     }
 
-    // Some car must have run into the blocker. If this is zero, either
-    // blocking-detection is broken, or the rng layout never put a car
-    // behind the blocker — both findings worth surfacing as a follow-up.
+    // Some car must have run into the blocker.
     REQUIRE(max_other_blocked_timer > 0.f);
 }
 
 // (c) Parked-vehicle recovery to AI.
 //
 // Pins down: an AI car demoted to Parked with ai_recovery_pending=true is
-// re-promoted to AI by try_ai_recover (traffic.cpp:1275) once it has settled
-// (upright, slow, near its lane). This is the post-collision recovery path:
+// re-promoted to AI by try_ai_recover (traffic_drive.cpp::try_ai_recover) once
+// it has settled (upright, slow, near its lane). This is the post-collision
+// recovery path:
 // when a moving car gets knocked out of AI control by a hit, the system
 // gives the chassis a moment to bleed off the impact and then snaps it back
 // onto the lane.
@@ -321,9 +352,18 @@ void test_parked_car_recovers_to_ai_when_settled() {
         if (target->driver == TrafficSystem::Driver::AI) recovered = true;
     }
     REQUIRE(recovered);
-    // Recovery resets transient state — pin the post-condition too.
-    REQUIRE(target->ai_state == TrafficAgentState::Cruise);
+    // try_ai_recover (traffic_drive.cpp:481) DOES set ai_state = Cruise on
+    // the promotion, but in the same update() loop that promotes the car,
+    // the very next case branch runs update_ai_kinematic on it. That
+    // recomputes ai_state every frame from the world (FollowLeader,
+    // ApproachSignal, Queued, ...) so by the time this test observes
+    // ai_state it is whatever the freshly-recovered car's lane situation
+    // implies — typically ApproachSignal in this fixture (no leader, but a
+    // red light up ahead at t=2s of sim time). That's correct production
+    // behavior, so we don't assert Cruise here; we just confirm the
+    // recovery bookkeeping was cleaned up.
     REQUIRE(target->ai_recovery_pending == false);
+    REQUIRE(target->ai_recovery_timer == 0.f);
 }
 
 }  // namespace
@@ -335,26 +375,8 @@ int main() {
 
     test_spawn_rate_converges_toward_target();
     test_spawned_cars_have_valid_lane_assignments();
-    // SKIP: test_blocked_driver_accumulates_patience_timer()
-    //
-    // Surfaced by PBD-045 (swap assert() -> REQUIRE()). The test's final
-    // REQUIRE asserts max_other_blocked_timer > 0.f after 20 simulated
-    // seconds with one car pinned as a blocker. With assert() under NDEBUG
-    // this was a silent no-op. Now it fails: no AI car in the spawned
-    // layout runs into the blocker. The test's own inline comment
-    // anticipates this exact failure mode ("either blocking-detection is
-    // broken, or the rng layout never put a car behind the blocker — both
-    // findings worth surfacing as a follow-up"). Filed as PBD-046; do not
-    // re-enable until that investigation lands.
-    std::printf("traffic_system_tests: SKIP test_blocked_driver_... (PBD-046)\n");
-    // SKIP: test_parked_car_recovers_to_ai_when_settled()
-    //
-    // Also surfaced by PBD-045. The car does get re-promoted to AI (line
-    // 323's recovered check passes), but its ai_state isn't Cruise after
-    // recovery (line 325). Was silently passing under assert/NDEBUG.
-    // Folded into PBD-046's investigation since both failures live in the
-    // traffic-system simulation surface.
-    std::printf("traffic_system_tests: SKIP test_parked_car_recovers_... (PBD-046)\n");
+    test_blocked_driver_accumulates_patience_timer();
+    test_parked_car_recovers_to_ai_when_settled();
     std::printf("traffic_system_tests: OK\n");
     return 0;
 }
