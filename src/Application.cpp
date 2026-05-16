@@ -768,6 +768,20 @@ void Application::process_map_builder_events() {
         enter_app_state(AppState::DevToolsMenu);
     }
 
+    // PBD-041: tool-switch hotkeys. The Cities-Skylines convention is a
+    // single key for bulldoze; the round-trip mouse-to-bar-and-back during a
+    // destruction spree is the worst UX in the genre. `1` = Place, `2` =
+    // Delete. `B` would have been the natural "bulldoze" alias but it's
+    // already bound above (SCANCODE_B → exit to DevToolsMenu, line ~767), so
+    // we stick with the numeric pair. Pressing the active tool's key is a
+    // self-assign no-op; harmless. Gated by !map_input_active_ — we're past
+    // the early-out for that mode already, but the explicit guard documents
+    // intent and is robust to future refactors that might move this block.
+    if (!map_input_active_) {
+        if (input_.pressed(SDL_SCANCODE_1)) map_tool_ = MapTool::Place;
+        if (input_.pressed(SDL_SCANCODE_2)) map_tool_ = MapTool::Delete;
+    }
+
     // PBD-030: asset palette navigation. Up/Down only — WASD is bound to the
     // camera pan in update_map_builder, and binding W/S to the palette would
     // fight that. Arrow keys wrap at the ends. No-op when the palette is
@@ -1508,11 +1522,16 @@ void Application::render_map_builder() {
         } else if (map_input_err_flash_s_ > 0.f) {
             footer = "BAD CELL COORD";
         } else if (map_tool_ == MapTool::Place) {
+            // PBD-041: append "1=PLACE 2=DELETE" right after the LMB hint so
+            // mouse and keyboard tool controls sit adjacent. Not abbreviating
+            // the other hints — at 1080p+ the line still fits with margin.
             footer = "WASD PAN   WHEEL ZOOM   R+WHEEL TILT   "
-                     "LMB PLACE   UP/DN PALETTE   G GO TO CELL   ESC BACK";
+                     "LMB PLACE   1=PLACE 2=DELETE   "
+                     "UP/DN PALETTE   G GO TO CELL   ESC BACK";
         } else {
             footer = "WASD PAN   WHEEL ZOOM   R+WHEEL TILT   "
-                     "LMB DELETE   UP/DN PALETTE   G GO TO CELL   ESC BACK";
+                     "LMB DELETE   1=PLACE 2=DELETE   "
+                     "UP/DN PALETTE   G GO TO CELL   ESC BACK";
         }
         const char* footer_lines[] = {footer};
         Text::DrawState fl;
