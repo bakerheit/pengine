@@ -113,6 +113,20 @@ public:
     // wins. PBD-033 closes that.
     bool remove_instance(CellCoord cell, std::size_t index);
 
+    // PBD-033: persistence. A cell becomes "dirty" the moment Map Builder
+    // mutates it (add_instance / remove_instance, and eventually
+    // update_instance in Phase B). Eviction in `pump()` saves dirty cells
+    // before tearing them down. `save_all_dirty_cells()` is the
+    // exit-from-MapBuilder hook — it iterates currently-loaded cells and
+    // writes any whose `dirty` flag is set, then clears the flag so a
+    // subsequent evict doesn't re-write the same file.
+    //
+    // Main-thread only (same invariant as `add_instance`/`remove_instance`).
+    // Writes synchronously to `<cell_cache>/cell_X_Z.ipl`. Cells are small
+    // enough that a blocking write at evict / exit is well under one frame.
+    void save_dirty_cell(CellCoord cell);
+    void save_all_dirty_cells();
+
 private:
     void thread_func();
 
@@ -143,6 +157,11 @@ private:
         // is intentionally not represented here (no model_id, not pickable).
         std::vector<InstanceDef> instances;
         std::vector<AABB>        instance_world_aabbs;
+        // PBD-033: set by `add_instance`/`remove_instance` to mark the cell
+        // as having un-persisted edits. Eviction in `pump()` saves and
+        // clears this before tearing down the cell. `save_all_dirty_cells()`
+        // (Esc-to-DevToolsMenu) also clears on save.
+        bool                     dirty = false;
     };
     std::unordered_map<CellCoord, LoadedCell, CellCoordHash> loaded_;
 

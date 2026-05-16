@@ -8,10 +8,13 @@ compile_commands.json
 .idea/
 .claude/
 
-# Generated IPL cell exports — produced lazily by the streamer on first
-# encounter of a cell. Once we move to authored cells, specific files can
-# be force-added.
-assets/world/cells/*.ipl
+# Cell IPLs under assets/world/cells/ used to be ignored as lazily-generated
+# cache. As of PBD-033 they're source-of-truth: any cell the user edits in
+# the Map Builder is saved here on evict / exit and committed alongside the
+# rest of the world. Procedurally-generated unedited cells are still written
+# here on first encounter (load_or_generate_cell), but those are reproducible
+# from `generate_city_cell` and only need to be checked in once the user has
+# touched them.
 
 # Cooked binary assets — built by the meshconv pipeline (see
 # cmake/CookedAssets.cmake). Edit source art under assets/{characters,

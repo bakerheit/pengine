@@ -118,6 +118,15 @@ bool save_ipl(const std::filesystem::path& path,
                           i.uv_scale_override.x, i.uv_scale_override.y);
             out << uv;
         }
+        // PBD-028 (bundled into PBD-033): round-trip `lod_pair`. Sentinel
+        // 0xFFFFFFFFu means "unset" — skip emission so we don't bloat every
+        // line with a no-op marker. Matches the `lod=N` key parsed in
+        // load_ipl (uint32 via std::stoul).
+        if (i.lod_pair != 0xFFFFFFFFu) {
+            char lod[32];
+            std::snprintf(lod, sizeof(lod), "  lod=%u", i.lod_pair);
+            out << lod;
+        }
         out << '\n';
     }
     return static_cast<bool>(out);

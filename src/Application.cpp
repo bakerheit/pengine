@@ -328,6 +328,16 @@ void Application::enter_app_state(AppState s) {
         map_input_active_ = false;
         map_input_buf_.clear();
     }
+    // PBD-033: flush any cells the user edited during this MapBuilder session
+    // before leaving. The evict path already saves dirty cells as they fall
+    // out of the streamer's load radius, but if the user edits a cell that's
+    // still loaded and Esc's out, those edits would otherwise live only in
+    // memory until the next pan-induced evict — and a session quit before
+    // then would drop them. Running before `app_state_` flips so the
+    // transition itself is atomic w.r.t. the on-disk state.
+    if (app_state_ == AppState::MapBuilder) {
+        streamer_.save_all_dirty_cells();
+    }
     app_state_      = s;
     menu_selection_ = 0;
 

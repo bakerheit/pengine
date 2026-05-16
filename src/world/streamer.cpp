@@ -170,6 +170,11 @@ void Streamer::pump(glm::vec3 cam_pos) {
     for (const EvictJob& job : evicts) {
         auto it = loaded_.find(job.coord);
         if (it == loaded_.end()) continue;
+        // PBD-033: persist any Map Builder edits before tearing the cell
+        // down. After this point the in-memory state is gone, so any cell
+        // marked dirty must be flushed to its IPL or the edits vanish on
+        // reload. `save_dirty_cell` is a no-op for clean cells.
+        save_dirty_cell(job.coord);
         scene_->remove_static_cell(job.coord);
         for (SceneNode* n : it->second.nodes) scene_->remove_node(n);
         if (collision_)  collision_->remove_cell(job.coord);
@@ -300,6 +305,12 @@ bool Streamer::add_instance(CellCoord cell, const InstanceDef& inst) {
         collision_->add_building(cell, world);
     }
 
+    // PBD-033: mark the cell as having un-persisted edits. The next evict
+    // (or `save_all_dirty_cells` from the MapBuilder exit) will flush this
+    // to disk. Setting after the success path so a failed add doesn't
+    // dirty the cell unnecessarily.
+    lc.dirty = true;
+
     return true;
 }
 
@@ -351,7 +362,43 @@ bool Streamer::remove_instance(CellCoord cell, std::size_t index) {
         }
     }
 
+    // PBD-033: a delete is an edit. Mirror the add_instance dirty hook so
+    // the deletion makes it to disk on evict.
+    lc.dirty = true;
+
     return true;
+}
+
+// PBD-033: persist a single cell's instances to its on-disk IPL. No-op if
+// the cell isn't loaded or isn't dirty (clean cells haven't been edited
+// since the last save / load, so the disk copy is already authoritative).
+// Clears the dirty flag on success so a subsequent evict doesn't re-write
+// the same data.
+void Streamer::save_dirty_cell(CellCoord cell) {
+    auto it = loaded_.find(cell);
+    if (it == loaded_.end()) return;
+    LoadedCell& lc = it->second;
+    if (!lc.dirty) return;
+
+    auto path = ipl_path_for_cell(cell_cache_, cell);
+    if (save_ipl(path, lc.instances)) {
+        lc.dirty = false;
+        PE_INFO("Streamer: saved cell (%d,%d) -> %s  (%zu instances)",
+                cell.x, cell.z, path.string().c_str(), lc.instances.size());
+    } else {
+        // Leave dirty=true so a later evict / exit retries. The save_ipl
+        // path already logs a warning on open failure; no further log here.
+    }
+}
+
+// PBD-033: flush all currently-loaded dirty cells. Called from
+// `enter_app_state` when leaving MapBuilder so end-of-session edits
+// survive even when no eviction triggers (e.g. user edits a cell and
+// hits Esc without moving the camera).
+void Streamer::save_all_dirty_cells() {
+    for (auto& kv : loaded_) {
+        if (kv.second.dirty) save_dirty_cell(kv.first);
+    }
 }
 
 Streamer::PickResult Streamer::query_instance_at(float wx, float wz) const {
