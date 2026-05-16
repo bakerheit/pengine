@@ -30,13 +30,18 @@ Last updated: 2026-05-16 (EPIC-001 v1 shipped; EPIC-002 v1 design checkpoint sig
 | PBD-039 | Asset slot text contrast | Planned | — | UI review #10. Luminance-based label colour (white-or-black per slot tint); top/bottom-anchored label split. (S) Blocked by PBD-035. |
 | PBD-040 | Overlay legend in corner | Planned | — | UI review #11. Mini key explaining cell/road/intersection/pick colours. (S) Blocked by PBD-035. |
 | PBD-041 | Tool-switch hotkeys | Planned | — | UI review #12. `1` PLACE, `2` DELETE (or `B` BULLDOZE). Advertised in footer. (S) Blocked by PBD-035. |
+| PBD-042 | Size presets (S/M/L) at placement | In progress | Frank | EPIC-002 v2 Phase A, ticket 1/3. Named scale multipliers selectable via bar buttons + hotkey. Ghost AABB reflects preset. (S) |
+| PBD-043 | Free scale + yaw rotation at placement | Planned | — | EPIC-002 v2 Phase A, ticket 2/3. Shift+wheel uniform scale; Q/E or R/Shift+R for 15° yaw detents. (M) Blocked by PBD-042. |
+| PBD-044 | Round-trip + collision verification under non-identity transforms | Planned | — | EPIC-002 v2 Phase A, ticket 3/3. Characterization-shaped: place rotated+scaled, evict, reload, verify position/rotation/scale + collision. (S) Soft-prereq: PBD-033. |
+| PBD-045 | Test asserts shouldn't compile out under NDEBUG | In progress | Alex | Surfaced by Frank in PBD-044. Replace `assert()` in test files with `REQUIRE()` macro that doesn't no-op under `-DNDEBUG`. Adds `tests/test_assert.h`. Surfaces two latent test failures → PBD-046. (XS) |
+| PBD-046 | Investigate two latent test failures surfaced by PBD-045 | Planned | — | Both in `traffic_system_tests.cpp`: (1) `test_blocked_driver` — patience timer never accumulates; (2) `test_parked_car_recovers` — recovery happens but `ai_state` isn't `Cruise`. Both currently skipped in `main()` with TODO references. Re-enable when fixed. (S/M) |
 
 ## Epics
 
 | ID | Title | Status | Notes |
 |----|-------|--------|-------|
 | EPIC-001 | Create Map Builder | v1 shipped 2026-05-16 | Inspector-only v1. 5 PBDs (023–027) shipped. |
-| EPIC-002 | Map Builder editing | v1 in flight (3/5 shipped) | Palette + plop + delete shipped (030/031/032). Persist (033) + undo (034) pending. UI-polish PBDs 035–041 surfaced 2026-05-16. |
+| EPIC-002 | Map Builder editing | v1 polish complete; v2 in flight | v1 polish set (035–041) shipped 2026-05-16. v2 Phase A (placement controls 042–044) signed off 2026-05-16. Phase B (per-instance keyboard-modal edit) and Phase C (multi-select, deferred) to follow. |
 | EPIC-003 | Authored road network (engine) | Planned (L, 4–6 PBDs) | Engine work. Replace constants-derived road grid with stored per-segment data. Heightmap reads from `RoadGraph` not `classify_road_band`. Unblocks real road add/remove tools. Not sized into PBDs yet. |
 | EPIC-004 | Curved roads (engine) | Spike pending | Major engine work. Touches road representation, mesh gen, AI lane following (rewrite), intersections, heightmap carving, streamer cell-alignment. Architect estimate: 6–10 PBDs, several L+. Next step: a single-PBD spike on the road-representation design, not a full epic scope yet. |
 
@@ -111,4 +116,4 @@ The inspector readout in PBD-032 labels road slabs "road slab (visual only)" so 
 
 ## Notes on gaps
 
-PBD-010, PBD-013, PBD-017 don't appear in any record. If real history exists for these in someone's head or in chat, fold them in. Otherwise they remain unused gaps; future tickets continue from PBD-042.
+PBD-010, PBD-013, PBD-017 don't appear in any record. If real history exists for these in someone's head or in chat, fold them in. Otherwise they remain unused gaps; future tickets continue from PBD-047.

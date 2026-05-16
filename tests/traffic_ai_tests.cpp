@@ -1,6 +1,7 @@
-#include <cassert>
 #include <cmath>
 #include <random>
+
+#include "test_assert.h"
 
 #include "game/traffic_ai.h"
 #include "world/road_grid.h"
@@ -24,12 +25,12 @@ void test_lane_geometry() {
 
     LaneId east{0, 0, GridDir::East};
     TrafficLane lane = lanes.lane(east, 2.f);
-    assert(lanes.lane_loaded(east));
-    assert(std::abs(lane.length - ROAD_PITCH) < 0.001f);
-    assert(std::abs(lane.stop_distance - (ROAD_PITCH - 6.f)) < 0.001f);
-    assert(std::abs(lane.start.x - 0.f) < 0.001f);
-    assert(std::abs(lane.start.z + 2.f) < 0.001f);
-    assert(std::abs(lane.end.x - ROAD_PITCH) < 0.001f);
+    REQUIRE(lanes.lane_loaded(east));
+    REQUIRE(std::abs(lane.length - ROAD_PITCH) < 0.001f);
+    REQUIRE(std::abs(lane.stop_distance - (ROAD_PITCH - 6.f)) < 0.001f);
+    REQUIRE(std::abs(lane.start.x - 0.f) < 0.001f);
+    REQUIRE(std::abs(lane.start.z + 2.f) < 0.001f);
+    REQUIRE(std::abs(lane.end.x - ROAD_PITCH) < 0.001f);
 }
 
 void test_turn_links() {
@@ -39,7 +40,7 @@ void test_turn_links() {
 
     std::array<TrafficTurnLink, 4> links;
     int n = lanes.outgoing(LaneId{0, 0, GridDir::East}, links);
-    assert(n >= 3);
+    REQUIRE(n >= 3);
 
     bool saw_straight = false;
     bool saw_left = false;
@@ -52,10 +53,10 @@ void test_turn_links() {
         saw_right = saw_right || kind == TrafficTurnKind::Right;
         saw_uturn = saw_uturn || kind == TrafficTurnKind::UTurn;
     }
-    assert(saw_straight);
-    assert(saw_left);
-    assert(saw_right);
-    assert(!saw_uturn);
+    REQUIRE(saw_straight);
+    REQUIRE(saw_left);
+    REQUIRE(saw_right);
+    REQUIRE(!saw_uturn);
 }
 
 void test_route_and_driver_math() {
@@ -65,25 +66,25 @@ void test_route_and_driver_math() {
     std::mt19937 rng{123u};
 
     TrafficRoute route = lanes.make_route(LaneId{0, 0, GridDir::East}, 6, rng);
-    assert(route.lanes.size() >= 2);
+    REQUIRE(route.lanes.size() >= 2);
     for (const LaneId& lane : route.lanes)
-        assert(lanes.lane_loaded(lane));
+        REQUIRE(lanes.lane_loaded(lane));
 
     DriverProfile cautious = make_driver_profile(DriverProfileKind::Cautious);
     DriverProfile aggressive =
         make_driver_profile(DriverProfileKind::AggressiveLite);
-    assert(cautious.headway > aggressive.headway);
-    assert(traffic_follow_speed_for_gap(2.f, cautious) == 0.f);
-    assert(traffic_follow_speed_for_gap(20.f, aggressive)
+    REQUIRE(cautious.headway > aggressive.headway);
+    REQUIRE(traffic_follow_speed_for_gap(2.f, cautious) == 0.f);
+    REQUIRE(traffic_follow_speed_for_gap(20.f, aggressive)
            > traffic_follow_speed_for_gap(20.f, cautious));
-    assert(traffic_should_stop_for_yellow(30.f, 8.f, cautious));
-    assert(!traffic_should_stop_for_yellow(30.f, 8.f, aggressive));
-    assert(!traffic_profile_may_pass_jam(cautious, 60.f));
-    assert(!traffic_profile_may_pass_jam(
+    REQUIRE(traffic_should_stop_for_yellow(30.f, 8.f, cautious));
+    REQUIRE(!traffic_should_stop_for_yellow(30.f, 8.f, aggressive));
+    REQUIRE(!traffic_profile_may_pass_jam(cautious, 60.f));
+    REQUIRE(!traffic_profile_may_pass_jam(
         make_driver_profile(DriverProfileKind::Impatient), 1.f));
-    assert(traffic_profile_may_pass_jam(
+    REQUIRE(traffic_profile_may_pass_jam(
         make_driver_profile(DriverProfileKind::Impatient), 4.f));
-    assert(traffic_profile_may_pass_jam(aggressive, 3.f));
+    REQUIRE(traffic_profile_may_pass_jam(aggressive, 3.f));
 }
 
 } // namespace

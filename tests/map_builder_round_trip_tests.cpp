@@ -27,6 +27,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include "test_assert.h"
+
 #include "core/log.h"
 #include "scene/aabb.h"
 #include "scene/transform.h"
@@ -65,18 +67,6 @@ std::filesystem::path tmp_ipl_path(const char* tag) {
     return std::filesystem::temp_directory_path() / fname;
 }
 
-// FATAL on any condition false. Replaces assert() because this binary builds
-// with NDEBUG (RelWithDebInfo) and assert is a no-op — silent test passes
-// are worse than no tests. traffic_system_tests.cpp uses assert and only
-// gets away with it because its asserts happen to hold; we exercise paths
-// that *might* fail (file I/O), so we need a real check.
-void fatal_if(bool cond, const char* msg, const char* case_name) {
-    if (!cond) {
-        std::printf("FAIL [%s] %s\n", case_name, msg);
-        std::exit(1);
-    }
-}
-
 // Save `in` to a temp path, load it back, and stash the result in `out`.
 // Aborts the test with a clear FAIL line on any I/O failure rather than
 // returning false silently.
@@ -84,12 +74,12 @@ void round_trip(const InstanceDef& in, const char* tag, InstanceDef& out) {
     auto path = tmp_ipl_path(tag);
     std::vector<InstanceDef> save_vec{in};
     bool saved = save_ipl(path, save_vec);
-    fatal_if(saved, "save_ipl returned false", tag);
+    FATAL_IF(saved, "save_ipl returned false", tag);
 
     std::vector<InstanceDef> load_vec;
     bool loaded = load_ipl(path, load_vec);
-    fatal_if(loaded, "load_ipl returned false", tag);
-    fatal_if(load_vec.size() == 1,
+    FATAL_IF(loaded, "load_ipl returned false", tag);
+    FATAL_IF(load_vec.size() == 1,
              "expected exactly 1 instance loaded", tag);
 
     out = load_vec.front();
