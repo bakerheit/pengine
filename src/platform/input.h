@@ -27,6 +27,10 @@ public:
     float mouse_dx() const { return mouse_dx_; }
     float mouse_dy() const { return mouse_dy_; }
 
+    // Mouse wheel: accumulated y ticks this frame (+up / -down, in SDL's
+    // "normal" direction). Cleared each begin_frame() like dx/dy.
+    float wheel_y() const { return wheel_y_; }
+
 private:
     std::array<bool, key_count> down_{};
     std::array<bool, key_count> pressed_{};
@@ -38,6 +42,7 @@ private:
 
     float mouse_dx_ = 0.f;
     float mouse_dy_ = 0.f;
+    float wheel_y_  = 0.f;
 };
 
 } // namespace pengine

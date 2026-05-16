@@ -160,6 +160,22 @@ int Application::run() {
             for (int i = 0; i < tick.updates; ++i)
                 update(clock_.fixed_dt);
             render(tick.alpha);
+        } else if (app_state_ == AppState::MapBuilder) {
+            // Map Builder is a "world view with no simulation" state: gameplay
+            // doesn't tick (traffic / peds frozen at init pose) but we *do*
+            // drive the streamer with the editor camera, so cells page in/out
+            // as the user pans. The fixed-timestep clock is drained so
+            // resuming gameplay doesn't catch up on map-builder time; pan/zoom
+            // use a real wall-clock dt instead.
+            process_map_builder_events();
+            (void)clock_.advance();
+            TimePoint now = Clock::now();
+            float dt = std::chrono::duration<float>(now - map_last_frame_).count();
+            map_last_frame_ = now;
+            if (dt > 0.1f) dt = 0.1f; // clamp big stalls (alt-tab etc.)
+            if (dt < 0.f)  dt = 0.f;
+            update_map_builder(dt);
+            render_map_builder();
         } else {
             // Menu state: no gameplay simulation, no 3D scene render. We
             // still drain the fixed-timestep clock so that resuming gameplay
@@ -176,13 +192,24 @@ int Application::run() {
         ++fps_frames_;
         if (seconds_since(stats_start_) >= 1.0) {
             if (app_state_ != AppState::Playing) {
-                const char* label = "dev tools";
-                if (app_state_ == AppState::MainMenu)        label = "main menu";
-                else if (app_state_ == AppState::MapBuilder) label = "map builder";
-                char title[128];
-                std::snprintf(title, sizeof(title),
-                              "pengine | %s | fps:%d",
-                              label, fps_frames_);
+                char title[200];
+                if (app_state_ == AppState::MapBuilder) {
+                    // Include cam world position + altitude + loaded cell
+                    // count for debugging pan/stream behaviour (PBD-024).
+                    auto st = streamer_.stats();
+                    std::snprintf(title, sizeof(title),
+                                  "pengine | map builder | fps:%d"
+                                  " | cam x=%.0f z=%.0f alt=%.0f | cells:%d",
+                                  fps_frames_,
+                                  map_cam_pos_.x, map_cam_pos_.z, map_cam_pos_.y,
+                                  st.loaded_cells);
+                } else {
+                    const char* label = (app_state_ == AppState::MainMenu)
+                                      ? "main menu" : "dev tools";
+                    std::snprintf(title, sizeof(title),
+                                  "pengine | %s | fps:%d",
+                                  label, fps_frames_);
+                }
                 SDL_SetWindowTitle(window_.sdl(), title);
                 fps_frames_   = 0;
                 max_frame_ms_ = 0.0;
@@ -291,6 +318,19 @@ void Application::enter_app_state(AppState s) {
             mouse_captured_ = false;
         }
     }
+
+    if (s == AppState::MapBuilder) {
+        // Default: hover over the world centre at altitude high enough to
+        // show several cells. WorldConfig::cell_size×world_cells gives the
+        // world extent; centre is (cells*size/2). Altitude 600m with the
+        // default 60° FOV shows ~700m of width on a 16:9 viewport — i.e. a
+        // ~3×3 chunk of 256m cells, which is the streamer's load radius.
+        WorldConfig wc;
+        float cx = (static_cast<float>(wc.world_cells_x) * wc.cell_size) * 0.5f;
+        float cz = (static_cast<float>(wc.world_cells_z) * wc.cell_size) * 0.5f;
+        map_cam_pos_    = glm::vec3{cx, 600.f, cz};
+        map_last_frame_ = Clock::now();
+    }
 }
 
 void Application::activate_menu_selection() {
@@ -341,28 +381,23 @@ void Application::process_menu_events() {
     if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
         running_ = false;
 
-    // List navigation only applies to the actual list menus. MapBuilder
-    // shares this event pump (it's not yet running gameplay input) but has
-    // no list to drive.
-    const bool in_list_menu = (app_state_ == AppState::MainMenu ||
-                               app_state_ == AppState::DevToolsMenu);
+    // List navigation: MainMenu / DevToolsMenu only. MapBuilder has its own
+    // event pump (process_map_builder_events) — this function is only invoked
+    // for the two list-menu states.
+    const int item_count = (app_state_ == AppState::MainMenu)
+                         ? MAIN_ITEM_COUNT
+                         : DEVTOOLS_ITEM_COUNT;
 
-    if (in_list_menu) {
-        const int item_count = (app_state_ == AppState::MainMenu)
-                             ? MAIN_ITEM_COUNT
-                             : DEVTOOLS_ITEM_COUNT;
-
-        if (input_.pressed(SDL_SCANCODE_UP) || input_.pressed(SDL_SCANCODE_W)) {
-            menu_selection_ = (menu_selection_ - 1 + item_count) % item_count;
-        }
-        if (input_.pressed(SDL_SCANCODE_DOWN) || input_.pressed(SDL_SCANCODE_S)) {
-            menu_selection_ = (menu_selection_ + 1) % item_count;
-        }
-        if (input_.pressed(SDL_SCANCODE_RETURN) ||
-            input_.pressed(SDL_SCANCODE_KP_ENTER) ||
-            input_.pressed(SDL_SCANCODE_SPACE)) {
-            activate_menu_selection();
-        }
+    if (input_.pressed(SDL_SCANCODE_UP) || input_.pressed(SDL_SCANCODE_W)) {
+        menu_selection_ = (menu_selection_ - 1 + item_count) % item_count;
+    }
+    if (input_.pressed(SDL_SCANCODE_DOWN) || input_.pressed(SDL_SCANCODE_S)) {
+        menu_selection_ = (menu_selection_ + 1) % item_count;
+    }
+    if (input_.pressed(SDL_SCANCODE_RETURN) ||
+        input_.pressed(SDL_SCANCODE_KP_ENTER) ||
+        input_.pressed(SDL_SCANCODE_SPACE)) {
+        activate_menu_selection();
     }
 
     if (input_.pressed(SDL_SCANCODE_ESCAPE) ||
@@ -370,23 +405,57 @@ void Application::process_menu_events() {
         input_.pressed(SDL_SCANCODE_B)) {
         if (app_state_ == AppState::DevToolsMenu) {
             enter_app_state(AppState::MainMenu);
-        } else if (app_state_ == AppState::MapBuilder) {
-            enter_app_state(AppState::DevToolsMenu);
         }
         // Esc on the main menu is a no-op (no parent to back out to). Ctrl+Q
         // remains the quit shortcut.
     }
 }
 
-void Application::render_menu() {
-    // MapBuilder uses a slightly different clear colour so the scaffold is
-    // visibly distinct from menu screens and gameplay. PBD-024 will replace
-    // this with an actual top-down world render.
-    if (app_state_ == AppState::MapBuilder) {
-        glClearColor(0.08f, 0.10f, 0.14f, 1.0f);
-    } else {
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+// MapBuilder event pump — split from process_menu_events (PBD-024) now that
+// the state has real input (WASD pan + wheel zoom). The split was flagged in
+// the PBD-023 follow-up as the right refactor when MapBuilder grew input;
+// this is that moment. Keeps the menu pump small and lets the map-builder
+// path own its own keybindings without per-event app_state_ branches.
+void Application::process_map_builder_events() {
+    input_.begin_frame();
+
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        switch (e.type) {
+            case SDL_QUIT:
+                running_ = false;
+                break;
+            case SDL_WINDOWEVENT:
+                if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+                    e.window.event == SDL_WINDOWEVENT_RESIZED) {
+                    int w = 0, h = 0;
+                    SDL_GL_GetDrawableSize(window_.sdl(), &w, &h);
+                    window_.on_resize(w, h);
+                    glViewport(0, 0, w, h);
+                }
+                break;
+            default:
+                input_.handle_event(e);
+                break;
+        }
     }
+
+    if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
+        running_ = false;
+
+    if (input_.pressed(SDL_SCANCODE_ESCAPE) ||
+        input_.pressed(SDL_SCANCODE_BACKSPACE) ||
+        input_.pressed(SDL_SCANCODE_B)) {
+        enter_app_state(AppState::DevToolsMenu);
+    }
+}
+
+void Application::render_menu() {
+    // MainMenu / DevToolsMenu only — MapBuilder has its own render path
+    // (render_map_builder) that draws the streamed world under a top-down
+    // camera. PBD-024 split MapBuilder out of this widget when it grew real
+    // input + a world view.
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     Menu::DrawState ms;
@@ -399,20 +468,122 @@ void Application::render_menu() {
         ms.items      = MAIN_ITEMS;
         ms.item_count = MAIN_ITEM_COUNT;
         ms.footer     = "UP DOWN MOVE   ENTER SELECT   CTRL Q QUIT";
-    } else if (app_state_ == AppState::DevToolsMenu) {
+    } else /* DevToolsMenu */ {
         ms.title      = "DEV TOOLS";
         ms.items      = DEVTOOLS_ITEMS;
         ms.item_count = DEVTOOLS_ITEM_COUNT;
         ms.footer     = "ESC BACK   ENTER SELECT";
-    } else /* MapBuilder */ {
-        // Empty scaffold (PBD-023). Title-only render; future PBDs will
-        // overlay world view, cursor, inspector panes, etc.
-        ms.title      = "MAP BUILDER";
-        ms.items      = nullptr;
-        ms.item_count = 0;
-        ms.footer     = "ESC BACK";
     }
 
+    menu_.draw(ms);
+
+    window_.swap();
+}
+
+// ---------------------------------------------------------------------------
+// Map Builder (PBD-024)
+// ---------------------------------------------------------------------------
+//
+// Top-down free-pan camera. Per the architect: not a new orthographic
+// projection — instead reuse the existing perspective Camera with a steep
+// pitch (-89°). Yaw is fixed so WASD always pans in world axes. Mouse wheel
+// adjusts altitude. The resulting camera position drives Streamer::pump each
+// frame, so cells page in/out as the user explores.
+//
+// Out of scope for this ticket: overlays, picking, cell jump. Those are
+// PBD-025/026/027 and hang off this same render/event pair.
+
+void Application::update_map_builder(float dt) {
+    // ----- Zoom (wheel adjusts altitude) -----
+    // Multiplicative step keeps zoom feel consistent at any altitude — a tick
+    // takes you ~10% of the way toward/away from the ground.
+    float wy = input_.wheel_y();
+    if (wy != 0.f) {
+        float factor = std::pow(1.f - MAP_CAM_WHEEL_STEP, wy);
+        map_cam_pos_.y *= factor;
+        if (map_cam_pos_.y < MAP_CAM_ALT_MIN) map_cam_pos_.y = MAP_CAM_ALT_MIN;
+        if (map_cam_pos_.y > MAP_CAM_ALT_MAX) map_cam_pos_.y = MAP_CAM_ALT_MAX;
+    }
+
+    // ----- Pan (WASD on the XZ plane) -----
+    // Yaw is fixed at -90 (camera "looks along -Z"), so we hard-code the
+    // ground-plane basis rather than reading Camera::forward(): forward = -Z,
+    // right = +X. This makes W push north (-Z) and D push east (+X) regardless
+    // of any latent yaw state on camera_.
+    glm::vec3 fwd_xz{0.f, 0.f, -1.f};
+    glm::vec3 rgt_xz{1.f, 0.f,  0.f};
+
+    glm::vec3 vel{0.f};
+    if (input_.down(SDL_SCANCODE_W)) vel += fwd_xz;
+    if (input_.down(SDL_SCANCODE_S)) vel -= fwd_xz;
+    if (input_.down(SDL_SCANCODE_D)) vel += rgt_xz;
+    if (input_.down(SDL_SCANCODE_A)) vel -= rgt_xz;
+
+    if (glm::length(vel) > 0.f) {
+        // Scale pan speed with altitude so the screen-space pan rate feels
+        // constant at any zoom. ~1.2 × altitude per second is roughly "edge
+        // of screen in <1s" with the default 60° FOV.
+        float speed = 1.2f * map_cam_pos_.y;
+        map_cam_pos_ += glm::normalize(vel) * speed * dt;
+    }
+
+    // Clamp XZ to world bounds so we don't wander into never-loadable space.
+    WorldConfig wc;
+    float world_w = static_cast<float>(wc.world_cells_x) * wc.cell_size;
+    float world_d = static_cast<float>(wc.world_cells_z) * wc.cell_size;
+    if (map_cam_pos_.x < 0.f)      map_cam_pos_.x = 0.f;
+    if (map_cam_pos_.x > world_w)  map_cam_pos_.x = world_w;
+    if (map_cam_pos_.z < 0.f)      map_cam_pos_.z = 0.f;
+    if (map_cam_pos_.z > world_d)  map_cam_pos_.z = world_d;
+
+    // Drive the streamer from the camera position. Cell load/evict is keyed
+    // on (cam.x, cam.z) by Streamer; we still pass the full vec3 so future
+    // distance-based culling sees the right altitude.
+    streamer_.pump(map_cam_pos_);
+
+    // Flush pending scene additions from streamer loads.
+    scene_.update();
+}
+
+void Application::render_map_builder() {
+    glClearColor(0.45f, 0.65f, 0.85f, 1.f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Pose the camera. Position is the editor cam; yaw is fixed; pitch is
+    // near-straight-down. Camera::forward() with yaw=-90, pitch=-89 yields
+    // ~(0, -1, -0.017) — essentially straight down with a hair of -Z bias to
+    // avoid lookAt's degenerate up=forward singularity.
+    camera_.position = map_cam_pos_;
+    camera_.yaw      = MAP_CAM_YAW_DEG;
+    camera_.pitch    = MAP_CAM_PITCH_DEG;
+
+    float aspect = static_cast<float>(window_.width()) /
+                   static_cast<float>(window_.height());
+    glm::mat4 vp = camera_.view_proj(aspect);
+
+    Frustum frustum = Frustum::from_view_proj(vp);
+    Scene::CullResult cr = scene_.cull(frustum);
+
+    lit_shader_.use();
+    lit_shader_.set("u_view_proj",   vp);
+    lit_shader_.set("u_cam_pos",     camera_.position);
+    lit_shader_.set("u_light_dir",   glm::normalize(glm::vec3{0.6f, 1.f, 0.4f}));
+    lit_shader_.set("u_light_color", glm::vec3{1.f, 0.95f, 0.85f});
+    lit_shader_.set("u_ambient",     glm::vec3{0.18f, 0.22f, 0.28f});
+    lit_shader_.set("u_diffuse",     0);
+
+    checker_tex_.bind(0);
+    scene_.draw(cr, lit_shader_);
+
+    // Footer hint via the existing menu widget. Title is empty so the widget
+    // only draws the footer band — keeps the world view uncluttered.
+    Menu::DrawState ms;
+    ms.viewport_size_px = {static_cast<float>(window_.width()),
+                            static_cast<float>(window_.height())};
+    ms.title      = "";
+    ms.items      = nullptr;
+    ms.item_count = 0;
+    ms.footer     = "WASD PAN   WHEEL ZOOM   ESC BACK";
     menu_.draw(ms);
 
     window_.swap();

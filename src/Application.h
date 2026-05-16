@@ -45,9 +45,12 @@ public:
 private:
     void process_events();
     void process_menu_events();
+    void process_map_builder_events();
     void update(double dt);
+    void update_map_builder(float dt);
     void render(double alpha);
     void render_menu();
+    void render_map_builder();
 
     void enter_mode(Mode m);
     void try_toggle_vehicle();
@@ -99,6 +102,22 @@ private:
 
     AppState app_state_       = AppState::MainMenu;
     int      menu_selection_  = 0;
+
+    // Map Builder camera (PBD-024). The state is a top-down perspective camera
+    // — yaw fixed at -90 (looking along -Z) and pitch fixed at near-straight-
+    // down (-89). XZ pans on the ground plane; Y is altitude controlled by
+    // mouse wheel. Driven by process_map_builder_events / update_map_builder;
+    // applied to camera_ each frame inside render_map_builder.
+    glm::vec3 map_cam_pos_ {0.f, 200.f, 0.f}; // .y is altitude
+    static constexpr float MAP_CAM_PITCH_DEG = -89.f;
+    static constexpr float MAP_CAM_YAW_DEG   = -90.f;
+    static constexpr float MAP_CAM_ALT_MIN   = 40.f;
+    static constexpr float MAP_CAM_ALT_MAX   = 1500.f;
+    static constexpr float MAP_CAM_WHEEL_STEP = 0.10f; // fraction of altitude per tick
+    // Last wall-clock tick of the map-builder loop; used to derive a real-time
+    // dt for pan/zoom (gameplay's fixed-timestep clock isn't appropriate here
+    // because we don't tick a simulation while in MapBuilder).
+    TimePoint map_last_frame_ {};
 
     // F-to-steal: when OnFoot and an AI car is the closest in-range target,
     // pressing F removes that AI from TrafficSystem and teleports the player

@@ -11,6 +11,7 @@ void Input::begin_frame() {
     mouse_released_.fill(false);
     mouse_dx_ = 0.f;
     mouse_dy_ = 0.f;
+    wheel_y_  = 0.f;
 }
 
 void Input::handle_event(const SDL_Event& e) {
@@ -29,6 +30,15 @@ void Input::handle_event(const SDL_Event& e) {
     } else if (e.type == SDL_MOUSEMOTION) {
         mouse_dx_ += static_cast<float>(e.motion.xrel);
         mouse_dy_ += static_cast<float>(e.motion.yrel);
+    } else if (e.type == SDL_MOUSEWHEEL) {
+        // SDL flips e.wheel.y when direction == FLIPPED; preciseY exists on
+        // 2.0.18+ for finer-grained trackpad scroll. Use preciseY when non-zero,
+        // fall back to integer y otherwise.
+        float dy = e.wheel.preciseY != 0.f
+                 ? e.wheel.preciseY
+                 : static_cast<float>(e.wheel.y);
+        if (e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) dy = -dy;
+        wheel_y_ += dy;
     } else if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) {
         int btn = static_cast<int>(e.button.button);
         if (btn < 0 || btn >= mouse_button_count) return;
