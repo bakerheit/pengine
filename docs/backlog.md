@@ -21,18 +21,22 @@ Last updated: 2026-05-16 (EPIC-001 v1 shipped; EPIC-002 v1 design checkpoint sig
 | PBD-022 | General 2D screen-space shader | Watch | — | Minimap shader doing 4× duty (minimap + crosshair + speedometer + menu). Not urgent. |
 | PBD-028 | `save_ipl` round-trips `lod_pair` | Bundled | — | Surfaced by PBD-026. Bundled into PBD-033 — editing forces the round-trip to be correct. |
 | PBD-029 | `Menu::draw` contract / background-quad gotcha | Planned | — | Surfaced by PBD-026. Frank worked around by adding `Menu::draw_text_lines`. Rename or add `paint_background` flag. (S) |
-| PBD-030 | Asset palette UI | In progress | Frank | EPIC-002 v1, ticket 1/5. Sidebar listing all `ModelRegistry` entries; up/down to select; state on Application. No placement. (S) |
-| PBD-031 | Place instance under cursor | Planned | — | EPIC-002 v1, ticket 2/5. Click/Enter places selected palette model at cursor world XZ. Adds `Streamer::add_instance` (main-thread only). Extends `WorldCollision` for buildings. (M) Blocked by PBD-030. |
-| PBD-032 | Delete instance under cursor | Planned | — | EPIC-002 v1, ticket 3/5. Reuses `query_instance_at`; on delete key removes from Streamer + scene + collision. Inspector labels road slabs "visual only" so deletion is honest. (S) Blocked by PBD-031. |
-| PBD-033 | Persist edits via `save_ipl` on cell evict | Planned | — | EPIC-002 v1, ticket 4/5. Dirty cells write to `assets/world/cells/cell_X_Z.ipl` before evict. **Bundles PBD-028.** Un-gitignores cells dir as part of this PBD. (M) Blocked by PBD-031. |
-| PBD-034 | Undo/redo command stack | Planned | — | EPIC-002 v1, ticket 5/5. `EditCommand` vocabulary (Place/Delete), fixed-depth ring buffer, Ctrl-Z/Ctrl-Y. Cleared on cell evict for v1. (M) Blocked by PBD-031, 032. |
+| PBD-033 | Persist edits via `save_ipl` on cell evict | Planned | — | EPIC-002 v1, ticket 4/5. Dirty cells write to `assets/world/cells/cell_X_Z.ipl` before evict. **Bundles PBD-028.** Un-gitignores cells dir. (M) |
+| PBD-034 | Undo/redo command stack | Planned | — | EPIC-002 v1, ticket 5/5. `EditCommand` (Place/Delete), fixed-depth ring buffer, Ctrl-Z/Ctrl-Y. Cleared on cell evict for v1. (M) |
+| PBD-035 | Map Builder UI honesty pass | In progress | Frank | UI review bundle. Honest LMB hint per tool + crosshair colour by tool + "HOVER AN OBJECT" + advertise hidden bindings + hoist `sort-by-id` palette walk. (S) |
+| PBD-036 | Asset names + cursor caption | Planned | — | UI review #1 (convergent A+C). Slot label "20 ROAD" not "20 [R]"; "PLACE — building_01" caption near ghost in Place mode. (M) Blocked by PBD-035. |
+| PBD-037 | Hover state on bar regions | Planned | — | UI review #7. Faint outset rect on hovered slot/button; reuses existing hit-test + `Menu::Rect`. (S) Blocked by PBD-035. |
+| PBD-038 | Visual separation: tool group vs asset group | Planned | — | UI review #8 + #9. Divider between PLACE/DELETE buttons and asset palette; dim entire palette when Delete is active. (S) Blocked by PBD-035. |
+| PBD-039 | Asset slot text contrast | Planned | — | UI review #10. Luminance-based label colour (white-or-black per slot tint); top/bottom-anchored label split. (S) Blocked by PBD-035. |
+| PBD-040 | Overlay legend in corner | Planned | — | UI review #11. Mini key explaining cell/road/intersection/pick colours. (S) Blocked by PBD-035. |
+| PBD-041 | Tool-switch hotkeys | Planned | — | UI review #12. `1` PLACE, `2` DELETE (or `B` BULLDOZE). Advertised in footer. (S) Blocked by PBD-035. |
 
 ## Epics
 
 | ID | Title | Status | Notes |
 |----|-------|--------|-------|
 | EPIC-001 | Create Map Builder | v1 shipped 2026-05-16 | Inspector-only v1. 5 PBDs (023–027) shipped. |
-| EPIC-002 | Map Builder editing | v1 designed (M overall) | Palette + plop + delete + save + undo. 5 PBDs (030–034). Sequenced. Design checkpoint 2026-05-16. |
+| EPIC-002 | Map Builder editing | v1 in flight (3/5 shipped) | Palette + plop + delete shipped (030/031/032). Persist (033) + undo (034) pending. UI-polish PBDs 035–041 surfaced 2026-05-16. |
 | EPIC-003 | Authored road network (engine) | Planned (L, 4–6 PBDs) | Engine work. Replace constants-derived road grid with stored per-segment data. Heightmap reads from `RoadGraph` not `classify_road_band`. Unblocks real road add/remove tools. Not sized into PBDs yet. |
 | EPIC-004 | Curved roads (engine) | Spike pending | Major engine work. Touches road representation, mesh gen, AI lane following (rewrite), intersections, heightmap carving, streamer cell-alignment. Architect estimate: 6–10 PBDs, several L+. Next step: a single-PBD spike on the road-representation design, not a full epic scope yet. |
 
@@ -99,9 +103,12 @@ The inspector readout in PBD-032 labels road slabs "road slab (visual only)" so 
 | PBD-025 | Cell/road/intersection overlay | `fbc1d3b` |
 | PBD-026 | Instance pick + inspector readout | `01e24ee` |
 | PBD-027 | Cell-jump input | `b8a3f55` |
+| PBD-030 | Asset palette UI | `b868e89` |
+| PBD-031 | Mouse-cursor + click-to-place | `9c06581` |
+| PBD-032 | Bottom-bar UI + tool mode + delete | `0a85ae9` |
 
 ---
 
 ## Notes on gaps
 
-PBD-010, PBD-013, PBD-017 don't appear in any record. If real history exists for these in someone's head or in chat, fold them in. Otherwise they remain unused gaps; future tickets continue from PBD-035.
+PBD-010, PBD-013, PBD-017 don't appear in any record. If real history exists for these in someone's head or in chat, fold them in. Otherwise they remain unused gaps; future tickets continue from PBD-042.
