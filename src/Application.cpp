@@ -1649,14 +1649,56 @@ void Application::render_map_builder() {
                 tl.viewport_size_px   = viewport_px;
                 text_.draw_lines(tl);
             } else if (r.kind == MapBarHitKind::AssetSlot) {
+                // PBD-036: slot label is now "ID NAME" — the flag chip is
+                // gone (the inspector still surfaces flags). Names like
+                // `bldg_sandstone` overflow a 72px slot at 18px glyphs, so
+                // we measure and either keep the full name, ellipsise, or
+                // (last resort) drop to a smaller row. The text origin and
+                // available width come from the slot rect itself.
                 const ModelDef* d = ordered[static_cast<std::size_t>(r.index)];
-                const char* mflags = format_model_flags(d->flags);
-                char chip = '-';
-                if (mflags && mflags[0] && std::strcmp(mflags, "NONE") != 0) {
-                    chip = mflags[0];
-                }
                 std::snprintf(label_buf, sizeof(label_buf),
-                              "%u [%c]", d->id, chip);
+                              "%u %s", d->id, d->name.c_str());
+
+                const float slot_w    = r.max_px.x - r.min_px.x;
+                const float avail_w   = slot_w - 12.f;  // 6px each side
+                float       glyph_h   = 18.f;
+                float       label_w   = text_.measure_width(label_buf, glyph_h);
+
+                // First fallback: shrink to 14px if that fits cleanly. Reads
+                // worse than truncation IMO but keeps the full name visible
+                // for borderline overflows (one or two chars over budget).
+                if (label_w > avail_w) {
+                    const float shrunk = text_.measure_width(label_buf, 14.f);
+                    if (shrunk <= avail_w) {
+                        glyph_h = 14.f;
+                        label_w = shrunk;
+                    }
+                }
+                // Second fallback: ellipsise. Chop characters off the end
+                // until the string + "..." fits. We trim from `label_buf`
+                // in place; safe because the buffer is local and re-used
+                // next iteration. We keep the "ID " prefix intact — losing
+                // the id would defeat the point.
+                if (label_w > avail_w) {
+                    glyph_h = 18.f;  // revert; truncation reads cleaner at full size
+                    // Find the start of the name (first char past "ID ").
+                    char* name_start = std::strchr(label_buf, ' ');
+                    name_start = name_start ? name_start + 1 : label_buf;
+                    int len = static_cast<int>(std::strlen(label_buf));
+                    while (len > static_cast<int>(name_start - label_buf) + 1 &&
+                           text_.measure_width(label_buf, glyph_h) > avail_w) {
+                        // Replace last 3 chars (or fewer) with "..." then
+                        // chop one more on the next iteration.
+                        label_buf[len - 1] = '\0';
+                        --len;
+                        if (len >= 3) {
+                            label_buf[len - 3] = '.';
+                            label_buf[len - 2] = '.';
+                            label_buf[len - 1] = '.';
+                        }
+                    }
+                }
+
                 // Buffer is re-used each iteration; we draw immediately
                 // before the next snprintf, so the pointer stays valid.
                 const char* lines_one[1] = {label_buf};
@@ -1664,7 +1706,7 @@ void Application::render_map_builder() {
                 tl.lines              = lines_one;
                 tl.count              = 1;
                 tl.origin_top_left_px = {gx, gy};
-                tl.glyph_h_px         = 18.f;
+                tl.glyph_h_px         = glyph_h;
                 // Dark text on the bright tint swatches so the id reads;
                 // some models (e.g. ROAD) have dark grey tints, so we
                 // bias toward near-black for contrast on the bright ones
@@ -1674,6 +1716,106 @@ void Application::render_map_builder() {
                 tl.viewport_size_px   = viewport_px;
                 text_.draw_lines(tl);
             }
+        }
+    }
+
+    // ---- Cursor caption (PBD-036) ----------------------------------------
+    // Names the asset under the verb. Place mode prints the palette
+    // selection's model name; Delete mode prints the model name of the
+    // instance the cursor is over (no caption when there's no pick — the
+    // user already gets a "nothing here" signal via the absent red AABB).
+    //
+    // Positioning: option (b) from the ticket — anchor at the mouse pixel
+    // plus a (24, 24) offset. The mouse coords come straight from
+    // `input_` and are scaled to drawable pixels via the same helper the
+    // bar hit-test uses (PBD-031/032 settled this). Clamped so the
+    // backplate doesn't slip off the right edge or under the bottom bar.
+    if (map_mouse_valid_) {
+        char         caption_buf[64];
+        const char*  caption      = nullptr;
+        bool         have_caption = false;
+
+        if (map_tool_ == MapTool::Place) {
+            std::vector<const ModelDef*> ordered = sorted_palette();
+            if (!ordered.empty() &&
+                map_palette_selection_ >= 0 &&
+                map_palette_selection_ < static_cast<int>(ordered.size())) {
+                const ModelDef* sel = ordered[static_cast<std::size_t>(
+                                                map_palette_selection_)];
+                std::snprintf(caption_buf, sizeof(caption_buf),
+                              "PLACE - %s", sel->name.c_str());
+                caption      = caption_buf;
+                have_caption = true;
+            }
+        } else {
+            // Re-pick (same call the red highlight made above; cheap and
+            // keeps this block self-contained). Skip caption on a miss —
+            // less visual noise than "DELETE - (nothing)".
+            Streamer::PickResult pick = streamer_.query_instance_at(
+                map_mouse_world_xz_.x, map_mouse_world_xz_.y);
+            if (pick.hit) {
+                const ModelDef* md = world_models_.get(pick.instance.model_id);
+                std::snprintf(caption_buf, sizeof(caption_buf),
+                              "DELETE - %s",
+                              md ? md->name.c_str() : "?");
+                caption      = caption_buf;
+                have_caption = true;
+            }
+        }
+
+        if (have_caption) {
+            const float vw = static_cast<float>(window_.width());
+            const float vh = static_cast<float>(window_.height());
+
+            int mx_draw = 0, my_draw = 0;
+            scale_mouse_to_drawable(input_.mouse_x(), input_.mouse_y(),
+                                    mx_draw, my_draw);
+
+            const float glyph_h = 20.f;
+            const float pad     = 8.f;
+            const float text_w  = text_.measure_width(caption, glyph_h);
+            const float box_w   = text_w + pad * 2.f;
+            const float box_h   = glyph_h + pad * 2.f;
+
+            // Lower-right of cursor, out of the way of the ghost AABB.
+            float x = static_cast<float>(mx_draw) + 24.f;
+            float y = static_cast<float>(my_draw) + 24.f;
+
+            // Clamp to viewport. The bar's top edge is `vh - 200` (see
+            // compute_map_builder_bar_layout); keep the caption above it
+            // so it doesn't disappear behind the chrome.
+            const float bar_top   = vh - 200.f;
+            const float right_max = vw - 8.f;
+            if (x + box_w > right_max) {
+                // Flip to the left of the cursor; if that still overflows
+                // (caption wider than mouse-x), pin to the right edge.
+                x = static_cast<float>(mx_draw) - 24.f - box_w;
+                if (x < 8.f) x = right_max - box_w;
+            }
+            if (y + box_h > bar_top) {
+                // Flip above the cursor.
+                y = static_cast<float>(my_draw) - 24.f - box_h;
+                if (y < 8.f) y = 8.f;
+            }
+
+            const char* caption_lines[1] = {caption};
+            Text::DrawState cl;
+            cl.lines              = caption_lines;
+            cl.count              = 1;
+            // origin_top_left is where text starts; the backplate expands
+            // by bg_padding_px on every side. So shift origin in by `pad`
+            // to align the box with the clamped rect we just computed.
+            cl.origin_top_left_px = {x + pad, y + pad};
+            cl.glyph_h_px         = glyph_h;
+            // Yellow — the existing "active" accent (cell-jump input,
+            // inspector selection ring). Mode-coloured tempting but the
+            // ghost AABB / red highlight already encode the mode; a
+            // separate accent reads as "system feedback" not "the verb".
+            cl.color              = glm::vec3{1.0f, 0.95f, 0.55f};
+            cl.bg_color           = glm::vec4{0.05f, 0.05f, 0.07f, 0.70f};
+            cl.bg_padding_px      = pad;
+            cl.viewport_size_px   = {vw, vh};
+            text_.draw_lines(cl);
         }
     }
 
