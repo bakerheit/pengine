@@ -7,6 +7,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <unordered_set>
+#include <vector>
 
 #include "core/log.h"
 #include "game/police_system.h"
@@ -545,6 +547,54 @@ void Application::update_map_builder(float dt) {
     scene_.update();
 }
 
+// PBD-025: Map Builder cell/road overlay. Draws four channels on top of the
+// rendered world using DebugDraw (depth-test disabled so lines sit cleanly on
+// the terrain regardless of building occlusion):
+//   - loaded cell boundary squares  (bright cyan)
+//   - unloaded cell boundary squares in the visible window (dim grey)
+//   - road centerlines on the NS/EW grid (orange)
+//   - intersection markers (bright yellow crosses)
+//
+// Each channel is a separate clear/submit/flush pass because DebugDraw::flush
+// applies a single color to all queued lines. That's ~four GL draw calls per
+// frame for the overlay; fine for our world size (32×32 cells, typically <100
+// in the visible window).
+namespace {
+
+// Approximate XZ half-size of the visible ground region under the top-down
+// camera, given altitude and vertical FOV. Used to clip overlay generation
+// to roughly what's on screen plus a small margin. We use a generous margin
+// (1.25×) so partial cells at the edge still get drawn.
+float visible_xz_half(float altitude_m, float fov_y_deg, float aspect) {
+    float fov_y_rad = glm::radians(fov_y_deg);
+    float half_z    = altitude_m * std::tan(fov_y_rad * 0.5f);
+    float half_x    = half_z * aspect;
+    return 1.25f * std::max(half_x, half_z);
+}
+
+// Submit the 4 edge segments of a cell boundary square at (cx, cz) into
+// debug_draw. Y is sampled at each corner from the heightmap so the square
+// hugs the terrain rather than floating above it.
+void submit_cell_square(DebugDraw& dd, CellCoord c, float cell_size,
+                        float y_lift) {
+    float x0 = c.x * cell_size;
+    float x1 = x0 + cell_size;
+    float z0 = c.z * cell_size;
+    float z1 = z0 + cell_size;
+
+    auto p = [&](float x, float z) {
+        return glm::vec3{x, Heightmap::sample(x, z) + y_lift, z};
+    };
+
+    glm::vec3 a = p(x0, z0), b = p(x1, z0), d = p(x1, z1), e = p(x0, z1);
+    dd.line(a, b);
+    dd.line(b, d);
+    dd.line(d, e);
+    dd.line(e, a);
+}
+
+} // namespace
+
 void Application::render_map_builder() {
     glClearColor(0.45f, 0.65f, 0.85f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -574,6 +624,122 @@ void Application::render_map_builder() {
 
     checker_tex_.bind(0);
     scene_.draw(cr, lit_shader_);
+
+    // ---- Overlay (PBD-025) -------------------------------------------------
+    {
+        WorldConfig wc;
+        const float cell_size = wc.cell_size;
+        const float y_lift    = 0.5f;  // lift overlay just above terrain
+
+        // Visible XZ window in world units, clamped to world bounds. Y in
+        // map_cam_pos_ is altitude; camera_ FOV is the default (60° per
+        // Camera). If Camera::fov_y_deg changes, this still works because
+        // the margin (1.25×) absorbs small mismatches.
+        const float half = visible_xz_half(map_cam_pos_.y, 60.f, aspect);
+        const float wx0  = map_cam_pos_.x - half;
+        const float wx1  = map_cam_pos_.x + half;
+        const float wz0  = map_cam_pos_.z - half;
+        const float wz1  = map_cam_pos_.z + half;
+
+        // ---- Channel 1: unloaded cells in the visible window (dim grey) ----
+        // Computed by enumerating cell indices crossing the window and
+        // excluding loaded ones. Has to come before loaded so the loaded
+        // squares paint on top if any overlap (they shouldn't, but cheap
+        // insurance).
+        std::vector<CellCoord> loaded = road_graph_.loaded_cells();
+        std::unordered_set<CellCoord, CellCoordHash> loaded_set(
+            loaded.begin(), loaded.end());
+
+        int ci0 = std::max(0, static_cast<int>(std::floor(wx0 / cell_size)));
+        int ci1 = std::min(wc.world_cells_x - 1,
+                            static_cast<int>(std::floor(wx1 / cell_size)));
+        int cj0 = std::max(0, static_cast<int>(std::floor(wz0 / cell_size)));
+        int cj1 = std::min(wc.world_cells_z - 1,
+                            static_cast<int>(std::floor(wz1 / cell_size)));
+
+        debug_draw_.clear();
+        for (int cj = cj0; cj <= cj1; ++cj) {
+            for (int ci = ci0; ci <= ci1; ++ci) {
+                CellCoord c{ci, cj};
+                if (loaded_set.count(c)) continue;
+                submit_cell_square(debug_draw_, c, cell_size, y_lift);
+            }
+        }
+        debug_draw_.flush(vp, glm::vec3{0.35f, 0.35f, 0.40f});
+
+        // ---- Channel 2: loaded cells (bright cyan) -------------------------
+        debug_draw_.clear();
+        for (CellCoord c : loaded) {
+            // Skip cells fully outside the visible window — cheap reject by
+            // overlap of cell box with [wx0,wx1]×[wz0,wz1].
+            float x0 = c.x * cell_size, x1 = x0 + cell_size;
+            float z0 = c.z * cell_size, z1 = z0 + cell_size;
+            if (x1 < wx0 || x0 > wx1 || z1 < wz0 || z0 > wz1) continue;
+            submit_cell_square(debug_draw_, c, cell_size, y_lift);
+        }
+        debug_draw_.flush(vp, glm::vec3{0.15f, 1.f, 0.95f});
+
+        // ---- Channel 3: road centerlines (orange) --------------------------
+        // NS roads at x = i * ROAD_PITCH, EW roads at z = j * ROAD_PITCH.
+        // Draw each segment as a polyline of short pieces so it follows
+        // the terrain — but at typical Map Builder altitudes the carved
+        // road plateau is essentially flat, so coarse sampling is fine.
+        debug_draw_.clear();
+        const float seg_len = 8.f;  // 8m sample spacing along centerline
+
+        int i0 = static_cast<int>(std::floor(wx0 / ROAD_PITCH));
+        int i1 = static_cast<int>(std::ceil (wx1 / ROAD_PITCH));
+        int j0 = static_cast<int>(std::floor(wz0 / ROAD_PITCH));
+        int j1 = static_cast<int>(std::ceil (wz1 / ROAD_PITCH));
+
+        auto sample_road_pt = [&](float x, float z) {
+            return glm::vec3{x, Heightmap::sample(x, z) + y_lift, z};
+        };
+
+        // NS roads (parallel to Z axis at fixed x).
+        for (int i = i0; i <= i1; ++i) {
+            float x = static_cast<float>(i) * ROAD_PITCH;
+            float zA = std::max(wz0, 0.f);
+            float zB = std::min(wz1, static_cast<float>(wc.world_cells_z) * cell_size);
+            if (zA >= zB) continue;
+            glm::vec3 prev = sample_road_pt(x, zA);
+            for (float z = zA + seg_len; z < zB; z += seg_len) {
+                glm::vec3 cur = sample_road_pt(x, z);
+                debug_draw_.line(prev, cur);
+                prev = cur;
+            }
+            debug_draw_.line(prev, sample_road_pt(x, zB));
+        }
+        // EW roads (parallel to X axis at fixed z).
+        for (int j = j0; j <= j1; ++j) {
+            float z = static_cast<float>(j) * ROAD_PITCH;
+            float xA = std::max(wx0, 0.f);
+            float xB = std::min(wx1, static_cast<float>(wc.world_cells_x) * cell_size);
+            if (xA >= xB) continue;
+            glm::vec3 prev = sample_road_pt(xA, z);
+            for (float x = xA + seg_len; x < xB; x += seg_len) {
+                glm::vec3 cur = sample_road_pt(x, z);
+                debug_draw_.line(prev, cur);
+                prev = cur;
+            }
+            debug_draw_.line(prev, sample_road_pt(xB, z));
+        }
+        debug_draw_.flush(vp, glm::vec3{1.f, 0.55f, 0.10f});
+
+        // ---- Channel 4: loaded intersection markers (bright yellow) --------
+        debug_draw_.clear();
+        // Size scales gently with altitude so the markers stay visible when
+        // zoomed out without overwhelming the view when zoomed in.
+        float marker = std::clamp(map_cam_pos_.y * 0.025f, 2.f, 12.f);
+        for (auto [i, j] : road_graph_.loaded_intersections()) {
+            float x = static_cast<float>(i) * ROAD_PITCH;
+            float z = static_cast<float>(j) * ROAD_PITCH;
+            if (x < wx0 || x > wx1 || z < wz0 || z > wz1) continue;
+            glm::vec3 p{x, Heightmap::sample(x, z) + y_lift, z};
+            debug_draw_.cross(p, marker);
+        }
+        debug_draw_.flush(vp, glm::vec3{1.f, 1.f, 0.15f});
+    }
 
     // Footer hint via the existing menu widget. Title is empty so the widget
     // only draws the footer band — keeps the world view uncluttered.

@@ -45,6 +45,11 @@ int RoadGraph::outgoing(int i, int j, std::array<GridDir, 4>& out) const {
     return static_cast<int>(n);
 }
 
+std::vector<CellCoord> RoadGraph::loaded_cells() const {
+    std::lock_guard<std::mutex> lk(cells_mu_);
+    return {cells_.begin(), cells_.end()};
+}
+
 std::vector<std::pair<int,int>> RoadGraph::loaded_intersections() const {
     std::vector<std::pair<int,int>> out;
     std::lock_guard<std::mutex> lk(cells_mu_);

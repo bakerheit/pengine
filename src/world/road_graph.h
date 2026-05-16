@@ -59,6 +59,12 @@ public:
     // Snapshots so callers can iterate without holding the cell lock.
     std::vector<std::pair<int,int>> loaded_intersections() const;
 
+    // Snapshot of every currently-loaded cell. Map Builder overlays (PBD-025)
+    // use this to draw loaded-cell boundary squares without having to peek
+    // inside the Streamer's private state — the streamer keeps RoadGraph in
+    // sync via add_cell / remove_cell on load/evict.
+    std::vector<CellCoord> loaded_cells() const;
+
     int loaded_cell_count() const;
 
 private:
