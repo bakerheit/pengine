@@ -241,3 +241,13 @@ add_test(NAME traffic_ai_tests COMMAND traffic_ai_tests)
 add_executable(traffic_system_tests tests/traffic_system_tests.cpp)
 target_link_libraries(traffic_system_tests PRIVATE pengine_core)
 add_test(NAME traffic_system_tests COMMAND traffic_system_tests)
+
+# --- Map-builder round-trip + AABB sanity tests (PBD-044) ------------------
+# EPIC-002 Phase A verification ticket. Pushes an InstanceDef with non-identity
+# scale/rotation through save_ipl + load_ipl and asserts every field round-
+# trips within the file format's precision budget. Also covers AABB::transform
+# (Arvo's method) growing the world AABB as expected for a yaw'd cube — the
+# physics-side bound that WorldCollision and the streamer rely on.
+add_executable(map_builder_round_trip_tests tests/map_builder_round_trip_tests.cpp)
+target_link_libraries(map_builder_round_trip_tests PRIVATE pengine_core)
+add_test(NAME map_builder_round_trip_tests COMMAND map_builder_round_trip_tests)
