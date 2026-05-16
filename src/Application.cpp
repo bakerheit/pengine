@@ -754,9 +754,25 @@ void Application::update_map_builder(float dt) {
                                  static_cast<float>(window_.height())
                               : 1.f;
         glm::mat4 vp = ucam.view_proj(aspect);
+
+        // DPI fix: SDL_MOUSEMOTION reports in logical pixels (SDL window
+        // size), but the viewport (and `window_.width/height()`, set from
+        // SDL_GL_GetDrawableSize) is in physical pixels. On Retina that's a
+        // 2× mismatch which lands the in-game cursor up-and-left of the OS
+        // cursor. Scale up the mouse coords to drawable space before
+        // unprojecting.
+        int win_w_logical = 0, win_h_logical = 0;
+        SDL_GetWindowSize(window_.sdl(), &win_w_logical, &win_h_logical);
+        const int mx_draw = (win_w_logical > 0)
+            ? input_.mouse_x() * window_.width()  / win_w_logical
+            : input_.mouse_x();
+        const int my_draw = (win_h_logical > 0)
+            ? input_.mouse_y() * window_.height() / win_h_logical
+            : input_.mouse_y();
+
         glm::vec2 mouse_xz;
         if (unproject_mouse_to_ground(vp,
-                                       input_.mouse_x(), input_.mouse_y(),
+                                       mx_draw, my_draw,
                                        window_.width(), window_.height(),
                                        mouse_xz)) {
             map_mouse_valid_   = true;
