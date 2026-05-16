@@ -53,6 +53,7 @@ bool Application::init() {
     if (!debug_draw_.init(ASSETS_DIR)) return false;
     if (!particles_.init(ASSETS_DIR)) return false;
     if (!hud_.init(ASSETS_DIR)) return false;
+    if (!menu_.init(ASSETS_DIR)) return false;
 
     {
         std::vector<Vertex>   verts;
@@ -153,11 +154,20 @@ int Application::run() {
     while (running_) {
         TimePoint frame_start = Clock::now();
 
-        process_events();
-        auto tick = clock_.advance();
-        for (int i = 0; i < tick.updates; ++i)
-            update(clock_.fixed_dt);
-        render(tick.alpha);
+        if (app_state_ == AppState::Playing) {
+            process_events();
+            auto tick = clock_.advance();
+            for (int i = 0; i < tick.updates; ++i)
+                update(clock_.fixed_dt);
+            render(tick.alpha);
+        } else {
+            // Menu state: no gameplay simulation, no 3D scene render. We
+            // still drain the fixed-timestep clock so that resuming gameplay
+            // doesn't try to catch up on time spent in the menu.
+            process_menu_events();
+            (void)clock_.advance();
+            render_menu();
+        }
 
         double frame_ms =
             std::chrono::duration<double, std::milli>(Clock::now() - frame_start).count();
@@ -165,6 +175,19 @@ int Application::run() {
 
         ++fps_frames_;
         if (seconds_since(stats_start_) >= 1.0) {
+            if (app_state_ != AppState::Playing) {
+                const char* label = (app_state_ == AppState::MainMenu)
+                                  ? "main menu" : "dev tools";
+                char title[128];
+                std::snprintf(title, sizeof(title),
+                              "pengine | %s | fps:%d",
+                              label, fps_frames_);
+                SDL_SetWindowTitle(window_.sdl(), title);
+                fps_frames_   = 0;
+                max_frame_ms_ = 0.0;
+                stats_start_  = Clock::now();
+                continue;
+            }
             auto st = streamer_.stats();
             char title[400];
             std::snprintf(title, sizeof(title),
@@ -207,6 +230,7 @@ void Application::shutdown() {
     debug_draw_.shutdown();
     particles_.shutdown();
     hud_.shutdown();
+    menu_.shutdown();
     weapons_.shutdown();
     player_.shutdown();
     lit_shader_.destroy();
@@ -218,6 +242,157 @@ void Application::shutdown() {
     facade_tex_.destroy();
     sidewalk_tex_.destroy();
     window_.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Menu state (PBD-016)
+// ---------------------------------------------------------------------------
+//
+// The main menu is the first interactive screen on launch. Gameplay
+// subsystems are still initialised at startup (the world streams, the
+// streamer warms, etc.) but the per-frame simulation is paused and the 3D
+// scene is not drawn while we're in a menu state. "New Game" transitions to
+// Playing; "Dev Tools" drops into a submenu whose only entry (Map Builder)
+// is a placeholder.
+
+namespace {
+
+constexpr const char* MAIN_ITEMS[] = {
+    "New Game",
+    "Dev Tools",
+};
+constexpr int MAIN_ITEM_COUNT =
+    static_cast<int>(sizeof(MAIN_ITEMS) / sizeof(MAIN_ITEMS[0]));
+
+constexpr const char* DEVTOOLS_ITEMS[] = {
+    "Map Builder",
+    "Back",
+};
+constexpr int DEVTOOLS_ITEM_COUNT =
+    static_cast<int>(sizeof(DEVTOOLS_ITEMS) / sizeof(DEVTOOLS_ITEMS[0]));
+
+} // namespace
+
+void Application::enter_app_state(AppState s) {
+    if (app_state_ == s) return;
+    app_state_      = s;
+    menu_selection_ = 0;
+    menu_show_hint_ = false;
+
+    if (s == AppState::Playing) {
+        // Reset the fixed-timestep accumulator so we don't catch up on time
+        // spent in the menu.
+        clock_.accumulator = 0.0;
+        clock_.last        = Clock::now();
+    } else {
+        // Release the mouse if it was captured by gameplay.
+        if (mouse_captured_) {
+            SDL_SetRelativeMouseMode(SDL_FALSE);
+            mouse_captured_ = false;
+        }
+    }
+}
+
+void Application::activate_menu_selection() {
+    if (app_state_ == AppState::MainMenu) {
+        if (menu_selection_ == 0) {
+            // New Game -> enter gameplay. The engine has already initialised
+            // the world; we just start ticking it.
+            enter_app_state(AppState::Playing);
+        } else if (menu_selection_ == 1) {
+            enter_app_state(AppState::DevToolsMenu);
+        }
+    } else if (app_state_ == AppState::DevToolsMenu) {
+        if (menu_selection_ == 0) {
+            // Map Builder is a placeholder for EPIC-001. No behaviour yet —
+            // flash a hint and stay on this screen.
+            menu_show_hint_ = true;
+        } else if (menu_selection_ == 1) {
+            enter_app_state(AppState::MainMenu);
+        }
+    }
+}
+
+void Application::process_menu_events() {
+    input_.begin_frame();
+
+    SDL_Event e;
+    while (SDL_PollEvent(&e)) {
+        switch (e.type) {
+            case SDL_QUIT:
+                running_ = false;
+                break;
+            case SDL_WINDOWEVENT:
+                if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+                    e.window.event == SDL_WINDOWEVENT_RESIZED) {
+                    int w = 0, h = 0;
+                    SDL_GL_GetDrawableSize(window_.sdl(), &w, &h);
+                    window_.on_resize(w, h);
+                    glViewport(0, 0, w, h);
+                }
+                break;
+            default:
+                input_.handle_event(e);
+                break;
+        }
+    }
+
+    if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
+        running_ = false;
+
+    const int item_count = (app_state_ == AppState::MainMenu)
+                         ? MAIN_ITEM_COUNT
+                         : DEVTOOLS_ITEM_COUNT;
+
+    if (input_.pressed(SDL_SCANCODE_UP) || input_.pressed(SDL_SCANCODE_W)) {
+        menu_selection_ = (menu_selection_ - 1 + item_count) % item_count;
+        menu_show_hint_ = false;
+    }
+    if (input_.pressed(SDL_SCANCODE_DOWN) || input_.pressed(SDL_SCANCODE_S)) {
+        menu_selection_ = (menu_selection_ + 1) % item_count;
+        menu_show_hint_ = false;
+    }
+    if (input_.pressed(SDL_SCANCODE_RETURN) ||
+        input_.pressed(SDL_SCANCODE_KP_ENTER) ||
+        input_.pressed(SDL_SCANCODE_SPACE)) {
+        activate_menu_selection();
+    }
+    if (input_.pressed(SDL_SCANCODE_ESCAPE) ||
+        input_.pressed(SDL_SCANCODE_BACKSPACE) ||
+        input_.pressed(SDL_SCANCODE_B)) {
+        if (app_state_ == AppState::DevToolsMenu) {
+            enter_app_state(AppState::MainMenu);
+        }
+        // Esc on the main menu is a no-op (no parent to back out to). Ctrl+Q
+        // remains the quit shortcut.
+    }
+}
+
+void Application::render_menu() {
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    Menu::DrawState ms;
+    ms.viewport_size_px = {static_cast<float>(window_.width()),
+                            static_cast<float>(window_.height())};
+    ms.selected_index   = menu_selection_;
+
+    if (app_state_ == AppState::MainMenu) {
+        ms.title      = "BULLDOG";
+        ms.items      = MAIN_ITEMS;
+        ms.item_count = MAIN_ITEM_COUNT;
+        ms.footer     = "UP DOWN MOVE   ENTER SELECT   CTRL Q QUIT";
+    } else /* DevToolsMenu */ {
+        ms.title      = "DEV TOOLS";
+        ms.items      = DEVTOOLS_ITEMS;
+        ms.item_count = DEVTOOLS_ITEM_COUNT;
+        ms.footer     = menu_show_hint_
+                      ? "COMING SOON"
+                      : "ESC BACK   ENTER SELECT";
+    }
+
+    menu_.draw(ms);
+
+    window_.swap();
 }
 
 void Application::enter_mode(Mode m) {

@@ -13,6 +13,7 @@
 #include "render/camera.h"
 #include "render/debug_draw.h"
 #include "render/hud.h"
+#include "render/menu.h"
 #include "render/mesh.h"
 #include "render/particles.h"
 #include "render/shader.h"
@@ -30,18 +31,28 @@ class Application {
 public:
     enum class Mode { OnFoot, InVehicle, DebugFly };
 
+    // Outer application state. The main menu is shown before any gameplay
+    // input/update runs; "New Game" transitions to Playing. Dev Tools is a
+    // placeholder submenu (PBD-016).
+    enum class AppState { MainMenu, DevToolsMenu, Playing };
+
     bool init();
     int  run();
     void shutdown();
 
 private:
     void process_events();
+    void process_menu_events();
     void update(double dt);
     void render(double alpha);
+    void render_menu();
 
     void enter_mode(Mode m);
     void try_toggle_vehicle();
     void update_in_vehicle(float dt, float mdx, float mdy);
+
+    void enter_app_state(AppState s);
+    void activate_menu_selection();
 
     Window         window_;
     Input          input_;
@@ -76,12 +87,17 @@ private:
     Weapons             weapons_;
     WantedSystem        wanted_;
     Hud                 hud_;
+    Menu                menu_;
 
     Mode  mode_           = Mode::OnFoot;
     Mode  saved_mode_     = Mode::OnFoot; // last non-debug mode
     bool  mouse_captured_ = false;
     bool  running_        = false;
     bool  can_enter_car_  = false;        // updated each frame, used by HUD
+
+    AppState app_state_       = AppState::MainMenu;
+    int      menu_selection_  = 0;
+    bool     menu_show_hint_  = false; // "Coming soon" flash on Map Builder
 
     // F-to-steal: when OnFoot and an AI car is the closest in-range target,
     // pressing F removes that AI from TrafficSystem and teleports the player
