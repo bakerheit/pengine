@@ -35,6 +35,13 @@ Last updated: 2026-05-16 (EPIC-001 v1 shipped; EPIC-002 v1 design checkpoint sig
 | PBD-044 | Round-trip + collision verification under non-identity transforms | Planned | — | EPIC-002 v2 Phase A, ticket 3/3. Characterization-shaped: place rotated+scaled, evict, reload, verify position/rotation/scale + collision. (S) Soft-prereq: PBD-033. |
 | PBD-045 | Test asserts shouldn't compile out under NDEBUG | In progress | Alex | Surfaced by Frank in PBD-044. Replace `assert()` in test files with `REQUIRE()` macro that doesn't no-op under `-DNDEBUG`. Adds `tests/test_assert.h`. Surfaces two latent test failures → PBD-046. (XS) |
 | PBD-046 | Investigate two latent test failures surfaced by PBD-045 | Planned | — | Both in `traffic_system_tests.cpp`: (1) `test_blocked_driver` — patience timer never accumulates; (2) `test_parked_car_recovers` — recovery happens but `ai_state` isn't `Cruise`. Both currently skipped in `main()` with TODO references. Re-enable when fixed. (S/M) |
+| PBD-047 | Lightweight PR workflow scoped to Map Editor polish | In progress | Jordan | Direct-to-main trigger fired today (team > 3 engineers). Jordan's structural proposal: narrow PR rhythm for PBD-036–041, not project-wide. (S, doc-shaped) |
+| PBD-048 | Async evict-save off render thread | In progress | Mira | `Streamer::pump` calls `save_dirty_cell` synchronously; cell-jump teleport stalls render frame. Move to worker thread + queue. (M) |
+| PBD-049 | Extract MapBuilder into `src/editor/map_builder.{h,cpp}` | In progress | Frank | Application.cpp at 2956 lines; ~1000 are editor code. Mirror the traffic.cpp split shape. (M) |
+| PBD-050 | Fix `last_loaded_cells_` snapshot ordering vs pump() | Planned | — | Surfaced by Mira. Snapshot taken AFTER pump() means evict + edit same-frame can race. Drop or sequence after PBD-049 since region moves. (S) |
+| PBD-051 | Map Editor honesty sweep — error feedback + RCTRL + stale comments | In progress | Marin | Footer "BAD CELL COORD" lies on place/delete/undo failures; RCTRL+Q silently consumed; 3+ stale code comments after PBD-033 round-trip + PBD-036 rename + PBD-042 layout add. (S) |
+| PBD-052 | Headless save/load smoke test (PBD-014 enabler) | In progress | Priya | Standalone binary exercising `Streamer::add_instance → save_dirty_cell → reload` without a GL context. De-risks CI ticket. (S) |
+| PBD-053 | Quat hemisphere canonicalisation + cell provenance marker | Planned | — | Priya + Mira XS bundle. `q.w<0 → -q` on save; `source=authored|generated` header field on IPL. Stabilises diffs + future-proofs regen. (XS) |
 
 ## Epics
 
