@@ -375,6 +375,11 @@ void Application::enter_app_state(AppState s) {
         // plop matches the pre-PBD-042 1.0× behaviour. Users who want a
         // larger asset click M/L (or press 4/5) explicitly.
         map_size_preset_    = SizePreset::Small;
+        // PBD-043: reset free scale + yaw on entry. Within a session these
+        // persist across clicks / mode changes / Esc — but a fresh entry to
+        // MapBuilder is a clean slate, same policy as `map_size_preset_`.
+        map_place_free_scale_ = 1.0f;
+        map_place_yaw_deg_    = 0.0f;
     }
 }
 
@@ -828,6 +833,30 @@ void Application::process_map_builder_events() {
         if (input_.pressed(SDL_SCANCODE_3)) map_size_preset_ = SizePreset::Small;
         if (input_.pressed(SDL_SCANCODE_4)) map_size_preset_ = SizePreset::Medium;
         if (input_.pressed(SDL_SCANCODE_5)) map_size_preset_ = SizePreset::Large;
+
+        // PBD-043: yaw-rotation hotkeys. Q rotates CCW (positive yaw about
+        // world +Y, which is "left" when looking down at the editor from
+        // above — same screen-direction convention as a paper map); E
+        // rotates CW. 15° detents per press. Total range wraps at 360°
+        // because there's no natural reset point during placement — keep
+        // the value in (-180, 180] so the caption renders compactly
+        // ("R-30" not "R330" for a slight CW rotation). Ctrl+Q is the
+        // app-quit chord (line ~679) but uses `input_.down(LCTRL) &&
+        // pressed(Q)`, which fires the quit path AND would fire this one;
+        // gate Q rotation on !LCTRL so the chord stays unambiguous.
+        const bool ctrl_down = input_.down(SDL_SCANCODE_LCTRL) ||
+                               input_.down(SDL_SCANCODE_RCTRL);
+        if (!ctrl_down && input_.pressed(SDL_SCANCODE_Q))
+            map_place_yaw_deg_ += MAP_PLACE_YAW_DETENT_DEG;
+        if (input_.pressed(SDL_SCANCODE_E))
+            map_place_yaw_deg_ -= MAP_PLACE_YAW_DETENT_DEG;
+        // Wrap into (-180, 180]. fmod can land at +/- 180 either side
+        // depending on sign; normalise so the caption shows the shortest
+        // signed rotation from the identity. 15° is an exact divisor of
+        // 360 so we never accumulate floating-point drift across a full
+        // turn — equality with -180 settles deterministically to +180.
+        if (map_place_yaw_deg_ > 180.f)  map_place_yaw_deg_ -= 360.f;
+        if (map_place_yaw_deg_ <= -180.f) map_place_yaw_deg_ += 360.f;
     }
 
     // PBD-030: asset palette navigation. Up/Down only — WASD is bound to the
@@ -909,12 +938,29 @@ void Application::update_map_builder(float dt) {
         return;
     }
 
-    // ----- Wheel: tilt (R held) or zoom (default) -----
-    // Hold R + scroll to adjust pitch; otherwise the wheel zooms altitude.
-    // Multiplicative zoom step keeps the feel consistent at any altitude.
+    // ----- Wheel: free scale (Shift held), tilt (R held), or zoom (default) -----
+    // PBD-043 inserts the Shift branch ahead of the existing R-tilt /
+    // bare-zoom paths. Modifier checks are mutually exclusive in practice
+    // (a user holding both R+Shift is ambiguous; we resolve to Shift via
+    // ordering — free scale wins). Multiplicative step matches the altitude
+    // zoom's feel: a fixed-percentage delta per wheel tick is uniform at any
+    // current scale, so 0.25× → 0.275× and 4× → 4.4× both feel like "one
+    // notch up".
     float wy = input_.wheel_y();
     if (wy != 0.f) {
-        if (input_.down(SDL_SCANCODE_R)) {
+        const bool shift_down = input_.down(SDL_SCANCODE_LSHIFT) ||
+                                input_.down(SDL_SCANCODE_RSHIFT);
+        if (shift_down) {
+            // PBD-043: free uniform-scale multiplier. Scrolling up grows,
+            // down shrinks — same polarity as the altitude zoom would feel
+            // if the user thought of scale as "zooming the model itself".
+            float factor = std::pow(1.f + MAP_PLACE_FREE_SCALE_STEP, wy);
+            map_place_free_scale_ *= factor;
+            if (map_place_free_scale_ < MAP_PLACE_FREE_SCALE_MIN)
+                map_place_free_scale_ = MAP_PLACE_FREE_SCALE_MIN;
+            if (map_place_free_scale_ > MAP_PLACE_FREE_SCALE_MAX)
+                map_place_free_scale_ = MAP_PLACE_FREE_SCALE_MAX;
+        } else if (input_.down(SDL_SCANCODE_R)) {
             map_cam_pitch_deg_ += wy * MAP_CAM_TILT_STEP_DEG;
             if (map_cam_pitch_deg_ < MAP_CAM_PITCH_MIN) map_cam_pitch_deg_ = MAP_CAM_PITCH_MIN;
             if (map_cam_pitch_deg_ > MAP_CAM_PITCH_MAX) map_cam_pitch_deg_ = MAP_CAM_PITCH_MAX;
@@ -1075,9 +1121,16 @@ void Application::update_map_builder(float dt) {
                 // to the streamer. Streamer signatures and save_ipl
                 // already round-trip the full vec3, so no plumbing changes;
                 // this is the entire "scale" half of EPIC-002 Phase A.
-                // Rotation is still identity — PBD-043's job.
+                // PBD-043: free scale stacks on top of the preset
+                // (preset × free), and yaw goes into transform.rotation as
+                // a quat about world +Y. save_ipl round-trips quat at 6dp
+                // (architect-confirmed); no plumbing needed here either.
                 inst.transform.scale *=
-                    size_preset_factor(map_size_preset_);
+                    size_preset_factor(map_size_preset_) *
+                    map_place_free_scale_;
+                inst.transform.rotation = glm::angleAxis(
+                    glm::radians(map_place_yaw_deg_),
+                    glm::vec3{0.f, 1.f, 0.f});
                 bool ok = streamer_.add_instance(cell, inst);
                 if (ok) {
                     PE_INFO("Map Builder: placed model id=%u at "
@@ -1531,7 +1584,20 @@ void Application::render_map_builder() {
                 // so 3.5× shows up as a 3.5× box. Same multiplier the
                 // placement path applies, computed once here so the
                 // preview matches the post-click result byte-for-byte.
-                t.scale *= size_preset_factor(map_size_preset_);
+                // PBD-043: also apply the free-scale multiplier and yaw,
+                // matching the placement path exactly. AABB::transform
+                // uses Arvo's method (projecting rotated extents via
+                // abs() of the basis columns), so a rotated mesh's
+                // world-AABB is the *axis-aligned* enclosing box — which
+                // grows at non-axis-aligned yaws. That's correct: it's
+                // the same box `Streamer::query_instance_at` will pick
+                // against post-placement, so previewing it honestly
+                // shows the picker footprint.
+                t.scale *= size_preset_factor(map_size_preset_) *
+                           map_place_free_scale_;
+                t.rotation = glm::angleAxis(
+                    glm::radians(map_place_yaw_deg_),
+                    glm::vec3{0.f, 1.f, 0.f});
                 AABB world = local.transform(t.matrix());
                 debug_draw_.clear();
                 debug_draw_.box(world.min, world.max);
@@ -1591,12 +1657,20 @@ void Application::render_map_builder() {
             // (user sees a key range maps to "SIZE") without the per-bind
             // breakdown — which is also surfaced visually by the three
             // labelled buttons in the bar two rows up.
-            footer = "WASD PAN   WHEEL ZOOM   R+WHEEL TILT   "
+            // PBD-043: append "Q/E ROTATE" and "SHIFT+WHEEL SCALE". The
+            // footer is getting long; both new hints sit next to the
+            // 3/4/5=SIZE group so the scale/rotate cluster reads
+            // together. Tilt is abbreviated to "R+WHL" to recover a few
+            // characters at 1080p — the binding is still discoverable
+            // and the meaning is unchanged.
+            footer = "WASD PAN   WHEEL ZOOM   R+WHL TILT   "
                      "LMB PLACE   1=PLACE 2=DELETE   3/4/5=SIZE   "
+                     "Q/E ROTATE   SHIFT+WHL SCALE   "
                      "UP/DN PALETTE   G GO TO CELL   ESC BACK";
         } else {
-            footer = "WASD PAN   WHEEL ZOOM   R+WHEEL TILT   "
+            footer = "WASD PAN   WHEEL ZOOM   R+WHL TILT   "
                      "LMB DELETE   1=PLACE 2=DELETE   3/4/5=SIZE   "
+                     "Q/E ROTATE   SHIFT+WHL SCALE   "
                      "UP/DN PALETTE   G GO TO CELL   ESC BACK";
         }
         const char* footer_lines[] = {footer};
@@ -2092,8 +2166,34 @@ void Application::render_map_builder() {
                 map_palette_selection_ < static_cast<int>(ordered.size())) {
                 const ModelDef* sel = ordered[static_cast<std::size_t>(
                                                 map_palette_selection_)];
+                // PBD-043: append free-scale and yaw segments when
+                // they're non-default. We omit each at its identity value
+                // so the common case ("PLACE - name") stays terse. The
+                // Text atlas is ASCII-only (FIRST_CHAR=32, NUM_CHARS=96)
+                // so the architect's "×" / "↻" glyphs aren't available;
+                // downgrade to "x" (multiplication) and "R" (rotation).
+                // Two-decimal scale because 0.10 wheel steps land on
+                // non-round values (0.55, 1.21, …) — one decimal would
+                // hide tick precision. Integer degrees match the 15°
+                // detent — no fractional yaw is reachable.
+                const bool show_scale = std::fabs(map_place_free_scale_ - 1.f) > 1e-3f;
+                const bool show_yaw   = std::fabs(map_place_yaw_deg_)        > 1e-3f;
+                char scale_seg[24] = "";
+                char yaw_seg[24]   = "";
+                if (show_scale) {
+                    std::snprintf(scale_seg, sizeof(scale_seg),
+                                  "  x%.2f", map_place_free_scale_);
+                }
+                if (show_yaw) {
+                    // Round to int for display; the underlying value is
+                    // already an exact multiple of 15.
+                    std::snprintf(yaw_seg, sizeof(yaw_seg),
+                                  "  R%d",
+                                  static_cast<int>(map_place_yaw_deg_));
+                }
                 std::snprintf(caption_buf, sizeof(caption_buf),
-                              "PLACE - %s", sel->name.c_str());
+                              "PLACE - %s%s%s",
+                              sel->name.c_str(), scale_seg, yaw_seg);
                 caption      = caption_buf;
                 have_caption = true;
             }

@@ -260,6 +260,24 @@ private:
     //     `inst.transform.scale` before `streamer_.add_instance`).
     SizePreset map_size_preset_   = SizePreset::Small;
 
+    // PBD-043: free uniform-scale multiplier and yaw rotation for placement.
+    // Stacks on top of the size preset: effective scale = preset_factor ×
+    // free_scale. Defaults of 1.0× / 0° preserve pre-PBD-043 behaviour for
+    // users who never touch Shift+wheel / Q / E. Per the ticket: persistent
+    // across mode changes, clicks, and Esc — only an explicit user adjust or
+    // app restart resets them. Reset to defaults on MapBuilder entry.
+    //
+    // Free scale is driven by Shift+wheel (multiplicative step, same feel as
+    // altitude zoom); yaw by Q (CCW) / E (CW) in 15° detents. Yaw is stored
+    // in degrees here for cheap legibility in the caption / wrap math; the
+    // quat is constructed at placement and ghost-render time only.
+    float map_place_free_scale_ = 1.0f;
+    float map_place_yaw_deg_    = 0.0f;
+    static constexpr float MAP_PLACE_FREE_SCALE_MIN  = 0.25f;
+    static constexpr float MAP_PLACE_FREE_SCALE_MAX  = 8.0f;
+    static constexpr float MAP_PLACE_FREE_SCALE_STEP = 0.10f; // per wheel tick
+    static constexpr float MAP_PLACE_YAW_DETENT_DEG  = 15.0f;
+
     // PBD-037: Map Builder bar hover state. Refreshed every frame in
     // `update_map_builder` by re-hit-testing the (DPI-scaled) mouse against
     // the current bar layout; consumed by `render_map_builder` to draw a
