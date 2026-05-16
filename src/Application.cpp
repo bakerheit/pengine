@@ -1574,11 +1574,20 @@ void Application::render_map_builder() {
             static_cast<float>(window_.height()),
         };
 
+        // PBD-038: tool-vs-asset visual separation. In Delete mode the
+        // palette is not the active concern (selecting a slot is a no-op
+        // while bulldozing), so dim every asset-region rect and label by
+        // a constant factor. Tool buttons stay at full intensity. The
+        // factor is read several times below; compute it once here.
+        const float palette_dim =
+            (map_tool_ == MapTool::Delete) ? 0.45f : 1.0f;
+
         // Build the rect batch. Bar background first; then per-region
         // fills (selection rings drawn before slot fills so the ring
         // peeks out as an outline).
         std::vector<Menu::Rect> rects;
-        rects.reserve(2u + layout.regions.size() * 2u + 1u);  // +1: PBD-037 hover
+        // +1 backplate, +1 divider, +1 hover, then 2 per region.
+        rects.reserve(3u + layout.regions.size() * 2u);
 
         // Bar background: inspector-style dark navy, slightly translucent
         // would be nice but Menu::Rect is opaque-RGB only. Solid is fine —
@@ -1589,6 +1598,36 @@ void Application::render_map_builder() {
             glm::vec3{0.06f, 0.07f, 0.10f},
         });
 
+        // PBD-038: divider between the tool group and the asset group.
+        // The layout helper leaves a natural gap (≥ 24 px) between the
+        // last ToolButton's max_px.x and the first AssetSlot's min_px.x;
+        // we drop a 2-px-wide vertical line into the middle of that gap,
+        // inset 8 px from the bar top/bottom so it reads as a separator
+        // rather than a content rect. Very dark fill so it sits in the
+        // backplate's value range — present but not loud.
+        {
+            float tool_max_x  = -1.f;
+            float asset_min_x = -1.f;
+            for (const auto& r : layout.regions) {
+                if (r.kind == MapBarHitKind::ToolButton) {
+                    if (r.max_px.x > tool_max_x) tool_max_x = r.max_px.x;
+                } else if (r.kind == MapBarHitKind::AssetSlot) {
+                    if (asset_min_x < 0.f || r.min_px.x < asset_min_x)
+                        asset_min_x = r.min_px.x;
+                }
+            }
+            if (tool_max_x > 0.f && asset_min_x > tool_max_x) {
+                const float cx       = 0.5f * (tool_max_x + asset_min_x);
+                const float half_w   = 1.f;  // 2 px total
+                const float v_inset  = 8.f;
+                rects.push_back(Menu::Rect{
+                    {cx - half_w, layout.bar_min_px.y + v_inset},
+                    {cx + half_w, layout.bar_max_px.y - v_inset},
+                    glm::vec3{0.05f, 0.05f, 0.08f},
+                });
+            }
+        }
+
         // PBD-037: hover highlight. Drawn right after the bar backplate so
         // it sits behind the per-region selection / active-tool rings and
         // the slot fill — hover should suggest "you'd be acting on this"
@@ -1598,16 +1637,27 @@ void Application::render_map_builder() {
         // outset by 3 px so it peeks out around the slot edge. hit_test
         // returns None when the mouse is over the bar's empty gaps or off
         // the bar entirely; both collapse to "draw nothing" here.
+        // PBD-038: in Delete mode the asset region is dimmed and acts as
+        // a no-op (slot selection is meaningless while bulldozing). Skip
+        // hover on asset slots entirely in that mode — drawing a halo on
+        // something the user can't usefully click would be dishonest.
+        // Tool-button hover stays in both modes; the tools are the active
+        // affordance no matter which tool is current.
         if (map_bar_hover_.kind != MapBarHitKind::None) {
-            for (const auto& r : layout.regions) {
-                if (r.kind == map_bar_hover_.kind &&
-                    r.index == map_bar_hover_.index) {
-                    rects.push_back(Menu::Rect{
-                        {r.min_px.x - 3.f, r.min_px.y - 3.f},
-                        {r.max_px.x + 3.f, r.max_px.y + 3.f},
-                        glm::vec3{0.30f, 0.35f, 0.45f},
-                    });
-                    break;
+            const bool skip_for_palette_dim =
+                (map_bar_hover_.kind == MapBarHitKind::AssetSlot) &&
+                (palette_dim < 1.0f);
+            if (!skip_for_palette_dim) {
+                for (const auto& r : layout.regions) {
+                    if (r.kind == map_bar_hover_.kind &&
+                        r.index == map_bar_hover_.index) {
+                        rects.push_back(Menu::Rect{
+                            {r.min_px.x - 3.f, r.min_px.y - 3.f},
+                            {r.max_px.x + 3.f, r.max_px.y + 3.f},
+                            glm::vec3{0.30f, 0.35f, 0.45f},
+                        });
+                        break;
+                    }
                 }
             }
         }
@@ -1623,7 +1673,13 @@ void Application::render_map_builder() {
 
             // Active state ring (5 px outset rectangle behind the fill).
             // Colour signals which tool / which slot is current.
-            if (tool_act || slot_act) {
+            // PBD-038: in Delete mode, the slot selection is meaningless
+            // (clicking the world bulldozes regardless of which slot is
+            // "selected"), so suppress the asset-slot selection ring
+            // entirely while the palette is dimmed. Tool-button active
+            // rings always draw.
+            const bool draw_slot_ring = slot_act && palette_dim >= 1.0f;
+            if (tool_act || draw_slot_ring) {
                 glm::vec3 ring_col;
                 if (tool_act && tool == MapTool::Place) {
                     ring_col = glm::vec3{0.2f, 0.9f, 0.3f};
@@ -1655,7 +1711,11 @@ void Application::render_map_builder() {
                 }
             } else {
                 // Asset slot — full slot tinted with the model's swatch.
-                fill = ordered[static_cast<std::size_t>(r.index)]->tint;
+                // PBD-038: dim the swatch in Delete mode so the palette
+                // visibly recedes. Menu::Rect is opaque-RGB, so we lean
+                // on a colour multiplier rather than an overlay.
+                fill = ordered[static_cast<std::size_t>(r.index)]->tint
+                       * palette_dim;
             }
             rects.push_back(Menu::Rect{r.min_px, r.max_px, fill});
         }
@@ -1749,7 +1809,12 @@ void Application::render_map_builder() {
                 // bias toward near-black for contrast on the bright ones
                 // and accept the dark-on-dark case as a v1 wart (the
                 // selection ring still flags which slot is chosen).
-                tl.color              = glm::vec3{0.05f, 0.05f, 0.08f};
+                // PBD-038: in Delete mode the swatch behind the label is
+                // already dimmed by `palette_dim`; multiplying the label
+                // colour by the same factor keeps the contrast ratio
+                // roughly constant while pulling the slot toward black.
+                tl.color              = glm::vec3{0.05f, 0.05f, 0.08f}
+                                        * palette_dim;
                 tl.viewport_size_px   = viewport_px;
                 text_.draw_lines(tl);
             }
