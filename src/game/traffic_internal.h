@@ -17,6 +17,8 @@
 // `struct Assets;`. Internal consumers include this header and see the
 // definition. Don't include traffic_internal.h from outside src/game/.
 
+#include <cmath>
+#include <cstdint>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -24,6 +26,7 @@
 #include "game/traffic.h"
 #include "render/mesh.h"
 #include "render/texture.h"
+#include "world/road_grid.h"
 
 namespace pengine {
 
@@ -36,6 +39,38 @@ namespace pengine {
 // Number of lanes a fresh AI route covers ahead of its starting cell.
 // Used by spawn (initial route construction) and drive (route extension).
 inline constexpr int ROUTE_LANES = 8;
+
+// Stop-line setback from the intersection center, in metres. AI uses it to
+// know how far from the centre to stop on a red/yellow light; the visual
+// debug overlay uses it to draw the same line for inspection.
+inline constexpr float STOP_BACK = 6.f;
+
+// Traffic-light cycle parameters and phase lookup. Used by AI driving
+// (ai_update_speed: when to stop / cross) and by visuals (update_light_visuals:
+// bulb tints). Definition is inline because the function is small and the
+// shared call site count makes a translation-unit-local copy not worth it.
+inline constexpr float LIGHT_PERIOD = 20.f;
+inline constexpr float LIGHT_HALF   = LIGHT_PERIOD * 0.5f;
+inline constexpr float YELLOW_TIME  = 2.0f;
+
+enum class LightPhase { Red, Yellow, Green };
+
+inline bool is_ew(GridDir d) {
+    return d == GridDir::East || d == GridDir::West;
+}
+
+inline LightPhase light_phase(int i, int j, GridDir car_dir, double t) {
+    std::uint32_t hash = static_cast<std::uint32_t>(i) * 0x9E3779B1u
+                       ^ static_cast<std::uint32_t>(j) * 0x85EBCA77u;
+    float offset = static_cast<float>(hash & 0xFFFFu) / 65535.f * LIGHT_PERIOD;
+    float local  = static_cast<float>(std::fmod(t + offset, LIGHT_PERIOD));
+    bool   ew_active   = (local < LIGHT_HALF);
+    float  into_window = ew_active ? local : (local - LIGHT_HALF);
+    bool   yellow      = (into_window > LIGHT_HALF - YELLOW_TIME);
+    bool   showing_ew  = is_ew(car_dir);
+    if (showing_ew == ew_active) return yellow ? LightPhase::Yellow : LightPhase::Green;
+    return LightPhase::Red;
+}
 
 
 

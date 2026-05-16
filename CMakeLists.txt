@@ -140,6 +140,7 @@ add_library(pengine_core STATIC
     src/game/vehicle.cpp
     src/game/traffic.cpp
     src/game/traffic_spawn.cpp
+    src/game/traffic_drive.cpp
     src/game/traffic_ai.cpp
     src/game/car_models.cpp
     src/game/pedestrian.cpp
