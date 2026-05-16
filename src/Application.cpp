@@ -1835,6 +1835,111 @@ void Application::render_map_builder() {
         }
     }
 
+    // ---- Overlay legend (PBD-040) ----------------------------------------
+    // Top-right widget that maps the four recurring world overlays to their
+    // meanings. New users see a coloured grid with no key; UI review C
+    // flagged this. We list the persistent overlays (cells + roads +
+    // intersections); transient overlays (magenta pick AABB, green/red
+    // ghost, white crosshair) are skipped — they're already labelled by
+    // adjacent UI (inspector readout, cursor caption).
+    //
+    // Colours are copied verbatim from the four `debug_draw_.flush(...)`
+    // calls in the overlay block above. If one of those rgb triples ever
+    // changes, the swatch here must change in lockstep — these are *not*
+    // a separate source of truth, they mirror.
+    //
+    // Layering: backplate Menu::Rect first; then one swatch Menu::Rect per
+    // row in the same batch; finally one Text::draw_lines for all labels.
+    // Three GL draw calls (one rect batch + one text submit + the text's
+    // implicit blend setup) — flat compared to the per-region bar render.
+    {
+        struct LegendEntry {
+            const char* label;
+            glm::vec3   color;
+        };
+        const LegendEntry entries[] = {
+            {"LOADED CELL",     glm::vec3{0.15f, 1.0f,  0.95f}},
+            {"UNLOADED CELL",   glm::vec3{0.35f, 0.35f, 0.40f}},
+            {"ROAD CENTERLINE", glm::vec3{1.0f,  0.55f, 0.10f}},
+            {"INTERSECTION",    glm::vec3{1.0f,  1.0f,  0.15f}},
+        };
+        constexpr int nrows = sizeof(entries) / sizeof(entries[0]);
+
+        const float vw          = static_cast<float>(window_.width());
+        const float glyph_h     = 20.f;
+        const float row_h       = glyph_h * 1.4f;  // matches Text::draw_lines stride
+        const float swatch_w    = 22.f;
+        const float swatch_h    = 18.f;
+        const float gap_px      = 10.f;            // swatch → label gap
+        const float pad         = 12.f;            // inner padding inside backplate
+        const float anchor_inset = 24.f;           // distance from screen edge
+
+        // Max label width so the backplate hugs the longest string.
+        float max_label_w = 0.f;
+        for (int i = 0; i < nrows; ++i) {
+            const float w = text_.measure_width(entries[i].label, glyph_h);
+            if (w > max_label_w) max_label_w = w;
+        }
+
+        const float block_w = pad * 2.f + swatch_w + gap_px + max_label_w;
+        const float block_h = pad * 2.f + static_cast<float>(nrows) * row_h;
+
+        const float origin_x = vw - block_w - anchor_inset;
+        const float origin_y = anchor_inset;
+
+        const glm::vec2 viewport_px{
+            vw,
+            static_cast<float>(window_.height()),
+        };
+
+        // Backplate + swatches in one Menu batch.
+        std::vector<Menu::Rect> rects;
+        rects.reserve(1u + static_cast<std::size_t>(nrows));
+
+        // Backplate: same dark navy + visual weight as the inspector /
+        // cursor-caption backplates. Menu::Rect is opaque-RGB, so we can't
+        // match their 0.70 alpha exactly; the opaque equivalent of the
+        // 0.05/0.05/0.07 backplate over the sky-blue clear reads close
+        // enough that the legend feels of-a-piece with them.
+        rects.push_back(Menu::Rect{
+            {origin_x,          origin_y},
+            {origin_x + block_w, origin_y + block_h},
+            glm::vec3{0.05f, 0.05f, 0.07f},
+        });
+
+        // Per-row swatches. Vertically centred inside the row so the
+        // swatch's mid-line matches the label's mid-line.
+        for (int i = 0; i < nrows; ++i) {
+            const float row_top    = origin_y + pad + static_cast<float>(i) * row_h;
+            const float swatch_y0  = row_top + (row_h - swatch_h) * 0.5f - glyph_h * 0.2f;
+            const float swatch_x0  = origin_x + pad;
+            rects.push_back(Menu::Rect{
+                {swatch_x0,            swatch_y0},
+                {swatch_x0 + swatch_w, swatch_y0 + swatch_h},
+                entries[i].color,
+            });
+        }
+
+        menu_.draw_rects(rects.data(), static_cast<int>(rects.size()),
+                          viewport_px);
+
+        // Labels: one Text::draw_lines for all four rows. No bg_color — the
+        // Menu backplate above already covers everything, and adding the
+        // text-helper backplate would double-stamp at a different size.
+        const char* lines[nrows];
+        for (int i = 0; i < nrows; ++i) lines[i] = entries[i].label;
+
+        Text::DrawState ll;
+        ll.lines              = lines;
+        ll.count              = nrows;
+        ll.origin_top_left_px = {origin_x + pad + swatch_w + gap_px,
+                                  origin_y + pad};
+        ll.glyph_h_px         = glyph_h;
+        ll.color              = glm::vec3{0.92f, 0.94f, 0.98f};
+        ll.viewport_size_px   = viewport_px;
+        text_.draw_lines(ll);
+    }
+
     // ---- Cursor caption (PBD-036) ----------------------------------------
     // Names the asset under the verb. Place mode prints the palette
     // selection's model name; Delete mode prints the model name of the
