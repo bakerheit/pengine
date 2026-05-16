@@ -132,6 +132,9 @@ void Shader::set(const char* name, const glm::vec2& v) const {
 void Shader::set(const char* name, const glm::vec3& v) const {
     glUniform3fv(location(name), 1, &v[0]);
 }
+void Shader::set(const char* name, const glm::vec4& v) const {
+    glUniform4fv(location(name), 1, &v[0]);
+}
 void Shader::set(const char* name, const glm::mat3& v) const {
     glUniformMatrix3fv(location(name), 1, GL_FALSE, &v[0][0]);
 }

@@ -124,6 +124,7 @@ add_library(pengine_core STATIC
     src/render/wanted_stars.cpp
     src/render/hud.cpp
     src/render/menu.cpp
+    src/render/text.cpp
     src/render/debug_overlay.cpp
     src/render/spring_arm.cpp
     src/render/skinned_mesh.cpp
@@ -158,7 +159,8 @@ add_library(pengine_core STATIC
 )
 
 target_include_directories(pengine_core PUBLIC src)
-target_include_directories(pengine_core PRIVATE ${stb_SOURCE_DIR} ${miniaudio_SOURCE_DIR})
+target_include_directories(pengine_core PUBLIC  ${stb_SOURCE_DIR})
+target_include_directories(pengine_core PRIVATE ${miniaudio_SOURCE_DIR})
 
 target_compile_definitions(pengine_core PRIVATE
     ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets"
