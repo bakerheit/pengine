@@ -90,10 +90,16 @@ endfunction()
 # ============================================================================
 
 # --- Static meshes ----------------------------------------------------------
-cook_static_mesh("vehicles/Vehicles_psx/Car 05/Car5.obj" "vehicles/car5")
-cook_static_mesh("vehicles/Vehicles_psx/Car 08/Car8.obj" "vehicles/car8")
-cook_static_mesh("vehicles/Vehicles_psx/Wheel/Wheel.obj" "vehicles/wheel")
-cook_static_mesh("weapons/Glock 17 Gen 4/Glock17.fbx"    "weapons/glock17")
+# Vehicle bodies cook from "<Name>_nowheels.obj" — not the plain "<Name>.obj".
+# The Blender source files ship with wheels baked into the body geometry for
+# artist convenience, but the runtime attaches four independent wheel meshes
+# (wheel.emesh) to the chassis dynamically, so the cooked body must NOT
+# include wheels or they render doubled. See docs/assets.md "Vehicle bodies"
+# for the full convention. (PBD-015.)
+cook_static_mesh("vehicles/Vehicles_psx/Car 05/Car5_nowheels.obj" "vehicles/car5")
+cook_static_mesh("vehicles/Vehicles_psx/Car 08/Car8_nowheels.obj" "vehicles/car8")
+cook_static_mesh("vehicles/Vehicles_psx/Wheel/Wheel.obj"          "vehicles/wheel")
+cook_static_mesh("weapons/Glock 17 Gen 4/Glock17.fbx"             "weapons/glock17")
 
 # --- Skinned meshes (produce .emesh + .eskel + .eanim) ---------------------
 # Both characters and animation FBXs land here whenever the source carries a

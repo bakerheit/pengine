@@ -112,6 +112,8 @@ The `[ERROR]` prefix and `<file>:<line>` are added by the logger. Grep stderr fo
 
 **Paint PNGs share a UV layout with the body mesh.** A new paint that doesn't match the existing UV unwrap will look garbled. This is a content rule, not engine-enforced.
 
+**Vehicle bodies cook from the `_nowheels` source variant.** The Blender source files (`Car5.obj`, `Car8.obj`, etc.) ship with wheels baked into the body geometry for artist convenience — but the engine attaches four independent wheel meshes (`wheel.emesh`) to the chassis dynamically at runtime. Cooking the full body produces a `.emesh` with wheels in it, which then render *doubled* against the dynamic wheel instances. Cook the matching `<Name>_nowheels.obj` instead. The convention is filename-based: when adding a new vehicle, the source pack must include a `<Name>_nowheels.obj` variant with wheel submeshes removed, and the manifest entry in `cmake/CookedAssets.cmake` must point at that variant. A vertex-count sanity check: `Car5_nowheels.obj` cooks to 716 verts, `Car8_nowheels.obj` to 480 verts; if you see ~900 / ~670 you've cooked the wrong source.
+
 **Weapons are static meshes.** "Weapon animations" like `pistol_idle.eanim` are actually character animations that hold the weapon — they belong to the character skeleton, not the gun.
 
 **World models use a separate registry.** Adding a model to the world also requires editing `assets/world/streets.ide`, loaded at startup by `ModelRegistry::load_ide`. This is a GTA-III-lineage Item Definition format with its own conventions, not covered in this document.
