@@ -448,7 +448,12 @@ void Application::process_menu_events() {
         }
     }
 
-    if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
+    // PBD-051: Ctrl+Q honours both LCTRL and RCTRL — text editors that bind
+    // only one always annoy a fraction of users, and the undo/redo path
+    // already accepts both (line ~720). Keep the three Ctrl+Q sites
+    // (menu, map builder, gameplay) in step.
+    if ((input_.down(SDL_SCANCODE_LCTRL) || input_.down(SDL_SCANCODE_RCTRL))
+        && input_.pressed(SDL_SCANCODE_Q))
         running_ = false;
 
     // List navigation: MainMenu / DevToolsMenu only. MapBuilder has its own
@@ -512,9 +517,17 @@ std::vector<const ModelDef*> Application::sorted_palette() const {
 // the PBD-031 fix in `update_map_builder`).
 //
 // Layout (left-to-right):
-//   [PLACE button][DELETE button][asset slot 0][asset slot 1]...
+//   [PLACE][DELETE]  [slot 0 NAME][slot 1 NAME]...  [S][M][L]
 //
-// Tool buttons: 80×80 px. Asset slots: 80×80 px. 12 px inter-region gap.
+// Tool buttons: 72×72 px. Asset slots: 72×72 px. Size-preset buttons (S/M/L,
+// PBD-042): 48×72 px, anchored on the right with a wider divider gap before
+// the group. 12 px inter-region gap between adjacent regions; a wider gap
+// separates the tool group from the palette and the palette from the
+// preset group (PBD-038 divider pattern). PBD-036 renamed the per-slot
+// label from "[NN] [F]" (id + flag chip) to "[NN NAME]" (id + asset name);
+// the layout helper doesn't care, but anyone matching this comment against
+// what they see on screen should.
+//
 // The bar sits ABOVE the centre footer (vh-200 → vh-100) rather than
 // replacing it — see PBD-032 final report, premise check #4: keeping the
 // footer in place preserves the cell-jump prompt and the "WASD PAN..."
@@ -701,7 +714,10 @@ void Application::process_map_builder_events() {
         }
     }
 
-    if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
+    // PBD-051: both LCTRL and RCTRL count — same convention as the
+    // undo/redo chord below.
+    if ((input_.down(SDL_SCANCODE_LCTRL) || input_.down(SDL_SCANCODE_RCTRL))
+        && input_.pressed(SDL_SCANCODE_Q))
         running_ = false;
 
     // PBD-034: undo / redo hotkeys. Match the existing Ctrl+Q chord pattern
@@ -816,11 +832,15 @@ void Application::process_map_builder_events() {
                 // preserved so the user keeps the same zoom across jumps.
                 map_cam_pos_.x = (static_cast<float>(cx_l) + 0.5f) * wc.cell_size;
                 map_cam_pos_.z = (static_cast<float>(cz_l) + 0.5f) * wc.cell_size;
-                if (clamped) map_input_err_flash_s_ = 0.75f;
+                if (clamped) {
+                    map_input_err_flash_s_ = 0.75f;
+                    map_err_kind_          = MapErrorKind::BadCellCoord;
+                }
                 PE_INFO("Map Builder: jump to cell (%ld, %ld)%s",
                         cx_l, cz_l, clamped ? " [clamped]" : "");
             } else {
                 map_input_err_flash_s_ = 0.75f;
+                map_err_kind_          = MapErrorKind::BadCellCoord;
                 PE_INFO("Map Builder: unparseable cell input '%s'",
                         map_input_buf_.c_str());
             }
@@ -880,9 +900,9 @@ void Application::process_map_builder_events() {
         // because there's no natural reset point during placement — keep
         // the value in (-180, 180] so the caption renders compactly
         // ("R-30" not "R330" for a slight CW rotation). Ctrl+Q is the
-        // app-quit chord (line ~679) but uses `input_.down(LCTRL) &&
-        // pressed(Q)`, which fires the quit path AND would fire this one;
-        // gate Q rotation on !LCTRL so the chord stays unambiguous.
+        // app-quit chord (above) and fires on either LCTRL or RCTRL
+        // (PBD-051), so we gate Q rotation on !(LCTRL || RCTRL) to keep
+        // the chord unambiguous from either side of the keyboard.
         const bool ctrl_down = input_.down(SDL_SCANCODE_LCTRL) ||
                                input_.down(SDL_SCANCODE_RCTRL);
         if (!ctrl_down && input_.pressed(SDL_SCANCODE_Q))
@@ -964,7 +984,12 @@ void Application::update_map_builder(float dt) {
     // disappears after ~0.75s.
     if (map_input_err_flash_s_ > 0.f) {
         map_input_err_flash_s_ -= dt;
-        if (map_input_err_flash_s_ < 0.f) map_input_err_flash_s_ = 0.f;
+        if (map_input_err_flash_s_ < 0.f) {
+            map_input_err_flash_s_ = 0.f;
+            // PBD-051: clear the kind once the visual flash decays so a
+            // stale cause can't be read out of the (now-zero-timer) state.
+            map_err_kind_          = MapErrorKind::None;
+        }
     }
 
     // PBD-027: while a cell-jump input is active, suppress pan/zoom so typing
@@ -1237,10 +1262,11 @@ void Application::update_map_builder(float dt) {
                     push_edit_command({EditCommand::Kind::Place, cell, inst});
                 } else {
                     // Cell not loaded (cursor over off-map / pre-load
-                    // region) or model unresolved. Flash the cell-jump
-                    // error indicator — same channel, cheaper than adding
-                    // a second one for v1.
+                    // region) or model unresolved. PBD-051: tag the cause
+                    // so the footer can say "PLACE REJECTED" instead of
+                    // the misleading "BAD CELL COORD".
                     map_input_err_flash_s_ = 0.75f;
+                    map_err_kind_          = MapErrorKind::PlaceRejected;
                     PE_INFO("Map Builder: placement rejected (cell (%d,%d) "
                             "not loaded or model %u unresolved)",
                             cell.x, cell.z, sel->id);
@@ -1284,6 +1310,7 @@ void Application::update_map_builder(float dt) {
                     // call, though `pump()` ran *before* the pick this
                     // frame so it shouldn't in practice.
                     map_input_err_flash_s_ = 0.75f;
+                    map_err_kind_          = MapErrorKind::DeleteRejected;
                     PE_INFO("Map Builder: delete rejected (cell (%d,%d) "
                             "index %zu unreachable)",
                             pick.cell.x, pick.cell.z, pick.instance_index);
@@ -1373,6 +1400,7 @@ void Application::apply_undo() {
         // race we didn't anticipate; eviction-driven drops are already
         // handled in `drop_evicted_commands`.
         map_input_err_flash_s_ = 0.75f;
+        map_err_kind_          = MapErrorKind::UndoFailed;
     }
 }
 
@@ -1416,6 +1444,7 @@ void Application::apply_redo() {
         undo_stack_.push_back(std::move(cmd));
     } else {
         map_input_err_flash_s_ = 0.75f;
+        map_err_kind_          = MapErrorKind::RedoFailed;
     }
 }
 
@@ -1721,7 +1750,7 @@ void Application::render_map_builder() {
         debug_draw_.flush(vp, crosshair_col);
 
         // Format the readout. C-style strings owned by a local buffer pool;
-        // pointers fed to Menu::draw_text_lines outlive that single call.
+        // pointers fed to text_.draw_lines outlive that single call.
         constexpr int   MAX_LINES = 8;
         char            line_buf[MAX_LINES][96];
         const char*     lines[MAX_LINES] = {};
@@ -1749,12 +1778,10 @@ void Application::render_map_builder() {
             std::snprintf(line_buf[5], sizeof(line_buf[5]),
                           "CELL  (%d, %d)", pick.cell.x, pick.cell.z);
             // IPL flags: the per-instance IPL has no flags field today, only
-            // an optional lod pair. Surface the lod_pair when set (0xFFFFFFFF
-            // is the "unset" sentinel — round-tripped IPLs always read as
-            // unset because save_ipl doesn't yet write it; tracked as a
-            // follow-up). Also include the model-level flags from the
-            // registry — those are what tooling actually wants when asking
-            // "is this a building/road/walk."
+            // an optional lod pair. Surface the lod_pair when set
+            // (0xFFFFFFFF is the "unset" sentinel). Also include the
+            // model-level flags from the registry — those are what tooling
+            // actually wants when asking "is this a building/road/walk."
             const char* mflags = mdef ? format_model_flags(mdef->flags) : "?";
             if (lod == 0xFFFFFFFFu) {
                 std::snprintf(line_buf[6], sizeof(line_buf[6]),
@@ -1873,9 +1900,9 @@ void Application::render_map_builder() {
     // Footer hint, rendered via the small text-helper rather than the full
     // Menu widget. Menu::draw paints a full-screen background quad (intended
     // for actual menu screens with no scene behind them) which would clobber
-    // the world view here; draw_text_lines doesn't, so the footer text sits
-    // cleanly over the rendered scene. (PBD-025 used menu_.draw here, which
-    // is the latent bug — see PBD-026 report.)
+    // the world view here; text_.draw_lines doesn't, so the footer text
+    // sits cleanly over the rendered scene. (PBD-025 used menu_.draw here,
+    // which is the latent bug — see PBD-026 report.)
     {
         // PBD-027: footer swaps when a cell-jump input is active. In normal
         // mode it advertises the G bind; in input mode it shows the echoed
@@ -1894,7 +1921,24 @@ void Application::render_map_builder() {
                           map_input_buf_.c_str());
             footer = input_line;
         } else if (map_input_err_flash_s_ > 0.f) {
-            footer = "BAD CELL COORD";
+            // PBD-051: per-cause messaging. Five distinct failure paths used
+            // to render "BAD CELL COORD" regardless of what actually went
+            // wrong; now each failure tags `map_err_kind_` at the set site
+            // and the footer reads it out.
+            switch (map_err_kind_) {
+                case MapErrorKind::PlaceRejected:
+                    footer = "PLACE REJECTED"; break;
+                case MapErrorKind::DeleteRejected:
+                    footer = "DELETE REJECTED"; break;
+                case MapErrorKind::UndoFailed:
+                    footer = "UNDO FAILED"; break;
+                case MapErrorKind::RedoFailed:
+                    footer = "REDO FAILED"; break;
+                case MapErrorKind::BadCellCoord:
+                case MapErrorKind::None:
+                default:
+                    footer = "BAD CELL COORD"; break;
+            }
         } else if (map_tool_ == MapTool::Place) {
             // PBD-041: append "1=PLACE 2=DELETE" right after the LMB hint so
             // mouse and keyboard tool controls sit adjacent. Not abbreviating
@@ -1968,8 +2012,13 @@ void Application::render_map_builder() {
     //      inactive states get the neutral chrome colour). Asset slots get
     //      the model's tint as the full slot fill, selected slot a yellow
     //      outline ring (drawn as a thicker outer rect underneath the fill).
+    //      Size-preset buttons (PBD-042) follow the tool-button convention:
+    //      active preset gets a highlight tint, inactive presets the
+    //      neutral chrome.
     //   3. Per-region text: PLACE / DELETE labels on tool buttons; model
-    //      id + flag chip on each asset slot.
+    //      id + asset name on each asset slot (PBD-036 renamed from the
+    //      original "[NN] [F]" id + flag chip); "S" / "M" / "L" labels
+    //      on the preset buttons.
     //
     // We need the ModelDef pointers here; compute_map_builder_bar_layout
     // only exposes indices because we didn't want the layout helper to
@@ -2614,7 +2663,9 @@ void Application::process_events() {
             mouse_captured_ = false;
         }
     }
-    if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
+    // PBD-051: LCTRL or RCTRL — see Ctrl+Q rationale in process_menu_events.
+    if ((input_.down(SDL_SCANCODE_LCTRL) || input_.down(SDL_SCANCODE_RCTRL))
+        && input_.pressed(SDL_SCANCODE_Q))
         running_ = false;
 
     if (input_.pressed(SDL_SCANCODE_F)) try_toggle_vehicle();

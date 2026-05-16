@@ -44,6 +44,22 @@ public:
     // selection_`; Delete mode ignores it).
     enum class MapTool { Place, Delete };
 
+    // PBD-051: Map Builder footer-error channel disambiguation. v1 had a
+    // single boolean-ish flash timer that lit up "BAD CELL COORD" no matter
+    // what actually went wrong, including five different failure paths that
+    // had nothing to do with cell coords. Recording the kind alongside the
+    // timer lets the footer render an honest message per cause without
+    // adding a second on-screen channel. New failure paths add a new enum
+    // value + footer-string case.
+    enum class MapErrorKind {
+        None,
+        BadCellCoord,    // cell-jump prompt clamped or unparseable
+        PlaceRejected,   // streamer.add_instance returned false on a click
+        DeleteRejected,  // streamer.remove_instance returned false on a click
+        UndoFailed,      // apply_undo couldn't apply the inverse
+        RedoFailed,      // apply_redo couldn't re-apply
+    };
+
     // PBD-042: Map Builder placement size preset. Three named uniform-scale
     // multipliers selectable from the bottom bar (S/M/L buttons) or hotkeys
     // 3/4/5. Multiplies `InstanceDef.transform.scale` at placement time;
@@ -223,9 +239,12 @@ private:
     // next 100ms poll once map_cam_pos_ has moved.
     bool          map_input_active_   = false;
     std::string   map_input_buf_;
-    // Brief on-screen flash when an entered coord was clamped or unparseable.
-    // Set at commit-time, decays in update_map_builder.
+    // Brief on-screen flash when an editor action failed. Set at commit-
+    // time, decays in update_map_builder. PBD-051: paired with
+    // `map_err_kind_` so the footer renders a cause-specific message
+    // instead of a one-size-fits-all "BAD CELL COORD".
     float         map_input_err_flash_s_ = 0.f;
+    MapErrorKind  map_err_kind_          = MapErrorKind::None;
 
     // PBD-031: Map Builder cursor + placement state.
     //
