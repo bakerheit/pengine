@@ -499,6 +499,18 @@ void Streamer::write_save_job(const SaveJob& job) const {
     // natural follow-up if we ever see this fire under disk pressure.
 }
 
+// PBD-052: see header. Headless test seam — replaces any existing entry at
+// `cell` with a minimal LoadedCell (instances + dirty flag, no scene nodes,
+// no collision AABBs, no terrain mesh) so the save path can be exercised
+// without going through the GL-bound `pump()` / `add_instance` codepaths.
+void Streamer::inject_loaded_cell_for_test(CellCoord cell,
+                                            std::vector<InstanceDef> instances) {
+    LoadedCell lc;
+    lc.instances = std::move(instances);
+    lc.dirty     = true;
+    loaded_[cell] = std::move(lc);
+}
+
 Streamer::PickResult Streamer::query_instance_at(float wx, float wz) const {
     PickResult best;
     float       best_top = -FLT_MAX;

@@ -158,6 +158,25 @@ public:
     // Main-thread-only; same invariant as `add_instance` / `remove_instance`.
     std::vector<CellCoord> loaded_cell_coords() const;
 
+    // PBD-052: test-only seam for the headless save/load smoke test.
+    //
+    // The production path to populate `loaded_` is `pump()` (which uploads
+    // terrain meshes and creates SceneNodes — both GL-bound) or `add_instance`
+    // (which needs a resolved ModelDef with a non-null Mesh — also GL-bound
+    // through `ModelRegistry::resolve_assets`). Neither is usable from a
+    // headless CI runner.
+    //
+    // This seam installs a `LoadedCell` with just the `instances` vector
+    // (no scene nodes, no collision AABBs, no terrain mesh) and marks it
+    // dirty so the next `save_dirty_cell` / `save_all_dirty_cells` flushes
+    // it to disk. That exercises the same `cell_cache_` + `ipl_path_for_cell`
+    // + `save_ipl` codepath the production save uses, without dragging GL in.
+    //
+    // Not for production use — overwrites any existing LoadedCell at this
+    // coord. The Map Builder writes through `add_instance` instead.
+    void inject_loaded_cell_for_test(CellCoord cell,
+                                     std::vector<InstanceDef> instances);
+
 private:
     void thread_func();
 

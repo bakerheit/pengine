@@ -251,3 +251,14 @@ add_test(NAME traffic_system_tests COMMAND traffic_system_tests)
 add_executable(map_builder_round_trip_tests tests/map_builder_round_trip_tests.cpp)
 target_link_libraries(map_builder_round_trip_tests PRIVATE pengine_core)
 add_test(NAME map_builder_round_trip_tests COMMAND map_builder_round_trip_tests)
+
+# --- Map-editor headless save/load smoke test (PBD-052) --------------------
+# CI de-risker for PBD-014. Drives the Streamer save path
+# (`save_dirty_cell` / `save_all_dirty_cells`) against a tmp cache dir with
+# zero GL touch — no Window, no SDL, no resolved meshes. Test-only seam
+# `Streamer::inject_loaded_cell_for_test` populates `loaded_` without going
+# through the GL-bound `pump()` / `add_instance` paths. Links pengine_core
+# for the symbols; never calls the GL paths inside it.
+add_executable(map_editor_persistence_tests tests/map_editor_persistence_tests.cpp)
+target_link_libraries(map_editor_persistence_tests PRIVATE pengine_core)
+add_test(NAME map_editor_persistence_tests COMMAND map_editor_persistence_tests)
