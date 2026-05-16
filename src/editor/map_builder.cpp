@@ -153,7 +153,6 @@ void MapBuilder::enter(const Deps& deps) {
     // to still have loaded the same way.
     undo_stack_.clear();
     redo_stack_.clear();
-    last_loaded_cells_.clear();
 
     back_request_pending_       = false;
     play_here_request_pending_  = false;
@@ -597,22 +596,13 @@ void MapBuilder::update(float dt) {
 
     // PBD-027: while a cell-jump input is active, suppress pan/zoom.
     if (map_input_active_) {
-        streamer_.pump(map_cam_pos_);
+        // PBD-050: route through `pump_and_sweep` so the eviction diff is
+        // pre-pump-vs-post-pump within this same frame, not last-frame's
+        // post-pump vs this frame's post-pump (the old ordering would
+        // overwrite the snapshot before the place/delete consumer below
+        // could push a fresh command targeting an already-evicted cell).
+        pump_and_sweep(map_cam_pos_);
         scene_.update();
-        // PBD-034: even during a cell-jump prompt the camera can jump on
-        // Enter, which can trigger evictions on the next frame's pump.
-        if (!undo_stack_.empty() || !redo_stack_.empty()) {
-            std::vector<CellCoord> now = streamer_.loaded_cell_coords();
-            std::unordered_set<CellCoord, CellCoordHash> now_set;
-            now_set.reserve(now.size());
-            for (CellCoord c : now) now_set.insert(c);
-            bool any_evicted = false;
-            for (CellCoord c : last_loaded_cells_) {
-                if (!now_set.count(c)) { any_evicted = true; break; }
-            }
-            if (any_evicted) drop_evicted_commands(now_set);
-            last_loaded_cells_ = std::move(now_set);
-        }
         return;
     }
 
@@ -664,27 +654,15 @@ void MapBuilder::update(float dt) {
     if (map_cam_pos_.z < 0.f)      map_cam_pos_.z = 0.f;
     if (map_cam_pos_.z > world_d)  map_cam_pos_.z = world_d;
 
-    streamer_.pump(map_cam_pos_);
+    // PBD-050: pump + eviction sweep, with the pre-pump snapshot taken
+    // inside the helper (i.e. immediately before `streamer.pump()` runs
+    // for this frame). The prior implementation diffed last frame's
+    // post-pump set against this frame's post-pump set, which was correct
+    // in isolation but tied the freshness of `last_loaded_cells_` to the
+    // ordering of update() — and the place/delete consumer below pushes
+    // new commands AFTER the snapshot was already advanced.
+    pump_and_sweep(map_cam_pos_);
     scene_.update();
-
-    // PBD-034 eviction sweep.
-    if (!undo_stack_.empty() || !redo_stack_.empty()) {
-        std::vector<CellCoord> now = streamer_.loaded_cell_coords();
-        std::unordered_set<CellCoord, CellCoordHash> now_set;
-        now_set.reserve(now.size());
-        for (CellCoord c : now) now_set.insert(c);
-        bool any_evicted = false;
-        for (CellCoord c : last_loaded_cells_) {
-            if (!now_set.count(c)) { any_evicted = true; break; }
-        }
-        if (any_evicted) drop_evicted_commands(now_set);
-        last_loaded_cells_ = std::move(now_set);
-    } else {
-        std::vector<CellCoord> now = streamer_.loaded_cell_coords();
-        last_loaded_cells_.clear();
-        last_loaded_cells_.reserve(now.size());
-        for (CellCoord c : now) last_loaded_cells_.insert(c);
-    }
 
     // PBD-031: re-run the mouse unproject here too, using the camera
     // state we just updated. The render path also unprojects (for the

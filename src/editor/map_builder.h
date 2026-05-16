@@ -204,6 +204,19 @@ private:
     void drop_evicted_commands(
         const std::unordered_set<CellCoord, CellCoordHash>& currently_loaded);
 
+    // PBD-050: pumps the streamer and sweeps the undo/redo stacks against
+    // cells evicted by *this frame's* pump. The pre-pump snapshot is
+    // captured here, immediately before `streamer.pump()`, so the sweep
+    // compares "what was loaded going into pump" vs "what's loaded coming
+    // out" — both samples taken inside this helper. Replaces the prior
+    // `last_loaded_cells_` member, whose lifetime spanned across frames
+    // and could be staled by the same-frame place/delete consumer that
+    // ran after pump (and after the snapshot was already overwritten with
+    // the post-pump set). No-op'd when both stacks are empty — there's
+    // nothing an evict could invalidate, so we skip the two
+    // `loaded_cell_coords()` allocations on the hot path.
+    void pump_and_sweep(const glm::vec3& cam_pos);
+
     // -----------------------------------------------------------------------
     // Camera state (PBD-024 / PBD-027)
     // -----------------------------------------------------------------------
@@ -253,12 +266,18 @@ private:
     static constexpr float MAP_PLACE_YAW_DETENT_DEG  = 15.0f;
 
     // -----------------------------------------------------------------------
-    // PBD-034 stacks + last-loaded snapshot + PBD-037 hover state
+    // PBD-034 stacks + PBD-037 hover state
     // -----------------------------------------------------------------------
-    std::vector<EditCommand>                     undo_stack_;
-    std::vector<EditCommand>                     redo_stack_;
-    std::unordered_set<CellCoord, CellCoordHash> last_loaded_cells_;
-    MapBarHit                                    map_bar_hover_ {};
+    // PBD-050: removed `last_loaded_cells_`. The pre-pump snapshot is now
+    // sampled fresh inside `pump_and_sweep()` (same frame as the post-pump
+    // sample it's diffed against), so we no longer need to carry the prior
+    // frame's set across to this frame. Removing the member also kills the
+    // edge case where the snapshot would be overwritten with the post-pump
+    // state mid-update, before the place/delete consumer that runs later
+    // in the same frame could observe the pre-pump set.
+    std::vector<EditCommand> undo_stack_;
+    std::vector<EditCommand> redo_stack_;
+    MapBarHit                map_bar_hover_ {};
 
     bool back_request_pending_ = false;
     // PBD-054: edge-triggered PLAY HERE signal, set by the bar click or
