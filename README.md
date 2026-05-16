@@ -41,7 +41,7 @@ cmake --build build -j
 CMake targets:
 - `pengine` — the game executable
 - `meshconv` — offline asset converter (see below)
-- `traffic_ai_tests` — the current test target (run with `ctest`)
+- `traffic_ai_tests`, `traffic_system_tests`, `map_builder_round_trip_tests`, `map_editor_persistence_tests` — test targets (run with `ctest` in the build dir)
 
 Optional flag for development: `-DPENGINE_SANITIZE=ON` enables AddressSanitizer and UndefinedBehaviorSanitizer. Pass it on the configure step:
 
@@ -116,9 +116,20 @@ The world streamer writes generated `.ipl` cell files into `assets/world/cells/`
 We're being honest about the parts that are still rough so new contributors don't trip over them silently.
 
 - **Long first build.** SDL2 and Assimp build from source on the first configure. Expect 5–10 minutes the first time, fast thereafter.
-- **Limited test coverage.** The project currently has a single ctest target (`traffic_ai_tests`). Adding tests is encouraged but not yet a project norm. If you're touching something tricky, a test alongside the change is welcome.
+- **Limited test coverage.** The project has four ctest targets today (`traffic_ai_tests`, `traffic_system_tests`, `map_builder_round_trip_tests`, `map_editor_persistence_tests`). Adding tests is encouraged but not yet a project norm. If you're touching something tricky, a test alongside the change is welcome.
 - **Platform support is macOS-first.** Linux is expected to work but is exercised less often. Windows is untested.
 - **Source art is checked into the repo.** This keeps the asset pipeline simple for now but makes the repo heavier than typical. A migration to Git LFS is on the table.
+
+## Continuous integration
+
+GitHub Actions runs `.github/workflows/ci.yml` on every push to `main` and on every pull request. The workflow:
+
+- Runs on `macos-latest` (the team's primary platform). Linux is planned.
+- Configures and builds the full project (`pengine`, `meshconv`, all test targets). `-Werror` is set in `CMakeLists.txt`, so any warning fails the job.
+- Runs three of the four ctest targets: `traffic_ai_tests`, `map_builder_round_trip_tests`, `map_editor_persistence_tests`. These are headless and need no GL context.
+- Skips `traffic_system_tests` because it constructs a real OpenGL context via `Window::init()` to upload meshes, and a GitHub-hosted macOS runner has no display server. Running that target headlessly is a planned follow-up.
+
+Build, configure, and test wall-clock times are visible in each step's log group in the run summary. First configure on a fresh runner is ~5-10 minutes (SDL2 + Assimp built from source); FetchContent caching is a known optimisation.
 
 ## Contributing
 

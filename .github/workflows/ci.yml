@@ -1,0 +1,64 @@
+name: CI
+
+# Build pengine and run the headless ctest targets on every push to main and
+# on every pull request. macOS-only for v1 (the team's primary platform).
+# Linux can be added once we know macOS is stable.
+#
+# Notes on what runs and what doesn't:
+# - We build the full default target set (pengine, meshconv, all 4 test
+#   executables). -Werror is set in CMakeLists.txt; do NOT pass anything here
+#   that would override it.
+# - We run only the three GL-free ctest targets. `traffic_system_tests`
+#   constructs a real GL context via Window::init() to upload meshes, and a
+#   macos-latest runner has no display server, so that target would fail
+#   here. Tracked as a follow-up (see PBD-014 final report).
+# - First config is ~5-10 min because SDL2 and Assimp are built from source
+#   by FetchContent. Caching that is a known follow-up.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same PR/branch to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-build-and-test:
+    name: macOS - build + headless ctest
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          cmake --version
+          clang++ --version
+          python3 --version
+
+      - name: Configure (CMake)
+        run: |
+          echo "::group::cmake configure"
+          time cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          echo "::endgroup::"
+
+      - name: Build
+        run: |
+          echo "::group::cmake build"
+          time cmake --build build -j
+          echo "::endgroup::"
+
+      # Run only the headless (GL-free) ctest targets. traffic_system_tests is
+      # excluded by regex because it requires a real GL context (see header
+      # comment above). Failures here fail the job.
+      - name: Test (headless targets only)
+        working-directory: build
+        run: |
+          echo "::group::ctest"
+          time ctest --output-on-failure -E '^traffic_system_tests$'
+          echo "::endgroup::"
