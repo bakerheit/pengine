@@ -91,6 +91,10 @@ void Streamer::init(const WorldConfig& cfg, Scene* scene,
 
 void Streamer::shutdown() {
     running_.store(false, std::memory_order_release);
+    // PBD-048: the worker thread itself does the final save-queue drain
+    // before exiting (see `thread_func`). Joining here therefore waits for
+    // any pending async saves to flush to disk — no separate drain needed
+    // on this side.
     if (thread_.joinable()) thread_.join();
 }
 
@@ -145,7 +149,35 @@ void Streamer::thread_func() {
             for (auto& j : new_evicts) evict_queue_.push_back(j);
         }
 
+        // PBD-048: drain pending async save jobs enqueued by
+        // `Streamer::save_dirty_cell`. Take a local copy under the lock
+        // so the `save_ipl` (filesystem I/O) happens lock-free — same
+        // pattern as `pump()` drains its load/evict queues.
+        std::vector<SaveJob> saves;
+        {
+            std::lock_guard<std::mutex> lk(queue_mutex_);
+            saves.swap(save_queue_);
+        }
+        for (const SaveJob& job : saves) {
+            write_save_job(job);
+        }
+
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    // PBD-048 shutdown drain. `running_` has been cleared; main thread is
+    // waiting on `thread_.join()` in `shutdown()`. Flush any save jobs
+    // still in the queue so edits enqueued in the final frames before
+    // shutdown aren't silently dropped. No further enqueues can race here
+    // — the main thread is blocked in join and the loader thread (this
+    // one) is the sole writer of disk-side cell state.
+    std::vector<SaveJob> final_saves;
+    {
+        std::lock_guard<std::mutex> lk(queue_mutex_);
+        final_saves.swap(save_queue_);
+    }
+    for (const SaveJob& job : final_saves) {
+        write_save_job(job);
     }
 }
 
@@ -379,36 +411,92 @@ bool Streamer::remove_instance(CellCoord cell, std::size_t index) {
     return true;
 }
 
-// PBD-033: persist a single cell's instances to its on-disk IPL. No-op if
-// the cell isn't loaded or isn't dirty (clean cells haven't been edited
-// since the last save / load, so the disk copy is already authoritative).
-// Clears the dirty flag on success so a subsequent evict doesn't re-write
-// the same data.
+// PBD-033 / PBD-048: enqueue a dirty cell for async persistence. Called
+// from the main thread on the evict path inside `pump()`. No-op if the
+// cell isn't loaded or isn't dirty.
+//
+// PBD-048: this used to call `save_ipl` synchronously on the render
+// thread. A cell-jump teleport could evict up to `(2r+1)^2` cells in one
+// pump, producing that many sync disk writes on the frame the teleport
+// landed. We now value-copy `lc.instances` into a `SaveJob`, push it
+// onto `save_queue_`, and clear `dirty` immediately so subsequent edits
+// re-mark the cell and produce a fresh snapshot on the next evict.
+//
+// **Value-copy is required, not optional.** `add_instance` /
+// `remove_instance` mutate `lc.instances` synchronously on the main
+// thread; the worker thread holding a reference into that vector would
+// race (vector reallocation, swap-and-pop). The copy lives entirely
+// inside the `SaveJob` from the moment of enqueue.
 void Streamer::save_dirty_cell(CellCoord cell) {
     auto it = loaded_.find(cell);
     if (it == loaded_.end()) return;
     LoadedCell& lc = it->second;
     if (!lc.dirty) return;
 
-    auto path = ipl_path_for_cell(cell_cache_, cell);
-    if (save_ipl(path, lc.instances)) {
-        lc.dirty = false;
-        PE_INFO("Streamer: saved cell (%d,%d) -> %s  (%zu instances)",
-                cell.x, cell.z, path.string().c_str(), lc.instances.size());
-    } else {
-        // Leave dirty=true so a later evict / exit retries. The save_ipl
-        // path already logs a warning on open failure; no further log here.
+    // Snapshot under no lock — `loaded_` and `lc.instances` are
+    // main-thread-only mutated; we're on the main thread.
+    SaveJob job;
+    job.coord     = cell;
+    job.instances = lc.instances;  // value copy (snapshot)
+
+    {
+        std::lock_guard<std::mutex> lk(queue_mutex_);
+        save_queue_.push_back(std::move(job));
+    }
+
+    // Clear `dirty` now: the snapshot owns the data the worker will
+    // write. A subsequent `add_instance`/`remove_instance` will re-dirty
+    // the cell and a future evict will enqueue a fresh snapshot.
+    lc.dirty = false;
+}
+
+// PBD-033 / PBD-048: synchronous flush of every dirty loaded cell.
+// Called from `Application::enter_app_state` when leaving MapBuilder, so
+// end-of-session edits survive even when no eviction triggers (user
+// edits a cell, hits Esc without moving the camera).
+//
+// **PBD-048 design choice — stays SYNCHRONOUS.** This is the
+// exit-from-MapBuilder hook: it must guarantee edits are on disk before
+// the app transitions out of the editor. N is small (≤ `(2r+1)^2`
+// currently-loaded cells, typically 9). Routing through the async save
+// queue would either weaken that guarantee (worker hasn't drained yet)
+// or force a join-style wait that defeats the offload. So we keep
+// direct `save_ipl` calls here. The render-thread cost is paid once on
+// state transition, not every cell-jump tick.
+//
+// Main-thread-only (same invariant as `save_dirty_cell`).
+void Streamer::save_all_dirty_cells() {
+    for (auto& kv : loaded_) {
+        LoadedCell& lc = kv.second;
+        if (!lc.dirty) continue;
+        auto path = ipl_path_for_cell(cell_cache_, kv.first);
+        if (save_ipl(path, lc.instances)) {
+            lc.dirty = false;
+            PE_INFO("Streamer: saved cell (%d,%d) -> %s  (%zu instances)  [sync exit]",
+                    kv.first.x, kv.first.z, path.string().c_str(),
+                    lc.instances.size());
+        }
+        // On failure leave `dirty = true` so a later evict / exit retries.
+        // `save_ipl` already logs a warning on open failure.
     }
 }
 
-// PBD-033: flush all currently-loaded dirty cells. Called from
-// `enter_app_state` when leaving MapBuilder so end-of-session edits
-// survive even when no eviction triggers (e.g. user edits a cell and
-// hits Esc without moving the camera).
-void Streamer::save_all_dirty_cells() {
-    for (auto& kv : loaded_) {
-        if (kv.second.dirty) save_dirty_cell(kv.first);
+// PBD-048: write a queued save job to disk. Called from the worker
+// thread (`thread_func` main loop drain and post-shutdown final drain).
+// Never called from the main thread — the main thread's only sync save
+// path is `save_all_dirty_cells`, which calls `save_ipl` directly.
+void Streamer::write_save_job(const SaveJob& job) const {
+    auto path = ipl_path_for_cell(cell_cache_, job.coord);
+    if (save_ipl(path, job.instances)) {
+        PE_INFO("Streamer: saved cell (%d,%d) -> %s  (%zu instances)  [async]",
+                job.coord.x, job.coord.z, path.string().c_str(),
+                job.instances.size());
     }
+    // On failure, drop the job. The cell's in-memory `dirty` flag was
+    // already cleared at enqueue time, so we can't easily retry without
+    // racing the main thread. `save_ipl` logs on open failure; that's
+    // the visible signal for now. A retry/backoff path would be the
+    // natural follow-up if we ever see this fire under disk pressure.
 }
 
 Streamer::PickResult Streamer::query_instance_at(float wx, float wz) const {

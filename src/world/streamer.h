@@ -113,17 +113,40 @@ public:
     // wins. PBD-033 closes that.
     bool remove_instance(CellCoord cell, std::size_t index);
 
-    // PBD-033: persistence. A cell becomes "dirty" the moment Map Builder
-    // mutates it (add_instance / remove_instance, and eventually
-    // update_instance in Phase B). Eviction in `pump()` saves dirty cells
-    // before tearing them down. `save_all_dirty_cells()` is the
-    // exit-from-MapBuilder hook — it iterates currently-loaded cells and
-    // writes any whose `dirty` flag is set, then clears the flag so a
-    // subsequent evict doesn't re-write the same file.
+    // PBD-033 / PBD-048: persistence. A cell becomes "dirty" the moment Map
+    // Builder mutates it (add_instance / remove_instance, and eventually
+    // update_instance in Phase B). Eviction in `pump()` calls
+    // `save_dirty_cell` before tearing the cell down; `save_all_dirty_cells`
+    // is the exit-from-MapBuilder hook.
     //
-    // Main-thread only (same invariant as `add_instance`/`remove_instance`).
-    // Writes synchronously to `<cell_cache>/cell_X_Z.ipl`. Cells are small
-    // enough that a blocking write at evict / exit is well under one frame.
+    // **Threading split (PBD-048):**
+    //   * `save_dirty_cell` is now ASYNCHRONOUS. It snapshots
+    //     `lc.instances` into a `SaveJob` queue under `queue_mutex_` and
+    //     clears `dirty` immediately. The background `thread_func` drains
+    //     the queue and writes via `save_ipl`. This keeps disk I/O off the
+    //     render thread on cell-jump teleports (up to `(2r+1)^2` evictions
+    //     per pump).
+    //   * `save_all_dirty_cells` stays SYNCHRONOUS by deliberate choice.
+    //     It's a one-shot, called from `Application::enter_app_state` when
+    //     leaving MapBuilder; N is small (currently-loaded cells, ≤9 in
+    //     typical play); and the "exit" semantics want a hard guarantee
+    //     edits are on disk before the next state takes over. Routing it
+    //     through the async queue would either lose that guarantee or
+    //     require a join-on-shutdown style wait that defeats the point of
+    //     having the worker. So this one keeps direct `save_ipl` calls.
+    //
+    // Both are main-thread-only (same invariant as
+    // `add_instance` / `remove_instance`).
+    //
+    // **Snapshot invariant:** `save_dirty_cell` value-copies `lc.instances`
+    // into the save job before enqueueing. The worker must not hold a
+    // reference into `loaded_`; a subsequent `add_instance` /
+    // `remove_instance` would invalidate it (vector reallocation +
+    // swap-and-pop both move elements).
+    //
+    // **Shutdown drain:** `thread_func` drains any pending save jobs
+    // before exiting once `running_` is cleared, so app exit through
+    // `shutdown()` doesn't silently drop already-enqueued edits.
     void save_dirty_cell(CellCoord cell);
     void save_all_dirty_cells();
 
@@ -145,12 +168,30 @@ private:
         TerrainChunk             terrain;
     };
     struct EvictJob { CellCoord coord; };
+    // PBD-048: async save job. `instances` is a value-copy snapshot of the
+    // cell's `lc.instances` taken at enqueue time on the main thread. The
+    // worker thread writes `instances` to `<cell_cache>/cell_X_Z.ipl` via
+    // `save_ipl`. By the time the worker sees the job, the main thread may
+    // have further mutated `loaded_[coord].instances` — that's fine; the
+    // snapshot is what gets persisted, and the next dirty/evict cycle will
+    // enqueue a fresh snapshot.
+    struct SaveJob {
+        CellCoord                coord;
+        std::vector<InstanceDef> instances;
+    };
 
     LoadJob load_or_generate_cell(CellCoord coord) const;
+
+    // PBD-048: shared by the worker thread (queue drain) and `shutdown()`
+    // (final drain after `running_` is cleared, before join). The main
+    // thread itself never calls this — main-thread saves go through the
+    // synchronous `save_all_dirty_cells` path with a direct `save_ipl`.
+    void write_save_job(const SaveJob& job) const;
 
     mutable std::mutex    queue_mutex_;
     std::vector<LoadJob>  load_queue_;
     std::vector<EvictJob> evict_queue_;
+    std::vector<SaveJob>  save_queue_;
 
     std::mutex  cam_mutex_;
     glm::vec3   cam_pos_ = {0.f, 0.f, 0.f};
