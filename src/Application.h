@@ -33,8 +33,10 @@ public:
 
     // Outer application state. The main menu is shown before any gameplay
     // input/update runs; "New Game" transitions to Playing. Dev Tools is a
-    // placeholder submenu (PBD-016).
-    enum class AppState { MainMenu, DevToolsMenu, Playing };
+    // submenu (PBD-016) whose only entry, "Map Builder", drops into the
+    // MapBuilder state (PBD-023 onward, EPIC-001). MapBuilder is currently
+    // an empty scaffold — no world interaction yet.
+    enum class AppState { MainMenu, DevToolsMenu, MapBuilder, Playing };
 
     bool init();
     int  run();
@@ -97,7 +99,6 @@ private:
 
     AppState app_state_       = AppState::MainMenu;
     int      menu_selection_  = 0;
-    bool     menu_show_hint_  = false; // "Coming soon" flash on Map Builder
 
     // F-to-steal: when OnFoot and an AI car is the closest in-range target,
     // pressing F removes that AI from TrafficSystem and teleports the player

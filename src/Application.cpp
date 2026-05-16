@@ -176,8 +176,9 @@ int Application::run() {
         ++fps_frames_;
         if (seconds_since(stats_start_) >= 1.0) {
             if (app_state_ != AppState::Playing) {
-                const char* label = (app_state_ == AppState::MainMenu)
-                                  ? "main menu" : "dev tools";
+                const char* label = "dev tools";
+                if (app_state_ == AppState::MainMenu)        label = "main menu";
+                else if (app_state_ == AppState::MapBuilder) label = "map builder";
                 char title[128];
                 std::snprintf(title, sizeof(title),
                               "pengine | %s | fps:%d",
@@ -277,7 +278,6 @@ void Application::enter_app_state(AppState s) {
     if (app_state_ == s) return;
     app_state_      = s;
     menu_selection_ = 0;
-    menu_show_hint_ = false;
 
     if (s == AppState::Playing) {
         // Reset the fixed-timestep accumulator so we don't catch up on time
@@ -304,9 +304,10 @@ void Application::activate_menu_selection() {
         }
     } else if (app_state_ == AppState::DevToolsMenu) {
         if (menu_selection_ == 0) {
-            // Map Builder is a placeholder for EPIC-001. No behaviour yet —
-            // flash a hint and stay on this screen.
-            menu_show_hint_ = true;
+            // Map Builder: EPIC-001 / PBD-023 scaffold. The state is empty
+            // for now — PBD-024 onward will furnish it (world render,
+            // top-down camera, picking, etc.).
+            enter_app_state(AppState::MapBuilder);
         } else if (menu_selection_ == 1) {
             enter_app_state(AppState::MainMenu);
         }
@@ -340,28 +341,37 @@ void Application::process_menu_events() {
     if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
         running_ = false;
 
-    const int item_count = (app_state_ == AppState::MainMenu)
-                         ? MAIN_ITEM_COUNT
-                         : DEVTOOLS_ITEM_COUNT;
+    // List navigation only applies to the actual list menus. MapBuilder
+    // shares this event pump (it's not yet running gameplay input) but has
+    // no list to drive.
+    const bool in_list_menu = (app_state_ == AppState::MainMenu ||
+                               app_state_ == AppState::DevToolsMenu);
 
-    if (input_.pressed(SDL_SCANCODE_UP) || input_.pressed(SDL_SCANCODE_W)) {
-        menu_selection_ = (menu_selection_ - 1 + item_count) % item_count;
-        menu_show_hint_ = false;
+    if (in_list_menu) {
+        const int item_count = (app_state_ == AppState::MainMenu)
+                             ? MAIN_ITEM_COUNT
+                             : DEVTOOLS_ITEM_COUNT;
+
+        if (input_.pressed(SDL_SCANCODE_UP) || input_.pressed(SDL_SCANCODE_W)) {
+            menu_selection_ = (menu_selection_ - 1 + item_count) % item_count;
+        }
+        if (input_.pressed(SDL_SCANCODE_DOWN) || input_.pressed(SDL_SCANCODE_S)) {
+            menu_selection_ = (menu_selection_ + 1) % item_count;
+        }
+        if (input_.pressed(SDL_SCANCODE_RETURN) ||
+            input_.pressed(SDL_SCANCODE_KP_ENTER) ||
+            input_.pressed(SDL_SCANCODE_SPACE)) {
+            activate_menu_selection();
+        }
     }
-    if (input_.pressed(SDL_SCANCODE_DOWN) || input_.pressed(SDL_SCANCODE_S)) {
-        menu_selection_ = (menu_selection_ + 1) % item_count;
-        menu_show_hint_ = false;
-    }
-    if (input_.pressed(SDL_SCANCODE_RETURN) ||
-        input_.pressed(SDL_SCANCODE_KP_ENTER) ||
-        input_.pressed(SDL_SCANCODE_SPACE)) {
-        activate_menu_selection();
-    }
+
     if (input_.pressed(SDL_SCANCODE_ESCAPE) ||
         input_.pressed(SDL_SCANCODE_BACKSPACE) ||
         input_.pressed(SDL_SCANCODE_B)) {
         if (app_state_ == AppState::DevToolsMenu) {
             enter_app_state(AppState::MainMenu);
+        } else if (app_state_ == AppState::MapBuilder) {
+            enter_app_state(AppState::DevToolsMenu);
         }
         // Esc on the main menu is a no-op (no parent to back out to). Ctrl+Q
         // remains the quit shortcut.
@@ -369,6 +379,14 @@ void Application::process_menu_events() {
 }
 
 void Application::render_menu() {
+    // MapBuilder uses a slightly different clear colour so the scaffold is
+    // visibly distinct from menu screens and gameplay. PBD-024 will replace
+    // this with an actual top-down world render.
+    if (app_state_ == AppState::MapBuilder) {
+        glClearColor(0.08f, 0.10f, 0.14f, 1.0f);
+    } else {
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    }
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     Menu::DrawState ms;
@@ -381,13 +399,18 @@ void Application::render_menu() {
         ms.items      = MAIN_ITEMS;
         ms.item_count = MAIN_ITEM_COUNT;
         ms.footer     = "UP DOWN MOVE   ENTER SELECT   CTRL Q QUIT";
-    } else /* DevToolsMenu */ {
+    } else if (app_state_ == AppState::DevToolsMenu) {
         ms.title      = "DEV TOOLS";
         ms.items      = DEVTOOLS_ITEMS;
         ms.item_count = DEVTOOLS_ITEM_COUNT;
-        ms.footer     = menu_show_hint_
-                      ? "COMING SOON"
-                      : "ESC BACK   ENTER SELECT";
+        ms.footer     = "ESC BACK   ENTER SELECT";
+    } else /* MapBuilder */ {
+        // Empty scaffold (PBD-023). Title-only render; future PBDs will
+        // overlay world view, cursor, inspector panes, etc.
+        ms.title      = "MAP BUILDER";
+        ms.items      = nullptr;
+        ms.item_count = 0;
+        ms.footer     = "ESC BACK";
     }
 
     menu_.draw(ms);
