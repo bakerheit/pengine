@@ -364,6 +364,11 @@ void Application::enter_app_state(AppState s) {
         // event after the user moves the cursor inside the Map Builder view.
         map_mouse_valid_   = false;
         map_place_pending_ = false;
+        // PBD-032: default to Place mode on entry so the user can plop
+        // immediately without first hitting a tool button. No stale delete
+        // latch from a previous session.
+        map_tool_           = MapTool::Place;
+        map_delete_pending_ = false;
     }
 }
 
@@ -443,6 +448,99 @@ void Application::process_menu_events() {
         // Esc on the main menu is a no-op (no parent to back out to). Ctrl+Q
         // remains the quit shortcut.
     }
+}
+
+// PBD-032: bottom-bar layout. Computed once per event-pump tick (for hit-
+// testing) and once per render tick (for drawing). Cheap — just arithmetic
+// over `world_models_.size()` (8 entries today). The two call sites must
+// agree on geometry, so this helper is the single source of truth.
+//
+// Coordinate space: physical pixels matching `window_.width/height()` (i.e.
+// the SDL drawable size, post-DPI scaling). The mouse coords used for hit-
+// testing are scaled up to match in `scale_mouse_to_drawable` (mirroring
+// the PBD-031 fix in `update_map_builder`).
+//
+// Layout (left-to-right):
+//   [PLACE button][DELETE button][asset slot 0][asset slot 1]...
+//
+// Tool buttons: 80×80 px. Asset slots: 80×80 px. 12 px inter-region gap.
+// The bar sits ABOVE the centre footer (vh-200 → vh-100) rather than
+// replacing it — see PBD-032 final report, premise check #4: keeping the
+// footer in place preserves the cell-jump prompt and the "WASD PAN..."
+// hint with zero diff to PBD-027 / PBD-030 wiring.
+Application::MapBarLayout Application::compute_map_builder_bar_layout() const {
+    MapBarLayout L;
+    const float vw = static_cast<float>(window_.width());
+    const float vh = static_cast<float>(window_.height());
+
+    const float bar_h    = 100.f;
+    const float footer_h = 100.f;          // visual room reserved for vh-80 band
+    const float bar_top  = vh - footer_h - bar_h;  // i.e. vh - 200
+    const float bar_bot  = vh - footer_h;          // i.e. vh - 100
+    L.bar_min_px = {0.f, bar_top};
+    L.bar_max_px = {vw, bar_bot};
+
+    const float pad      = 14.f;
+    const float gap      = 12.f;
+    const float tool_sz  = 72.f;
+    const float slot_sz  = 72.f;
+    const float row_y0   = bar_top + (bar_h - tool_sz) * 0.5f;
+    const float row_y1   = row_y0 + tool_sz;
+
+    float x = pad;
+
+    // Tool buttons: Place (index = static_cast<int>(MapTool::Place)) and
+    // Delete. Index matches the enum so the click handler can cast back.
+    L.regions.push_back({{x, row_y0}, {x + tool_sz, row_y1},
+                          MapBarHitKind::ToolButton,
+                          static_cast<int>(MapTool::Place)});
+    x += tool_sz + gap;
+    L.regions.push_back({{x, row_y0}, {x + tool_sz, row_y1},
+                          MapBarHitKind::ToolButton,
+                          static_cast<int>(MapTool::Delete)});
+    x += tool_sz + gap + 12.f;  // wider gap before palette
+
+    // Asset slots. Match the render path's "sort by id" so the index here
+    // is the same one feeding `map_palette_selection_`.
+    const int n = static_cast<int>(world_models_.size());
+    for (int i = 0; i < n; ++i) {
+        if (x + slot_sz > vw - pad) break;  // bar saturated; later models truncate
+        L.regions.push_back({{x, row_y0}, {x + slot_sz, row_y1},
+                              MapBarHitKind::AssetSlot, i});
+        x += slot_sz + gap;
+    }
+
+    return L;
+}
+
+Application::MapBarHit Application::hit_test_map_builder_bar(
+        const MapBarLayout& layout, int x_px, int y_px) const {
+    const float fx = static_cast<float>(x_px);
+    const float fy = static_cast<float>(y_px);
+    // Bar bounds first — even if we miss every region, a click anywhere
+    // inside the bar must be treated as UI (no fall-through to the world).
+    // Caller distinguishes "inside bar, missed all regions" from "outside
+    // bar" by checking the returned kind plus whether the point is inside
+    // bar_min_px/bar_max_px.
+    for (const auto& r : layout.regions) {
+        if (fx >= r.min_px.x && fx <= r.max_px.x &&
+            fy >= r.min_px.y && fy <= r.max_px.y) {
+            return {r.kind, r.index};
+        }
+    }
+    return {MapBarHitKind::None, 0};
+}
+
+void Application::scale_mouse_to_drawable(int mx_logical, int my_logical,
+                                          int& mx_draw, int& my_draw) const {
+    int win_w_logical = 0, win_h_logical = 0;
+    SDL_GetWindowSize(window_.sdl(), &win_w_logical, &win_h_logical);
+    mx_draw = (win_w_logical > 0)
+                  ? mx_logical * window_.width() / win_w_logical
+                  : mx_logical;
+    my_draw = (win_h_logical > 0)
+                  ? my_logical * window_.height() / win_h_logical
+                  : my_logical;
 }
 
 // MapBuilder event pump — split from process_menu_events (PBD-024) now that
@@ -525,16 +623,55 @@ void Application::process_map_builder_events() {
     if (input_.down(SDL_SCANCODE_LCTRL) && input_.pressed(SDL_SCANCODE_Q))
         running_ = false;
 
-    // PBD-031: left-click → place. Edge-triggered via Input's mouse_pressed
-    // (set on SDL_MOUSEBUTTONDOWN, cleared by next begin_frame), so one click
-    // produces exactly one placement regardless of how many frames the button
-    // stays held. The actual `Streamer::add_instance` call happens in
-    // `update_map_builder` after `streamer_.pump()` runs, so a click that
-    // landed the same frame as a fresh cell load still hits a loaded cell.
+    // PBD-031 / PBD-032: left-click dispatch. Edge-triggered via Input's
+    // mouse_pressed (set on SDL_MOUSEBUTTONDOWN, cleared by next
+    // begin_frame), so one click produces exactly one action regardless of
+    // how many frames the button stays held.
+    //
+    // PBD-032 click priority:
+    //   1. Click-on-bar always wins. We hit-test the bar's per-region list
+    //      first; a hit on a tool button switches `map_tool_`, a hit on an
+    //      asset slot updates `map_palette_selection_` AND forces Place
+    //      mode (Cities-Skylines semantics: picking an asset means you
+    //      want to plant it). A click inside the bar that misses every
+    //      region is absorbed silently — it never falls through to the
+    //      world action below.
+    //   2. Click-in-world is dispatched by `map_tool_`: Place sets
+    //      `map_place_pending_`, Delete sets `map_delete_pending_`. The
+    //      actual mutation happens in `update_map_builder` after
+    //      `streamer_.pump()` so freshly-loaded cells are visible.
+    //
     // Suppressed in `map_input_active_` mode so a click during cell-jump
-    // typing doesn't accidentally place.
+    // typing doesn't accidentally place / delete.
     if (!map_input_active_ && input_.mouse_pressed(SDL_BUTTON_LEFT)) {
-        map_place_pending_ = true;
+        int mx_draw = 0, my_draw = 0;
+        scale_mouse_to_drawable(input_.mouse_x(), input_.mouse_y(),
+                                 mx_draw, my_draw);
+        MapBarLayout layout = compute_map_builder_bar_layout();
+        const bool inside_bar =
+            static_cast<float>(mx_draw) >= layout.bar_min_px.x &&
+            static_cast<float>(mx_draw) <= layout.bar_max_px.x &&
+            static_cast<float>(my_draw) >= layout.bar_min_px.y &&
+            static_cast<float>(my_draw) <= layout.bar_max_px.y;
+
+        if (inside_bar) {
+            MapBarHit hit = hit_test_map_builder_bar(layout, mx_draw, my_draw);
+            if (hit.kind == MapBarHitKind::ToolButton) {
+                map_tool_ = static_cast<MapTool>(hit.index);
+            } else if (hit.kind == MapBarHitKind::AssetSlot) {
+                map_palette_selection_ = hit.index;
+                map_tool_              = MapTool::Place;
+            }
+            // Inside-bar-but-no-region: swallow the click. Never set a
+            // world-action pending — that would let the user delete a
+            // building behind the bar by clicking the bar's empty padding.
+        } else {
+            if (map_tool_ == MapTool::Place) {
+                map_place_pending_ = true;
+            } else {  // Delete
+                map_delete_pending_ = true;
+            }
+        }
     }
 
     if (map_input_active_) {
@@ -840,6 +977,46 @@ void Application::update_map_builder(float dt) {
                             "not loaded or model %u unresolved)",
                             cell.x, cell.z, sel->id);
                 }
+            }
+        }
+    }
+
+    // PBD-032: Consume a pending delete. Pick by XZ (same path as the
+    // inspector readout) and forward (cell, instance_index) to the
+    // streamer. We do the pick fresh here rather than caching the render
+    // path's pick result — `pump()` ran between events and update, and a
+    // cell could have been evicted in that window (rare, but possible at
+    // a load-radius boundary). Picking fresh means the index we feed to
+    // `remove_instance` is computed against the same `loaded_` it'll
+    // mutate.
+    if (map_delete_pending_) {
+        map_delete_pending_ = false;
+        if (map_mouse_valid_) {
+            Streamer::PickResult pick = streamer_.query_instance_at(
+                map_mouse_world_xz_.x, map_mouse_world_xz_.y);
+            if (pick.hit) {
+                bool ok = streamer_.remove_instance(pick.cell,
+                                                     pick.instance_index);
+                if (ok) {
+                    PE_INFO("Map Builder: deleted model id=%u from cell "
+                            "(%d,%d) at index %zu",
+                            pick.instance.model_id,
+                            pick.cell.x, pick.cell.z,
+                            pick.instance_index);
+                } else {
+                    // Defensive — pick said hit, streamer said no. Could
+                    // happen if the cell unloaded between the pick and the
+                    // call, though `pump()` ran *before* the pick this
+                    // frame so it shouldn't in practice.
+                    map_input_err_flash_s_ = 0.75f;
+                    PE_INFO("Map Builder: delete rejected (cell (%d,%d) "
+                            "index %zu unreachable)",
+                            pick.cell.x, pick.cell.z, pick.instance_index);
+                }
+            } else {
+                // No instance under the cursor — silent no-op per the
+                // ticket. Could add a "no target" cue here but the empty
+                // inspector already conveys it.
             }
         }
     }
@@ -1175,11 +1352,14 @@ void Application::render_map_builder() {
         Text::DrawState tl;
         tl.lines              = lines;
         tl.count              = nlines;
-        // Bottom-left, above the footer band. Glyph 26 / row stride ~36;
-        // footer below sits at vh-80 with 28px glyphs.
+        // Bottom-left, above the bottom bar (which itself sits above the
+        // footer band). Bar top is at vh-200 in `compute_map_builder_bar_
+        // layout`; leave a 16 px breathing gap. Glyph 26 / row stride ~36.
+        // PBD-030's old anchor (vh-80) is gone — that's now occupied by
+        // the bar/footer stack.
         tl.origin_top_left_px = {32.f,
                                   static_cast<float>(window_.height()) -
-                                      80.f - 32.f -
+                                      200.f - 16.f -
                                       static_cast<float>(nlines) * 36.f};
         tl.glyph_h_px         = 26.f;
         tl.color              = text_col;
@@ -1190,48 +1370,57 @@ void Application::render_map_builder() {
         text_.draw_lines(tl);
     }
 
-    // ---- Placement ghost (PBD-031) ----------------------------------------
-    // While a palette item is highlighted and the cursor is over the world,
-    // draw a wireframe AABB at mouse XZ sized from the model's local_bounds
-    // and translated to the terrain Y at that XZ. Subtle cyan so it reads
-    // against both terrain and the magenta pick-AABB outline.
-    //
-    // Out of scope (per ticket): rotation, footprint-following-terrain,
-    // collision preview against existing buildings. The marker is a flat
-    // box at sampled Y — enough to communicate "your click lands here."
+    // ---- Tool preview (PBD-031 + PBD-032) ---------------------------------
+    // Place mode: ghost AABB at mouse XZ sized from the palette model's
+    // local_bounds, drawn green to read "you're about to add this here".
+    // Delete mode: red highlight around the pickable instance under the
+    // cursor (no ghost — the existing inspector pick-AABB is already drawn
+    // in magenta further up, but we paint a thicker red box in delete mode
+    // so the dangerous verb has its own colour signal).
     if (map_mouse_valid_) {
-        // Resolve the currently-highlighted palette model. The palette is
-        // sorted by id every frame inside the palette-render block below, so
-        // we re-do the cheap lookup here rather than caching a pointer.
-        const auto& defs = world_models_.all();
-        std::vector<const ModelDef*> ordered;
-        ordered.reserve(defs.size());
-        for (const auto& kv : defs) ordered.push_back(&kv.second);
-        std::sort(ordered.begin(), ordered.end(),
-                  [](const ModelDef* a, const ModelDef* b) {
-                      return a->id < b->id;
-                  });
-        if (!ordered.empty() &&
-            map_palette_selection_ >= 0 &&
-            map_palette_selection_ < static_cast<int>(ordered.size())) {
-            const ModelDef* sel = ordered[static_cast<std::size_t>(
-                                            map_palette_selection_)];
-            // World AABB at identity rotation + default scale (per the
-            // out-of-scope note: placement uses identity rotation today).
-            AABB local{sel->local_bounds.min, sel->local_bounds.max};
-            Transform t;
-            t.position = glm::vec3{map_mouse_world_xz_.x,
-                                    Heightmap::sample(map_mouse_world_xz_.x,
-                                                      map_mouse_world_xz_.y),
-                                    map_mouse_world_xz_.y};
-            // Identity rotation, default scale (1,1,1) — matches what the
-            // placement code below builds. The procedural cube's local
-            // bounds are roughly building-sized for buildings and slab-sized
-            // for roads, so the preview reads true to what lands.
-            AABB world = local.transform(t.matrix());
-            debug_draw_.clear();
-            debug_draw_.box(world.min, world.max);
-            debug_draw_.flush(vp, glm::vec3{0.2f, 1.0f, 0.85f});
+        if (map_tool_ == MapTool::Place) {
+            // Resolve the currently-highlighted palette model. Sorted by
+            // id every frame inside the palette-render block below; cheap
+            // re-do.
+            const auto& defs = world_models_.all();
+            std::vector<const ModelDef*> ordered;
+            ordered.reserve(defs.size());
+            for (const auto& kv : defs) ordered.push_back(&kv.second);
+            std::sort(ordered.begin(), ordered.end(),
+                      [](const ModelDef* a, const ModelDef* b) {
+                          return a->id < b->id;
+                      });
+            if (!ordered.empty() &&
+                map_palette_selection_ >= 0 &&
+                map_palette_selection_ < static_cast<int>(ordered.size())) {
+                const ModelDef* sel = ordered[static_cast<std::size_t>(
+                                                map_palette_selection_)];
+                AABB local{sel->local_bounds.min, sel->local_bounds.max};
+                Transform t;
+                t.position = glm::vec3{map_mouse_world_xz_.x,
+                                        Heightmap::sample(map_mouse_world_xz_.x,
+                                                          map_mouse_world_xz_.y),
+                                        map_mouse_world_xz_.y};
+                AABB world = local.transform(t.matrix());
+                debug_draw_.clear();
+                debug_draw_.box(world.min, world.max);
+                // Green for "place". PBD-031 used cyan; PBD-032 switches
+                // because the tool now has a mode and we want the colour
+                // to be the unambiguous signal.
+                debug_draw_.flush(vp, glm::vec3{0.2f, 1.0f, 0.2f});
+            }
+        } else {
+            // Delete mode: re-pick (cheap) and paint the world AABB in
+            // red. The inspector also drew the pick AABB in magenta —
+            // they overlap but the red reads above the magenta because
+            // it's drawn last with depth-test off (debug_draw default).
+            Streamer::PickResult pick = streamer_.query_instance_at(
+                map_mouse_world_xz_.x, map_mouse_world_xz_.y);
+            if (pick.hit) {
+                debug_draw_.clear();
+                debug_draw_.box(pick.world_aabb.min, pick.world_aabb.max);
+                debug_draw_.flush(vp, glm::vec3{1.0f, 0.2f, 0.2f});
+            }
         }
     }
 
@@ -1255,7 +1444,7 @@ void Application::render_map_builder() {
         } else if (map_input_err_flash_s_ > 0.f) {
             footer = "BAD CELL COORD";
         } else {
-            footer = "WASD PAN   WHEEL ZOOM   LMB PLACE   G GO TO CELL   ESC BACK";
+            footer = "WASD PAN   WHEEL ZOOM   LMB ACT   G GO TO CELL   ESC BACK";
         }
         const char* footer_lines[] = {footer};
         Text::DrawState fl;
@@ -1282,27 +1471,30 @@ void Application::render_map_builder() {
         text_.draw_lines(fl);
     }
 
-    // ---- Asset palette (PBD-030) ------------------------------------------
-    // Top-left sidebar listing every ModelRegistry entry. PBD-031 will read
-    // `map_palette_selection_` to know which model to plop; this ticket only
-    // renders the picker. No placement, no click handling — that's the
-    // explicit out-of-scope boundary of the EPIC-002 v1 first slice.
+    // ---- Bottom bar (PBD-032) ---------------------------------------------
+    // Cities-Skylines-style horizontal action bar. Replaces the PBD-030
+    // left sidebar. Layout is computed by `compute_map_builder_bar_
+    // layout`, which the event pump also consulted for hit-testing — same
+    // geometry both sides.
     //
-    // Layout per row:  [NN] NAME   [F] [SWATCH]
-    // where NN is the zero-padded model id, NAME is the def's name, [F] is
-    // the one-letter flag chip (first letter of format_model_flags' output,
-    // or '-' for None), and SWATCH is a filled rect tinted with def.tint.
+    // Render order (back-to-front so text lands on top of fills):
+    //   1. Bar background quad (full-width dark navy).
+    //   2. Per-region fill: tool buttons coloured by mode (Place button
+    //      gets a green tint when active, Delete a red tint when active;
+    //      inactive states get the neutral chrome colour). Asset slots get
+    //      the model's tint as the full slot fill, selected slot a yellow
+    //      outline ring (drawn as a thicker outer rect underneath the fill).
+    //   3. Per-region text: PLACE / DELETE labels on tool buttons; model
+    //      id + flag chip on each asset slot.
     //
-    // ModelRegistry::all() returns an unordered_map, so registration order is
-    // already lost by the time we get here. To keep the palette stable across
-    // runs we sort by model id ascending. The 8 streets.ide entries today
-    // are id-ordered by category in the IDE file, so sorting by id preserves
-    // the author's grouping (buildings first, then road/walk).
+    // We re-do the sort-by-id walk here. compute_map_builder_bar_layout
+    // doesn't expose the ModelDef pointers (only indices) because we
+    // didn't want the layout helper to depend on registry types. The
+    // duplication is 8 entries × one std::sort per frame; invisible.
     {
+        MapBarLayout layout = compute_map_builder_bar_layout();
+
         const auto& defs = world_models_.all();
-        // Sort by id for stable layout. We do this every frame; with N≈8
-        // entries the cost is invisible. Switch to a cached vector on the
-        // registry if N ever grows past a few dozen.
         std::vector<const ModelDef*> ordered;
         ordered.reserve(defs.size());
         for (const auto& kv : defs) ordered.push_back(&kv.second);
@@ -1311,152 +1503,128 @@ void Application::render_map_builder() {
                       return a->id < b->id;
                   });
 
-        // Defensive: clamp selection in case the registry shrank since the
-        // last frame (it doesn't today, but the cost is one branch).
+        // Defensive: clamp selection in case the registry shrank.
         const int n = static_cast<int>(ordered.size());
         if (n > 0 && map_palette_selection_ >= n) map_palette_selection_ = 0;
 
-        if (n > 0) {
-            const glm::vec2 viewport_px{
-                static_cast<float>(window_.width()),
-                static_cast<float>(window_.height()),
-            };
+        const glm::vec2 viewport_px{
+            static_cast<float>(window_.width()),
+            static_cast<float>(window_.height()),
+        };
 
-            // Sidebar geometry. Anchored top-left, 24px from each edge.
-            // Width is fixed at 280px which fits "NN NAME [F]" comfortably at
-            // glyph_h 18 with our stroke font's pitch. Anchored top-left
-            // because:
-            //   - the inspector readout lives bottom-left and grows upward,
-            //   - the centre footer band sits at the bottom,
-            //   - the cell-jump prompt (PBD-027) reuses the footer.
-            // Top-left is the only corner with nothing today, and reading a
-            // vertical list anchored to a fixed corner is easier than tracking
-            // the floating selection cursor.
-            const float pal_x      = 24.f;
-            const float pal_y      = 24.f;
-            const float pal_w      = 280.f;
-            const float glyph_h    = 18.f;
-            const float row_h      = glyph_h * 1.45f; // matches draw_text_lines
-            const float title_h    = glyph_h * 1.45f; // one header row
-            const float swatch_sz  = glyph_h;
-            const float inner_pad  = 12.f;
+        // Build the rect batch. Bar background first; then per-region
+        // fills (selection rings drawn before slot fills so the ring
+        // peeks out as an outline).
+        std::vector<Menu::Rect> rects;
+        rects.reserve(2u + layout.regions.size() * 2u);
 
-            // Build the row label strings. C-style buffers owned here so the
-            // pointers we hand to draw_text_lines outlive that call.
-            constexpr int   MAX_ROWS = 64;
-            char            row_buf[MAX_ROWS][80];
-            const char*     row_ptrs[MAX_ROWS];
+        // Bar background: inspector-style dark navy, slightly translucent
+        // would be nice but Menu::Rect is opaque-RGB only. Solid is fine —
+        // the bar is the chrome, the world is the content above it.
+        rects.push_back(Menu::Rect{
+            layout.bar_min_px,
+            layout.bar_max_px,
+            glm::vec3{0.06f, 0.07f, 0.10f},
+        });
 
-            // Header row first so the user knows what the sidebar is.
-            std::snprintf(row_buf[0], sizeof(row_buf[0]), "ASSETS");
-            row_ptrs[0] = row_buf[0];
+        // Per-region fills. Ordering: selection-ring/outline rect first
+        // (drawn behind the slot fill), then the slot/tool fill on top.
+        for (const auto& r : layout.regions) {
+            const bool is_tool   = (r.kind == MapBarHitKind::ToolButton);
+            const bool is_slot   = (r.kind == MapBarHitKind::AssetSlot);
+            const MapTool tool   = static_cast<MapTool>(r.index);
+            const bool tool_act  = is_tool && tool == map_tool_;
+            const bool slot_act  = is_slot && r.index == map_palette_selection_;
 
-            const int max_data_rows = std::min(n, MAX_ROWS - 1);
-            for (int i = 0; i < max_data_rows; ++i) {
-                const ModelDef* d = ordered[static_cast<std::size_t>(i)];
+            // Active state ring (5 px outset rectangle behind the fill).
+            // Colour signals which tool / which slot is current.
+            if (tool_act || slot_act) {
+                glm::vec3 ring_col;
+                if (tool_act && tool == MapTool::Place) {
+                    ring_col = glm::vec3{0.2f, 0.9f, 0.3f};
+                } else if (tool_act && tool == MapTool::Delete) {
+                    ring_col = glm::vec3{1.0f, 0.3f, 0.3f};
+                } else {
+                    // Asset-slot selection — yellow, matches the inspector
+                    // highlight palette.
+                    ring_col = glm::vec3{1.0f, 0.85f, 0.2f};
+                }
+                rects.push_back(Menu::Rect{
+                    {r.min_px.x - 4.f, r.min_px.y - 4.f},
+                    {r.max_px.x + 4.f, r.max_px.y + 4.f},
+                    ring_col,
+                });
+            }
+
+            // Region fill.
+            glm::vec3 fill;
+            if (is_tool) {
+                // Inactive tool buttons get a neutral chrome fill that's
+                // distinguishable from the bar background.
+                if (tool == MapTool::Place) {
+                    fill = tool_act ? glm::vec3{0.10f, 0.40f, 0.15f}
+                                     : glm::vec3{0.18f, 0.20f, 0.24f};
+                } else {
+                    fill = tool_act ? glm::vec3{0.50f, 0.12f, 0.12f}
+                                     : glm::vec3{0.18f, 0.20f, 0.24f};
+                }
+            } else {
+                // Asset slot — full slot tinted with the model's swatch.
+                fill = ordered[static_cast<std::size_t>(r.index)]->tint;
+            }
+            rects.push_back(Menu::Rect{r.min_px, r.max_px, fill});
+        }
+
+        menu_.draw_rects(rects.data(), static_cast<int>(rects.size()),
+                          viewport_px);
+
+        // Per-region text labels. Tool buttons: "PLACE" / "DELETE". Asset
+        // slots: "NN [F]" where F is the first-letter flag chip (same
+        // convention PBD-030 used). One Text::draw_lines call per region —
+        // ~10 calls per frame, well under the previous sidebar's count.
+        char label_buf[40];
+        for (const auto& r : layout.regions) {
+            const float gx = r.min_px.x + 6.f;
+            const float gy = r.min_px.y + (r.max_px.y - r.min_px.y) * 0.5f - 10.f;
+
+            if (r.kind == MapBarHitKind::ToolButton) {
+                const MapTool tool = static_cast<MapTool>(r.index);
+                const char* txt = (tool == MapTool::Place) ? "PLACE"
+                                                            : "DELETE";
+                const char* lines_one[1] = {txt};
+                Text::DrawState tl;
+                tl.lines              = lines_one;
+                tl.count              = 1;
+                tl.origin_top_left_px = {gx, gy};
+                tl.glyph_h_px         = 20.f;
+                tl.color              = glm::vec3{1.0f, 1.0f, 1.0f};
+                tl.viewport_size_px   = viewport_px;
+                text_.draw_lines(tl);
+            } else if (r.kind == MapBarHitKind::AssetSlot) {
+                const ModelDef* d = ordered[static_cast<std::size_t>(r.index)];
                 const char* mflags = format_model_flags(d->flags);
-                // First non-pipe char of the flag string is our chip letter.
-                // format_model_flags returns "NONE" / "BLDG" / "BLDG|LOD" /
-                // etc; we take the first byte. NONE -> '-' so the chip column
-                // doesn't shout "N" at the user.
                 char chip = '-';
                 if (mflags && mflags[0] && std::strcmp(mflags, "NONE") != 0) {
                     chip = mflags[0];
                 }
-                // Trim name to fit. "NN NAME [F]" — leave the swatch column
-                // for the rect pass.
-                const char* name = d->name.empty() ? "?" : d->name.c_str();
-                std::snprintf(row_buf[i + 1], sizeof(row_buf[i + 1]),
-                              "%2u %s [%c]",
-                              d->id, name, chip);
-                row_ptrs[i + 1] = row_buf[i + 1];
-            }
-            const int total_rows = 1 + max_data_rows;
-            const float pal_h = title_h + static_cast<float>(max_data_rows) * row_h;
-
-            // Render order (back-to-front so strokes land on top of fills):
-            //   1. Dark backplate (one rect).
-            //   2. Selection highlight bar (one rect on the selected row).
-            //   3. Tint swatches (one rect per data row).
-            //   4. Stroke text rows (header, then each data row in its own
-            //      pass so selected vs unselected can use distinct colours).
-            //
-            // We could have folded the backplate into TextLines::bg_color, but
-            // the header and per-row rendering split would force three plates
-            // and three draw calls. One draw_rects + per-row text is cheaper
-            // and keeps the layering predictable.
-            std::vector<Menu::Rect> rects;
-            rects.reserve(static_cast<std::size_t>(total_rows) + 2u);
-
-            // Backplate. Inspector-style dark fill so the strokes read over
-            // any cell colour underneath.
-            rects.push_back(Menu::Rect{
-                {pal_x - inner_pad, pal_y - inner_pad},
-                {pal_x + pal_w + inner_pad, pal_y + pal_h + inner_pad},
-                glm::vec3{0.06f, 0.07f, 0.10f},
-            });
-
-            // Selection highlight bar — spans the full backplate width on the
-            // currently-selected data row. Row i (data) sits at y = pal_y +
-            // title_h + i * row_h.
-            if (map_palette_selection_ >= 0 &&
-                map_palette_selection_ < max_data_rows) {
-                float sel_top = pal_y + title_h +
-                                static_cast<float>(map_palette_selection_) * row_h;
-                rects.push_back(Menu::Rect{
-                    {pal_x - inner_pad * 0.5f, sel_top - 2.f},
-                    {pal_x + pal_w + inner_pad * 0.5f, sel_top + glyph_h + 2.f},
-                    glm::vec3{0.22f, 0.20f, 0.06f},
-                });
-            }
-
-            // One tint swatch per data row, right-aligned within the sidebar.
-            for (int i = 0; i < max_data_rows; ++i) {
-                float sw_top = pal_y + title_h +
-                               static_cast<float>(i) * row_h;
-                float sw_x1  = pal_x + pal_w;
-                float sw_x0  = sw_x1 - swatch_sz;
-                rects.push_back(Menu::Rect{
-                    {sw_x0, sw_top},
-                    {sw_x1, sw_top + swatch_sz},
-                    ordered[static_cast<std::size_t>(i)]->tint,
-                });
-            }
-
-            menu_.draw_rects(rects.data(), static_cast<int>(rects.size()),
-                              viewport_px);
-
-            // Text pass: header first in its own colour, then the data rows.
-            // Uses Text (TTF) to match the inspector + footer. PBD-030 was
-            // originally authored against Menu::draw_text_lines because the
-            // Text class was uncommitted when it was scoped; reconciled to
-            // Text here as part of the merge.
-            {
-                const char* head_lines[1] = {row_ptrs[0]};
-                Text::DrawState hl;
-                hl.lines              = head_lines;
-                hl.count              = 1;
-                hl.origin_top_left_px = {pal_x, pal_y};
-                hl.glyph_h_px         = glyph_h;
-                hl.color              = glm::vec3{0.70f, 0.76f, 0.82f};
-                hl.viewport_size_px   = viewport_px;
-                text_.draw_lines(hl);
-            }
-
-            for (int i = 0; i < max_data_rows; ++i) {
-                const char* one[1] = {row_ptrs[i + 1]};
-                Text::DrawState rl;
-                rl.lines              = one;
-                rl.count              = 1;
-                rl.origin_top_left_px = {pal_x,
-                                          pal_y + title_h +
-                                              static_cast<float>(i) * row_h};
-                rl.glyph_h_px         = glyph_h;
-                rl.color = (i == map_palette_selection_)
-                               ? glm::vec3{1.0f, 0.95f, 0.55f}
-                               : glm::vec3{0.92f, 0.94f, 0.98f};
-                rl.viewport_size_px   = viewport_px;
-                text_.draw_lines(rl);
+                std::snprintf(label_buf, sizeof(label_buf),
+                              "%u [%c]", d->id, chip);
+                // Buffer is re-used each iteration; we draw immediately
+                // before the next snprintf, so the pointer stays valid.
+                const char* lines_one[1] = {label_buf};
+                Text::DrawState tl;
+                tl.lines              = lines_one;
+                tl.count              = 1;
+                tl.origin_top_left_px = {gx, gy};
+                tl.glyph_h_px         = 18.f;
+                // Dark text on the bright tint swatches so the id reads;
+                // some models (e.g. ROAD) have dark grey tints, so we
+                // bias toward near-black for contrast on the bright ones
+                // and accept the dark-on-dark case as a v1 wart (the
+                // selection ring still flags which slot is chosen).
+                tl.color              = glm::vec3{0.05f, 0.05f, 0.08f};
+                tl.viewport_size_px   = viewport_px;
+                text_.draw_lines(tl);
             }
         }
     }

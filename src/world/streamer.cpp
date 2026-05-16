@@ -303,6 +303,57 @@ bool Streamer::add_instance(CellCoord cell, const InstanceDef& inst) {
     return true;
 }
 
+// PBD-032: Map Builder delete entry point. Mirror of `add_instance` — same
+// thread invariants, same parallel-array discipline.
+//
+// Swap-and-pop is the right shape here: it's O(1), keeps the three parallel
+// arrays consistent in a single conceptual step, and only the last element's
+// index changes (the caller uses the picked index *this same frame* before
+// any other mutation, so we don't need to keep arbitrary indices stable
+// across the operation).
+bool Streamer::remove_instance(CellCoord cell, std::size_t index) {
+    auto it = loaded_.find(cell);
+    if (it == loaded_.end()) return false;
+    LoadedCell& lc = it->second;
+    if (index >= lc.instances.size()) return false;
+
+    // Capture the data we need *before* mutating, so collision teardown
+    // can match against the same AABB we registered at add time.
+    const AABB world_aabb = lc.instance_world_aabbs[index];
+    SceneNode* node       = lc.nodes[index];
+    const uint32_t mid    = lc.instances[index].model_id;
+
+    // Parallel-array swap-and-pop. All three arrays grow/shrink together
+    // (PBD-031 invariant); preserve that by doing the same swap on each
+    // before popping. If `index` is already the last slot, swap is a
+    // no-op and we just pop.
+    const std::size_t last = lc.instances.size() - 1;
+    if (index != last) {
+        std::swap(lc.nodes[index],                lc.nodes[last]);
+        std::swap(lc.instances[index],            lc.instances[last]);
+        std::swap(lc.instance_world_aabbs[index], lc.instance_world_aabbs[last]);
+    }
+    lc.nodes.pop_back();
+    lc.instances.pop_back();
+    lc.instance_world_aabbs.pop_back();
+
+    // Scene node teardown. `remove_node` walks the static buckets too
+    // (PBD-032 change) so the cell's static-bucket entry is dropped.
+    if (scene_ && node) scene_->remove_node(node);
+
+    // Collision: only buildings registered an AABB on the way in. Mirror
+    // that filter here so we don't try to remove an AABB that was never
+    // added.
+    if (collision_) {
+        const ModelDef* m = registry_ ? registry_->get(mid) : nullptr;
+        if (m && (m->flags & ModelFlag::Building) != 0) {
+            collision_->remove_building(cell, world_aabb);
+        }
+    }
+
+    return true;
+}
+
 Streamer::PickResult Streamer::query_instance_at(float wx, float wz) const {
     PickResult best;
     float       best_top = -FLT_MAX;
@@ -320,11 +371,12 @@ Streamer::PickResult Streamer::query_instance_at(float wx, float wz) const {
                 if (wx < a.min.x || wx > a.max.x) continue;
                 if (wz < a.min.z || wz > a.max.z) continue;
                 if (a.max.y > best_top) {
-                    best_top         = a.max.y;
-                    best.hit         = true;
-                    best.cell        = c;
-                    best.instance    = lc.instances[i];
-                    best.world_aabb  = a;
+                    best_top            = a.max.y;
+                    best.hit            = true;
+                    best.cell           = c;
+                    best.instance       = lc.instances[i];
+                    best.world_aabb     = a;
+                    best.instance_index = i;
                 }
             }
         }

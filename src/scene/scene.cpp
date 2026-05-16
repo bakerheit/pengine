@@ -65,6 +65,16 @@ void Scene::remove_node(SceneNode* node) {
     pending_static_.erase(
         std::remove(pending_static_.begin(), pending_static_.end(), node),
         pending_static_.end());
+    // PBD-032: also unregister from per-cell static buckets. The bulk evict
+    // path uses `remove_static_cell` which clears the bucket wholesale, but
+    // the Map Builder delete verb needs to drop a single node without
+    // touching its neighbours. Linear scan over buckets — N cells loaded
+    // (≤9 today, typical Chebyshev radius) so the cost is invisible.
+    for (auto& kv : static_buckets_) {
+        auto& bucket = kv.second;
+        bucket.erase(std::remove(bucket.begin(), bucket.end(), node),
+                     bucket.end());
+    }
     // Erase from ownership list (unique_ptr destructor handles cleanup).
     nodes_.erase(
         std::remove_if(nodes_.begin(), nodes_.end(),

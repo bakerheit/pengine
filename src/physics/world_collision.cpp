@@ -22,6 +22,24 @@ void WorldCollision::add_building(CellCoord coord, const AABB& b) {
     cells_[coord].buildings.push_back(b);
 }
 
+bool WorldCollision::remove_building(CellCoord coord, const AABB& b) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = cells_.find(coord);
+    if (it == cells_.end()) return false;
+    auto& v = it->second.buildings;
+    // Exact AABB equality. We keep the first match — duplicates of the
+    // exact same AABB are not expected (every placement carries a unique
+    // position even before scale/rot), and a sloppy match risks deleting
+    // a neighbour by accident.
+    for (auto bi = v.begin(); bi != v.end(); ++bi) {
+        if (bi->min == b.min && bi->max == b.max) {
+            v.erase(bi);
+            return true;
+        }
+    }
+    return false;
+}
+
 void WorldCollision::clear() {
     std::lock_guard<std::mutex> lk(mu_);
     cells_.clear();

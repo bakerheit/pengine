@@ -41,6 +41,15 @@ public:
     // only today; mutex kept for future cross-thread).
     void add_building(CellCoord coord, const AABB& building_aabb);
 
+    // PBD-032: remove a single building AABB from a cell's collision set.
+    // Sibling of `add_building` — match is by AABB equality (min/max
+    // component-wise). Used by `Streamer::remove_instance` so a deleted
+    // Map Builder placement also stops colliding. Returns true if a match
+    // was found and removed. Equality is exact: callers must supply the
+    // same AABB that was originally added (the streamer stores it on the
+    // instance side and hands it back here, so float drift is a non-issue).
+    bool remove_building(CellCoord coord, const AABB& building_aabb);
+
     int  building_count() const;
 
     // Trace `dir` (need not be normalised) up to `max_dist` metres from

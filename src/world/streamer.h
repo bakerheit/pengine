@@ -51,11 +51,17 @@ public:
     // Result of a geometric pick. Returned by `query_instance_at` when a
     // streamed instance's world-space AABB contains the query XZ point.
     // `cell` is the cell that owned the instance at activation time.
+    // PBD-032: `instance_index` is the position in `loaded_[cell].instances`
+    // at pick time. Stable only until the next mutation of that cell
+    // (`pump()`, `add_instance`, `remove_instance`). The Map Builder uses
+    // it to feed `remove_instance` on the same frame as the pick, before
+    // any other mutation can run, so the staleness window is closed.
     struct PickResult {
-        bool        hit      = false;
-        CellCoord   cell     {};
-        InstanceDef instance {};       // copy — caller can outlive the streamer
-        AABB        world_aabb {};     // post-transform world-space bounds
+        bool        hit            = false;
+        CellCoord   cell           {};
+        InstanceDef instance       {};   // copy — caller can outlive the streamer
+        AABB        world_aabb     {};   // post-transform world-space bounds
+        std::size_t instance_index = 0;  // valid iff `hit`
     };
 
     // Find the topmost streamed instance whose world-space AABB contains
@@ -88,6 +94,24 @@ public:
     // on-disk IPL is unchanged, so the placement is lost on the next
     // evict-then-reload of the cell. PBD-033 fixes that.
     bool add_instance(CellCoord cell, const InstanceDef& inst);
+
+    // PBD-032: remove a single InstanceDef from a loaded cell at runtime
+    // (Map Builder delete path). Inverse of `add_instance`; same threading
+    // invariants (main thread only). `index` is into `loaded_[cell].instances`
+    // — typically obtained from `query_instance_at().instance_index`.
+    //
+    // Parallel-array invariant: removes from `nodes`, `instances`, and
+    // `instance_world_aabbs` in lockstep using swap-and-pop so each array's
+    // size shrinks by exactly one and no other index moves except the last.
+    // Also tears down the scene node (`Scene::remove_node`) and, if the
+    // model carried the Building flag, drops the corresponding world AABB
+    // from `WorldCollision` via the new `remove_building`.
+    //
+    // Returns false if the cell isn't loaded or the index is out of range.
+    // Persistence: same caveat as `add_instance` — only the in-memory
+    // `loaded_[cell]` is changed; on next evict-reload the on-disk IPL
+    // wins. PBD-033 closes that.
+    bool remove_instance(CellCoord cell, std::size_t index);
 
 private:
     void thread_func();
