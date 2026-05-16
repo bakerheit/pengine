@@ -59,6 +59,31 @@ private:
     void enter_app_state(AppState s);
     void activate_menu_selection();
 
+    // PBD-054: Edit<->Test round-trip.
+    //
+    // `transition_play_here` is the MapBuilder->Playing path activated by
+    // the PLAY HERE button or the T hotkey. Unlike `enter_app_state`, it
+    // does NOT call `MapBuilder::exit()` (which would flush dirty cells
+    // and tear down the session); instead it calls `suspend()` so the
+    // editor's camera/palette/tool/undo state are preserved for the
+    // return trip. The player is respawned on foot at `map_cam_pos_.xz`
+    // (Y from `Heightmap::sample`) and `came_from_map_builder_` is set
+    // so Playing's Esc/B-handler offers the "Back to Map Builder" path.
+    //
+    // `transition_back_to_map_builder` is the Playing->MapBuilder return
+    // path activated by B while in Playing AND `came_from_map_builder_`
+    // is true. It calls `MapBuilder::resume()` (which rebinds the same
+    // deps refs the editor was using before the round-trip).
+    void transition_play_here();
+    void transition_back_to_map_builder();
+
+    // PBD-054: teleport the player on foot to (xz, Heightmap::sample(xz)).
+    // Resets the spring-arm anchor so the chase cam isn't pointing at the
+    // old position on the first post-respawn frame. Forces Mode::OnFoot —
+    // per Andrew's product direction the round-trip lands the player on
+    // foot regardless of which mode they were last in.
+    void respawn_player_at_xz(float wx, float wz);
+
     Window         window_;
     Input          input_;
     FixedTimestep  clock_;
@@ -113,6 +138,13 @@ private:
 
     AppState app_state_       = AppState::MainMenu;
     int      menu_selection_  = 0;
+
+    // PBD-054: true while the current Playing session was launched from
+    // the MapBuilder (via PLAY HERE / T hotkey). Drives Playing's B-key
+    // handler to offer the "Back to Map Builder" return path; cleared on
+    // Main-Menu->Playing entry so a regular New Game session doesn't
+    // accidentally drop the user into the editor.
+    bool     came_from_map_builder_ = false;
 
     // F-to-steal: when OnFoot and an AI car is the closest in-range target,
     // pressing F removes that AI from TrafficSystem and teleports the player

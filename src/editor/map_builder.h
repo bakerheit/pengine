@@ -121,6 +121,15 @@ public:
     // the prior state wasn't MapBuilder.
     void exit();
 
+    // PBD-054: pause/resume hooks used by the MapBuilder<->Playing round-
+    // trip. `suspend` closes any open SDL text-input session but otherwise
+    // leaves session state (camera, palette, tool, undo stack, deps refs)
+    // intact so `resume` can restore the user to exactly where they were.
+    // Unlike `exit()`, this is NOT a session boundary — dirty cells are
+    // left dirty and undo/redo are NOT cleared. Pairs 1:1 with `resume`.
+    void suspend();
+    void resume();
+
     // Run-loop hooks. Application calls these only when its `app_state_`
     // is MapBuilder. `process_events` may set `running_out = false` on
     // Ctrl+Q. The "user pressed Esc to back out" signal is surfaced via
@@ -129,7 +138,8 @@ public:
     void update(float dt);
     void render();
 
-    // Accessor for Application's title-bar logging.
+    // Accessor for Application's title-bar logging and the PBD-054
+    // PLAY HERE spawn site.
     const glm::vec3& cam_pos() const { return map_cam_pos_; }
 
     // Edge-triggered: true once after the user presses Esc/Backspace/B in
@@ -137,11 +147,20 @@ public:
     // each frame to decide whether to transition back to DevToolsMenu.
     bool consume_back_request();
 
+    // PBD-054: edge-triggered "PLAY HERE" signal. True once after the user
+    // clicks the PLAY HERE bar button or presses T in normal mode, then
+    // false until the next activation. Application reads this to drive
+    // the MapBuilder->Playing round-trip (player respawn at `cam_pos().xz`,
+    // on foot, with the streamer's loaded cells preserved in memory).
+    bool consume_play_here_request();
+
 private:
     // -----------------------------------------------------------------------
     // PBD-032 bar layout / hit-test
     // -----------------------------------------------------------------------
-    enum class MapBarHitKind { None, ToolButton, AssetSlot, SizePreset };
+    // PBD-054 adds the PlayHere region — rightmost slot in the bar that
+    // transitions to gameplay with the player respawned at `map_cam_pos_`.
+    enum class MapBarHitKind { None, ToolButton, AssetSlot, SizePreset, PlayHere };
     struct MapBarHit {
         MapBarHitKind kind  = MapBarHitKind::None;
         int           index = 0;
@@ -242,6 +261,9 @@ private:
     MapBarHit                                    map_bar_hover_ {};
 
     bool back_request_pending_ = false;
+    // PBD-054: edge-triggered PLAY HERE signal, set by the bar click or
+    // the T hotkey, drained by Application via `consume_play_here_request`.
+    bool play_here_request_pending_ = false;
 
     // Non-owning. Nulled in exit().
     const Deps* deps_ = nullptr;

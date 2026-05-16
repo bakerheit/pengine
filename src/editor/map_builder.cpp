@@ -155,7 +155,8 @@ void MapBuilder::enter(const Deps& deps) {
     redo_stack_.clear();
     last_loaded_cells_.clear();
 
-    back_request_pending_ = false;
+    back_request_pending_       = false;
+    play_here_request_pending_  = false;
     map_input_active_     = false;
     map_input_buf_.clear();
     map_input_err_flash_s_ = 0.f;
@@ -185,6 +186,35 @@ void MapBuilder::exit() {
 bool MapBuilder::consume_back_request() {
     bool b = back_request_pending_;
     back_request_pending_ = false;
+    return b;
+}
+
+// PBD-054: pause/resume — used by the MapBuilder<->Playing round-trip so
+// the user can test their edits in-game and come back to the editor with
+// camera position, palette selection, tool mode, and undo stack intact.
+// Unlike `exit()`, these do NOT touch dirty cells (left dirty for later
+// auto-flush) or undo/redo (preserved across the round-trip).
+void MapBuilder::suspend() {
+    if (map_input_active_) {
+        SDL_StopTextInput();
+        map_input_active_ = false;
+        map_input_buf_.clear();
+    }
+}
+
+void MapBuilder::resume() {
+    // Reset the wall-clock dt baseline so the first frame after resume
+    // doesn't see an arbitrarily large dt from time spent in Playing.
+    map_last_frame_ = Clock::now();
+    // Edge signals are one-shot; clear them on resume so a stale request
+    // from before the round-trip can't immediately re-fire.
+    back_request_pending_      = false;
+    play_here_request_pending_ = false;
+}
+
+bool MapBuilder::consume_play_here_request() {
+    bool b = play_here_request_pending_;
+    play_here_request_pending_ = false;
     return b;
 }
 
@@ -260,7 +290,14 @@ MapBuilder::MapBarLayout MapBuilder::compute_bar_layout() const {
     const int   n_presets       = 3;
     const float presets_width   = static_cast<float>(n_presets) * preset_sz
                                    + static_cast<float>(n_presets - 1) * gap;
-    const float palette_x_limit = vw - pad - presets_width - preset_gap_pre;
+    // PBD-054: rightmost slot is the PLAY HERE button. Sized wider than a
+    // tool button to fit the two-word label at 20px glyph height. The
+    // palette region must end one gap to the left of the presets, and the
+    // presets must end one gap to the left of the play button.
+    const float play_sz         = 140.f;
+    const float play_gap_pre    = gap + 12.f;
+    const float palette_x_limit = vw - pad - play_sz - play_gap_pre
+                                   - presets_width - preset_gap_pre;
 
     const int n = static_cast<int>(deps_->models.size());
     for (int i = 0; i < n; ++i) {
@@ -282,6 +319,14 @@ MapBuilder::MapBarLayout MapBuilder::compute_bar_layout() const {
     L.regions.push_back({{x, row_y0}, {x + preset_sz, row_y1},
                           MapBarHitKind::SizePreset,
                           static_cast<int>(SizePreset::Large)});
+
+    // PBD-054: PLAY HERE — pin to the right edge so window-resize doesn't
+    // float the button mid-bar. The `index` field is unused for this kind.
+    {
+        const float px0 = vw - pad - play_sz;
+        L.regions.push_back({{px0, row_y0}, {px0 + play_sz, row_y1},
+                              MapBarHitKind::PlayHere, 0});
+    }
 
     return L;
 }
@@ -402,6 +447,10 @@ void MapBuilder::process_events(bool& running_out) {
                 map_tool_              = MapTool::Place;
             } else if (hit.kind == MapBarHitKind::SizePreset) {
                 map_size_preset_ = static_cast<SizePreset>(hit.index);
+            } else if (hit.kind == MapBarHitKind::PlayHere) {
+                // PBD-054: signal Application to transition to Playing
+                // with the player respawned at `map_cam_pos_.xz`.
+                play_here_request_pending_ = true;
             }
             // Inside-bar-but-no-region: swallow the click.
         } else {
@@ -474,6 +523,14 @@ void MapBuilder::process_events(bool& running_out) {
         input_.pressed(SDL_SCANCODE_BACKSPACE) ||
         input_.pressed(SDL_SCANCODE_B)) {
         back_request_pending_ = true;
+    }
+
+    // PBD-054: T = "Test in game". Same effect as clicking PLAY HERE
+    // — Application drains the signal, respawns the player on foot at
+    // `cam_pos().xz`, and transitions to Playing. Suppressed while the
+    // cell-jump prompt is open (handled by the early-return above).
+    if (input_.pressed(SDL_SCANCODE_T)) {
+        play_here_request_pending_ = true;
     }
 
     // PBD-041 tool-switch hotkeys.
@@ -889,6 +946,64 @@ void MapBuilder::drop_evicted_commands(
     }
 }
 
+// PBD-050: pre-pump snapshot + pump + post-pump diff, all in one place.
+//
+// The race this fixes: pre-PBD-050, `update()` pumped first, then sampled
+// `loaded_cell_coords()` into `now_set`, diffed `now_set` against the
+// member-cached `last_loaded_cells_` (from the END of last frame's
+// update), and finally overwrote `last_loaded_cells_` with `now_set`. The
+// place/delete consumer ran AFTER all of that in the same `update()`.
+// That left a window where:
+//   1. This frame's pump evicts cell C.
+//   2. The sweep correctly drops any pre-existing undo entries for C and
+//      advances `last_loaded_cells_` to the post-pump set (no C).
+//   3. The place/delete consumer runs and — for paths that don't bottom
+//      out in `streamer.add_instance` rejecting the cell (e.g. a delete
+//      whose `query_instance_at` had a hit pre-pump but whose
+//      `remove_instance` reaches a now-evicted cell, or a future edit
+//      path that synthesises an InstanceDef without round-tripping the
+//      streamer's loaded-check) — could still push an undo entry whose
+//      `.cell` is no longer loaded. The next frame's sweep would compare
+//      `last_loaded_cells_` (no C) against post-pump (no C) and see "no
+//      eviction this frame", so the stale entry survived.
+//
+// Fixing this by sampling pre-pump inside the same call as pump itself
+// makes the diff frame-local: pre and post are both taken on either side
+// of one pump invocation, independent of when `last_loaded_cells_` would
+// have been overwritten. The member is gone (see header), so there's no
+// cross-frame state for the place/delete consumer to invalidate.
+//
+// Allocation note: two `loaded_cell_coords()` calls + a hash set per
+// pumping frame. The previous code did one `loaded_cell_coords()` + a
+// hash set in the same shape, so the additional cost is one
+// `std::vector<CellCoord>` for the pre-pump snapshot — bounded by
+// `(2r+1)^2` cells (≤9 in current `WorldConfig`). Negligible vs pump
+// itself, which does GL uploads on cell loads.
+void MapBuilder::pump_and_sweep(const glm::vec3& cam_pos) {
+    Streamer& streamer_ = deps_->streamer;
+
+    // Fast path: when there's nothing on either stack, an eviction can't
+    // invalidate anything. Skip the snapshot pair entirely.
+    if (undo_stack_.empty() && redo_stack_.empty()) {
+        streamer_.pump(cam_pos);
+        return;
+    }
+
+    std::vector<CellCoord> pre = streamer_.loaded_cell_coords();
+    streamer_.pump(cam_pos);
+    std::vector<CellCoord> post = streamer_.loaded_cell_coords();
+
+    std::unordered_set<CellCoord, CellCoordHash> post_set;
+    post_set.reserve(post.size());
+    for (CellCoord c : post) post_set.insert(c);
+
+    bool any_evicted = false;
+    for (CellCoord c : pre) {
+        if (!post_set.count(c)) { any_evicted = true; break; }
+    }
+    if (any_evicted) drop_evicted_commands(post_set);
+}
+
 // ---------------------------------------------------------------------------
 // Render (PBD-024 world + PBD-025 overlay + PBD-026/031 inspector +
 //         PBD-032 bar + PBD-036 caption + PBD-040 legend)
@@ -1181,13 +1296,13 @@ void MapBuilder::render() {
                      "LMB PLACE   1=PLACE 2=DELETE   3/4/5=SIZE   "
                      "Q/E ROTATE   SHIFT+WHL SCALE   "
                      "CTRL-Z UNDO / CTRL-Y REDO   "
-                     "UP/DN PALETTE   G GO TO CELL   ESC BACK";
+                     "UP/DN PALETTE   G GO TO CELL   T PLAY HERE   ESC BACK";
         } else {
             footer = "WASD PAN   WHEEL ZOOM   R+WHL TILT   "
                      "LMB DELETE   1=PLACE 2=DELETE   3/4/5=SIZE   "
                      "Q/E ROTATE   SHIFT+WHL SCALE   "
                      "CTRL-Z UNDO / CTRL-Y REDO   "
-                     "UP/DN PALETTE   G GO TO CELL   ESC BACK";
+                     "UP/DN PALETTE   G GO TO CELL   T PLAY HERE   ESC BACK";
         }
         const char* footer_lines[] = {footer};
         Text::DrawState fl;
@@ -1285,6 +1400,7 @@ void MapBuilder::render() {
             const bool is_tool   = (r.kind == MapBarHitKind::ToolButton);
             const bool is_slot   = (r.kind == MapBarHitKind::AssetSlot);
             const bool is_preset = (r.kind == MapBarHitKind::SizePreset);
+            const bool is_play   = (r.kind == MapBarHitKind::PlayHere);
             const MapTool tool   = static_cast<MapTool>(r.index);
             const bool tool_act  = is_tool && tool == map_tool_;
             const bool slot_act  = is_slot && r.index == map_palette_selection_;
@@ -1322,7 +1438,13 @@ void MapBuilder::render() {
             } else if (is_preset) {
                 fill = preset_act ? glm::vec3{0.10f, 0.30f, 0.45f}
                                   : glm::vec3{0.18f, 0.20f, 0.24f};
-            } else {
+            } else if (is_play) {
+                // PBD-054: PLAY HERE — green call-to-action distinct from
+                // the Place tool's darker green (the Place tool ring is the
+                // brighter green; this fill stays solid even when inactive
+                // because the button never has an "off" state).
+                fill = glm::vec3{0.15f, 0.55f, 0.25f};
+            } else /* is_slot */ {
                 fill = ordered[static_cast<std::size_t>(r.index)]->tint
                        * palette_dim;
             }
@@ -1356,6 +1478,26 @@ void MapBuilder::render() {
                                 : (p == SizePreset::Medium) ? "M"
                                                              : "L";
                 const float glyph_h = 26.f;
+                const float label_w = text_.measure_width(txt, glyph_h);
+                const float slot_w  = r.max_px.x - r.min_px.x;
+                const float lx      = r.min_px.x + (slot_w - label_w) * 0.5f;
+                const float ly      = r.min_px.y +
+                    (r.max_px.y - r.min_px.y) * 0.5f - glyph_h * 0.5f;
+                const char* lines_one[1] = {txt};
+                Text::DrawState tl;
+                tl.lines              = lines_one;
+                tl.count              = 1;
+                tl.origin_top_left_px = {lx, ly};
+                tl.glyph_h_px         = glyph_h;
+                tl.color              = glm::vec3{1.0f, 1.0f, 1.0f};
+                tl.viewport_size_px   = viewport_px;
+                text_.draw_lines(tl);
+            } else if (r.kind == MapBarHitKind::PlayHere) {
+                // PBD-054: centred white label. The button width (140px) is
+                // tuned for the 20px-glyph "PLAY HERE" string with a few
+                // pixels of slack — no fall-through shrink path needed.
+                const char* txt = "PLAY HERE";
+                const float glyph_h = 20.f;
                 const float label_w = text_.measure_width(txt, glyph_h);
                 const float slot_w  = r.max_px.x - r.min_px.x;
                 const float lx      = r.min_px.x + (slot_w - label_w) * 0.5f;

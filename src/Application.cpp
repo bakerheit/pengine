@@ -188,7 +188,13 @@ int Application::run() {
             map_builder_.update(dt);
             map_builder_.render();
 
-            if (map_builder_.consume_back_request()) {
+            // PBD-054: drain PLAY HERE first — if the user clicked the
+            // button or hit T on the same frame they also pressed Esc,
+            // honour the PLAY HERE transition (more recent / more
+            // intentional) over the back-to-DevTools path.
+            if (map_builder_.consume_play_here_request()) {
+                transition_play_here();
+            } else if (map_builder_.consume_back_request()) {
                 enter_app_state(AppState::DevToolsMenu);
             }
         } else {
@@ -337,6 +343,12 @@ void Application::enter_app_state(AppState s) {
         // spent in the menu.
         clock_.accumulator = 0.0;
         clock_.last        = Clock::now();
+        // PBD-054: any entry to Playing via this function is by definition
+        // NOT a MapBuilder round-trip (those go through
+        // `transition_play_here`). Clear the return-eligibility flag so the
+        // Esc-handler in Playing doesn't offer "Back to Map Builder" for a
+        // Main-Menu-launched New Game.
+        came_from_map_builder_ = false;
     } else {
         // Release the mouse if it was captured by gameplay.
         if (mouse_captured_) {
@@ -366,6 +378,107 @@ void Application::enter_app_state(AppState s) {
         map_builder_.enter(deps);
         map_builder_last_frame_ = Clock::now();
     }
+}
+
+// PBD-054: MapBuilder -> Playing round-trip enter.
+//
+// Distinct from `enter_app_state(Playing)` because the editor session must
+// be *suspended*, not *exited*: `MapBuilder::exit()` flushes dirty cells
+// and nulls the deps pointer (correct for "the user is done editing"),
+// but here the user intends to come right back, so we use `suspend()` —
+// camera, palette, tool, and undo stack survive the round-trip intact.
+// Streamer state is left alone: the cells the editor had loaded stay
+// loaded, in-memory edits included, until the next pump() shifts the
+// load radius around the new (player) camera.
+void Application::transition_play_here() {
+    if (app_state_ != AppState::MapBuilder) return;
+
+    // Capture the editor's cursor world position BEFORE suspend so we
+    // have an XZ to spawn at independent of whatever state MapBuilder
+    // settles into during suspend.
+    const glm::vec3 cam_xz = map_builder_.cam_pos();
+
+    map_builder_.suspend();
+    app_state_      = AppState::Playing;
+    menu_selection_ = 0;
+
+    // Mirror `enter_app_state(Playing)` clock reset — the editor's wall-
+    // clock dt baseline isn't the gameplay fixed-step accumulator, so the
+    // simulation would otherwise try to "catch up" on editor time.
+    clock_.accumulator = 0.0;
+    clock_.last        = Clock::now();
+
+    came_from_map_builder_ = true;
+
+    // Mouse is intentionally NOT captured here. Playing's existing
+    // SDL_MOUSEBUTTONDOWN handler captures on first click, matching the
+    // Main-Menu->Playing path. Skipping the auto-capture keeps the cursor
+    // available if the user wants to immediately B-back to the editor.
+
+    respawn_player_at_xz(cam_xz.x, cam_xz.z);
+
+    PE_INFO("PBD-054: PLAY HERE at world (x=%.1f z=%.1f) — press B to "
+            "return to Map Builder", cam_xz.x, cam_xz.z);
+}
+
+// PBD-054: Playing -> MapBuilder return path. Mirror of `transition_play_here`.
+// Callable only when `came_from_map_builder_` is true (the caller gates this
+// at the input site). We rebind MapBuilder's deps via `resume()` rather than
+// `enter()` so the session state (camera/palette/tool/undo) survives.
+void Application::transition_back_to_map_builder() {
+    if (app_state_ != AppState::Playing) return;
+    if (!came_from_map_builder_)        return;
+
+    if (mouse_captured_) {
+        SDL_SetRelativeMouseMode(SDL_FALSE);
+        mouse_captured_ = false;
+    }
+
+    app_state_      = AppState::MapBuilder;
+    menu_selection_ = 0;
+
+    map_builder_.resume();
+    map_builder_last_frame_ = Clock::now();
+
+    came_from_map_builder_ = false;
+
+    PE_INFO("PBD-054: returned to Map Builder");
+}
+
+// PBD-054: on-foot respawn at an arbitrary XZ. Used by the MapBuilder
+// round-trip; Player::respawn() teleports to the *fixed* spawn_ field set
+// once in Application::init, so this path needs its own helper. We update
+// spawn_ too so subsequent deaths come back to the user's new staging
+// point (matches the GTA-cheat-warp convention — your last warp is your
+// new respawn point).
+void Application::respawn_player_at_xz(float wx, float wz) {
+    glm::vec3 spawn{wx, 0.f, wz};
+    spawn.y = Heightmap::sample(spawn.x, spawn.z);
+
+    player_.set_spawn(spawn);
+    player_.controller().teleport(spawn);
+
+    // Force OnFoot. Per the ticket Andrew confirmed on-foot only; the
+    // player car is untouched (still parked wherever it was). Mirror
+    // `enter_mode(OnFoot)`'s housekeeping inline rather than calling
+    // enter_mode (it's a no-op when already OnFoot, so flipping
+    // `mode_ = InVehicle` first would feel hacky).
+    mode_       = Mode::OnFoot;
+    saved_mode_ = Mode::OnFoot;
+    player_.set_visible(true);
+
+    // Reset spring-arm anchor + camera to a sensible starting pose facing
+    // -Z (the world's "north"). Without this the camera would be wherever
+    // it was last frame in MapBuilder (top-down at altitude 600m), which
+    // produces a fish-eye drop-in for one frame before the next update.
+    spring_.anchor       = player_.eye_position();
+    spring_.yaw_deg      = -90.f;
+    spring_.pitch_deg    = -10.f;
+    spring_.desired_dist = 4.5f;
+    spring_.update(world_collision_);
+    camera_.position = spring_.camera_position;
+    camera_.yaw      = spring_.yaw_deg;
+    camera_.pitch    = spring_.pitch_deg;
 }
 
 void Application::activate_menu_selection() {
@@ -568,6 +681,15 @@ void Application::process_events() {
             SDL_SetRelativeMouseMode(SDL_FALSE);
             mouse_captured_ = false;
         }
+    }
+    // PBD-054: B = "Back to Map Builder" while the current Playing session
+    // was launched from the editor. Closes PBD-020 (pause/return path) as a
+    // side-effect for the editor-launched case — for a Main-Menu-launched
+    // New Game, came_from_map_builder_ is false so B is a no-op here and
+    // the player remains in gameplay (no MainMenu return wired yet).
+    if (came_from_map_builder_ && input_.pressed(SDL_SCANCODE_B)) {
+        transition_back_to_map_builder();
+        return; // event already consumed; rest of frame handles new state
     }
     // PBD-051: LCTRL or RCTRL — see Ctrl+Q rationale in process_menu_events.
     if ((input_.down(SDL_SCANCODE_LCTRL) || input_.down(SDL_SCANCODE_RCTRL))
