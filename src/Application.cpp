@@ -59,6 +59,7 @@ bool Application::init() {
     if (!particles_.init(ASSETS_DIR)) return false;
     if (!hud_.init(ASSETS_DIR)) return false;
     if (!menu_.init(ASSETS_DIR)) return false;
+    if (!text_.init(ASSETS_DIR)) return false;
 
     {
         std::vector<Vertex>   verts;
@@ -264,6 +265,7 @@ void Application::shutdown() {
     particles_.shutdown();
     hud_.shutdown();
     menu_.shutdown();
+    text_.shutdown();
     weapons_.shutdown();
     player_.shutdown();
     lit_shader_.destroy();
@@ -954,7 +956,7 @@ void Application::render_map_builder() {
             }
             for (int i = 0; i < 7; ++i) lines[i] = line_buf[i];
             nlines = 7;
-            text_col = glm::vec3{0.95f, 0.92f, 0.55f};
+            text_col = glm::vec3{1.0f, 0.95f, 0.55f};
 
             // Outline the picked AABB so the user has visual confirmation
             // the cursor and the readout are talking about the same thing.
@@ -967,24 +969,25 @@ void Application::render_map_builder() {
             lines[0] = line_buf[0];
             lines[1] = line_buf[1];
             nlines   = 2;
-            text_col = glm::vec3{0.55f, 0.62f, 0.66f};
+            text_col = glm::vec3{0.92f, 0.94f, 0.98f};
         }
 
-        Menu::TextLines tl;
+        Text::DrawState tl;
         tl.lines              = lines;
         tl.count              = nlines;
-        // Bottom-left, above the existing footer band (footer sits at vh-60
-        // with ~20px glyphs; leave room for ~7 inspector rows at 18px each).
-        tl.origin_top_left_px = {24.f,
+        // Bottom-left, above the footer band. Glyph 26 / row stride ~36;
+        // footer below sits at vh-80 with 28px glyphs.
+        tl.origin_top_left_px = {32.f,
                                   static_cast<float>(window_.height()) -
-                                      60.f - 28.f -
-                                      static_cast<float>(nlines) * 26.f};
-        tl.glyph_h_px         = 18.f;
-        tl.thickness_px       = 2.f;
+                                      80.f - 32.f -
+                                      static_cast<float>(nlines) * 36.f};
+        tl.glyph_h_px         = 26.f;
         tl.color              = text_col;
+        tl.bg_color           = glm::vec4{0.05f, 0.05f, 0.07f, 0.70f};
+        tl.bg_padding_px      = 14.f;
         tl.viewport_size_px   = {static_cast<float>(window_.width()),
                                   static_cast<float>(window_.height())};
-        menu_.draw_text_lines(tl);
+        text_.draw_lines(tl);
     }
 
     // Footer hint, rendered via the small text-helper rather than the full
@@ -1010,29 +1013,28 @@ void Application::render_map_builder() {
             footer = "WASD PAN   WHEEL ZOOM   G GO TO CELL   ESC BACK";
         }
         const char* footer_lines[] = {footer};
-        Menu::TextLines fl;
+        Text::DrawState fl;
         fl.lines              = footer_lines;
         fl.count              = 1;
-        // Approximate centring: use the same anchor Menu::draw used (cx -
-        // half the line width), at vh - 60 from the top.
+        // Centre on viewport using Text's actual measured width, at vh - 80.
         const float vw = static_cast<float>(window_.width());
         const float vh = static_cast<float>(window_.height());
-        // crude width estimate: 0.7 chars per unit-box-unit at glyph_h 20px.
-        const float approx_w = static_cast<float>(std::strlen(footer)) *
-                                20.f * 0.8f;
-        fl.origin_top_left_px = {vw * 0.5f - approx_w * 0.5f, vh - 60.f};
-        fl.glyph_h_px         = 20.f;
-        fl.thickness_px       = 2.f;
-        // Yellow tint while inputting; red while flashing an error; default
-        // dim grey otherwise.
+        const float glyph_h = 28.f;
+        const float text_w  = text_.measure_width(footer, glyph_h);
+        fl.origin_top_left_px = {vw * 0.5f - text_w * 0.5f, vh - 80.f};
+        fl.glyph_h_px         = glyph_h;
+        fl.bg_color           = glm::vec4{0.05f, 0.05f, 0.07f, 0.70f};
+        fl.bg_padding_px      = 14.f;
+        // Bright yellow while inputting; vivid red while flashing an error;
+        // near-white default for legibility over the world view.
         if (map_input_active_)
-            fl.color = glm::vec3{0.95f, 0.92f, 0.55f};
+            fl.color = glm::vec3{1.0f, 0.95f, 0.55f};
         else if (map_input_err_flash_s_ > 0.f)
             fl.color = glm::vec3{1.0f, 0.4f, 0.3f};
         else
-            fl.color = glm::vec3{0.55f, 0.62f, 0.66f};
+            fl.color = glm::vec3{0.92f, 0.94f, 0.98f};
         fl.viewport_size_px   = {vw, vh};
-        menu_.draw_text_lines(fl);
+        text_.draw_lines(fl);
     }
 
     window_.swap();

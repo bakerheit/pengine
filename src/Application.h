@@ -16,6 +16,7 @@
 #include "render/debug_draw.h"
 #include "render/hud.h"
 #include "render/menu.h"
+#include "render/text.h"
 #include "render/mesh.h"
 #include "render/particles.h"
 #include "render/shader.h"
@@ -95,6 +96,7 @@ private:
     WantedSystem        wanted_;
     Hud                 hud_;
     Menu                menu_;
+    Text                text_;
 
     Mode  mode_           = Mode::OnFoot;
     Mode  saved_mode_     = Mode::OnFoot; // last non-debug mode
