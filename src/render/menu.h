@@ -53,6 +53,17 @@ public:
     };
     void draw_text_lines(const TextLines& t);
 
+    // PBD-030: filled-rect submission for tool overlays (asset palette
+    // backplate, tint swatches, selection-highlight bars). Each Rect emits
+    // one quad in the same pixel coord space as draw_text_lines. Caller
+    // batches its rects and issues one call so we keep GL state churn flat.
+    struct Rect {
+        glm::vec2 min_px {0.f};
+        glm::vec2 max_px {0.f};
+        glm::vec3 color  {1.f, 1.f, 1.f};
+    };
+    void draw_rects(const Rect* rects, int count, glm::vec2 viewport_size_px);
+
     struct Vertex {
         glm::vec2 pos;     // pixel coords
         glm::vec3 color;

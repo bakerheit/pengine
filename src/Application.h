@@ -123,6 +123,14 @@ private:
     // because we don't tick a simulation while in MapBuilder).
     TimePoint map_last_frame_ {};
 
+    // PBD-030: asset palette selection. Index into the sorted-by-id list of
+    // ModelRegistry entries displayed in the Map Builder sidebar. PBD-031 will
+    // consume this to know which model to plop on click; v1 (this ticket) just
+    // renders the highlight. Reset to 0 on entering MapBuilder. Wraps on
+    // Up/Down navigation. WASD is left to the camera pan path (see PBD-024) to
+    // avoid a key conflict; the palette uses arrow keys only.
+    int map_palette_selection_ = 0;
+
     // PBD-027: typed cell-jump input. When `map_input_active_` is true, the
     // map-builder event pump diverts keystrokes into `map_input_buf_` instead
     // of treating them as WASD pan, and pops up a "GO TO CELL: <buf>_" prompt

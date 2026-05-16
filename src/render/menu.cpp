@@ -645,4 +645,49 @@ void Menu::draw_text_lines(const TextLines& t) {
     if (cull_was)  glEnable(GL_CULL_FACE);
 }
 
+// PBD-030: filled-rect submission. Same shader + VBO path as draw_text_lines;
+// just no glyph strokes. Used by the Map Builder asset palette for tint
+// swatches and the selection-highlight bar. Emits one quad per Rect.
+void Menu::draw_rects(const Rect* rects, int count, glm::vec2 viewport_size_px) {
+    if (viewport_size_px.x <= 0.f || viewport_size_px.y <= 0.f) return;
+    if (!rects || count <= 0) return;
+
+    std::vector<Vertex> verts;
+    verts.reserve(static_cast<std::size_t>(count) * 6u);
+    for (int i = 0; i < count; ++i) {
+        emit_quad_px(verts, rects[i].min_px, rects[i].max_px, rects[i].color);
+    }
+    if (verts.empty()) return;
+
+    glBindVertexArray(vao_);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo_);
+    std::size_t bytes = verts.size() * sizeof(Vertex);
+    if (bytes > vbo_capacity_) {
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(bytes),
+                     verts.data(), GL_STREAM_DRAW);
+        vbo_capacity_ = bytes;
+    } else {
+        glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(bytes),
+                        verts.data());
+    }
+
+    GLboolean depth_was = glIsEnabled(GL_DEPTH_TEST);
+    GLboolean cull_was  = glIsEnabled(GL_CULL_FACE);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+
+    shader_.use();
+    shader_.set("u_screen_centre_px", glm::vec2{0.f, 0.f});
+    shader_.set("u_radius_px",        1.0f);
+    shader_.set("u_viewport_px",      viewport_size_px);
+    shader_.set("u_clip_radius",      1.0e9f);
+    shader_.set("u_rim_radius",       1.0e9f);
+
+    glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(verts.size()));
+
+    glBindVertexArray(0);
+    if (depth_was) glEnable(GL_DEPTH_TEST);
+    if (cull_was)  glEnable(GL_CULL_FACE);
+}
+
 } // namespace pengine

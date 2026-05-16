@@ -346,6 +346,11 @@ void Application::enter_app_state(AppState s) {
         float cz = (static_cast<float>(wc.world_cells_z) * wc.cell_size) * 0.5f;
         map_cam_pos_    = glm::vec3{cx, 600.f, cz};
         map_last_frame_ = Clock::now();
+        // PBD-030: start with the first palette entry highlighted. Selection
+        // is not preserved across MapBuilder enter/exit — until plopping lands
+        // (PBD-031) there's no behaviour to preserve, and resetting keeps the
+        // state machine simple.
+        map_palette_selection_ = 0;
     }
 }
 
@@ -577,6 +582,23 @@ void Application::process_map_builder_events() {
         input_.pressed(SDL_SCANCODE_BACKSPACE) ||
         input_.pressed(SDL_SCANCODE_B)) {
         enter_app_state(AppState::DevToolsMenu);
+    }
+
+    // PBD-030: asset palette navigation. Up/Down only — WASD is bound to the
+    // camera pan in update_map_builder, and binding W/S to the palette would
+    // fight that. Arrow keys wrap at the ends. No-op when the palette is
+    // empty (defensive; the registry has 8 entries today, but bailing here
+    // means we never divide by zero on the wrap).
+    const int palette_count = static_cast<int>(world_models_.size());
+    if (palette_count > 0) {
+        if (input_.pressed(SDL_SCANCODE_UP)) {
+            map_palette_selection_ =
+                (map_palette_selection_ - 1 + palette_count) % palette_count;
+        }
+        if (input_.pressed(SDL_SCANCODE_DOWN)) {
+            map_palette_selection_ =
+                (map_palette_selection_ + 1) % palette_count;
+        }
     }
 }
 
@@ -1035,6 +1057,185 @@ void Application::render_map_builder() {
             fl.color = glm::vec3{0.92f, 0.94f, 0.98f};
         fl.viewport_size_px   = {vw, vh};
         text_.draw_lines(fl);
+    }
+
+    // ---- Asset palette (PBD-030) ------------------------------------------
+    // Top-left sidebar listing every ModelRegistry entry. PBD-031 will read
+    // `map_palette_selection_` to know which model to plop; this ticket only
+    // renders the picker. No placement, no click handling — that's the
+    // explicit out-of-scope boundary of the EPIC-002 v1 first slice.
+    //
+    // Layout per row:  [NN] NAME   [F] [SWATCH]
+    // where NN is the zero-padded model id, NAME is the def's name, [F] is
+    // the one-letter flag chip (first letter of format_model_flags' output,
+    // or '-' for None), and SWATCH is a filled rect tinted with def.tint.
+    //
+    // ModelRegistry::all() returns an unordered_map, so registration order is
+    // already lost by the time we get here. To keep the palette stable across
+    // runs we sort by model id ascending. The 8 streets.ide entries today
+    // are id-ordered by category in the IDE file, so sorting by id preserves
+    // the author's grouping (buildings first, then road/walk).
+    {
+        const auto& defs = world_models_.all();
+        // Sort by id for stable layout. We do this every frame; with N≈8
+        // entries the cost is invisible. Switch to a cached vector on the
+        // registry if N ever grows past a few dozen.
+        std::vector<const ModelDef*> ordered;
+        ordered.reserve(defs.size());
+        for (const auto& kv : defs) ordered.push_back(&kv.second);
+        std::sort(ordered.begin(), ordered.end(),
+                  [](const ModelDef* a, const ModelDef* b) {
+                      return a->id < b->id;
+                  });
+
+        // Defensive: clamp selection in case the registry shrank since the
+        // last frame (it doesn't today, but the cost is one branch).
+        const int n = static_cast<int>(ordered.size());
+        if (n > 0 && map_palette_selection_ >= n) map_palette_selection_ = 0;
+
+        if (n > 0) {
+            const glm::vec2 viewport_px{
+                static_cast<float>(window_.width()),
+                static_cast<float>(window_.height()),
+            };
+
+            // Sidebar geometry. Anchored top-left, 24px from each edge.
+            // Width is fixed at 280px which fits "NN NAME [F]" comfortably at
+            // glyph_h 18 with our stroke font's pitch. Anchored top-left
+            // because:
+            //   - the inspector readout lives bottom-left and grows upward,
+            //   - the centre footer band sits at the bottom,
+            //   - the cell-jump prompt (PBD-027) reuses the footer.
+            // Top-left is the only corner with nothing today, and reading a
+            // vertical list anchored to a fixed corner is easier than tracking
+            // the floating selection cursor.
+            const float pal_x      = 24.f;
+            const float pal_y      = 24.f;
+            const float pal_w      = 280.f;
+            const float glyph_h    = 18.f;
+            const float row_h      = glyph_h * 1.45f; // matches draw_text_lines
+            const float title_h    = glyph_h * 1.45f; // one header row
+            const float swatch_sz  = glyph_h;
+            const float inner_pad  = 12.f;
+
+            // Build the row label strings. C-style buffers owned here so the
+            // pointers we hand to draw_text_lines outlive that call.
+            constexpr int   MAX_ROWS = 64;
+            char            row_buf[MAX_ROWS][80];
+            const char*     row_ptrs[MAX_ROWS];
+
+            // Header row first so the user knows what the sidebar is.
+            std::snprintf(row_buf[0], sizeof(row_buf[0]), "ASSETS");
+            row_ptrs[0] = row_buf[0];
+
+            const int max_data_rows = std::min(n, MAX_ROWS - 1);
+            for (int i = 0; i < max_data_rows; ++i) {
+                const ModelDef* d = ordered[static_cast<std::size_t>(i)];
+                const char* mflags = format_model_flags(d->flags);
+                // First non-pipe char of the flag string is our chip letter.
+                // format_model_flags returns "NONE" / "BLDG" / "BLDG|LOD" /
+                // etc; we take the first byte. NONE -> '-' so the chip column
+                // doesn't shout "N" at the user.
+                char chip = '-';
+                if (mflags && mflags[0] && std::strcmp(mflags, "NONE") != 0) {
+                    chip = mflags[0];
+                }
+                // Trim name to fit. "NN NAME [F]" — leave the swatch column
+                // for the rect pass.
+                const char* name = d->name.empty() ? "?" : d->name.c_str();
+                std::snprintf(row_buf[i + 1], sizeof(row_buf[i + 1]),
+                              "%2u %s [%c]",
+                              d->id, name, chip);
+                row_ptrs[i + 1] = row_buf[i + 1];
+            }
+            const int total_rows = 1 + max_data_rows;
+            const float pal_h = title_h + static_cast<float>(max_data_rows) * row_h;
+
+            // Render order (back-to-front so strokes land on top of fills):
+            //   1. Dark backplate (one rect).
+            //   2. Selection highlight bar (one rect on the selected row).
+            //   3. Tint swatches (one rect per data row).
+            //   4. Stroke text rows (header, then each data row in its own
+            //      pass so selected vs unselected can use distinct colours).
+            //
+            // We could have folded the backplate into TextLines::bg_color, but
+            // the header and per-row rendering split would force three plates
+            // and three draw calls. One draw_rects + per-row text is cheaper
+            // and keeps the layering predictable.
+            std::vector<Menu::Rect> rects;
+            rects.reserve(static_cast<std::size_t>(total_rows) + 2u);
+
+            // Backplate. Inspector-style dark fill so the strokes read over
+            // any cell colour underneath.
+            rects.push_back(Menu::Rect{
+                {pal_x - inner_pad, pal_y - inner_pad},
+                {pal_x + pal_w + inner_pad, pal_y + pal_h + inner_pad},
+                glm::vec3{0.06f, 0.07f, 0.10f},
+            });
+
+            // Selection highlight bar — spans the full backplate width on the
+            // currently-selected data row. Row i (data) sits at y = pal_y +
+            // title_h + i * row_h.
+            if (map_palette_selection_ >= 0 &&
+                map_palette_selection_ < max_data_rows) {
+                float sel_top = pal_y + title_h +
+                                static_cast<float>(map_palette_selection_) * row_h;
+                rects.push_back(Menu::Rect{
+                    {pal_x - inner_pad * 0.5f, sel_top - 2.f},
+                    {pal_x + pal_w + inner_pad * 0.5f, sel_top + glyph_h + 2.f},
+                    glm::vec3{0.22f, 0.20f, 0.06f},
+                });
+            }
+
+            // One tint swatch per data row, right-aligned within the sidebar.
+            for (int i = 0; i < max_data_rows; ++i) {
+                float sw_top = pal_y + title_h +
+                               static_cast<float>(i) * row_h;
+                float sw_x1  = pal_x + pal_w;
+                float sw_x0  = sw_x1 - swatch_sz;
+                rects.push_back(Menu::Rect{
+                    {sw_x0, sw_top},
+                    {sw_x1, sw_top + swatch_sz},
+                    ordered[static_cast<std::size_t>(i)]->tint,
+                });
+            }
+
+            menu_.draw_rects(rects.data(), static_cast<int>(rects.size()),
+                              viewport_px);
+
+            // Text pass: header first in its own colour, then the data rows.
+            // We render in two slices so the selected row can use a brighter
+            // colour against the highlight bar without colouring every row.
+            {
+                const char* head_lines[1] = {row_ptrs[0]};
+                Menu::TextLines hl;
+                hl.lines              = head_lines;
+                hl.count              = 1;
+                hl.origin_top_left_px = {pal_x, pal_y};
+                hl.glyph_h_px         = glyph_h;
+                hl.thickness_px       = 2.f;
+                hl.color              = glm::vec3{0.55f, 0.62f, 0.66f};
+                hl.viewport_size_px   = viewport_px;
+                menu_.draw_text_lines(hl);
+            }
+
+            for (int i = 0; i < max_data_rows; ++i) {
+                const char* one[1] = {row_ptrs[i + 1]};
+                Menu::TextLines rl;
+                rl.lines              = one;
+                rl.count              = 1;
+                rl.origin_top_left_px = {pal_x,
+                                          pal_y + title_h +
+                                              static_cast<float>(i) * row_h};
+                rl.glyph_h_px         = glyph_h;
+                rl.thickness_px       = 2.f;
+                rl.color = (i == map_palette_selection_)
+                               ? glm::vec3{0.98f, 0.92f, 0.45f}
+                               : glm::vec3{0.86f, 0.90f, 0.92f};
+                rl.viewport_size_px   = viewport_px;
+                menu_.draw_text_lines(rl);
+            }
+        }
     }
 
     window_.swap();
