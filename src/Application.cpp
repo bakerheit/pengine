@@ -36,6 +36,7 @@ namespace pengine {
 namespace { bool unproject_mouse_to_ground(const glm::mat4& view_proj,
                                             int mouse_x, int mouse_y,
                                             int viewport_w, int viewport_h,
+                                            float ground_y,
                                             glm::vec2& out_xz); }
 
 static const char* mode_name(Application::Mode m) {
@@ -352,8 +353,9 @@ void Application::enter_app_state(AppState s) {
         WorldConfig wc;
         float cx = (static_cast<float>(wc.world_cells_x) * wc.cell_size) * 0.5f;
         float cz = (static_cast<float>(wc.world_cells_z) * wc.cell_size) * 0.5f;
-        map_cam_pos_    = glm::vec3{cx, 600.f, cz};
-        map_last_frame_ = Clock::now();
+        map_cam_pos_       = glm::vec3{cx, 600.f, cz};
+        map_cam_pitch_deg_ = MAP_CAM_PITCH_DEFAULT;
+        map_last_frame_    = Clock::now();
         // PBD-030: start with the first palette entry highlighted. Selection
         // is not preserved across MapBuilder enter/exit — until plopping lands
         // (PBD-031) there's no behaviour to preserve, and resetting keeps the
@@ -825,15 +827,21 @@ void Application::update_map_builder(float dt) {
         return;
     }
 
-    // ----- Zoom (wheel adjusts altitude) -----
-    // Multiplicative step keeps zoom feel consistent at any altitude — a tick
-    // takes you ~10% of the way toward/away from the ground.
+    // ----- Wheel: tilt (R held) or zoom (default) -----
+    // Hold R + scroll to adjust pitch; otherwise the wheel zooms altitude.
+    // Multiplicative zoom step keeps the feel consistent at any altitude.
     float wy = input_.wheel_y();
     if (wy != 0.f) {
-        float factor = std::pow(1.f - MAP_CAM_WHEEL_STEP, wy);
-        map_cam_pos_.y *= factor;
-        if (map_cam_pos_.y < MAP_CAM_ALT_MIN) map_cam_pos_.y = MAP_CAM_ALT_MIN;
-        if (map_cam_pos_.y > MAP_CAM_ALT_MAX) map_cam_pos_.y = MAP_CAM_ALT_MAX;
+        if (input_.down(SDL_SCANCODE_R)) {
+            map_cam_pitch_deg_ += wy * MAP_CAM_TILT_STEP_DEG;
+            if (map_cam_pitch_deg_ < MAP_CAM_PITCH_MIN) map_cam_pitch_deg_ = MAP_CAM_PITCH_MIN;
+            if (map_cam_pitch_deg_ > MAP_CAM_PITCH_MAX) map_cam_pitch_deg_ = MAP_CAM_PITCH_MAX;
+        } else {
+            float factor = std::pow(1.f - MAP_CAM_WHEEL_STEP, wy);
+            map_cam_pos_.y *= factor;
+            if (map_cam_pos_.y < MAP_CAM_ALT_MIN) map_cam_pos_.y = MAP_CAM_ALT_MIN;
+            if (map_cam_pos_.y > MAP_CAM_ALT_MAX) map_cam_pos_.y = MAP_CAM_ALT_MAX;
+        }
     }
 
     // ----- Pan (WASD on the XZ plane) -----
@@ -885,7 +893,7 @@ void Application::update_map_builder(float dt) {
         Camera ucam = camera_;
         ucam.position = map_cam_pos_;
         ucam.yaw      = MAP_CAM_YAW_DEG;
-        ucam.pitch    = MAP_CAM_PITCH_DEG;
+        ucam.pitch    = map_cam_pitch_deg_;
         const float aspect = window_.height() > 0
                               ? static_cast<float>(window_.width()) /
                                  static_cast<float>(window_.height())
@@ -907,11 +915,29 @@ void Application::update_map_builder(float dt) {
             ? input_.mouse_y() * window_.height() / win_h_logical
             : input_.mouse_y();
 
+        // Iterative refinement onto the heightmap surface: start at y=0,
+        // sample heightmap at that XZ, re-intersect at that height, repeat.
+        // At pitch -89° one pass converges. At shallower pitch the surface
+        // Y can shift the ground hit by metres in screen space; ~3 passes
+        // brings the error well under a pixel. Without this the in-game
+        // cursor and OS cursor diverge whenever the camera tilts off the
+        // y=0 plane.
         glm::vec2 mouse_xz;
-        if (unproject_mouse_to_ground(vp,
-                                       mx_draw, my_draw,
-                                       window_.width(), window_.height(),
-                                       mouse_xz)) {
+        float ground_y = 0.f;
+        bool ok = false;
+        for (int iter = 0; iter < 4; ++iter) {
+            if (!unproject_mouse_to_ground(vp,
+                                            mx_draw, my_draw,
+                                            window_.width(), window_.height(),
+                                            ground_y, mouse_xz)) {
+                break;
+            }
+            ok = true;
+            float new_y = Heightmap::sample(mouse_xz.x, mouse_xz.y);
+            if (std::abs(new_y - ground_y) < 0.05f) break;
+            ground_y = new_y;
+        }
+        if (ok) {
             map_mouse_valid_   = true;
             map_mouse_world_xz_ = mouse_xz;
         }
@@ -1061,6 +1087,7 @@ float visible_xz_half(float altitude_m, float fov_y_deg, float aspect) {
 bool unproject_mouse_to_ground(const glm::mat4& view_proj,
                                 int mouse_x, int mouse_y,
                                 int viewport_w, int viewport_h,
+                                float ground_y,
                                 glm::vec2& out_xz) {
     if (viewport_w <= 0 || viewport_h <= 0) return false;
 
@@ -1079,9 +1106,10 @@ bool unproject_mouse_to_ground(const glm::mat4& view_proj,
     glm::vec3 far_w {far_h.x  / far_h.w,  far_h.y  / far_h.w,  far_h.z  / far_h.w};
 
     glm::vec3 dir = far_w - near_w;
-    // Intersect with y=0: t such that near_w.y + t * dir.y == 0.
+    // Intersect with horizontal plane at `ground_y`:
+    //   near_w.y + t * dir.y == ground_y   →   t = (ground_y - near_w.y) / dir.y
     if (std::abs(dir.y) < 1e-6f) return false;
-    float t = -near_w.y / dir.y;
+    float t = (ground_y - near_w.y) / dir.y;
     // Allow negative t with a small leniency; under -89° pitch t is always
     // positive and modest. If we got back a wildly negative t something is
     // wrong with the matrix.
@@ -1125,7 +1153,7 @@ void Application::render_map_builder() {
     // avoid lookAt's degenerate up=forward singularity.
     camera_.position = map_cam_pos_;
     camera_.yaw      = MAP_CAM_YAW_DEG;
-    camera_.pitch    = MAP_CAM_PITCH_DEG;
+    camera_.pitch    = map_cam_pitch_deg_;
 
     float aspect = static_cast<float>(window_.width()) /
                    static_cast<float>(window_.height());
@@ -1444,7 +1472,7 @@ void Application::render_map_builder() {
         } else if (map_input_err_flash_s_ > 0.f) {
             footer = "BAD CELL COORD";
         } else {
-            footer = "WASD PAN   WHEEL ZOOM   LMB ACT   G GO TO CELL   ESC BACK";
+            footer = "WASD PAN   WHEEL ZOOM   R+WHEEL TILT   LMB ACT   G GO TO CELL   ESC BACK";
         }
         const char* footer_lines[] = {footer};
         Text::DrawState fl;

@@ -165,11 +165,18 @@ private:
     // mouse wheel. Driven by process_map_builder_events / update_map_builder;
     // applied to camera_ each frame inside render_map_builder.
     glm::vec3 map_cam_pos_ {0.f, 200.f, 0.f}; // .y is altitude
-    static constexpr float MAP_CAM_PITCH_DEG = -89.f;
-    static constexpr float MAP_CAM_YAW_DEG   = -90.f;
-    static constexpr float MAP_CAM_ALT_MIN   = 40.f;
-    static constexpr float MAP_CAM_ALT_MAX   = 1500.f;
-    static constexpr float MAP_CAM_WHEEL_STEP = 0.10f; // fraction of altitude per tick
+    static constexpr float MAP_CAM_YAW_DEG        = -90.f;
+    static constexpr float MAP_CAM_ALT_MIN        = 40.f;
+    static constexpr float MAP_CAM_ALT_MAX        = 1500.f;
+    static constexpr float MAP_CAM_WHEEL_STEP     = 0.10f;  // fraction of altitude per tick
+    // Pitch is runtime-adjustable (R + wheel). Default top-down; clamped to a
+    // range that keeps the unproject well-conditioned (ray.y not near zero) and
+    // avoids inverting the world from below the ground plane.
+    static constexpr float MAP_CAM_PITCH_DEFAULT  = -89.f;
+    static constexpr float MAP_CAM_PITCH_MIN      = -89.f;  // most top-down
+    static constexpr float MAP_CAM_PITCH_MAX      = -15.f;  // most oblique
+    static constexpr float MAP_CAM_TILT_STEP_DEG  = 5.f;    // degrees per wheel tick
+    float map_cam_pitch_deg_ = MAP_CAM_PITCH_DEFAULT;
     // Last wall-clock tick of the map-builder loop; used to derive a real-time
     // dt for pan/zoom (gameplay's fixed-timestep clock isn't appropriate here
     // because we don't tick a simulation while in MapBuilder).
