@@ -125,6 +125,17 @@ private:
     // process_events / update / render to it each frame until the editor
     // signals back via `consume_back_request` or another transition fires.
     MapBuilder          map_builder_;
+    // Long-lived MapBuilder::Deps. References bind at Application construction
+    // to the subsystem members above (declaration order matters — these must
+    // all be declared before this member). Lifetime = Application's lifetime,
+    // so the `deps_ = &deps` pointer stash inside `MapBuilder::enter` always
+    // points at live storage. Used to be a stack-local in `enter_app_state`;
+    // that was UB once `enter_app_state` returned and the next frame deref'd
+    // a dangling reference, crashing on Dev Tools → Map Builder.
+    MapBuilder::Deps    map_builder_deps_ {
+        window_, input_, camera_, scene_, streamer_, world_models_,
+        road_graph_, debug_draw_, menu_, text_, lit_shader_, checker_tex_
+    };
     // Wall-clock frame timepoint for the MapBuilder dt (the fixed-timestep
     // clock isn't appropriate while in the editor — we don't tick a
     // simulation). Reset on entry to MapBuilder.

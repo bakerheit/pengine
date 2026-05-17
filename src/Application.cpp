@@ -359,23 +359,11 @@ void Application::enter_app_state(AppState s) {
 
     if (s == AppState::MapBuilder) {
         // PBD-049: hand the editor non-owning refs to the subsystems it
-        // needs. Lifetime is "for the duration of the session" — `exit()`
-        // above clears them on the way out, and the next enter rebinds.
-        MapBuilder::Deps deps{
-            window_,
-            input_,
-            camera_,
-            scene_,
-            streamer_,
-            world_models_,
-            road_graph_,
-            debug_draw_,
-            menu_,
-            text_,
-            lit_shader_,
-            checker_tex_,
-        };
-        map_builder_.enter(deps);
+        // needs. The Deps live on `Application` (long-lived); passing it
+        // here so the pointer stash inside MapBuilder::enter points at
+        // live storage. Used to be a stack-local — that was UB and crashed
+        // Dev Tools → Map Builder.
+        map_builder_.enter(map_builder_deps_);
         map_builder_last_frame_ = Clock::now();
     }
 }
