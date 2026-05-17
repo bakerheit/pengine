@@ -74,17 +74,21 @@ public:
         RedoFailed,      // apply_redo couldn't re-apply
     };
 
-    // PBD-042: placement size preset. Three named uniform-scale multipliers
-    // selectable via the bottom-bar S/M/L buttons or hotkeys 3/4/5.
+    // PBD-042 / hotfix: placement size preset. Per-axis (width, height, depth)
+    // dimensions in metres rather than a uniform scalar — the procedural city
+    // generator places towers at 35-70m and smaller buildings at 6-32m height
+    // with varied footprints (city_layout.cpp:272-304). S/M/L now matches
+    // that shape so a Large placement reads as a tower, not a 3.5x cube.
+    // Free scale (Shift+wheel) multiplies on top for fine adjustment.
     enum class SizePreset { Small, Medium, Large };
 
-    static constexpr float size_preset_factor(SizePreset p) {
+    static constexpr glm::vec3 size_preset_factor(SizePreset p) {
         switch (p) {
-            case SizePreset::Small:  return 1.0f;
-            case SizePreset::Medium: return 2.0f;
-            case SizePreset::Large:  return 3.5f;
+            case SizePreset::Small:  return {10.f, 12.f, 10.f}; // house
+            case SizePreset::Medium: return {15.f, 25.f, 15.f}; // apartment
+            case SizePreset::Large:  return {18.f, 50.f, 18.f}; // tower
         }
-        return 1.0f;
+        return {1.f, 1.f, 1.f};
     }
 
     // Subsystem references the editor borrows for the duration of a
@@ -221,10 +225,23 @@ private:
     // Camera state (PBD-024 / PBD-027)
     // -----------------------------------------------------------------------
     glm::vec3 map_cam_pos_ {0.f, 200.f, 0.f}; // .y is altitude
-    static constexpr float MAP_CAM_YAW_DEG        = -90.f;
-    static constexpr float MAP_CAM_ALT_MIN        = 40.f;
-    static constexpr float MAP_CAM_ALT_MAX        = 1500.f;
-    static constexpr float MAP_CAM_WHEEL_STEP     = 0.10f;
+    // Camera yaw is runtime-adjustable via middle-mouse-drag. Default -90°
+    // (looking along -Z, "north"). WASD becomes camera-relative once yaw
+    // moves off the default — W moves toward the screen's forward.
+    static constexpr float MAP_CAM_YAW_DEFAULT      = -90.f;
+    static constexpr float MAP_CAM_YAW_DRAG_DEG_PER_PX = 0.30f;
+    float map_cam_yaw_deg_ = MAP_CAM_YAW_DEFAULT;
+    // Camera zoom range. ALT_MIN dropped from 40 -> 8 so you can get close
+    // enough to read individual building footprints. ALT_MAX raised from
+    // 1500 -> 5000 so you can see most of a 32x32-cell world (world width
+    // ≈ 8192m; 5000m altitude at 60° fov shows ~5800m wide). WHEEL_STEP
+    // bumped slightly (0.10 -> 0.08) to cover the wider range without
+    // requiring twice as many wheel notches; Ctrl+wheel uses WHEEL_FAST
+    // for quick traversal across the full range (~10 ticks end-to-end).
+    static constexpr float MAP_CAM_ALT_MIN        = 8.f;
+    static constexpr float MAP_CAM_ALT_MAX        = 5000.f;
+    static constexpr float MAP_CAM_WHEEL_STEP     = 0.08f;
+    static constexpr float MAP_CAM_WHEEL_FAST     = 0.45f;  // ctrl+wheel
     static constexpr float MAP_CAM_PITCH_DEFAULT  = -89.f;
     static constexpr float MAP_CAM_PITCH_MIN      = -89.f;
     static constexpr float MAP_CAM_PITCH_MAX      = -15.f;

@@ -121,6 +121,7 @@ void MapBuilder::enter(const Deps& deps) {
     float cz = (static_cast<float>(wc.world_cells_z) * wc.cell_size) * 0.5f;
     map_cam_pos_       = glm::vec3{cx, 600.f, cz};
     map_cam_pitch_deg_ = MAP_CAM_PITCH_DEFAULT;
+    map_cam_yaw_deg_   = MAP_CAM_YAW_DEFAULT;
     map_last_frame_    = Clock::now();
 
     // PBD-030: start with the first palette entry highlighted. Selection
@@ -623,16 +624,39 @@ void MapBuilder::update(float dt) {
             if (map_cam_pitch_deg_ < MAP_CAM_PITCH_MIN) map_cam_pitch_deg_ = MAP_CAM_PITCH_MIN;
             if (map_cam_pitch_deg_ > MAP_CAM_PITCH_MAX) map_cam_pitch_deg_ = MAP_CAM_PITCH_MAX;
         } else {
-            float factor = std::pow(1.f - MAP_CAM_WHEEL_STEP, wy);
+            // Ctrl+wheel uses a much bigger multiplicative step for quick
+            // traversal across the wide altitude range. Bare wheel keeps the
+            // fine-grained step for precision work.
+            const bool ctrl_down = input_.down(SDL_SCANCODE_LCTRL) ||
+                                   input_.down(SDL_SCANCODE_RCTRL);
+            const float step = ctrl_down ? MAP_CAM_WHEEL_FAST
+                                         : MAP_CAM_WHEEL_STEP;
+            float factor = std::pow(1.f - step, wy);
             map_cam_pos_.y *= factor;
             if (map_cam_pos_.y < MAP_CAM_ALT_MIN) map_cam_pos_.y = MAP_CAM_ALT_MIN;
             if (map_cam_pos_.y > MAP_CAM_ALT_MAX) map_cam_pos_.y = MAP_CAM_ALT_MAX;
         }
     }
 
-    // ----- Pan (WASD on the XZ plane) -----
-    glm::vec3 fwd_xz{0.f, 0.f, -1.f};
-    glm::vec3 rgt_xz{1.f, 0.f,  0.f};
+    // ----- Yaw (middle-mouse drag) -----
+    // Middle-mouse held + mouse motion rotates the camera yaw. Sensitivity is
+    // degrees per pixel of horizontal mouse delta. Mouse_dx is per-frame delta
+    // from Input; only nonzero when the mouse actually moved this frame.
+    if (input_.mouse_down(SDL_BUTTON_MIDDLE)) {
+        map_cam_yaw_deg_ += input_.mouse_dx() * MAP_CAM_YAW_DRAG_DEG_PER_PX;
+        // Wrap into (-180, 180] for compact footer/caption rendering and to
+        // keep the float bounded if the user spins forever.
+        while (map_cam_yaw_deg_ >   180.f) map_cam_yaw_deg_ -= 360.f;
+        while (map_cam_yaw_deg_ <= -180.f) map_cam_yaw_deg_ += 360.f;
+    }
+
+    // ----- Pan (WASD, camera-relative) -----
+    // Forward is the camera's yaw projected onto the XZ plane. At the default
+    // yaw=-90 this is (0,0,-1) — same as the pre-yaw-rotation behaviour, so
+    // existing muscle memory is preserved as long as you don't drag-yaw.
+    const float yaw_rad = glm::radians(map_cam_yaw_deg_);
+    glm::vec3 fwd_xz{std::cos(yaw_rad), 0.f, std::sin(yaw_rad)};
+    glm::vec3 rgt_xz{-fwd_xz.z,         0.f, fwd_xz.x};
 
     glm::vec3 vel{0.f};
     if (input_.down(SDL_SCANCODE_W)) vel += fwd_xz;
@@ -672,7 +696,7 @@ void MapBuilder::update(float dt) {
     {
         Camera ucam = camera_;
         ucam.position = map_cam_pos_;
-        ucam.yaw      = MAP_CAM_YAW_DEG;
+        ucam.yaw      = map_cam_yaw_deg_;
         ucam.pitch    = map_cam_pitch_deg_;
         const float aspect = window_.height() > 0
                               ? static_cast<float>(window_.width()) /
@@ -1005,7 +1029,7 @@ void MapBuilder::render() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     camera_.position = map_cam_pos_;
-    camera_.yaw      = MAP_CAM_YAW_DEG;
+    camera_.yaw      = map_cam_yaw_deg_;
     camera_.pitch    = map_cam_pitch_deg_;
 
     float aspect = static_cast<float>(window_.width()) /
@@ -1225,9 +1249,44 @@ void MapBuilder::render() {
                 t.rotation = glm::angleAxis(
                     glm::radians(map_place_yaw_deg_),
                     glm::vec3{0.f, 1.f, 0.f});
-                AABB world = local.transform(t.matrix());
+                // Draw the placement preview as an oriented bounding box —
+                // 8 corners of the local AABB pushed through `t.matrix()`
+                // (which includes the yaw rotation). The earlier
+                // `local.transform(...)` returns a WORLD-axis-aligned box,
+                // which is correct for collision but visually misleading at
+                // non-axis-aligned yaws — the AABB only grows, it doesn't
+                // rotate, so the ghost didn't reflect what would actually
+                // get placed.
+                const glm::vec3& mn = local.min;
+                const glm::vec3& mx = local.max;
+                glm::vec3 corners_local[8] = {
+                    {mn.x, mn.y, mn.z}, {mx.x, mn.y, mn.z},
+                    {mx.x, mn.y, mx.z}, {mn.x, mn.y, mx.z},
+                    {mn.x, mx.y, mn.z}, {mx.x, mx.y, mn.z},
+                    {mx.x, mx.y, mx.z}, {mn.x, mx.y, mx.z},
+                };
+                const glm::mat4 m = t.matrix();
+                glm::vec3 c[8];
+                for (int i = 0; i < 8; ++i) {
+                    glm::vec4 wc = m * glm::vec4(corners_local[i], 1.0f);
+                    c[i] = glm::vec3(wc) / wc.w;
+                }
                 debug_draw_.clear();
-                debug_draw_.box(world.min, world.max);
+                // bottom face
+                debug_draw_.line(c[0], c[1]);
+                debug_draw_.line(c[1], c[2]);
+                debug_draw_.line(c[2], c[3]);
+                debug_draw_.line(c[3], c[0]);
+                // top face
+                debug_draw_.line(c[4], c[5]);
+                debug_draw_.line(c[5], c[6]);
+                debug_draw_.line(c[6], c[7]);
+                debug_draw_.line(c[7], c[4]);
+                // verticals
+                debug_draw_.line(c[0], c[4]);
+                debug_draw_.line(c[1], c[5]);
+                debug_draw_.line(c[2], c[6]);
+                debug_draw_.line(c[3], c[7]);
                 debug_draw_.flush(vp, glm::vec3{0.2f, 1.0f, 0.2f});
             }
         } else {
@@ -1270,13 +1329,13 @@ void MapBuilder::render() {
                     footer = "BAD CELL COORD"; break;
             }
         } else if (map_tool_ == MapTool::Place) {
-            footer = "WASD PAN   WHEEL ZOOM   R+WHL TILT   "
+            footer = "WASD PAN   WHEEL/CTRL+WHL ZOOM   R+WHL TILT   MMB YAW   "
                      "LMB PLACE   1=PLACE 2=DELETE   3/4/5=SIZE   "
                      "Q/E ROTATE   SHIFT+WHL SCALE   "
                      "CTRL-Z UNDO / CTRL-Y REDO   "
                      "UP/DN PALETTE   G GO TO CELL   T PLAY HERE   ESC BACK";
         } else {
-            footer = "WASD PAN   WHEEL ZOOM   R+WHL TILT   "
+            footer = "WASD PAN   WHEEL/CTRL+WHL ZOOM   R+WHL TILT   MMB YAW   "
                      "LMB DELETE   1=PLACE 2=DELETE   3/4/5=SIZE   "
                      "Q/E ROTATE   SHIFT+WHL SCALE   "
                      "CTRL-Z UNDO / CTRL-Y REDO   "
