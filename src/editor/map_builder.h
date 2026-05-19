@@ -85,8 +85,8 @@ public:
     static constexpr glm::vec3 size_preset_factor(SizePreset p) {
         switch (p) {
             case SizePreset::Small:  return {10.f, 12.f, 10.f}; // house
-            case SizePreset::Medium: return {15.f, 25.f, 15.f}; // apartment
-            case SizePreset::Large:  return {18.f, 50.f, 18.f}; // tower
+            case SizePreset::Medium: return {18.f, 28.f, 18.f}; // apartment
+            case SizePreset::Large:  return {25.f, 60.f, 25.f}; // tower
         }
         return {1.f, 1.f, 1.f};
     }

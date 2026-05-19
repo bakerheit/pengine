@@ -22,6 +22,7 @@
 #include "render/texture.h"
 #include "scene/frustum.h"
 #include "scene/scene.h"
+#include "world/city_layout.h"
 #include "world/heightmap.h"
 #include "world/model_def.h"
 #include "world/model_registry.h"
@@ -542,6 +543,18 @@ void MapBuilder::process_events(bool& running_out) {
         if (input_.pressed(SDL_SCANCODE_4)) map_size_preset_ = SizePreset::Medium;
         if (input_.pressed(SDL_SCANCODE_5)) map_size_preset_ = SizePreset::Large;
 
+        // Reset camera to defaults — useful when you've panned/zoomed/yawed
+        // far enough to feel lost. Doesn't reset palette or tool mode; just
+        // pose. Home is the conventional "reset view" key.
+        if (input_.pressed(SDL_SCANCODE_HOME)) {
+            WorldConfig wc;
+            float cx = (static_cast<float>(wc.world_cells_x) * wc.cell_size) * 0.5f;
+            float cz = (static_cast<float>(wc.world_cells_z) * wc.cell_size) * 0.5f;
+            map_cam_pos_       = glm::vec3{cx, 600.f, cz};
+            map_cam_pitch_deg_ = MAP_CAM_PITCH_DEFAULT;
+            map_cam_yaw_deg_   = MAP_CAM_YAW_DEFAULT;
+        }
+
         // PBD-043 yaw-rotation hotkeys. Q rotates CCW; E rotates CW. 15°
         // detents per press. Ctrl+Q is the app-quit chord and fires on
         // either LCTRL or RCTRL (PBD-051), so we gate Q rotation on
@@ -642,13 +655,40 @@ void MapBuilder::update(float dt) {
     // Middle-mouse held + mouse motion rotates the camera yaw. Sensitivity is
     // degrees per pixel of horizontal mouse delta. Mouse_dx is per-frame delta
     // from Input; only nonzero when the mouse actually moved this frame.
-    if (input_.mouse_down(SDL_BUTTON_MIDDLE)) {
+    //
+    // Edge-triggered SDL_SetRelativeMouseMode toggles on press/release: while
+    // dragging, the cursor is hidden and pinned, so mouse_dx keeps coming in
+    // without the OS cursor wandering off-screen. Standard pattern; without
+    // it the cursor visibly jumps around while you yaw, which felt rough.
+    // Either middle-mouse-drag (3-button mice) or right-mouse-drag (universal,
+    // works on every MacBook trackpad via two-finger or corner click) rotates
+    // the camera yaw. Both bindings are exposed because users have hard
+    // hardware preferences here and the cost of supporting both is one extra
+    // OR per branch.
+    const bool yaw_drag_pressed  = input_.mouse_pressed(SDL_BUTTON_MIDDLE) ||
+                                    input_.mouse_pressed(SDL_BUTTON_RIGHT);
+    const bool yaw_drag_released = input_.mouse_released(SDL_BUTTON_MIDDLE) ||
+                                    input_.mouse_released(SDL_BUTTON_RIGHT);
+    const bool yaw_drag_down     = input_.mouse_down(SDL_BUTTON_MIDDLE) ||
+                                    input_.mouse_down(SDL_BUTTON_RIGHT);
+    if (yaw_drag_pressed)  SDL_SetRelativeMouseMode(SDL_TRUE);
+    if (yaw_drag_released) SDL_SetRelativeMouseMode(SDL_FALSE);
+    if (yaw_drag_down) {
         map_cam_yaw_deg_ += input_.mouse_dx() * MAP_CAM_YAW_DRAG_DEG_PER_PX;
-        // Wrap into (-180, 180] for compact footer/caption rendering and to
-        // keep the float bounded if the user spins forever.
-        while (map_cam_yaw_deg_ >   180.f) map_cam_yaw_deg_ -= 360.f;
-        while (map_cam_yaw_deg_ <= -180.f) map_cam_yaw_deg_ += 360.f;
     }
+
+    // Keyboard yaw — Left/Right arrows rotate the view at a fixed rate while
+    // held. Up/Down stay reserved for palette nav. This is the universal-
+    // hardware fallback for users without a usable middle mouse button
+    // (laptop trackpads often don't support MMB-drag).
+    constexpr float YAW_KEY_DEG_PER_SEC = 90.f;
+    if (input_.down(SDL_SCANCODE_LEFT))  map_cam_yaw_deg_ -= YAW_KEY_DEG_PER_SEC * dt;
+    if (input_.down(SDL_SCANCODE_RIGHT)) map_cam_yaw_deg_ += YAW_KEY_DEG_PER_SEC * dt;
+
+    // Wrap yaw into (-180, 180] for compact footer/caption rendering and to
+    // keep the float bounded if the user spins forever.
+    while (map_cam_yaw_deg_ >   180.f) map_cam_yaw_deg_ -= 360.f;
+    while (map_cam_yaw_deg_ <= -180.f) map_cam_yaw_deg_ += 360.f;
 
     // ----- Pan (WASD, camera-relative) -----
     // Forward is the camera's yaw projected onto the XZ plane. At the default
@@ -760,14 +800,47 @@ void MapBuilder::update(float dt) {
                                                 map_palette_selection_)];
                 InstanceDef inst;
                 inst.model_id = sel->id;
-                inst.transform.position =
-                    glm::vec3{map_mouse_world_xz_.x,
-                              Heightmap::sample(map_mouse_world_xz_.x,
-                                                 map_mouse_world_xz_.y),
-                              map_mouse_world_xz_.y};
-                inst.transform.scale *=
-                    size_preset_factor(map_size_preset_) *
-                    map_place_free_scale_;
+                // Scale first so position can anchor by the local AABB's
+                // bottom Y. The proc:cube mesh has bounds_min.y = -0.5
+                // (centered at origin); setting position.y = ground_y
+                // directly put the cube CENTER at ground and buried half
+                // the building. Anchor at ground_y - min_y*scale_y so the
+                // mesh's bottom rests on the heightmap surface — matches
+                // what city_layout.cpp::push_building does.
+                //
+                // S/M/L is hard-tuned to building footprints (see
+                // size_preset_factor: house / apartment / tower). Applying
+                // those factors to a road tile or sidewalk stretches it
+                // into a tower-shaped slab, so gate the preset on
+                // ModelFlag::Building. Non-building palette items place at
+                // their native mesh scale × free-scale (wheel) only.
+                const bool sel_is_building =
+                    (sel->flags & ModelFlag::Building) != 0;
+                const glm::vec3 preset = sel_is_building
+                    ? size_preset_factor(map_size_preset_)
+                    : glm::vec3{1.f, 1.f, 1.f};
+                inst.transform.scale *= preset * map_place_free_scale_;
+                // Match proc:facade window-tiling. push_building (in
+                // city_layout.cpp) writes uv_scale_override so the facade
+                // texture repeats at WINDOW_TILE_M (~3 m / window). The
+                // editor used to leave the override at (0,0), which means
+                // "use the model's default uv_scale" — for proc:facade that
+                // stretches one window across the whole wall, so plopped
+                // buildings looked like 12 m windows instead of the proc
+                // city's grid of small ones. Mirror the formula here so
+                // editor-placed buildings match the rest of the skyline.
+                if (sel_is_building) {
+                    inst.uv_scale_override = {
+                        inst.transform.scale.x / WINDOW_TILE_M,
+                        inst.transform.scale.y / WINDOW_TILE_M,
+                    };
+                }
+                const float place_ground_y = Heightmap::sample(
+                    map_mouse_world_xz_.x, map_mouse_world_xz_.y);
+                inst.transform.position = glm::vec3{
+                    map_mouse_world_xz_.x,
+                    place_ground_y - sel->local_bounds.min.y * inst.transform.scale.y,
+                    map_mouse_world_xz_.y};
                 inst.transform.rotation = glm::angleAxis(
                     glm::radians(map_place_yaw_deg_),
                     glm::vec3{0.f, 1.f, 0.f});
@@ -802,17 +875,34 @@ void MapBuilder::update(float dt) {
         if (map_mouse_valid_) {
             Streamer::PickResult pick = streamer_.query_instance_at(
                 map_mouse_world_xz_.x, map_mouse_world_xz_.y);
+            // PBD-049-era restriction limited bulldoze to ModelFlag::Building
+            // because road tiles weren't user-authored — they came from the
+            // procedural layout and the road graph (used by AI / heightmap)
+            // wasn't coupled to the instance list, so deleting a slab was
+            // cosmetic-only. The editor now places road tiles as ordinary
+            // instances, so the gate became a blocker on the user's own
+            // work. Removed: any picked instance is deletable.
             if (pick.hit) {
                 InstanceDef saved      = pick.instance;
                 CellCoord   saved_cell = pick.cell;
                 bool ok = streamer_.remove_instance(pick.cell,
                                                      pick.instance_index);
                 if (ok) {
-                    PE_INFO("Map Builder: deleted model id=%u from cell "
-                            "(%d,%d) at index %zu",
+                    const ModelDef* mdef =
+                        deps_->models.get(pick.instance.model_id);
+                    const AABB& wa = pick.world_aabb;
+                    PE_INFO("Map Builder: deleted model id=%u (%s) flags=%s "
+                            "from cell (%d,%d) idx %zu  click=(%.2f,%.2f)  "
+                            "aabb x[%.1f..%.1f] y[%.1f..%.1f] z[%.1f..%.1f]",
                             pick.instance.model_id,
+                            mdef ? mdef->name.c_str() : "?",
+                            mdef ? format_model_flags(mdef->flags) : "?",
                             pick.cell.x, pick.cell.z,
-                            pick.instance_index);
+                            pick.instance_index,
+                            map_mouse_world_xz_.x, map_mouse_world_xz_.y,
+                            wa.min.x, wa.max.x,
+                            wa.min.y, wa.max.y,
+                            wa.min.z, wa.max.z);
                     push_edit_command(
                         {EditCommand::Kind::Delete, saved_cell, saved});
                 } else {
@@ -822,6 +912,21 @@ void MapBuilder::update(float dt) {
                             "index %zu unreachable)",
                             pick.cell.x, pick.cell.z, pick.instance_index);
                 }
+            } else {
+                // Click landed on bare terrain — no instance under the
+                // cursor in the 3x3 cell window. Flash + log so the user
+                // can tell their click was registered and we can debug
+                // the "click building, nothing happens" case. Includes
+                // the cell coord so we can correlate with what's loaded.
+                map_input_err_flash_s_ = 0.75f;
+                map_err_kind_          = MapErrorKind::DeleteRejected;
+                CellCoord cc = world_to_cell(map_mouse_world_xz_.x,
+                                              map_mouse_world_xz_.y,
+                                              wc.cell_size);
+                PE_INFO("Map Builder: delete missed (no instance AABB contains "
+                        "click=(%.2f,%.2f) in cell (%d,%d) or neighbours)",
+                        map_mouse_world_xz_.x, map_mouse_world_xz_.y,
+                        cc.x, cc.z);
             }
         }
     }
@@ -1240,12 +1345,25 @@ void MapBuilder::render() {
                                                 map_palette_selection_)];
                 AABB local{sel->local_bounds.min, sel->local_bounds.max};
                 Transform t;
-                t.position = glm::vec3{map_mouse_world_xz_.x,
-                                        Heightmap::sample(map_mouse_world_xz_.x,
-                                                          map_mouse_world_xz_.y),
-                                        map_mouse_world_xz_.y};
-                t.scale *= size_preset_factor(map_size_preset_) *
-                           map_place_free_scale_;
+                // Same ground-anchor math as the place handler — without
+                // this the ghost preview sat with its center at ground
+                // and half-buried, so the visible upper half appeared
+                // offset upward from the cursor. Same Building-gate on
+                // the S/M/L preset so the ghost matches what the place
+                // commit will actually produce for non-building palette
+                // items (roads, sidewalks, props).
+                const bool sel_is_building =
+                    (sel->flags & ModelFlag::Building) != 0;
+                const glm::vec3 preset = sel_is_building
+                    ? size_preset_factor(map_size_preset_)
+                    : glm::vec3{1.f, 1.f, 1.f};
+                t.scale *= preset * map_place_free_scale_;
+                const float ghost_ground_y = Heightmap::sample(
+                    map_mouse_world_xz_.x, map_mouse_world_xz_.y);
+                t.position = glm::vec3{
+                    map_mouse_world_xz_.x,
+                    ghost_ground_y - sel->local_bounds.min.y * t.scale.y,
+                    map_mouse_world_xz_.y};
                 t.rotation = glm::angleAxis(
                     glm::radians(map_place_yaw_deg_),
                     glm::vec3{0.f, 1.f, 0.f});
@@ -1329,13 +1447,13 @@ void MapBuilder::render() {
                     footer = "BAD CELL COORD"; break;
             }
         } else if (map_tool_ == MapTool::Place) {
-            footer = "WASD PAN   WHEEL/CTRL+WHL ZOOM   R+WHL TILT   MMB YAW   "
+            footer = "WASD PAN   L/R OR RMB YAW   WHEEL/CTRL+WHL ZOOM   R+WHL TILT   HOME RESET   "
                      "LMB PLACE   1=PLACE 2=DELETE   3/4/5=SIZE   "
                      "Q/E ROTATE   SHIFT+WHL SCALE   "
                      "CTRL-Z UNDO / CTRL-Y REDO   "
                      "UP/DN PALETTE   G GO TO CELL   T PLAY HERE   ESC BACK";
         } else {
-            footer = "WASD PAN   WHEEL/CTRL+WHL ZOOM   R+WHL TILT   MMB YAW   "
+            footer = "WASD PAN   L/R OR RMB YAW   WHEEL/CTRL+WHL ZOOM   R+WHL TILT   HOME RESET   "
                      "LMB DELETE   1=PLACE 2=DELETE   3/4/5=SIZE   "
                      "Q/E ROTATE   SHIFT+WHL SCALE   "
                      "CTRL-Z UNDO / CTRL-Y REDO   "

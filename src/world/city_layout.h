@@ -31,6 +31,13 @@ struct CityCellLayout {
 
 CityCellLayout generate_city_cell(CellCoord coord, float cell_size);
 
+// Window-repeat period for proc:facade. Building uv_scale_override is set
+// to (footprint / WINDOW_TILE_M, height / WINDOW_TILE_M) so the facade
+// texture tiles at one window per ~3 m on both axes. Exported so the Map
+// Builder's plop tool can match the procedural city's window density when
+// it adds buildings outside of `generate_city_cell`.
+constexpr float WINDOW_TILE_M = 3.f;
+
 // Walkable ground height at world (x, z): heightmap sample plus the sidewalk
 // curb (15 cm) when the point lies inside a plot's sidewalk ring. Roads and
 // terrain return the bare heightmap value. Used by the character controller

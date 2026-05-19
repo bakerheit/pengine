@@ -16,7 +16,6 @@ namespace {
 // ROAD_PITCH, STREET_WIDTH, ROADS_PER_CELL come from city_layout.h.
 constexpr float ROAD_THICKNESS = 0.40f;
 constexpr float ROAD_TILE_M    = 4.f;
-constexpr float WINDOW_TILE_M  = 3.f;
 
 // Long thin slabs are subdivided along their long axis at this spacing.
 // 8 m matches the terrain mesh's vertex stride (TerrainChunk::RES = 32 over
