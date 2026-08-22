@@ -1,0 +1,14 @@
+# Build output
+build/
+build-*/
+cmake-build-*/
+
+# Tooling caches
+.cache/
+compile_commands.json
+
+# Editor / OS litter
+.DS_Store
+*.swp
+.vscode/
+.idea/
