@@ -70,6 +70,18 @@ public:
     NodeId create(const Renderable& r, const Transform& t,
                   const AABB& local_bounds);
     void remove(NodeId id);
+
+    // Bulk removal, for evicting a whole streamed chunk at once.
+    //
+    // This exists because eviction is the frame-spike that streaming most
+    // reliably produces. Removing a chunk's several hundred nodes by calling
+    // remove() from a loop that ALSO has to find each one in some container is
+    // O(chunk x world); doing it here lets the streamer hand over one
+    // contiguous list and sweep its own containers exactly once each.
+    // Duplicate and already-dead ids are ignored rather than double-freeing a
+    // slot, which would hand the same id out twice and alias two live nodes.
+    void remove_many(const std::vector<NodeId>& ids);
+
     void clear();
 
     bool alive(NodeId id) const;
@@ -87,8 +99,15 @@ public:
     void update();
 
     struct CullResult {
-        // Node ids that survived, SORTED BY BATCH KEY. The sort is the entire
-        // reason the renderer can collapse runs — see scene/draw_batch.h.
+        // Node ids that survived, SORTED BY BATCH KEY, then by id.
+        //
+        // The batch-key sort is the entire reason the renderer can collapse
+        // runs — see scene/draw_batch.h. The id tie-break is for DETERMINISM:
+        // std::sort is not stable, so without it the order within a run is
+        // unspecified, and two runs of the same seed would hand the renderer
+        // the same instances in a different order. In a world whose whole
+        // premise is that a seed reproduces a run, "the draw order is
+        // arbitrary" is a bug waiting for a golden-image test.
         std::vector<NodeId> visible;
         int total = 0;
         int culled = 0;
@@ -96,6 +115,14 @@ public:
 
     // Frustum + distance cull. `max_dist` <= 0 disables distance culling
     // (used by debug fly-cams that want to see the whole world at once).
+    //
+    // Distance is measured to the CLOSEST POINT of the node's world AABB, not
+    // to its centre. For a small prop the two are the same; for a 64 m terrain
+    // chunk the centre is up to 45 m further away than the near edge, so a
+    // centre test culls chunks whose near half is still comfortably on screen
+    // and the player watches the ground vanish ahead of them. It also means a
+    // box containing the camera is never distance-culled, which a centre test
+    // gets wrong for anything large.
     //
     // The result is owned by the Scene and reused between calls to avoid
     // re-allocating every frame; it is invalidated by the next cull().

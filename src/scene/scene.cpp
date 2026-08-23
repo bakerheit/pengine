@@ -37,6 +37,20 @@ void Scene::remove(NodeId id) {
     --live_count_;
 }
 
+void Scene::remove_many(const std::vector<NodeId>& ids) {
+    // One pass, and alive() is re-checked per id rather than trusted. A
+    // duplicate in the list would otherwise push the same slot onto the free
+    // list twice, and the second create() after that would hand the same id to
+    // two callers — two live nodes aliasing one slot, which presents as a
+    // random object vanishing when an unrelated one is deleted.
+    for (const NodeId id : ids) {
+        if (!alive(id)) continue;
+        nodes_[id].active = false;
+        free_slots_.push_back(id);
+        --live_count_;
+    }
+}
+
 void Scene::clear() {
     nodes_.clear();
     free_slots_.clear();
@@ -106,8 +120,18 @@ const Scene::CullResult& Scene::cull(const Frustum& frustum, glm::vec3 cam_pos,
                 const float d = std::min(n.max_draw_distance, max_dist);
                 limit_sq = d * d;
             }
-            const glm::vec3 delta = n.world_bounds.center() - cam_pos;
-            if (glm::dot(delta, delta) > limit_sq) {
+            // Squared distance from the camera to the CLOSEST POINT of the
+            // box: zero on each axis where the camera is between the slabs.
+            // See the note on cull() in the header for why this is not the
+            // centre.
+            const glm::vec3 d{
+                std::max({n.world_bounds.min.x - cam_pos.x, 0.0f,
+                          cam_pos.x - n.world_bounds.max.x}),
+                std::max({n.world_bounds.min.y - cam_pos.y, 0.0f,
+                          cam_pos.y - n.world_bounds.max.y}),
+                std::max({n.world_bounds.min.z - cam_pos.z, 0.0f,
+                          cam_pos.z - n.world_bounds.max.z})};
+            if (glm::dot(d, d) > limit_sq) {
                 ++out.culled;
                 continue;
             }
@@ -124,10 +148,19 @@ const Scene::CullResult& Scene::cull(const Frustum& frustum, glm::vec3 cam_pos,
     // Sort by batch key so equal keys land adjacent. plan_draw_batches() can
     // then collapse contiguous runs with a single linear pass; without this
     // sort it finds almost nothing and instancing quietly does no work.
+    //
+    // The id tie-break is not cosmetic. std::sort is not stable, so equal keys
+    // come out in an unspecified order that can differ between standard
+    // library versions and even between two calls on the same data. This world
+    // is a pure function of a seed; the instance order handed to the renderer
+    // has to be one too, or a replay renders differently from the run it
+    // recorded and no golden test can ever be written.
     std::sort(out.visible.begin(), out.visible.end(),
               [this](NodeId a, NodeId b) {
-                  return batch_key(nodes_[a].renderable) <
-                         batch_key(nodes_[b].renderable);
+                  const uint64_t ka = batch_key(nodes_[a].renderable);
+                  const uint64_t kb = batch_key(nodes_[b].renderable);
+                  if (ka != kb) return ka < kb;
+                  return a < b;
               });
 
     return out;
