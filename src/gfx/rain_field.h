@@ -46,7 +46,15 @@ inline float wrap_into_span(float value, float centre, float span) {
     if (!(span > 0.0f)) return value;
     const float lo = centre - span * 0.5f;
     const float offset = value - lo;
-    const float wrapped = offset - std::floor(offset / span) * span;
+    float wrapped = offset - std::floor(offset / span) * span;
+
+    // The postcondition is HALF-OPEN and it has to actually hold. For a large
+    // offset, `offset / span` rounds up just enough that the subtraction lands
+    // exactly on span (or a hair past it), and the drop escapes the box by one
+    // span — one drop out of thousands, once in a while, which is precisely the
+    // kind of thing that gets written off as a fluke for a month.
+    if (!(wrapped < span)) wrapped = 0.0f;
+    if (wrapped < 0.0f) wrapped = 0.0f;
     return lo + wrapped;
 }
 
