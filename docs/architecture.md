@@ -285,10 +285,17 @@ by vertex count is a tracked TODO in `src/terrain/streamer.h`.
 **Evict in bulk.** Tearing a cell down one removal at a time is O(cell × world)
 and freezes the frame on every crossing; sweep each container once instead.
 
-*Status in apricot:* `Streamer` **plans** evictions — it hands out a sorted
-list via `pending_evictions()` and waits for `mark_evicted()`. Nothing consumes
-that list yet, because no renderer owns chunk meshes yet. The bulk-sweep rule
-applies to whoever writes that consumer.
+*Status in apricot:* done, inside the streamer. `evict()` ends in
+`scene.remove_many()` (`src/terrain/streamer.cpp:203`), which is the single
+sweep this rule asks for.
+
+An earlier version of this paragraph described a `pending_evictions()` /
+`mark_evicted()` handshake that the streamer would expose for someone else to
+consume. **That API does not exist and never did in this tree** — a grep for it
+returns nothing. It was written from a plan rather than from the code, and it
+then travelled: into a survey, into a ticket, and into a status report, each
+one repeating it with more confidence than the last. If a status note here
+names a function, grep for it before believing it.
 
 **Load and evict radii are deliberately different.** A single radius means a
 player idling exactly on a boundary thrashes the same chunk in and out forever.
@@ -296,10 +303,12 @@ The gap is the hysteresis that stops it, and `update()` enforces
 `evict_radius > load_radius` rather than trusting the config.
 
 **A chunk is resident when the work finished, not when it was requested.**
-`update()` and `mark_resident()` are separate calls on purpose: a build may
-complete several frames later on a worker thread. Marking a chunk resident when
-the streamer merely *asked* for it is how a chunk ends up permanently missing —
-never built, never re-requested.
+A build may complete several frames later, so a chunk must be marked resident
+when the work finished and not when it was requested — marking on request is how
+a chunk ends up permanently missing, never built and never re-requested.
+
+(`mark_resident()` is likewise not a function in this tree. The *rule* stands;
+the API named here did not exist.)
 
 **Everything the streamer decides is deterministic.** Load candidates are
 sorted by squared distance so the budget spends itself on the chunks the player
