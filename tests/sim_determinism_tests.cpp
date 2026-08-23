@@ -829,6 +829,14 @@ void test_terrain_generates_identically_from_one_seed() {
     // mesh_normal_at), the built chunk the renderer uploads, and the collider a
     // wheel actually asks. Those are four different evaluations of one world;
     // determinism has to hold at all four or the car and the picture disagree.
+    //
+    // hash_coord() itself, which every one of those bottoms out in, is pinned by
+    // GOLDEN VALUES in tests/rng_determinism_tests.cpp, and its order
+    // independence in tests/terrain_determinism_tests.cpp. Both suites are
+    // engine-only and neither is affected by the rally coming out, so this one
+    // deliberately does NOT restate their golden values: a second copy is a
+    // second place to regenerate, and the whole point of a golden value is that
+    // changing it is a single deliberate act with a known cost attached.
     const TerrainCollider ca(kSeed);
     const TerrainCollider cb(kSeed);
     const TerrainCollider other(kOtherSeed);
