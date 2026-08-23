@@ -289,9 +289,38 @@ eviction order is a nondeterministic test.
 cached file on disk silently outranks a code change. Caching generated cells to
 disk once flooded pengine's working tree with hundreds of phantom files.
 
-**The seed is the world identity.** A save file is a seed. A replay tape is a
-seed plus inputs. Nothing about the world needs to be serialised because
-nothing about the world is authored.
+**The seed is the world identity — and from Pinatty onward, so is the map.**
+This rule has been amended, deliberately, and the amendment is narrow.
+
+Pinatty is an *authored* city: a specific place with named districts that a
+player learns, not a fresh draw per seed. So the world is now a pure function
+of `(map, seed, coord)` rather than `(seed, coord)`, where `map` is a compact,
+human-editable, diffable definition in the repo — district polygons, road
+spines, character parameters, landmarks. A save file is a seed plus a map
+version. Everything visual is still *generated*: no baked geometry ships.
+
+**Generation still never writes. Only the editor writes, only on an explicit
+save, and only in a dev build.** That distinction is the whole rule, because it
+is precisely where pengine went wrong: its *streamer* saved procedural output
+as authored data on first encounter of a cell, so generation silently became
+content and the working tree filled with hundreds of files nobody chose to
+create. Those files then outranked the code that would have regenerated them.
+
+So:
+
+- The shipped runtime opens the map read-only. It has no write path at all.
+- The map editor is dev-only, behind a build flag, and is the sole writer.
+- It writes the **definition**, never baked chunks. If saving ever produces a
+  file per cell, the rule has been broken again.
+- The map version is hashed into the determinism identity, so a tape recorded
+  against one map cannot silently replay against another.
+
+**Editor tests must write to a temp directory by construction, not by
+convention.** probablecause carries a CI `EXCLUDE` list whose entries are
+excluded *because they write into live world data*, and its own working
+agreement warns never to re-add them until they use a temp dir. `tools/ci.sh`
+has no `EXCLUDE` list and must never grow one — so this is a design requirement
+of the editor, not a follow-up ticket.
 
 **Never "fix" a seam by averaging across chunks.** Chunk meshes are built at
 absolute world coordinates and carry a shared closing row (65 vertices per
