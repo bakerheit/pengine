@@ -26,3 +26,13 @@ apricot_add_suite(rally_route_tests)
 apricot_add_suite(rally_gate_tests)
 apricot_add_suite(rally_replay_tests)
 apricot_add_suite(rally_hud_tests)
+
+# gfx (PENG-5). These reach into src/gfx/ headers that are deliberately GL-free
+# and header-only -- sky_env.h, rain_field.h, glyph_atlas.h, primitives.h,
+# instance.h -- so the real generators the renderer uploads get exercised here
+# rather than a hand-written copy of them. Nothing below needs a context.
+apricot_add_suite(sky_env_tests)
+apricot_add_suite(rain_field_tests)
+apricot_add_suite(glyph_atlas_tests)
+apricot_add_suite(render_geometry_tests)
+apricot_add_suite(render_batch_contract_tests)

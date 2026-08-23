@@ -8,6 +8,7 @@
 
 #include "core/fixed_step.h"
 #include "core/log.h"
+#include "gfx/gl_state.h"
 #include "platform/window.h"
 
 namespace apricot::overlay {
@@ -55,7 +56,7 @@ bool process_event(const void* sdl_event) {
     return ImGui_ImplSDL2_ProcessEvent(static_cast<const SDL_Event*>(sdl_event));
 }
 
-void draw(Window& window, const Stats& stats) {
+void draw(Window& window, const Stats& stats, Controls& controls) {
     if (!g_initialized) return;
 
     ImGui_ImplOpenGL3_NewFrame();
@@ -82,7 +83,54 @@ void draw(Window& window, const Stats& stats) {
             ImGui::TextColored(ImVec4{1.0f, 0.4f, 0.3f, 1.0f},
                                "STEP CLAMP: sim time dropped");
         }
+
         ImGui::Separator();
+        ImGui::Text("nodes  %d visible / %d total", stats.visible_nodes,
+                    stats.scene_nodes);
+        ImGui::Text("draws  %d      instances %d", stats.draw_calls,
+                    stats.instances);
+        ImGui::Text("batch  %d (%d instanced, longest run %d)", stats.batches,
+                    stats.instanced_batches, stats.largest_run);
+        ImGui::Text("binds  %u skipped by the cache", stats.skipped_binds);
+
+        // The number the toggle exists to make visible. One draw carrying many
+        // instances is the win; one instance per draw is what it replaced.
+        const float per_draw =
+            stats.draw_calls > 0
+                ? static_cast<float>(stats.instances) / static_cast<float>(stats.draw_calls)
+                : 0.0f;
+        ImGui::Text("       %.1f instances per draw", static_cast<double>(per_draw));
+
+        if (ImGui::Checkbox("instancing (F7)", &controls.instancing)) {
+            // Nothing to do — the app reads this back the same frame.
+        }
+        if (!controls.instancing) {
+            ImGui::TextColored(ImVec4{1.0f, 0.75f, 0.3f, 1.0f},
+                               "NAIVE PATH: one draw per node");
+        }
+
+        ImGui::Separator();
+        ImGui::Text("hud    %d quads in %d draw%s", stats.hud_quads,
+                    stats.hud_draw_calls, stats.hud_draw_calls == 1 ? "" : "s");
+        ImGui::Text("rain   %d drops -> %d quads", stats.rain_drops,
+                    stats.rain_quads);
+
+        ImGui::Separator();
+        ImGui::Text("sky    t=%.3f", static_cast<double>(stats.time_of_day));
+        ImGui::SliderFloat("sky speed", &controls.sky_speed, 0.0f, 20.0f, "%.1f");
+        ImGui::SliderFloat("rain", &controls.rain, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("overcast", &controls.overcast, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("fog", &controls.fog, 0.0f, 1.0f, "%.2f");
+
+        ImGui::Separator();
+        if (stats.gl_errors > 0) {
+            // A GL error means a call was rejected and the frame on screen is
+            // not the frame that was asked for. Never let that be quiet.
+            ImGui::TextColored(ImVec4{1.0f, 0.3f, 0.3f, 1.0f},
+                               "GL ERRORS: %d (see the log)", stats.gl_errors);
+        } else {
+            ImGui::TextDisabled("GL clean");
+        }
         ImGui::Text("%dx%d", window.width(), window.height());
         ImGui::TextDisabled("Esc or Ctrl+Q to quit");
     }
@@ -90,6 +138,11 @@ void draw(Window& window, const Stats& stats) {
 
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+    // The UI backend binds its own program, VAO and texture behind the bind
+    // cache's back, so everything the cache believes about GL state is now a
+    // lie. Forget all of it — see gl_state.h.
+    gl_state::invalidate_all();
 }
 
 }  // namespace apricot::overlay

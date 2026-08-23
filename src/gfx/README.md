@@ -1,90 +1,98 @@
-# src/gfx — the only code allowed to call GL
+# `src/gfx/` — the renderer
 
-Everything in this engine that issues a GL call lives here. If you find
-yourself wanting a GL type in `src/scene/`, `src/terrain/` or any other sim
-module, the design is wrong, not the rule — the link graph will not let you do
-it anyway, and `tools/guard_sim_purity.sh` will say so before the compiler
-does.
+The only code in the engine allowed to call OpenGL. Everything here is
+host-side; nothing in `core/`, `scene/`, `terrain/`, `physics/` or `game/` may
+include a header from this directory.
 
-The boundary is plain data. `ChunkMesh` (sim-side vertex and index arrays)
-crosses into `Mesh::upload()` and becomes a GPU resource; the sim never learns
-that happened. `Scene::cull()` hands out opaque integer ids that only this
-module dereferences.
+## The bind-cache invariant
 
-## The one invariant: pair every delete with its hook
+**`gl_state` is the only thing that binds.** A grep for
+`glBindTexture|glUseProgram|glBindVertexArray|glBindBuffer|glActiveTexture`
+across `src/` returns hits in `gl_state.cpp` and in comments, and nowhere else.
+Keep it that way.
 
-`gl_state` is a bind cache. Bind through it and redundant
-`glBindTexture` / `glUseProgram` / `glBindVertexArray` calls are dropped, which
-matters because a redundant bind is a driver round trip for nothing and a frame
-that draws a thousand batches does a lot of nothing.
+**Every `glDelete*` pairs with its `gl_state::on_*_deleted()` hook, immediately.**
+GL object ids are recycled. Windows drivers hand a freshly deleted id straight
+back to the next `glGen*`; the cache then sees "id 7 is already bound", skips
+the bind, and the new object never arrives. You get black textures on PC while
+macOS — which recycles lazily — looks perfect. There is no way to detect the
+mistake from inside `gl_state`, and it will not reproduce on the machine where
+it gets written.
 
-**GL object ids are recycled.** Windows drivers hand a freshly deleted id
-straight back to the next `glGen*`. The cache then sees "id 7 is already
-bound", skips the bind, and the new texture never arrives.
+Two consequences that are less obvious:
 
-The symptom is **black textures on PC while macOS looks perfect**, because
-Apple's GL recycles ids lazily. It costs a day every time somebody rediscovers
-it, it cannot be detected from inside the cache, and it will not reproduce on
-the machine you develop on.
+- **`bind_texture` only skips when the ACTIVE UNIT matches too.** That is not a
+  missed optimisation. It buys a guarantee: when the call is skipped, the GL
+  active unit *is* that unit and the texture *is* bound to it, so an immediately
+  following `glTexImage2D` or `glTexParameteri` lands on the intended object.
+  `Texture`'s generators depend on it.
+- **Anything third-party that binds behind the cache's back must be followed by
+  `invalidate_all()`.** Today that is the ImGui backend, both at init and after
+  every `RenderDrawData` — see `app/overlay.cpp`.
 
-So every `glDelete*` in this module pairs with the matching hook, immediately,
-before the id can be reissued:
+## Layout contracts that span three files
 
-```cpp
-glDeleteBuffers(1, &vbo_);
-gl_state::on_buffer_deleted(vbo_);   // not optional, not later
-vbo_ = 0;
-```
+`gfx/instance.h` pins the per-instance record. Change it and you must change
+all three in the same commit:
 
-`Shader::destroy()` and `Mesh::destroy()` already do this and are the pattern
-to copy. Call `gl_state::invalidate_all()` after any third-party code — the
-overlay backend, a capture tool — has bound things behind the cache's back, and
-on context recreation.
+1. `struct InstanceData`
+2. `Mesh::upload_instances()`'s attribute wiring in `mesh.cpp`
+3. `assets/shaders/lit_instanced.vert`'s `layout(location = ...)` inputs
 
-One subtlety worth knowing: binding a VAO invalidates the cached
-`GL_ELEMENT_ARRAY_BUFFER` slot, because a VAO carries its own element-buffer
-binding. Caching through it would skip a genuinely needed rebind.
+`tint` and `uv_scale` ride the instance rather than a per-draw uniform because
+`scene/draw_batch.h` deliberately keeps them out of the batch key, so nodes
+differing only in colour or tiling still collapse into one draw. Promote either
+to a uniform and batching degrades to one draw per object while continuing to
+look like it works.
 
-## Status — most of this module is contract only
+Vertex attribute locations: `0` position, `1` normal, `2` uv, `3` reserved for a
+tangent, `4-12` the instance block. Location 3 stays empty so adding normal
+mapping later does not renumber every shader in the engine.
 
-Read this before you "fix" something here in passing.
+## Shaders
 
-- **`gl_state`** — real and complete. Also tracks skipped-bind counts for dev
-  instrumentation.
-- **`camera`** — real and complete. Pure maths, holds no GL object. It lives
-  here rather than in `core` on purpose: letting sim code hold a camera is how
-  "just cull against the camera" turns into gameplay that depends on where the
-  player was looking.
-- **`shader`** — **stub.** Every function is deliberately inert except
-  `destroy()`, which is real because GL handle ownership is worth having correct
-  from the start. Do not implement these one at a time in passing: a
-  half-built `Shader` that reports `valid()` is worse than one that reports
-  nothing. When it lands, it must report the driver's info log on failure — a
-  silent compile failure renders black, which is the hardest possible thing to
-  diagnose. Ticket: renderer.
-- **`mesh`** — **stub.** Move and destroy are real, for the same ownership
-  reason; `upload()`, `draw()` and `draw_instanced()` are inert. `Mesh` is
-  move-only because copying would duplicate GL handles and the second
-  destructor would delete geometry the first copy is still drawing. Ticket:
-  renderer.
+`Shader` resolves `#include "file.glsl"` relative to the including file and
+keeps a **line map** while it does. That map is why a compile error inside the
+shared `lighting.glsl` reports `lighting.glsl:37` instead of an offset into the
+concatenated blob — a line number that points at the wrong file is worse than no
+line number, because you believe it.
 
-There is no render pass yet. `src/app/app.cpp` clears to a flat sky colour and
-draws the debug overlay; the terrain and vehicle passes go between those two.
-The sky colour is deliberately not black, because a black clear is
-indistinguishable from a window that failed to present anything at all.
+On failure the driver's info log is logged *and* the offending source lines are
+quoted, `valid()` stays false, and a rebuild over a live `Shader` leaves the
+previous working program intact.
 
-## What the renderer will consume
+## Sky drives all lighting
 
-The batching contract is already settled and lives sim-side, so implement
-against it rather than inventing a second one:
+`compute_sky_env(time_of_day)` produces one `SkyEnv` that the sky pass, every
+lit shader (via the shared `apply_lighting` GLSL include) and the rain all read.
+There is no second place to set a light direction.
 
-- `Scene::cull()` returns survivors **sorted by batch key**. That sort is the
-  only reason contiguous runs exist to collapse.
-- `plan_draw_batches()` partitions that list into instanced runs and plain
-  stretches. The renderer **executes** the plan; it does not make one.
-- `batch_key()` excludes `tint` and `uv_scale` because those ride per-instance
-  attributes. Anything added to `Renderable` that must differ per node goes into
-  the per-instance payload, **not** into the key — putting it in the key
-  degrades batching to one draw per object while still appearing to work.
+Weather and fog layer *onto* that env and are **exact no-ops at zero** — bit for
+bit, pinned by `tests/sky_env_tests.cpp`. Not "visually identical": if the clear
+day drifts by an ulp every time somebody tunes a storm, there is no frame anyone
+can point at where it broke.
 
-Design rules and their costs: [`docs/architecture.md`](../../docs/architecture.md).
+## Headless-testable by design
+
+`sky_env.h`, `rain_field.h`, `glyph_atlas.h`, `primitives.h` and `instance.h`
+are header-only and contain **no GL include**, so the headless suites exercise
+the real generators the renderer uploads rather than a hand-written copy of
+them. Keep them that way; the moment one needs a GL type, the thing that needed
+it belongs in a `.cpp` next door.
+
+## Status
+
+Implemented and exercised: `gl_state`, `Shader`, `Texture` (procedural only —
+there is no image loader and no image file on disk), `Mesh` including the
+instanced attribute stream, `Camera`, `Sky`, `Precipitation`, `Hud` and
+`Renderer`.
+
+Not done, deliberately:
+
+- **No shader hot-reload.** The scaffold mentioned one; it is not written.
+- **No transparency pass.** Everything lit is opaque; rain and the HUD do their
+  own blending inline.
+- **No shadows, no normal mapping, no post-processing.**
+- **`Renderer`'s resource tables never free.** Handles are indices and nothing
+  is removed, because a recycled `MeshId` aliasing live scene nodes is a class
+  of bug the engine does not need yet. Streaming will have to solve it.
