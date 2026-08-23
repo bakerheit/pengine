@@ -8,7 +8,8 @@
 namespace apricot {
 namespace {
 
-constexpr float kTwoPi = 6.28318530718f;
+// kTwoPi is core's (core/rng.h). Four modules each declared their own before
+// they were built together; all four spellings differed after the ninth digit.
 constexpr glm::vec3 kWorldUp{0.0f, 1.0f, 0.0f};
 
 // --- the candidate lattice ---------------------------------------------------

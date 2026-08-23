@@ -28,7 +28,8 @@ constexpr float kMaxPropSlope = 0.64f;
 // guarantees exactly one chunk emits it.
 constexpr float kJitterFraction = 0.42f;
 
-constexpr float kTwoPi = 6.28318530718f;
+// kTwoPi is core's (core/rng.h). Four modules each declared their own before
+// they were built together; all four spellings differed after the ninth digit.
 
 // Per-kind scale spread. Trees vary a lot, rocks less; a boulder field where
 // every rock is a different size looks like an asteroid belt.

@@ -59,6 +59,12 @@ inline MeshData make_box(glm::vec3 half_extents) {
         {{ 0.0f, 0.0f,-1.0f}, {-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}},
     };
 
+    // TerrainVertex carries four-way material weights for the terrain splat
+    // shader. These primitives are demo geometry, not terrain, so they pick a
+    // single channel rather than leaving the field uninitialised — a zero
+    // vector sums to 0 and the splat divides by that.
+    constexpr glm::vec4 kSolidRock{1.0f, 0.0f, 0.0f, 0.0f};
+
     for (const Face& f : faces) {
         // Half-extent along each of the face's own axes.
         const glm::vec3 he = glm::abs(half_extents);
@@ -67,10 +73,10 @@ inline MeshData make_box(glm::vec3 half_extents) {
         const glm::vec3 dv = f.v * glm::abs(glm::dot(f.v, he));
 
         const uint32_t base = static_cast<uint32_t>(m.vertices.size());
-        m.vertices.push_back({centre - du - dv, f.n, {0.0f, 0.0f}});
-        m.vertices.push_back({centre + du - dv, f.n, {1.0f, 0.0f}});
-        m.vertices.push_back({centre + du + dv, f.n, {1.0f, 1.0f}});
-        m.vertices.push_back({centre - du + dv, f.n, {0.0f, 1.0f}});
+        m.vertices.push_back({centre - du - dv, f.n, {0.0f, 0.0f}, kSolidRock});
+        m.vertices.push_back({centre + du - dv, f.n, {1.0f, 0.0f}, kSolidRock});
+        m.vertices.push_back({centre + du + dv, f.n, {1.0f, 1.0f}, kSolidRock});
+        m.vertices.push_back({centre - du + dv, f.n, {0.0f, 1.0f}, kSolidRock});
 
         m.indices.push_back(base + 0);
         m.indices.push_back(base + 1);

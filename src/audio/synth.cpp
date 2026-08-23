@@ -2,11 +2,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include "core/rng.h"  // kTwoPi
 
 namespace apricot {
 
 namespace {
-constexpr float kTwoPi = 6.2831853071795864769f;
+// kTwoPi is core's (core/rng.h). Four modules each declared their own before
+// they were built together; all four spellings differed after the ninth digit.
 }
 
 float PcmClip::duration_seconds() const {
