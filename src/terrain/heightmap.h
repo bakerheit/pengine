@@ -82,6 +82,32 @@ inline constexpr float kShoreFalloffStart = 0.45f;
 // within ten seconds.
 inline constexpr float kCoastWarpMetres = 260.0f;
 
+// The island's base platform, in normalised shape units, applied before the
+// radial mask.
+//
+// Without it the mask only SCALES the terrain: a seed whose noise happens to
+// run low across the middle stays below sea level even where the mask says
+// "this is the island", and the result is an archipelago — measured on one
+// seed, a 220 m islet at the spawn point, open water out to 600 m, and 9.4%
+// land against 26-32% for its neighbours. That is not an interesting variation
+// for a driving game, it is a world with nowhere to drive.
+//
+// Sitting a hair BELOW kShoreLevel rather than above it is the deliberate part.
+// Above, and the island becomes a solid disc with no inland water at all;
+// below by this much, and the flattest ground inside the mask comes out as a
+// shallow lagoon a metre or so deep while everything else is comfortably dry.
+inline constexpr float kIslandPlatform = 0.21f;
+
+// Radius, in metres, of the guaranteed-dry area around the world origin.
+//
+// The land shape is free to put a bay anywhere, which is most of what makes
+// the coastline interesting — but the origin is where the car spawns, and a
+// seed that drops the player into a lagoon is a broken game rather than an
+// interesting variation. Inside this radius the shape is lifted toward dry
+// land, weighted so that low ground is raised a lot and ground that is already
+// high is barely touched.
+inline constexpr float kHomeRadiusMetres = 380.0f;
+
 // Peak-to-trough relief of the sea floor, in metres, applied only where the
 // island mask has faded out. Stops the ocean bed being a suspiciously exact
 // plane, which is the sort of thing that makes an underwater bug invisible.

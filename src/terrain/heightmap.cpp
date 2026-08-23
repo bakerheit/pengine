@@ -76,6 +76,11 @@ constexpr float kSpineFull = 0.72f;
 // different world from the same seed, discovered as a desync months later.
 inline float ridge_sharpen(float r) { return r * std::sqrt(r); }
 
+// How hard the origin is lifted toward dry land. See kHomeRadiusMetres in the
+// header; 0.42 puts the shape at the origin comfortably above kShoreLevel even
+// when the underlying field says "deep bay".
+constexpr float kHomeLift = 0.42f;
+
 // Wavelength of the noise that pushes the coastline in and out.
 constexpr float kCoastWarpWavelengthMetres = 700.0f;
 
@@ -100,7 +105,24 @@ float land_shape(uint64_t seed, float x, float z) {
     const float spine = smoothstep01(kSpineStart, kSpineFull, continent);
     const float mountain = ridge_sharpen(ridges) * spine;
 
-    return kLowlandSpan * lowland + kMountainSpan * mountain;
+    const float shape = kLowlandSpan * lowland + kMountainSpan * mountain;
+
+    // Spawn guarantee. See kHomeRadiusMetres.
+    //
+    // The lift is scaled by (1 - shape)^2, so ground that is already high is
+    // left essentially alone while a lagoon at the origin is raised clear of
+    // the water. Squared rather than linear because a linear falloff still
+    // adds a third of the lift to a 60 m ridge, which turns the middle of
+    // every island into the same mountain.
+    //
+    // Everything here is smoothstep and polynomial, so the result is C1: no
+    // crease appears at the edge of the home region. A max() against a floor
+    // would have been simpler and would have drawn a visible contour line
+    // around the spawn area on every seed.
+    const float home = 1.0f - smoothstep01(0.0f, kHomeRadiusMetres,
+                                           std::sqrt(x * x + z * z));
+    const float headroom = 1.0f - shape;
+    return shape + home * kHomeLift * headroom * headroom;
 }
 
 }  // namespace
@@ -125,7 +147,14 @@ float island_mask(uint64_t seed, float x, float z) {
 
 float height_at(uint64_t seed, float x, float z) {
     const float mask = island_mask(seed, x, z);
-    const float shaped = land_shape(seed, x, z) * mask;
+
+    // Platform first, THEN the mask. The order matters: the platform is what
+    // the island is made of, so it has to fall away with the coastline like
+    // everything else. Adding it after the mask would raise the open ocean by
+    // the same amount and there would be no sea to bound the world with.
+    const float shape =
+        kIslandPlatform + (1.0f - kIslandPlatform) * land_shape(seed, x, z);
+    const float shaped = shape * mask;
 
     // Map the normalised shape into metres about sea level. One linear map for
     // the whole range on purpose: a piecewise map with a different scale above
