@@ -9,12 +9,24 @@
 namespace apricot {
 
 // Direction components smaller than this are treated as exactly parallel by
-// the ray test. Not decoration: the slab method divides by the direction
-// component, and a component of 1e-30 produces a reciprocal of 1e30 whose
-// products overflow to infinity and then, one subtraction later, to NaN. NaN
-// loses every comparison, so the test quietly answers "miss" for a ray that
-// obviously hits. Branching on the epsilon keeps the parallel case exact
-// instead of merely lucky.
+// the ray test, so the parallel case never goes near a reciprocal.
+//
+// MEASURED, not assumed. A ray running exactly along a face has dir[a] == 0
+// and origin[a] exactly on a slab bound, and the textbook `1/dir` form then
+// computes (bound - origin) * inf as 0 * inf, which is NaN. What happens next
+// depends entirely on the ARGUMENT ORDER of std::min/std::max, because both
+// are specified as a single `<` comparison and every comparison against NaN is
+// false:
+//
+//     std::max(accumulator, nan) -> accumulator   NaN silently swallowed
+//     std::max(nan, accumulator) -> nan           NaN propagates
+//
+// So the naive version is correct only while the accumulator happens to be
+// written first, and it is a hit-with-a-NaN-distance the moment somebody
+// reorders two arguments that look interchangeable. Not a miss — a HIT whose
+// t is NaN, which the caller then multiplies into a position. Depending on an
+// undocumented argument order to stay correct is not a design, it is a fuse.
+// The explicit branch below makes the parallel case exact by construction.
 inline constexpr float kRayParallelEpsilon = 1e-8f;
 
 // Axis-aligned bounding box. Default-constructs INVERTED (min = +inf,
@@ -108,13 +120,10 @@ struct AABB {
 
     // Slab method, over the parameter range [t_min, t_max].
     //
-    // The three-axis loop is written with an explicit parallel branch rather
-    // than leaning on IEEE infinities. A ray running exactly along a face —
-    // dir.y == 0 with origin.y == min.y, the "edge-on" case — computes
-    // (min.y - origin.y) * inf as 0 * inf, which is NaN, and NaN then loses
-    // every subsequent comparison so the box reports a miss. It is a miss that
-    // only happens on axis-aligned rays, which is to say on exactly the rays a
-    // grid-marching terrain query generates all day.
+    // The three-axis loop takes an explicit parallel branch rather than leaning
+    // on IEEE infinities — see kRayParallelEpsilon above for the measurement
+    // behind that choice. t_near and t_far are guaranteed finite on a hit,
+    // which tests/math_tests.cpp asserts directly.
     RayHit intersect_ray(const glm::vec3& origin, const glm::vec3& dir,
                          float t_min = 0.0f, float t_max = FLT_MAX) const {
         RayHit out;
