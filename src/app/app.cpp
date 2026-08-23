@@ -64,7 +64,14 @@ bool App::init() {
     cfg.title = std::string("apricot ") + APRICOT_VERSION;
     cfg.width = 1280;
     cfg.height = 720;
-    cfg.vsync = true;
+    // --frames is the headless path: exercise the renderer with nobody at the
+    // keyboard. Vsync there is not just pointless, it hangs. A window with no
+    // active display session never gets a vblank, so SDL_GL_SwapWindow blocks
+    // forever on the condition variable and the frame limit is never reached --
+    // the app logs a clean startup and then sits there looking like a deadlock
+    // in our own render loop. Measured: stuck in Cocoa_GL_SwapWindow, three
+    // minutes, zero frames.
+    cfg.vsync = (frame_limit_ <= 0);
 
     if (!window_.init(cfg)) {
         AP_ERROR("window init failed; cannot continue");
