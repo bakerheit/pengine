@@ -18,12 +18,20 @@ void print_usage() {
     std::printf(
         "apricot %s\n"
         "\n"
-        "  --verbose      log at debug level\n"
-        "  --log FILE     also append the log to FILE\n"
-        "  --version      print the version and exit\n"
-        "  --help         this text\n"
+        "  --verbose       log at debug level\n"
+        "  --log FILE      also append the log to FILE\n"
+        "  --frames N      render N frames, print a summary, then exit\n"
+        "  --no-instancing start on the naive per-node draw path\n"
+        "  --version       print the version and exit\n"
+        "  --help          this text\n"
         "\n"
-        "Controls: WASD drive, Space handbrake. Esc or Ctrl+Q quits.\n",
+        "Controls: WASD drive, Space handbrake. F7 toggles instancing.\n"
+        "Esc or Ctrl+Q quits.\n"
+        "\n"
+        "--frames exists so the renderer can be exercised without a human at\n"
+        "the keyboard: it runs a fixed number of frames, reports the draw and\n"
+        "instance counts and the GL error state, and returns non-zero if any\n"
+        "GL call failed.\n",
         APRICOT_VERSION);
 }
 
@@ -31,6 +39,8 @@ void print_usage() {
 
 int main(int argc, char** argv) {
     const char* log_path = nullptr;
+    int frame_limit = 0;
+    bool instancing = true;
 
     for (int i = 1; i < argc; ++i) {
         const char* a = argv[i];
@@ -50,6 +60,18 @@ int main(int argc, char** argv) {
             log_path = argv[++i];
             continue;
         }
+        if (std::strcmp(a, "--frames") == 0 && i + 1 < argc) {
+            frame_limit = std::atoi(argv[++i]);
+            if (frame_limit <= 0) {
+                std::fprintf(stderr, "--frames needs a positive count\n");
+                return 2;
+            }
+            continue;
+        }
+        if (std::strcmp(a, "--no-instancing") == 0) {
+            instancing = false;
+            continue;
+        }
         std::fprintf(stderr, "unknown argument: %s\n", a);
         print_usage();
         return 2;
@@ -62,6 +84,9 @@ int main(int argc, char** argv) {
     }
 
     apricot::App app;
+    // Set before init(): both affect what the first frame does.
+    app.set_frame_limit(frame_limit);
+    app.set_instancing(instancing);
     if (!app.init()) {
         AP_ERROR("startup failed");
         app.shutdown();

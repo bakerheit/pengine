@@ -3,4 +3,6 @@
 target_sources(apricot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/app.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/overlay.cpp
+    # PLACEHOLDER content, deleted when the terrain module lands its own world.
+    ${CMAKE_CURRENT_SOURCE_DIR}/demo_scene.cpp
 )
