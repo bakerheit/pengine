@@ -22,6 +22,11 @@ endfunction()
 
 apricot_add_suite(rng_determinism_tests)
 apricot_add_suite(fixed_step_tests)
+
+# The engine's central claim: a recorded InputFrame tape replays bit for bit.
+# Written against step_vehicle, TerrainCollider, InputFrame and FixedStep and
+# NOTHING from game/, so the guarantee outlives whichever game is the sample.
+apricot_add_suite(sim_determinism_tests)
 apricot_add_suite(rally_route_tests)
 apricot_add_suite(rally_gate_tests)
 apricot_add_suite(rally_replay_tests)
