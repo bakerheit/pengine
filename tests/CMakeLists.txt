@@ -22,3 +22,5 @@ endfunction()
 
 apricot_add_suite(rng_determinism_tests)
 apricot_add_suite(fixed_step_tests)
+apricot_add_suite(terrain_collision_tests)
+apricot_add_suite(vehicle_tests)
