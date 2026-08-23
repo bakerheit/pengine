@@ -8,7 +8,9 @@
 namespace apricot {
 namespace {
 
-constexpr float kTwoPi = 6.28318530718f;
+// kTwoPi is core's, from core/rng.h included above. A local copy here was a
+// redefinition the moment PENG-3 landed one — and the two spellings did not
+// even agree past the ninth digit.
 
 // Independent hash channels, so the front and the showers inside it are not
 // the same curve at two amplitudes.

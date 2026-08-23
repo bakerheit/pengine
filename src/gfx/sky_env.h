@@ -5,6 +5,8 @@
 
 #include <glm/glm.hpp>
 
+#include "core/rng.h"  // kTwoPi
+
 namespace apricot {
 
 // THE LIGHTING ENVIRONMENT. One struct, one producer, every lit shader.
@@ -93,7 +95,9 @@ inline SkyEnv compute_sky_env(float time_of_day) {
     // the horizon at 0.75, under the world at 0.0. The constant +Z tilt stops
     // the arc from passing exactly through the zenith, where the sun would sit
     // straight overhead at noon and every vertical surface would go flat.
-    constexpr float kTwoPi = 6.28318530718f;
+    // kTwoPi comes from core. Declaring a local one here shadows it, which is
+    // an error under -Wshadow — and it is the right error: three files each had
+    // their own before the modules met.
     const float a = (e.time_of_day - 0.25f) * kTwoPi;
     e.sun_dir = glm::normalize(glm::vec3{std::cos(a), std::sin(a), 0.35f});
     e.moon_dir = -e.sun_dir;
