@@ -136,6 +136,17 @@ private:
     bool ok_ = true;
 };
 
+// EVERY field of VehicleState, in struct order.
+//
+// This is not tidiness. The tape's start state is what step_vehicle integrates
+// from, so a field dropped here does not come back as a missing number, it
+// comes back as a ghost that drives a different line than the lap it claims to
+// be. wheels[].angular_velocity is the one that bites hardest: it is the state
+// the tyre model reads, and zeroing it hands the first step four locked wheels
+// under a car doing 15 m/s.
+//
+// When VehicleState or WheelState gains a field, it gets a line here and
+// kBestLapFileVersion goes up in the same commit.
 void write_vehicle(Writer& w, const VehicleState& v) {
     w.vec3(v.position);
     w.quat(v.orientation);
@@ -144,12 +155,17 @@ void write_vehicle(Writer& w, const VehicleState& v) {
     w.f32(v.steer_angle);
     w.f32(v.engine_rpm);
     w.i32(v.gear);
+    w.f32(v.shift_timer);
+    w.f32(v.recovery_timer);
     for (int i = 0; i < kWheelCount; ++i) {
         const WheelState& wh = v.wheels[static_cast<std::size_t>(i)];
         w.vec3(wh.contact_point);
         w.vec3(wh.contact_normal);
         w.f32(wh.suspension_length);
         w.f32(wh.spin);
+        w.f32(wh.angular_velocity);
+        w.f32(wh.normal_force);
+        w.f32(wh.slip);
         w.u8(wh.grounded ? 1u : 0u);
     }
 }
@@ -162,12 +178,17 @@ void read_vehicle(Reader& r, VehicleState& v) {
     v.steer_angle = r.f32();
     v.engine_rpm = r.f32();
     v.gear = r.i32();
+    v.shift_timer = r.f32();
+    v.recovery_timer = r.f32();
     for (int i = 0; i < kWheelCount; ++i) {
         WheelState& wh = v.wheels[static_cast<std::size_t>(i)];
         wh.contact_point = r.vec3();
         wh.contact_normal = r.vec3();
         wh.suspension_length = r.f32();
         wh.spin = r.f32();
+        wh.angular_velocity = r.f32();
+        wh.normal_force = r.f32();
+        wh.slip = r.f32();
         wh.grounded = r.u8() != 0u;
     }
 }

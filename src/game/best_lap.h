@@ -28,7 +28,14 @@ struct BestLap {
 
 // On-disk format version. Independent of kReplayTapeVersion: the container can
 // gain a field without the tape's meaning changing, and vice versa.
-inline constexpr uint32_t kBestLapFileVersion = 1;
+//
+// 2: the saved car carries VehicleState::shift_timer and recovery_timer and
+//    each wheel's angular_velocity, normal_force and slip. Version 1 wrote the
+//    fields that existed before PENG-7 and silently zeroed the rest on load,
+//    which restarted a ghost with four locked wheels. Version 1 files are
+//    refused rather than reinterpreted — the lap they hold was recorded
+//    against a start state this build cannot reconstruct.
+inline constexpr uint32_t kBestLapFileVersion = 2;
 
 // Filename for a world's best lap. The DIRECTORY is the caller's business —
 // this is save data, not an asset, and core/asset_root.h is for things shipped
