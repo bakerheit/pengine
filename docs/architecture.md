@@ -133,6 +133,30 @@ silently repeated last frame would let a replay drive on past the finish.
 transition *out of* the current state. Recording afterwards offsets the whole
 tape by one step, and the replay drifts from the moment it starts.
 
+**The replay claim is pinned against the ENGINE, in
+`tests/sim_determinism_tests.cpp`, and that file includes nothing from
+`game/`.** It records a tape of varied input — throttle, brake, steer,
+handbrake, latched gear-change edges — drives it through `step_vehicle` against
+a real `TerrainCollider`, and compares every `VehicleState` field with `==`.
+The cost of *not* separating it: the proof used to live only inside the sample
+game, so replacing the sample would have taken the guarantee with it and
+unpinned the sim at the exact moment a new game was being built on top of it.
+
+Three things in that suite are load-bearing and easy to delete by accident.
+Both **negative controls** — the same tape on a different seed must diverge, and
+altering one `InputFrame` must change the run — without them every assertion
+still passes if the step ignored the terrain, or ignored the tape. An
+**anti-vacuity floor** on distance travelled, because "bit-identical" is
+trivially true of two cars that never moved; measured with the throttle cut,
+the run drops from 222.7 m to 1.2 m and still replays perfectly. And the
+comparison helper **proves its own coverage** by flipping a bit at every byte
+offset of a live mid-run state and requiring every byte of every declared
+member to be noticed. That last one is not theoretical: `game/best_lap.cpp`
+once dropped 14 `VehicleState` fields, every wheel's `angular_velocity` among
+them, and it survived a ticket because the test's own comparison skipped those
+exact fields. A helper that quietly skips a field is worse than no test, because
+it reads as coverage.
+
 ### A worked example: why determinism gets its own tests
 
 `hash_coord(0, 0, 0)` returned **0**.
