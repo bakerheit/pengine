@@ -12,3 +12,6 @@ compile_commands.json
 *.swp
 .vscode/
 .idea/
+
+# Agent worktrees and local session state.
+.claude/
