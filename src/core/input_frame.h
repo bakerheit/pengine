@@ -27,6 +27,12 @@ namespace apricot {
 //   handbrake  [ 0, 1]  analogue on purpose: a rally handbrake is not a switch
 //   look_dx/dy         accumulated look delta for the frame, in radians
 
+// The tape version that pairs with this layout lives in game/rally.h as
+// kReplayTapeVersion. Bump it there in the SAME commit as any change to the
+// struct below or to a ButtonBit value. It is not declared here because
+// core/ must not depend on the game module; the coupling is one-way and this
+// note is the reminder.
+
 // Button bits for InputFrame::held and InputFrame::pressed. Explicit values —
 // these are serialised into replay tapes, so the numbers are the contract and
 // renumbering them rewrites history. Append only.

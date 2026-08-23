@@ -72,13 +72,39 @@ bool Window::init(const WindowConfig& cfg) {
         AP_WARN("SDL_GL_SetSwapInterval failed: %s", SDL_GetError());
     }
 
-    SDL_GL_GetDrawableSize(window_, &width_, &height_);
+    int w = 0, h = 0;
+    SDL_GL_GetDrawableSize(window_, &w, &h);
+    on_resize(w, h);
 
     AP_INFO("GL %d.%d core (%s)", major, minor,
             reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
-    AP_INFO("window %dx%d drawable, vsync=%d", width_, height_,
-            cfg.vsync ? 1 : 0);
+    AP_INFO("window %dx%d drawable, aspect %.4f, vsync=%d", width_, height_,
+            static_cast<double>(aspect_), cfg.vsync ? 1 : 0);
     return true;
+}
+
+void Window::on_resize(int w, int h) {
+    // Negative sizes are not a thing, but a window manager mid-drag has been
+    // known to report one. Clamp rather than propagate.
+    width_ = w > 0 ? w : 0;
+    height_ = h > 0 ? h : 0;
+
+    // Only recompute the aspect when there is a real area to compute it from.
+    // While minimised, aspect_ deliberately keeps its previous value — see the
+    // note in window.h about NaN projections and a permanently black restore.
+    if (width_ > 0 && height_ > 0) {
+        aspect_ = static_cast<float>(width_) / static_cast<float>(height_);
+        AP_DEBUG("resize: %dx%d drawable, aspect %.4f", width_, height_,
+                 static_cast<double>(aspect_));
+    } else {
+        AP_DEBUG("resize: minimised (%dx%d); holding aspect %.4f", w, h,
+                 static_cast<double>(aspect_));
+    }
+}
+
+void Window::apply_viewport() const {
+    if (minimised()) return;
+    glViewport(0, 0, width_, height_);
 }
 
 void Window::shutdown() {
