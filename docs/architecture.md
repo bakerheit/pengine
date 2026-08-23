@@ -58,12 +58,23 @@ it through plain data. `core/input_frame.h` is the shape to copy.
 
 **CMake fragments are module-owned.** The root `CMakeLists.txt` declares three
 source-less targets and `add_subdirectory`s; each `src/<mod>/CMakeLists.txt`
-calls `target_sources()` to attach its own files. pengine's root
-`CMakeLists.txt` reached roughly 19k lines with 500+ hand-written `add_test`
-blocks, and every agent adding a file touched the same one. That is a merge
-conflict per module per day. Here, two agents working different modules never
-open the same build file. Registering a test is one line
-(`apricot_add_suite(name)`) in `tests/CMakeLists.txt`.
+calls `target_sources()` to attach its own files.
+
+The reason is contention, not size. pengine's root file is 486 lines with 27
+`add_test` blocks and probablecause's is 781 with 32 — perfectly manageable to
+read, and still a single file that every agent adding a source must edit. Here,
+two agents working different modules never open the same build file.
+Registering a test is one line (`apricot_add_suite(name)`) in
+`tests/CMakeLists.txt`.
+
+Measured on this repo: seven agents built seven modules simultaneously and
+collided only on `tests/CMakeLists.txt`, which is shared by design. No module
+fragment ever conflicted.
+
+(An earlier draft of this file claimed pengine's root reached "roughly 19k
+lines with 500+ `add_test` blocks". That was wrong — 18,865 is its size in
+BYTES, misread as lines from a directory listing. The decision stands on
+contention; the number that justified it did not exist.)
 
 `src/audio/` is the one **split** module: `synth.cpp` and the header-only
 `mixer.h` build into `apricot_sim`, while `device.cpp` and `miniaudio_impl.c`

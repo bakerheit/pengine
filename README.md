@@ -154,11 +154,16 @@ with real gameplay. apricot keeps its rules — they are restated with their
 costs in [`docs/architecture.md`](docs/architecture.md) — and changes three
 things on purpose.
 
-**1. Module-owned CMake fragments, instead of one root file.** pengine's root
-`CMakeLists.txt` reached roughly 19k lines, including 500+ hand-written
-`add_test` blocks. Every agent adding a file edited the same file, which is a
-merge conflict per module per day. Here the root declares three empty targets
-and each module attaches its own sources. Registering a test is one line.
+**1. Module-owned CMake fragments, instead of one root file.** pengine keeps
+every target and all 27 `add_test` blocks in one 486-line root file, and
+probablecause's has grown to 781 lines and 32. Not huge — but every agent
+adding a file edits the same one. Here the root declares three empty targets
+and each module attaches its own sources, so two agents working different
+modules never open the same build file. Registering a test is one line.
+
+Measured on this repo: seven agents built seven modules in parallel and the
+only file they ever collided on was `tests/CMakeLists.txt`, which is shared by
+design. Zero conflicts in any module fragment.
 
 **2. A sim/host split enforced by the link graph, instead of by convention.**
 pengine was one library, so a test could link anything and "keep GL out of the
