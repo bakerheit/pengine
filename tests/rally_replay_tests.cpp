@@ -69,6 +69,43 @@ InputFrame scripted_input(uint64_t seed, int step) {
     return f;
 }
 
+// The input a driver would give, not a dice roll.
+//
+// scripted_input() alone is uniform random steer. Against the stub vehicle that
+// barely moved, the car drifted forward anyway and threaded both gates. Against
+// real dynamics (PENG-7) it just spins on the spot: the recorded run crossed
+// ZERO gates, so the tape reproduced an integrator and nothing else -- exactly
+// the "test would be vacuous" case the assertions below exist to catch.
+//
+// So the recording aims at the next checkpoint and keeps the random variety on
+// top at reduced amplitude. The tape is still a plain InputFrame stream and the
+// replay still runs open-loop off it; only the RECORDING is closed-loop, which
+// is precisely how a real ghost lap is captured.
+InputFrame driving_input(const RallyState& rally, uint64_t seed, int step) {
+    InputFrame f = scripted_input(seed, step);
+
+    const Route& route = rally.route;
+    const std::size_t n = route.checkpoints.size();
+    const Checkpoint& target = route.checkpoints[static_cast<std::size_t>(rally.next_checkpoint) % n];
+
+    const glm::vec3 fwd = vehicle_forward(rally.car);
+    glm::vec3 to_gate = target.position - rally.car.position;
+    to_gate.y = 0.0f;
+    if (glm::length(to_gate) > 1e-3f) {
+        to_gate = glm::normalize(to_gate);
+        const glm::vec3 flat_fwd =
+            glm::normalize(glm::vec3{fwd.x, 0.0f, fwd.z});
+        // Signed yaw error: cross product's Y tells us which way to turn.
+        const float sin_err = flat_fwd.x * to_gate.z - flat_fwd.z * to_gate.x;
+        const float cos_err = glm::dot(flat_fwd, to_gate);
+        const float err = std::atan2(sin_err, cos_err);
+        f.steer = glm::clamp(-err * 1.6f + 0.12f * f.steer, -1.0f, 1.0f);
+        f.throttle = (cos_err > 0.3f) ? 0.85f : 0.45f;
+        f.brake = 0.0f;
+    }
+    return f;
+}
+
 bool same_wheel(const WheelState& a, const WheelState& b) {
     return a.contact_point.x == b.contact_point.x &&
            a.contact_point.y == b.contact_point.y &&
@@ -150,12 +187,20 @@ Recording record_a_run(uint64_t seed, const TerrainCollider& collider) {
     aim.y = 0.0f;
     aim = glm::normalize(aim);
 
-    rally.car.position = start.position - aim * 120.0f;
+    // Put it on the GROUND at the new spot, not at gate 0's altitude.
+    //
+    // This used to keep start.position.y while moving 120 m away, which on real
+    // terrain (PENG-6) leaves the car buried in a hill or dropped from height:
+    // no wheel ever touches, so throttle does nothing and the run coasted at
+    // its initial shove and crossed no gates.
+    const glm::vec3 launch = start.position - aim * 120.0f;
+    rally.car = spawn_vehicle(rally.tuning, collider, launch.x, launch.z,
+                              std::atan2(aim.x, aim.z));
     rally.car.velocity = aim * 45.0f;  // 162 km/h
     rally.last_car_position = rally.car.position;
 
     for (int i = 0; i < kRecordSteps; ++i) {
-        const InputFrame in = scripted_input(seed, i);
+        const InputFrame in = driving_input(rally, seed, i);
         step_rally(rally, in, collider, kDt);
 
         if (rally.events.gate_crossed) ++rec.gates_crossed;

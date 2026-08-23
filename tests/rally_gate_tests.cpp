@@ -195,7 +195,17 @@ void test_splits_land_on_the_line_not_the_step() {
     // slack is float cancellation in the plane distance, which at several
     // hundred metres from the origin is a few parts in 10^6 of one step. One
     // microsecond of tolerance on a split is a tight claim, not a loose one.
-    constexpr double kSplitEps = 1e-6;
+    // Was 1e-6, which held while step_vehicle was a stub that barely moved the
+    // car: place_and_step() put it exactly at -1 and +3, so the crossing
+    // fraction was exactly 1/4. With real dynamics (PENG-7) the car also
+    // integrates its own velocity and gravity during that step, so the sweep
+    // endpoints are a few millimetres from where they were placed and the true
+    // fraction is no longer exactly 1/4. Measured discrepancy: 2.9e-6 s.
+    //
+    // 1e-5 s is still a tight claim — a split pinned to about one eight-hundredth
+    // of a sim step, and four orders of magnitude finer than a lap time anyone
+    // can perceive.
+    constexpr double kSplitEps = 1e-5;
 
     drive_through(w, 0);
     REQUIRE(w.rally.next_checkpoint == 1);

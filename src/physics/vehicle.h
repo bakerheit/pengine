@@ -280,6 +280,17 @@ struct VehicleTuning {
     // --- resistance ---------------------------------------------------------
     float drag = 0.42f;                // quadratic, N per (m/s)^2
     float rolling_resistance = 0.018f; // dimensionless, multiplied by wheel load
+
+    // Weather's multiplier on every wheel's peak friction, applied inside the
+    // friction circle where grip belongs. game/conditions.cpp sets it from the
+    // deterministic Conditions for the current step.
+    //
+    // It rides on the tuning rather than on TerrainCollider because the collider
+    // is passed const to step_rally and shared with the ghost. Wetness stored on
+    // a shared mutable collider would let the ghost and the player experience
+    // different weather from the same tape, which is a desync that looks exactly
+    // like a physics bug.
+    float grip_scale = 1.0f;
     float angular_drag = 1.2f;         // 1/s, exponential decay on spin
 
     // --- rollover recovery --------------------------------------------------

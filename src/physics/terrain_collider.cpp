@@ -1,5 +1,7 @@
 #include "physics/terrain_collider.h"
 
+#include "terrain/chunk.h"  // mesh_height_at / mesh_normal_at
+
 #include <algorithm>
 #include <cmath>
 
@@ -16,33 +18,6 @@ namespace {
 // absolute world value both neighbouring chunks evaluate, which is why their
 // shared edge closes and why we can reproduce it without knowing which chunk
 // we are in.
-struct LatticeCell {
-    float x0 = 0.0f;
-    float z0 = 0.0f;
-    float x1 = 0.0f;
-    float z1 = 0.0f;
-    float u = 0.0f;  // position across the cell in +X, [0, 1]
-    float v = 0.0f;  // position across the cell in +Z, [0, 1]
-};
-
-LatticeCell lattice_cell(float x, float z) {
-    const float sx = x / kTerrainVertexMetres;
-    const float sz = z / kTerrainVertexMetres;
-    const float fx = std::floor(sx);
-    const float fz = std::floor(sz);
-
-    LatticeCell c;
-    c.x0 = fx * kTerrainVertexMetres;
-    c.z0 = fz * kTerrainVertexMetres;
-    c.x1 = (fx + 1.0f) * kTerrainVertexMetres;
-    c.z1 = (fz + 1.0f) * kTerrainVertexMetres;
-    // Clamped because a coordinate large enough for `sx - fx` to round to
-    // exactly 1.0 would otherwise index one barycentric weight negative.
-    c.u = glm::clamp(sx - fx, 0.0f, 1.0f);
-    c.v = glm::clamp(sz - fz, 0.0f, 1.0f);
-    return c;
-}
-
 // Barycentric weights of (u, v) on whichever of the cell's two triangles
 // contains it, in the mesher's vertex order a=(0,0) b=(1,0) c=(0,1) d=(1,1).
 //
@@ -50,27 +25,6 @@ LatticeCell lattice_cell(float x, float z) {
 // ANTI-diagonal b--c, so u + v <= 1 is the first triangle and u + v >= 1 the
 // second. Get that backwards and the surface is subtly wrong on exactly half
 // of every cell — a bug that looks like noise, not like a mistake.
-struct TriWeights {
-    float wa = 0.0f;
-    float wb = 0.0f;
-    float wc = 0.0f;
-    float wd = 0.0f;
-};
-
-TriWeights triangle_weights(float u, float v) {
-    TriWeights w;
-    if (u + v <= 1.0f) {
-        w.wa = 1.0f - u - v;
-        w.wb = u;
-        w.wc = v;
-    } else {
-        w.wb = 1.0f - v;
-        w.wc = 1.0f - u;
-        w.wd = u + v - 1.0f;
-    }
-    return w;
-}
-
 // --- surface classification --------------------------------------------------
 // TERRAIN DOES NOT OWN MATERIALS YET. src/terrain/ generates shape and nothing
 // else, so the tyre model has nothing to ask. This classifier lives here so
@@ -214,33 +168,27 @@ glm::vec3 TerrainCollider::field_normal(float x, float z) const {
 // --- the meshed surface ------------------------------------------------------
 
 float TerrainCollider::height(float x, float z) const {
-    const LatticeCell c = lattice_cell(x, z);
-    const TriWeights w = triangle_weights(c.u, c.v);
-
-    // Only the corners the chosen triangle actually uses are sampled. The
-    // fourth would be three extra hashes for a weight of zero.
-    float h = 0.0f;
-    if (w.wa != 0.0f) h += w.wa * height_at(seed_, c.x0, c.z0);
-    if (w.wb != 0.0f) h += w.wb * height_at(seed_, c.x1, c.z0);
-    if (w.wc != 0.0f) h += w.wc * height_at(seed_, c.x0, c.z1);
-    if (w.wd != 0.0f) h += w.wd * height_at(seed_, c.x1, c.z1);
-    return h;
+    // Delegates to terrain's own reconstruction rather than repeating it. This
+    // used to rebuild the lattice cell and blend height_at() at its corners --
+    // a second derivation of the surface that draws, which is the one thing
+    // this engine's collision rule forbids. The two agreed to 15 microns, so it
+    // was not wrong; it was a copy waiting to drift the first time the mesher
+    // changed its triangulation.
+    return mesh_height_at(seed_, x, z);
 }
 
 glm::vec3 TerrainCollider::normal(float x, float z) const {
-    const LatticeCell c = lattice_cell(x, z);
-    const TriWeights w = triangle_weights(c.u, c.v);
+    // FACE normal of the drawn triangle, not a blend of vertex normals.
+    //
+    // This is a real bug fixed, not a tidy-up. The blended version was the
+    // SHADING normal, and measured against the canonical face normal it was out
+    // by up to 1.02 -- for unit vectors, most of a right angle. The suspension
+    // builds its tyre axes from this, so contact was being resolved against a
+    // plane the geometry does not have, and the car never fully settled.
+    const glm::vec3 n = mesh_normal_at(seed_, x, z);
 
-    glm::vec3 n{0.0f};
-    if (w.wa != 0.0f) n += w.wa * normal_at(seed_, c.x0, c.z0);
-    if (w.wb != 0.0f) n += w.wb * normal_at(seed_, c.x1, c.z0);
-    if (w.wc != 0.0f) n += w.wc * normal_at(seed_, c.x0, c.z1);
-    if (w.wd != 0.0f) n += w.wd * normal_at(seed_, c.x1, c.z1);
-
-    // Blended vertex normals can only cancel if the surface folds back on
-    // itself, which a height field cannot do — but a caller passing a
-    // non-finite coordinate can still land here, and a NaN normal propagates
-    // straight into the tyre axes.
+    // A caller passing a non-finite coordinate still lands here, and a NaN
+    // normal propagates straight into the tyre axes.
     const float len = glm::length(n);
     if (!(len > 1e-6f)) return glm::vec3{0.0f, 1.0f, 0.0f};
     return n / len;

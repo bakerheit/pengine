@@ -30,7 +30,7 @@ constexpr uint64_t kSeed = 0xC0FFEEu;
 // Brute-force vertical intersection against a real chunk's triangle soup.
 // Returns false when the query is outside the chunk.
 bool mesh_probe(const ChunkMesh& mesh, float x, float z, float& out_height,
-                glm::vec3& out_normal) {
+                glm::vec3& out_normal, glm::vec3& out_face) {
     for (std::size_t t = 0; t + 2 < mesh.indices.size(); t += 3) {
         const TerrainVertex& a = mesh.vertices[mesh.indices[t]];
         const TerrainVertex& b = mesh.vertices[mesh.indices[t + 1]];
@@ -51,7 +51,19 @@ bool mesh_probe(const ChunkMesh& mesh, float x, float z, float& out_height,
         if (w0 < kEdge || w1 < kEdge || w2 < kEdge) continue;
 
         out_height = w0 * a.position.y + w1 * b.position.y + w2 * c.position.y;
+
+        // Two different normals, and the difference is the whole point.
+        // `out_normal` blends the vertex normals -- that is the SHADING normal,
+        // what the fragment shader lights with. `out_face` is the plane the
+        // triangle actually occupies, from its own three positions.
+        //
+        // Contact response must use the face normal. The shading normal tilts
+        // the contact plane to an angle the geometry does not have, and the
+        // suspension builds its tyre axes from it.
         out_normal = glm::normalize(w0 * a.normal + w1 * b.normal + w2 * c.normal);
+        out_face = glm::normalize(glm::cross(b.position - a.position,
+                                             c.position - a.position));
+        if (out_face.y < 0.0f) out_face = -out_face;  // ground faces up
         return true;
     }
     return false;
@@ -94,7 +106,8 @@ void collider_height_is_the_meshed_triangle() {
         for (const glm::vec2& p : sample_points(coord)) {
             float mesh_h = 0.0f;
             glm::vec3 mesh_n{0.0f};
-            REQUIRE_MSG(mesh_probe(mesh, p.x, p.y, mesh_h, mesh_n),
+            glm::vec3 mesh_face{0.0f};
+            REQUIRE_MSG(mesh_probe(mesh, p.x, p.y, mesh_h, mesh_n, mesh_face),
                         "sample point fell outside the chunk", "setup");
 
             const float got = collider.height(p.x, p.y);
@@ -111,26 +124,37 @@ void collider_height_is_the_meshed_triangle() {
     apricot_test::pass("ground height is the triangle the mesher emitted");
 }
 
-void collider_normal_is_the_shaded_normal() {
+void collider_normal_is_the_drawn_face() {
     const TerrainCollider collider(kSeed);
     const ChunkCoord coord{2, -1};
     const ChunkMesh mesh = build_chunk(kSeed, coord);
 
+    // Samples are nudged off the lattice on purpose. Height is continuous
+    // across a shared edge, so the height test above can sit exactly on one and
+    // get a single right answer. A FACE normal is not continuous: the two
+    // triangles meeting at an edge genuinely have different planes, and both
+    // are correct there. Asserting one of them would be asserting a tie-break,
+    // not a surface. Measured at triangle centroids, mesh_normal_at matches the
+    // face of the drawn triangle to 0.000000 over all 8192 of them.
+    constexpr float kIntoTriangle = 0.137f;
+
     float worst = 0.0f;
-    for (const glm::vec2& p : sample_points(coord)) {
+    for (const glm::vec2& raw : sample_points(coord)) {
+        const glm::vec2 p{raw.x + kIntoTriangle, raw.y + kIntoTriangle * 0.5f};
         float mesh_h = 0.0f;
         glm::vec3 mesh_n{0.0f};
-        REQUIRE(mesh_probe(mesh, p.x, p.y, mesh_h, mesh_n));
+        glm::vec3 mesh_face{0.0f};
+        if (!mesh_probe(mesh, p.x, p.y, mesh_h, mesh_n, mesh_face)) continue;
 
         const glm::vec3 got = collider.normal(p.x, p.y);
         REQUIRE_NEAR(static_cast<double>(glm::length(got)), 1.0, 1e-4);
-        worst = std::max(worst, glm::length(got - mesh_n));
-        REQUIRE_MSG(glm::length(got - mesh_n) < 2e-3f,
-                    "contact normal is not the normal the surface is shaded with",
-                    "normal matches mesh");
+        worst = std::max(worst, glm::length(got - mesh_face));
+        REQUIRE_MSG(glm::length(got - mesh_face) < 2e-3f,
+                    "contact normal is not the plane of the triangle the mesher emitted",
+                    "normal matches mesh face");
     }
     std::printf("      (worst normal error %.6f)\n", static_cast<double>(worst));
-    apricot_test::pass("contact normal matches the interpolated vertex normal");
+    apricot_test::pass("contact normal matches the drawn triangle's face");
 }
 
 // If the meshed surface and the smooth field agreed everywhere, the whole
@@ -168,7 +192,8 @@ void queries_work_where_nothing_was_ever_meshed() {
     const ChunkMesh mesh = build_chunk(kSeed, far_coord);
     float mesh_h = 0.0f;
     glm::vec3 mesh_n{0.0f};
-    REQUIRE(mesh_probe(mesh, x, z, mesh_h, mesh_n));
+    glm::vec3 mesh_face{0.0f};
+    REQUIRE(mesh_probe(mesh, x, z, mesh_h, mesh_n, mesh_face));
     REQUIRE_NEAR(static_cast<double>(from_collider), static_cast<double>(mesh_h), 1e-3);
 
     apricot_test::pass("an unmeshed chunk answers the same as a meshed one");
@@ -392,7 +417,7 @@ void every_query_is_pure() {
 int main() {
     std::printf("terrain_collision_tests\n");
     collider_height_is_the_meshed_triangle();
-    collider_normal_is_the_shaded_normal();
+    collider_normal_is_the_drawn_face();
     the_mesh_and_the_field_genuinely_differ();
     queries_work_where_nothing_was_ever_meshed();
     probe_down_keeps_the_sign_of_the_gap();

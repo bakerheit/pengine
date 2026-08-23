@@ -123,9 +123,18 @@ const char* daylight_name(Daylight d) {
 VehicleTuning conditioned_tuning(const VehicleTuning& base,
                                  const Conditions& c) {
     VehicleTuning out = base;
-    out.engine_force = base.engine_force * c.grip;
-    out.brake_force = base.brake_force * c.grip;
-    // Standing water drags on the wheels even where the tyres still bite.
+
+    // Grip is deliberately NOT applied here. It reaches the car through
+    // TerrainCollider::set_wetness() -> GroundHit::grip -> the tyre friction
+    // circle, per wheel and per surface. This function used to scale engine and
+    // brake force by c.grip as a stand-in, back when the vehicle step had a
+    // single engine_force. Doing both now would apply weather twice: once to
+    // the tyre that is actually sliding, and again to an engine that does not
+    // know what it is driving on. Call set_wetness(c.wetness) instead.
+    //
+    // Standing water still drags on the wheels where the tyres DO bite, and
+    // that is a separate effect from losing grip, so it stays.
+    out.grip_scale = base.grip_scale * c.grip;
     out.rolling_resistance = base.rolling_resistance * (1.0f + 0.35f * c.wetness);
     return out;
 }

@@ -120,20 +120,26 @@ void test_conditions_feed_the_grip_term() {
     dry.grip = 1.0f;
     dry.wetness = 0.0f;
     const VehicleTuning on_dry = conditioned_tuning(base, dry);
-    REQUIRE(on_dry.engine_force == base.engine_force);
-    REQUIRE(on_dry.brake_force == base.brake_force);
+    REQUIRE(on_dry.grip_scale == base.grip_scale);
     REQUIRE(on_dry.rolling_resistance == base.rolling_resistance);
 
     Conditions soaked;
     soaked.grip = 0.6f;
     soaked.wetness = 1.0f;
     const VehicleTuning on_wet = conditioned_tuning(base, soaked);
-    REQUIRE_MSG(on_wet.engine_force < base.engine_force,
-                "a wet track puts less power down", "grip");
-    REQUIRE_MSG(on_wet.brake_force < base.brake_force,
-                "a wet track stops worse", "grip");
+    REQUIRE_MSG(on_wet.grip_scale < base.grip_scale,
+                "a wet track gives the tyres less to work with", "grip");
     REQUIRE_MSG(on_wet.rolling_resistance > base.rolling_resistance,
                 "standing water drags", "grip");
+
+    // Weather reaches the car through the friction circle and NOWHERE else.
+    // This used to scale engine and brake force as a stand-in, back when the
+    // step had a single engine_force; with a real tyre model that applies the
+    // weather twice. Pinned here so it does not creep back.
+    REQUIRE_MSG(on_wet.engine_peak_torque == base.engine_peak_torque,
+                "weather does not reach into the engine", "grip");
+    REQUIRE_MSG(on_wet.brake_torque == base.brake_torque,
+                "weather does not reach into the brakes", "grip");
 
     // The rest of the setup is passed through untouched — this is a grip
     // term, not a second tuning file.

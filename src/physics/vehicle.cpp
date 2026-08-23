@@ -258,15 +258,36 @@ VehicleState spawn_vehicle(const VehicleTuning& tuning,
                            float yaw) {
     VehicleState s;
 
-    const float ground = collider.height(x, z);
-    const glm::vec3 n = collider.normal(x, z);
+    // Sample under all four wheels, not just under the centre.
+    //
+    // The drawn surface is FACETED -- piecewise-flat triangles -- so the four
+    // wheels routinely sit on different planes, and the centre sample belongs
+    // to none of them. Spawning from it drops the car in a pose no suspension
+    // is at rest in, and it settles with a visible twitch. Averaging the four
+    // contacts puts it where it is actually going to end up.
+    const glm::quat heading = glm::angleAxis(yaw, glm::vec3{0.0f, 1.0f, 0.0f});
+
+    float ground = 0.0f;
+    glm::vec3 n{0.0f};
+    for (int i = 0; i < kWheelCount; ++i) {
+        const glm::vec3 mount = heading * wheel_mount_local(tuning, i);
+        const float wx = x + mount.x;
+        const float wz = z + mount.z;
+        ground += collider.height(wx, wz);
+        n += collider.normal(wx, wz);
+    }
+    ground /= static_cast<float>(kWheelCount);
+
+    // Four face normals can only cancel on geometry a height field cannot make,
+    // but a degenerate sample must not produce a NaN body axis.
+    const float n_len = glm::length(n);
+    n = (n_len > kEpsilon) ? n / n_len : glm::vec3{0.0f, 1.0f, 0.0f};
 
     s.position = glm::vec3{x, ground + static_ride_height(tuning), z};
 
     // Yaw first, then tilt the whole thing onto the slope. Doing it the other
     // way round yaws about the SLOPE normal, so a car spawned facing north on
     // a hillside points somewhere else.
-    const glm::quat heading = glm::angleAxis(yaw, glm::vec3{0.0f, 1.0f, 0.0f});
     const glm::vec3 axis = glm::cross(glm::vec3{0.0f, 1.0f, 0.0f}, n);
     const float sin_tilt = glm::length(axis);
     if (sin_tilt > kEpsilon) {
@@ -454,7 +475,7 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
         c.grounded = true;
         c.point = hit.point;
         c.normal = hit.normal;
-        c.grip = hit.grip;
+        c.grip = hit.grip * tuning.grip_scale;
         c.rolling_scale = surface_rolling_scale(hit.material);
         c.suspension_length =
             clampf(susp_len, 0.0f, tuning.suspension_rest + tuning.suspension_travel);
