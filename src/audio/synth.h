@@ -184,9 +184,14 @@ PcmClip synth_lap_record_stinger(uint32_t sample_rate = kDefaultSampleRate);
 // because resampling drags the formants with the pitch. Real engine audio
 // stacks a handful of loops recorded at fixed revs and crossfades between the
 // two that bracket the current RPM; each layer is only ever stretched a little
-// way from where it was made, so the resonances stay put. Six anchors covers
-// idle-to-redline with no gap wider than a fifth.
-inline constexpr std::size_t kEngineLayerCount = 6;
+// way from where it was made, so the resonances stay put.
+//
+// Seven anchors, spaced tighter at the BOTTOM. An even split left a full
+// octave between idle and the next layer, which is both the widest stretch in
+// the set and the place a rally driver spends most of the stage — exactly
+// backwards. Fourteen short loops is under four seconds of PCM; it is not
+// worth being clever to save that.
+inline constexpr std::size_t kEngineLayerCount = 7;
 
 // Every sound in the game, generated once. Held by value and never mutated
 // after synth_bank() returns — the audio thread holds bare pointers into these

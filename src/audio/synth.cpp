@@ -270,7 +270,19 @@ PcmClip synth_engine_tone(float rpm, float load, float seconds,
     // Top-end rolloff. Wide open on the throttle, shut down on the overrun —
     // a trailing engine loses its rasp before it loses its volume, and getting
     // that backwards is why synthesised engines sound like vacuum cleaners.
-    const double fc_top = 900.0 + 5400.0 * t;
+    const double fc_top = 700.0 + 6300.0 * t;
+
+    // How fast the firing series decays with harmonic number, which is the
+    // REAL load control and the one a corner filter cannot fake.
+    //
+    // A brake-fired cylinder is a sharper pressure pulse than a coasting one,
+    // and a sharper pulse is a slower harmonic rolloff — that is the whole
+    // physics of it. 1/n^1.9 off the throttle is nearly a triangle wave, soft
+    // and hollow; 1/n^0.8 on it is brighter than a sawtooth and bites. Sweeping
+    // the exponent moves far more perceived energy than sweeping a corner
+    // frequency does, because it lifts EVERY harmonic rather than un-shelving
+    // the handful above the corner that were already inaudible.
+    const double series_exp = 1.90 - 1.10 * t;
 
     // Deterministic per-partial phase. Starting every partial at zero stacks
     // them into one enormous spike at sample 0, which the peak-normalise then
@@ -289,9 +301,9 @@ PcmClip synth_engine_tone(float rpm, float load, float seconds,
 
         double amp;
         if (m % m_fire == 0) {
-            // The firing order and its harmonics: a saw-like 1/n series, which
-            // is what a pressure pulse train actually looks like.
-            amp = 1.0 / static_cast<double>(m / m_fire);
+            // The firing order and its harmonics: a 1/n^k series, which is what
+            // a train of pressure pulses actually looks like. k is the load.
+            amp = 1.0 / std::pow(static_cast<double>(m / m_fire), series_exp);
         } else if (m % 2 == 0) {
             // Whole crank orders that are not firing orders — rotational
             // imbalance. Present, secondary.
@@ -328,12 +340,56 @@ PcmClip synth_engine_tone(float rpm, float load, float seconds,
     if (t < 0.4) {
         const double crackle = (0.4 - t) / 0.4;
         Noise pop_rng(0xC7ACC1Eull ^ static_cast<uint64_t>(std::llround(rpm)));
-        const int pops = 2;
+
+        // Level the pops AGAINST the harmonic content rather than against full
+        // scale. Measured, before this: the crackle was plainly audible in the
+        // envelope at 1500 rpm and had vanished into the harmonic stack by
+        // 3500, because a fixed absolute level competes with a tone whose own
+        // level varies enormously across the rev range. Referencing the tone's
+        // own RMS makes the burble equally present everywhere.
+        //
+        // The bed is normalised to a known peak FIRST so that reference is
+        // stable, and so the saturation stage below has a fixed operating
+        // point instead of one that drifts with the harmonic stack's crest.
+        double bed_peak = 1e-12;
+        for (const double v : acc) bed_peak = std::max(bed_peak, std::fabs(v));
+        const double bed_scale = 0.55 / bed_peak;
+        for (double& v : acc) v *= bed_scale;
+
+        double harmonic_sq = 0.0;
+        for (const double v : acc) harmonic_sq += v * v;
+        const double harmonic_rms =
+            std::sqrt(harmonic_sq / static_cast<double>(frames));
+
+        // A RATE, not a count. The buffer length changes with rpm (it is
+        // snapped to whole cycles), so a fixed number of pops per buffer means
+        // a fixed number per LOOP — which is a different burble speed at every
+        // anchor. Per second is the thing the ear is actually judging.
+        constexpr double kPopsPerSecond = 11.0;
+        const double duration = static_cast<double>(frames) / sr;
+        const int pops =
+            std::max(1, static_cast<int>(std::lround(kPopsPerSecond * duration)));
+
         for (int p = 0; p < pops; ++p) {
-            const double at = pop_rng.range(0.10, 0.70);
+            // Kept clear of both ends so every tail has fully decayed before
+            // the seam. The loop stays seamless by construction and the pops
+            // must not be the thing that breaks it.
+            const double at = pop_rng.range(0.04, 0.72);
             const double decay = pop_rng.range(120.0, 240.0);
             const double ring = pop_rng.range(220.0, 520.0);
-            const double level = crackle * pop_rng.range(0.35, 0.75);
+            const double level =
+                crackle * harmonic_rms * pop_rng.range(1.6, 3.4);
+
+            // BAND-LIMITED, and this was a real bug before it was a comment.
+            // A pop built from raw white noise is broadband, so a spectral
+            // measurement of the overrun came out BRIGHTER than full throttle —
+            // the exact opposite of the intent, and audible as a hiss on the
+            // trailing throttle rather than a burble. Exhaust pops are a slug
+            // of unburnt fuel going off in a big steel pipe; there is nothing
+            // above a couple of kHz in one.
+            OnePole pop_lp;
+            pop_lp.set(900.0, sr);
+
             const std::size_t n0 =
                 static_cast<std::size_t>(at * static_cast<double>(frames));
             for (std::size_t i = n0; i < frames; ++i) {
@@ -342,10 +398,22 @@ PcmClip synth_engine_tone(float rpm, float load, float seconds,
                 const double env = std::exp(-decay * dt);
                 if (env < 1e-4) break;
                 acc[i] += level * env *
-                          (0.6 * pop_rng.next() +
+                          (1.8 * pop_lp.lp(pop_rng.next()) +
                            0.4 * std::sin(kTwoPi * ring * dt));
             }
         }
+
+        // SATURATE, rather than letting the pops set the peak.
+        //
+        // Without this the loudest pop decides the normalising divisor and the
+        // engine note underneath it gets quieter as the crackle gets louder —
+        // measured, the overrun's RMS fell from 0.35 to 0.19 for exactly this
+        // reason. Which is backwards: a real exhaust pop does not make the
+        // engine quieter, it clips against the pipe. tanh at this drive leaves
+        // the bed almost untouched (it peaks at 0.55) and compresses only the
+        // transients on top, which is both the honest model and the result
+        // that keeps the note where it was.
+        for (double& v : acc) v = std::tanh(v);
     }
 
     clip.samples.resize(frames);
@@ -777,11 +845,12 @@ SfxBank synth_bank(uint32_t sample_rate, uint64_t seed) {
     SfxBank bank;
     bank.sample_rate = sample_rate;
 
-    // Anchors spaced so no adjacent pair is more than about a fifth apart. Each
-    // layer is therefore never stretched further than a couple of semitones
-    // from where it was made, which is the whole reason the formants survive.
+    // Anchors, tighter at the bottom than the top. No adjacent pair is more
+    // than a sixth apart, so no layer is ever stretched far from where it was
+    // made and the formants survive the resampler — which is the whole reason
+    // there is a bank rather than one loop.
     const std::array<float, kEngineLayerCount> anchors{
-        900.0f, 1800.0f, 2900.0f, 4100.0f, 5400.0f, 6800.0f};
+        900.0f, 1400.0f, 2100.0f, 2900.0f, 4100.0f, 5400.0f, 6800.0f};
     bank.engine_rpm = anchors;
 
     for (std::size_t i = 0; i < kEngineLayerCount; ++i) {

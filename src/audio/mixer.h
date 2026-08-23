@@ -171,7 +171,12 @@ struct StereoGain {
 inline StereoGain constant_power_pan(float pan) {
     const float p = std::clamp(pan, -1.0f, 1.0f);
     const float theta = (p + 1.0f) * 0.7853981634f;  // 0 .. pi/2
-    return StereoGain{std::cos(theta), std::sin(theta)};
+    // Clamped at zero because cos(pi/2) in float is about -4e-8, not 0. That is
+    // a NEGATIVE gain — an inverted channel — at hard right. Inaudible on its
+    // own, and exactly the sort of sign error that later cancels a correlated
+    // voice somewhere else in the mix and gets diagnosed as "the pan is broken".
+    return StereoGain{std::max(std::cos(theta), 0.0f),
+                      std::max(std::sin(theta), 0.0f)};
 }
 
 // Distance attenuation and stereo placement for a source, from the listener's

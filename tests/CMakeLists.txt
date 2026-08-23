@@ -22,3 +22,11 @@ endfunction()
 
 apricot_add_suite(rng_determinism_tests)
 apricot_add_suite(fixed_step_tests)
+
+# audio (PENG-8). All three link only apricot_sim: gain routing, PCM
+# generation and the whole render loop are device-free by construction, so
+# these measure real waveforms — spectra, zero crossings, seams — on a runner
+# with no sound card. tests/audio_analysis.h holds the measurement tools.
+apricot_add_suite(audio_mixer_tests)
+apricot_add_suite(audio_synth_tests)
+apricot_add_suite(audio_engine_tone_tests)
