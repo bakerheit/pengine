@@ -138,11 +138,20 @@ CarPose grid_pose(const Route& route, const VehicleTuning& tuning,
 // it owes next. Before the first gate is passed there is no "last gate", so
 // this is gate 0 itself.
 //
-// A pure function of the route — no collider — because Checkpoint::position.y
-// is already the terrain surface (game/route.h). That is worth keeping: it
-// makes a respawn's landing spot something a test can state exactly.
+// Takes the collider, and settles the car onto the slope through
+// spawn_vehicle() rather than dropping a dead-level chassis at ride height.
+//
+// This used to be collider-free on the grounds that Checkpoint::position.y is
+// already the surface. True of the gate's CENTRE — but the car is 4.1 m long,
+// gates sit on slopes up to ~29.5 degrees, and a level chassis buried its
+// downhill corner by 0.148 m, after which the ground guard threw it back out.
+// Every respawn on sloping ground hopped.
+//
+// Still exactly as testable: TerrainCollider is a pure function of its seed, so
+// the landing spot is still something a test can state.
 CarPose respawn_pose(const Route& route, int next_checkpoint, bool lap_started,
-                     const VehicleTuning& tuning);
+                     const VehicleTuning& tuning,
+                     const TerrainCollider& collider);
 
 // Rewind a state to the start of a tape, ready to be fed by rally_replay_step.
 // Turns recording OFF — a playback that re-records itself is a tape that grows

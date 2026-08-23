@@ -151,8 +151,35 @@ CarPose grid_pose(const Route& route, const VehicleTuning& tuning,
     return pose;
 }
 
+// Settle a pose onto the terrain the way a spawn does.
+//
+// A gate's own position.y IS the surface, but the car is 4.1 m long and 1.7 m
+// wide and a gate may sit on a 29.5 degree slope. Placing a dead-level chassis
+// at ride height above the CENTRE buries its downhill corner -- measured at
+// 0.148 m -- and the last-resort ground guard then catapults the car out
+// (+0.159 m and +0.43 m/s in a single step). Every respawn on sloping ground
+// hopped.
+//
+// spawn_vehicle() already solves exactly this: it averages the ground under all
+// four wheels and tilts the body onto the slope. This is still a pure function
+// of (route, seed) -- TerrainCollider is itself pure -- so a test can state the
+// landing spot exactly, which is what the no-collider rule was protecting.
+CarPose grounded_pose(const glm::vec3& at, const glm::quat& orientation,
+                      const VehicleTuning& tuning,
+                      const TerrainCollider& collider) {
+    const glm::vec3 fwd = orientation * glm::vec3{0.0f, 0.0f, -1.0f};
+    const float yaw = std::atan2(-fwd.x, -fwd.z);
+    const VehicleState settled =
+        spawn_vehicle(tuning, collider, at.x, at.z, yaw);
+    CarPose pose;
+    pose.position = settled.position;
+    pose.orientation = settled.orientation;
+    return pose;
+}
+
 CarPose respawn_pose(const Route& route, int next_checkpoint, bool lap_started,
-                     const VehicleTuning& tuning) {
+                     const VehicleTuning& tuning,
+                     const TerrainCollider& collider) {
     CarPose pose;
     const int count = static_cast<int>(route.checkpoints.size());
     if (count == 0) return pose;
@@ -160,10 +187,8 @@ CarPose respawn_pose(const Route& route, int next_checkpoint, bool lap_started,
     // Nothing has been passed yet, so there is no gate to go back to.
     if (!lap_started && next_checkpoint == 0) {
         const Checkpoint& start = route.checkpoints.front();
-        pose.position = start.position;
-        pose.position.y += ride_height(tuning);
-        pose.orientation = facing(start.forward);
-        return pose;
+        return grounded_pose(start.position, facing(start.forward), tuning,
+                             collider);
     }
 
     const int owed = (next_checkpoint < 0 || next_checkpoint >= count)
@@ -172,10 +197,6 @@ CarPose respawn_pose(const Route& route, int next_checkpoint, bool lap_started,
     const int last = (owed - 1 + count) % count;
 
     const Checkpoint& gate = route.checkpoints[static_cast<std::size_t>(last)];
-    // Checkpoint::position.y is the surface by construction (game/route.h), so
-    // this needs no collider and stays a pure function of the route.
-    pose.position = gate.position;
-    pose.position.y += ride_height(tuning);
 
     // Aimed at the gate that is actually owed, not along the gate's own
     // forward: after a spin on a hairpin those differ by half the corner, and
@@ -183,9 +204,10 @@ CarPose respawn_pose(const Route& route, int next_checkpoint, bool lap_started,
     const glm::vec3 target =
         route.checkpoints[static_cast<std::size_t>(owed)].position;
     const glm::vec3 to_next = target - gate.position;
-    pose.orientation = (glm::dot(to_next, to_next) > 1e-6f) ? facing(to_next)
-                                                            : facing(gate.forward);
-    return pose;
+    const glm::quat aim = (glm::dot(to_next, to_next) > 1e-6f)
+                              ? facing(to_next)
+                              : facing(gate.forward);
+    return grounded_pose(gate.position, aim, tuning, collider);
 }
 
 void rally_reset(RallyState& state, const Route& route,
@@ -232,8 +254,9 @@ void step_rally(RallyState& state, const InputFrame& input,
     // outside step_rally would be invisible to the tape, and the ghost would
     // carry serenely on into the tree the player just teleported away from.
     if (was_pressed(input, kBtnRespawn) && !state.route.checkpoints.empty()) {
-        const CarPose pose = respawn_pose(state.route, state.next_checkpoint,
-                                          state.timing.lap_started, state.tuning);
+        const CarPose pose =
+            respawn_pose(state.route, state.next_checkpoint,
+                         state.timing.lap_started, state.tuning, collider);
         state.car.position = pose.position;
         state.car.orientation = pose.orientation;
         state.car.velocity = glm::vec3{0.0f};

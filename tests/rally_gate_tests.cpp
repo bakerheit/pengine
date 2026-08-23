@@ -305,11 +305,26 @@ void test_respawn_returns_to_the_last_gate_with_the_clock_running() {
 
     REQUIRE(w.rally.events.respawned);
 
-    const CarPose expect = respawn_pose(w.route, 3, true, w.rally.tuning);
+    const CarPose expect = respawn_pose(w.route, 3, true, w.rally.tuning, w.collider);
 
-    // The car is put back exactly on gate 2 — the last one it passed.
-    REQUIRE(w.rally.car.position.x == expect.position.x);
-    REQUIRE(w.rally.car.position.z == expect.position.z);
+    // The car is put back on gate 2 — the last one it passed.
+    //
+    // Not `==` any more. step_rally applies the respawn as an input effect and
+    // then INTEGRATES that same step, so the car has one step of real motion on
+    // it by the time we look. That was invisible while step_vehicle was a stub;
+    // with PENG-7's dynamics it is a few millimetres of settling. The claim
+    // being made is "put back on the gate", and a millimetre band says that
+    // just as strictly as an exact compare did, without asserting that physics
+    // does not happen.
+    const float placed_dx = std::fabs(w.rally.car.position.x - expect.position.x);
+    const float placed_dz = std::fabs(w.rally.car.position.z - expect.position.z);
+    std::printf("      (respawn landed %.5f m / %.5f m from the pose, after one "
+                "integrated step)\n",
+                static_cast<double>(placed_dx), static_cast<double>(placed_dz));
+    REQUIRE_NEAR(static_cast<double>(w.rally.car.position.x),
+                 static_cast<double>(expect.position.x), 1e-3);
+    REQUIRE_NEAR(static_cast<double>(w.rally.car.position.z),
+                 static_cast<double>(expect.position.z), 1e-3);
     REQUIRE_NEAR(static_cast<double>(w.rally.car.position.y),
                  static_cast<double>(expect.position.y), 1e-4);
     REQUIRE_NEAR(static_cast<double>(w.gate(2).position.x),
@@ -321,7 +336,14 @@ void test_respawn_returns_to_the_last_gate_with_the_clock_running() {
     glm::vec3 want = w.gate(3).position - w.gate(2).position;
     want.y = 0.0f;
     want = glm::normalize(want);
-    const glm::vec3 got = tf.forward();
+    // Compare the HEADING, not the full forward vector. respawn_pose now tilts
+    // the car onto the slope it lands on (see rally.h), so on a sloping gate its
+    // forward legitimately has a vertical component and can never dot to 1.0
+    // against a horizontal target. What is being claimed is "pointed at the next
+    // gate", which is a question about heading.
+    glm::vec3 got = tf.forward();
+    got.y = 0.0f;
+    got = glm::normalize(got);
     REQUIRE_NEAR(static_cast<double>(glm::dot(got, want)), 1.0, 1e-5);
 
     // The clock kept running, by exactly one step and no more.
@@ -350,9 +372,13 @@ void test_respawn_before_the_first_gate_goes_to_the_line() {
     respawn.pressed = kBtnRespawn;
     step_rally(w.rally, respawn, w.collider, kDt);
 
-    const CarPose expect = respawn_pose(w.route, 0, false, w.rally.tuning);
-    REQUIRE(w.rally.car.position.x == expect.position.x);
-    REQUIRE(w.rally.car.position.z == expect.position.z);
+    const CarPose expect = respawn_pose(w.route, 0, false, w.rally.tuning, w.collider);
+    // Banded, not exact, for the same reason as the case above: step_rally
+    // integrates the step it respawned on, and the car has real dynamics now.
+    REQUIRE_NEAR(static_cast<double>(w.rally.car.position.x),
+                 static_cast<double>(expect.position.x), 1e-3);
+    REQUIRE_NEAR(static_cast<double>(w.rally.car.position.z),
+                 static_cast<double>(expect.position.z), 1e-3);
     REQUIRE_NEAR(static_cast<double>(expect.position.x),
                  static_cast<double>(w.gate(0).position.x), 1e-6);
     REQUIRE(!w.rally.timing.lap_started);
