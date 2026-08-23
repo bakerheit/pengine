@@ -10,16 +10,16 @@
 // the tape has to reproduce is a genuine integration over the height field and
 // not a scripted path.
 //
-// HONEST LIMIT, stated once here rather than buried: physics/vehicle.h's step
-// is an acknowledged placeholder — it integrates gravity and rests the chassis
-// on the terrain, and throttle does nothing. So the recorded run is a coasting
-// car, and it crosses the start line and travels on rather than completing
-// three laps. What that DOES exercise is the whole determinism chain: the same
-// step function, the same conditioned tuning, the same weather keyed to the
-// same absolute step, the same gate sweep, the same clock. When the vehicle
-// dynamics ticket lands, this suite starts covering a driven lap without a
-// line of it changing. The negative controls below exist so that this suite
-// cannot pass by accident in the meantime.
+// HONEST LIMIT, stated once here rather than buried: the recorded run is a
+// DRIVEN run over two gates, not a completed three-lap race. PENG-7's
+// step_vehicle and PENG-6's terrain are both real now, so the car under
+// recording accelerates, steers, loads its tyres and crosses the start line
+// and the gate beyond it under its own power. What it does not do is finish
+// the route inside kRecordSteps. What it DOES exercise is the whole
+// determinism chain: the same step function, the same conditioned tuning, the
+// same weather keyed to the same absolute step, the same gate sweep, the same
+// clock — over a trajectory that a real integrator produced. The negative
+// controls below exist so that this suite cannot pass by accident.
 
 #include <cmath>
 #include <cstdio>
@@ -52,6 +52,44 @@ constexpr int kRecordSteps = 2000;
 // motion and early enough that the replay has to reproduce the aftermath.
 constexpr int kRespawnStep = 1750;
 
+// --- how the recording is driven --------------------------------------------
+// Every one of these was measured, not guessed; the measurement is with the
+// constant because a tuning number without its evidence is a number the next
+// person changes for free.
+
+// How far behind gate 0 the recording starts, in metres. Deliberately the same
+// setback the game's own grid uses (kGridSetback in game/rally.cpp).
+//
+// It was 120 m, and long run-ups are a trap: the launch point is EXTRAPOLATED
+// backwards off the route, so every extra metre is a metre outside the corridor
+// build_route() guaranteed is drivable. On kSeed the ground under the launch
+// point falls from 8.0 m at 25 m back to 3.0 m at 120 m back, and sea level is
+// y = 0 — another few dozen metres of "safety margin" would have spawned the
+// car in the water.
+constexpr float kLaunchSetback = 25.0f;
+
+// The shove down the chord, m/s. Enough to save a few seconds of standing
+// start, not enough to matter: the car is on its own throttle by gate 0.
+constexpr float kLaunchSpeed = 12.0f;
+
+// What the recording driver asks for on a straight, and through a turn, m/s.
+//
+// NOT flat out. This tuning will carry the car past 40 m/s and at 40 m/s over
+// PENG-6 terrain it takes off on the first crest and lands on its roof —
+// measured 827 of 2000 steps inverted, sliding through gate 1 upside down.
+// That still satisfies every assertion below, which is the worst kind of
+// green. Governed to these speeds the same run keeps four wheels down: 5% of
+// steps airborne, 1% inverted, no rollover.
+constexpr float kDriveSpeed = 15.0f;
+constexpr float kCornerSpeed = 12.0f;
+
+// Yaw error past which the driver treats it as a turn and slows down, radians.
+constexpr float kCornerYawError = 0.35f;
+
+// Proportional gain from yaw error to stick. Anywhere in 1.2..1.6 records the
+// same two gates within a handful of steps; the run is not balanced on it.
+constexpr float kSteerGain = 1.2f;
+
 // A deterministic pile of stick movement. Keyed by hash rather than pulled
 // from a stream, so frame N is the same whether or not frames 0..N-1 were
 // asked for — the rule core/rng.h sets out.
@@ -81,6 +119,15 @@ InputFrame scripted_input(uint64_t seed, int step) {
 // top at reduced amplitude. The tape is still a plain InputFrame stream and the
 // replay still runs open-loop off it; only the RECORDING is closed-loop, which
 // is precisely how a real ghost lap is captured.
+//
+// THE SIGN OF THE GAIN IS LOAD-BEARING and it was wrong. `err` is positive when
+// the gate lies to the car's RIGHT, and positive steer puts the wheels there
+// too — physics/vehicle.cpp builds the steered wheel direction as
+// forward*cos(steer_angle) + right*sin(steer_angle). So the gain is POSITIVE.
+// Negated it is not a sloppy controller, it is a diverging one: the measured
+// yaw error ran 0.00 -> 0.31 -> 0.93 -> 2.17 -> 2.71 rad with the wheel pinned
+// on full lock the whole way, and the recorded run missed gate 0 by 24 m —
+// through the plane, outside the posts.
 InputFrame driving_input(const RallyState& rally, uint64_t seed, int step) {
     InputFrame f = scripted_input(seed, step);
 
@@ -99,13 +146,24 @@ InputFrame driving_input(const RallyState& rally, uint64_t seed, int step) {
         const float sin_err = flat_fwd.x * to_gate.z - flat_fwd.z * to_gate.x;
         const float cos_err = glm::dot(flat_fwd, to_gate);
         const float err = std::atan2(sin_err, cos_err);
-        f.steer = glm::clamp(-err * 1.6f + 0.12f * f.steer, -1.0f, 1.0f);
-        f.throttle = (cos_err > 0.3f) ? 0.85f : 0.45f;
-        f.brake = 0.0f;
+        f.steer = glm::clamp(err * kSteerGain + 0.12f * f.steer, -1.0f, 1.0f);
+
+        // Governed to a target speed rather than held at a throttle opening.
+        // A throttle number is a request; a speed is a promise, and the car
+        // only stays on its wheels if somebody makes the second one.
+        const float speed = glm::length(rally.car.velocity);
+        const float want =
+            (std::fabs(err) > kCornerYawError) ? kCornerSpeed : kDriveSpeed;
+        f.throttle = (speed < want) ? 0.85f : 0.0f;
+        f.brake = (speed > want + 4.0f) ? 0.45f : 0.0f;
     }
     return f;
 }
 
+// EVERY field, not the ones that were there when this was written. A comparison
+// that skips a field is not a weaker test, it is a test that reports green
+// about the field it skipped — and the fields most likely to be skipped are
+// exactly the ones a module just added.
 bool same_wheel(const WheelState& a, const WheelState& b) {
     return a.contact_point.x == b.contact_point.x &&
            a.contact_point.y == b.contact_point.y &&
@@ -114,6 +172,8 @@ bool same_wheel(const WheelState& a, const WheelState& b) {
            a.contact_normal.y == b.contact_normal.y &&
            a.contact_normal.z == b.contact_normal.z &&
            a.suspension_length == b.suspension_length && a.spin == b.spin &&
+           a.angular_velocity == b.angular_velocity &&
+           a.normal_force == b.normal_force && a.slip == b.slip &&
            a.grounded == b.grounded;
 }
 
@@ -141,6 +201,8 @@ bool same_vehicle(const VehicleState& a, const VehicleState& b) {
     if (a.steer_angle != b.steer_angle) return false;
     if (a.engine_rpm != b.engine_rpm) return false;
     if (a.gear != b.gear) return false;
+    if (a.shift_timer != b.shift_timer) return false;
+    if (a.recovery_timer != b.recovery_timer) return false;
     for (int i = 0; i < kWheelCount; ++i) {
         const std::size_t w = static_cast<std::size_t>(i);
         if (!same_wheel(a.wheels[w], b.wheels[w])) return false;
@@ -179,8 +241,9 @@ Recording record_a_run(uint64_t seed, const TerrainCollider& collider) {
     // consequence of step_vehicle from that point on.
     //
     // Aimed down the chord from gate 0 to gate 1 rather than along gate 0's
-    // own facing, so the coast threads both lines: the replay then has to
-    // reproduce an arming crossing AND a split, not just the one.
+    // own facing, so the car is already pointed at the second gate as it cuts
+    // the first: the replay then has to reproduce an arming crossing AND a
+    // split, not just the one.
     const Checkpoint& start = rec.route.checkpoints[0];
     const Checkpoint& second = rec.route.checkpoints[1];
     glm::vec3 aim = second.position - start.position;
@@ -189,14 +252,25 @@ Recording record_a_run(uint64_t seed, const TerrainCollider& collider) {
 
     // Put it on the GROUND at the new spot, not at gate 0's altitude.
     //
-    // This used to keep start.position.y while moving 120 m away, which on real
-    // terrain (PENG-6) leaves the car buried in a hill or dropped from height:
-    // no wheel ever touches, so throttle does nothing and the run coasted at
-    // its initial shove and crossed no gates.
-    const glm::vec3 launch = start.position - aim * 120.0f;
+    // This used to keep start.position.y while moving away from the line, which
+    // on real terrain (PENG-6) leaves the car buried in a hill or dropped from
+    // height: no wheel ever touches, so throttle does nothing and the run
+    // coasted at its initial shove and crossed no gates.
+    const glm::vec3 launch = start.position - aim * kLaunchSetback;
+
+    // The yaw that makes the car FACE `aim`. Transform::forward() is
+    // rotation * (0, 0, -1), so a yaw of theta about +Y points the car at
+    // (-sin theta, 0, -cos theta) — hence the two negations. Identical
+    // derivation to facing() in game/rally.cpp, and worth writing out twice,
+    // because with the negations left off the car spawns pointing exactly
+    // backwards: measured dot(vehicle_forward, aim) = -0.988, and the run
+    // reversed away from the start line at 44 m/s under full throttle while a
+    // yaw error of pi radians gave the controller nothing to turn against.
+    const float launch_yaw = std::atan2(-aim.x, -aim.z);
+
     rally.car = spawn_vehicle(rally.tuning, collider, launch.x, launch.z,
-                              std::atan2(aim.x, aim.z));
-    rally.car.velocity = aim * 45.0f;  // 162 km/h
+                              launch_yaw);
+    rally.car.velocity = aim * kLaunchSpeed;
     rally.last_car_position = rally.car.position;
 
     for (int i = 0; i < kRecordSteps; ++i) {
@@ -380,15 +454,14 @@ void test_a_different_world_gives_a_different_drive() {
 }
 
 void test_the_tape_is_actually_consumed() {
-    // The other negative control, and the one that matters most while the
-    // vehicle step is a placeholder.
+    // The other negative control: changing one byte of the tape changes the
+    // state that comes out, so the tape is genuinely being read rather than
+    // the replay re-deriving the drive from the seed.
     //
-    // Today that step reads input.steer (and nothing else) — steer_angle is
-    // rate-limited toward it, which is real code, while throttle and brake do
-    // not move the car at all. So a perturbed tape CANNOT be expected to move
-    // the car yet, and asserting that it did would be asserting a fiction.
-    // What can be asserted, and is, is that changing one byte of the tape
-    // changes the state that comes out: the tape is genuinely being read.
+    // It asserts on steer_angle rather than position because steer_angle is
+    // the field the altered byte reaches FIRST and unconditionally — one step
+    // later, and with no dependence on whether the car happened to have a
+    // wheel on the ground at frame 5.
     const TerrainCollider collider(kSeed);
     const Recording rec = record_a_run(kSeed, collider);
 
