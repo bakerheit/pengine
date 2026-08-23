@@ -17,7 +17,6 @@
 // is measured against the 99.9th percentile of the buffer's own interior steps.
 
 #include <cstdio>
-#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -92,6 +91,31 @@ void the_reference_tone_is_exact() {
 
     std::printf("      (1 kHz reference measures %.2f Hz)\n", f0);
     pass("the reference tone is exact and rejects nonsense input");
+}
+
+void the_crank_frequency_entry_point_still_works() {
+    // synth_engine_loop() takes CRANK Hz rather than rpm and is the older,
+    // more primitive spelling. It is kept because it is a published signature,
+    // and an untested compatibility entry point is exactly how one quietly
+    // stops meaning what it says.
+    for (const float crank_hz : {15.0f, 50.0f, 100.0f}) {
+        const PcmClip c = synth_engine_loop(crank_hz, 0.4f, kRate);
+        const float rpm = crank_hz * 60.0f;
+        check_playable("synth_engine_loop", c);
+        check_loop_seam("synth_engine_loop", c);
+
+        // Crank Hz x 60 must land on the same note as the rpm form.
+        const double expect = static_cast<double>(engine_firing_hz(rpm, 4));
+        const double measured =
+            estimate_f0(c.samples, kRate, expect * 0.35, expect * 3.0);
+        REQUIRE_MSG(std::fabs(100.0 * (measured - expect) / expect) < 0.5,
+                    "the crank-frequency form disagrees with the rpm form",
+                    "compatibility");
+    }
+    REQUIRE(synth_engine_loop(0.0f, 0.4f, kRate).samples.empty());
+    REQUIRE(synth_engine_loop(50.0f, 0.0f, kRate).samples.empty());
+    REQUIRE(synth_engine_loop(-10.0f, 0.4f, kRate).samples.empty());
+    pass("the crank-frequency entry point agrees with the rpm form");
 }
 
 void every_clip_in_the_bank_is_playable() {
@@ -474,6 +498,7 @@ void a_real_wav_replaces_the_synthesised_clip() {
 int main() {
     std::printf("audio_synth_tests\n");
     the_reference_tone_is_exact();
+    the_crank_frequency_entry_point_still_works();
     every_clip_in_the_bank_is_playable();
     the_bank_is_deterministic();
     surfaces_sound_different_from_each_other();
