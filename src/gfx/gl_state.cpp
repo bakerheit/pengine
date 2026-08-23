@@ -2,6 +2,8 @@
 
 #include <array>
 
+#include "core/log.h"
+
 namespace apricot::gl_state {
 namespace {
 
@@ -39,9 +41,23 @@ bool buffer_slot(GLenum target, std::size_t& out) {
 }  // namespace
 
 void bind_texture(GLuint unit, GLuint texture) {
-    if (unit >= kMaxTextureUnits) return;
+    if (unit >= kMaxTextureUnits) {
+        // Loud, not silent. Returning quietly here leaves the sampler pointing
+        // at whatever was on that unit before, which renders as "the wrong
+        // texture" rather than "an error", and nobody ever finds it.
+        AP_ERROR("gl_state: texture unit %u is out of range (max %zu); "
+                 "texture %u NOT bound",
+                 unit, kMaxTextureUnits - 1, texture);
+        return;
+    }
     Cache& c = cache();
 
+    // The active_unit half of this test is NOT redundant and is not a missed
+    // optimisation. It buys a guarantee callers depend on: when this function
+    // skips, the GL active texture unit IS `unit` and `texture` IS bound to it,
+    // so an immediately following glTexImage2D / glTexParameteri lands on the
+    // intended object. Drop it and Texture::upload starts writing pixels into
+    // whatever texture happened to be active.
     if (c.textures[unit] == texture && c.active_unit == unit) {
         ++c.skipped;
         return;
