@@ -20,6 +20,11 @@ namespace apricot {
 //   * the mesher wants blend weights per vertex   -> classify_surface()
 // Both go through the same classifier, so the surface the tyres grip is by
 // construction the surface the shader draws.
+//
+// That second sentence was aspirational until PENG-40. physics had its own
+// classifier and called it instead, and the two named a different material
+// 40.85% of the time across the home basin. TerrainCollider::material() now
+// calls surface_kind_at() and nothing else does the job twice.
 
 // ORDER IS PART OF THE CONTRACT. It is the component order of
 // SurfaceSample::weights and of the per-vertex material weights the renderer
@@ -38,21 +43,18 @@ inline constexpr std::size_t surface_index(Surface s) {
     return static_cast<std::size_t>(s);
 }
 
-// Per-material physical properties.
+// Per-material properties this module owns.
 //
-// These live here rather than in physics because they describe the MATERIAL,
-// not the vehicle: a second vehicle with different tyres scales these, it does
-// not redefine them. Physics reads them through surface_properties().
+// It used to carry `grip` and `rolling_resistance` as well, and physics
+// carried its own copy of both in a table that DISAGREED — rock was 0.95 here
+// and 1.15 there. Nothing outside a test ever read the pair here, so they were
+// two sources of truth for the car's handling of which only one was ever
+// consulted. They are gone; physics/surface.h has the only grip table, keyed
+// by this enum. See PENG-40.
+//
+// What is left is what terrain genuinely owns: how the ground *looks*, and
+// what grows on it.
 struct SurfaceProperties {
-    // Tyre friction multiplier. 1.0 is the reference dry-hard-surface figure
-    // the vehicle model is tuned against; everything here is below it because
-    // there is no tarmac on this island.
-    float grip;
-
-    // Fraction of forward speed bled off per second by the surface itself,
-    // independent of braking. Sand is a bog; rock is not.
-    float rolling_resistance;
-
     // Relative prop density, consumed by scatter. 1.0 is "as dense as this
     // material ever gets"; 0 would be bare. Lives with the material because
     // "what grows here" is a property of the ground, not of the tree.

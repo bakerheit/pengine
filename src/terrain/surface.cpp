@@ -42,15 +42,13 @@ constexpr int kBandVariationOctaves = 3;
 }  // namespace
 
 const SurfaceProperties& surface_properties(Surface s) {
-    // Immutable table, so this is a constant, not global mutable state. Grip
-    // figures are relative to the vehicle model's reference of 1.0; nothing on
-    // this island reaches it, because nothing on this island is tarmac.
+    // Immutable table, so this is a constant, not global mutable state.
     static constexpr SurfaceProperties kTable[kSurfaceCount] = {
-        //  grip  rolling  scatter
-        {0.95f, 0.010f, 0.05f},  // Rock   - hard and sharp; bites, but no crags grow trees
-        {0.72f, 0.030f, 0.25f},  // Gravel - the classic rally surface, loose over hard
-        {0.60f, 0.045f, 1.00f},  // Grass  - greasy, and where everything grows
-        {0.45f, 0.090f, 0.10f},  // Sand   - drags the car down and holds almost nothing
+        //  scatter
+        {0.05f},  // Rock   - no crags grow trees
+        {0.25f},  // Gravel - scree holds the odd scrub
+        {1.00f},  // Grass  - where everything grows
+        {0.10f},  // Sand   - a beach holds almost nothing
     };
     const std::size_t i = surface_index(s);
     return kTable[i < kSurfaceCount ? i : surface_index(Surface::Grass)];

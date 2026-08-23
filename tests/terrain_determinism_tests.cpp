@@ -22,6 +22,7 @@
 #include <cstring>
 #include <vector>
 
+#include "physics/surface.h"
 #include "terrain/chunk.h"
 #include "terrain/heightmap.h"
 #include "terrain/scatter.h"
@@ -414,24 +415,39 @@ void beaches_are_at_the_water_line_and_cliffs_are_rock() {
 }
 
 void surface_properties_are_sane() {
+    // THIS FUNCTION IS ALSO THE ODR PROOF. It reads terrain/surface.h and
+    // physics/surface.h in one translation unit, which until PENG-40 did not
+    // compile: both headers defined a different struct called
+    // apricot::SurfaceProperties. physics' is now `TyreSurface`, and there is
+    // one material enum -- terrain's `Surface` -- keying both tables.
+    //
+    // Grip used to be a column in BOTH tables, and they disagreed: rock was
+    // 0.95 here and 1.15 in physics. terrain's copy had no caller outside this
+    // test, so the number the car actually felt was always physics'. The
+    // duplicate column is gone; the ordering claim now interrogates the
+    // surviving table, which is the one that was always in force.
+    //
     // Grip must be ordered rock > gravel > grass > sand, because the whole
     // point of having four surfaces is that the car behaves differently on
     // them. If two are equal the material is decoration.
-    const float g_rock = surface_properties(Surface::Rock).grip;
-    const float g_gravel = surface_properties(Surface::Gravel).grip;
-    const float g_grass = surface_properties(Surface::Grass).grip;
-    const float g_sand = surface_properties(Surface::Sand).grip;
+    const float g_rock = surface_grip(Surface::Rock, 0.0f);
+    const float g_gravel = surface_grip(Surface::Gravel, 0.0f);
+    const float g_grass = surface_grip(Surface::Grass, 0.0f);
+    const float g_sand = surface_grip(Surface::Sand, 0.0f);
     REQUIRE(g_rock > g_gravel);
     REQUIRE(g_gravel > g_grass);
     REQUIRE(g_grass > g_sand);
 
     // And rolling resistance must run the other way.
-    REQUIRE(surface_properties(Surface::Rock).rolling_resistance <
-            surface_properties(Surface::Sand).rolling_resistance);
+    REQUIRE(surface_rolling_scale(Surface::Rock) <
+            surface_rolling_scale(Surface::Sand));
 
     for (std::size_t m = 0; m < kSurfaceCount; ++m) {
         const Surface s = static_cast<Surface>(m);
-        REQUIRE_MSG(surface_properties(s).grip > 0.0f, "non-positive grip",
+        REQUIRE_MSG(surface_grip(s, 0.0f) > 0.0f, "non-positive grip",
+                    surface_name(s));
+        REQUIRE_MSG(surface_grip(s, 1.0f) < surface_grip(s, 0.0f),
+                    "a surface grips at least as well soaked as it does dry",
                     surface_name(s));
         REQUIRE_MSG(surface_properties(s).scatter_density >= 0.0f,
                     "negative scatter density", surface_name(s));

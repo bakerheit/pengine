@@ -542,14 +542,14 @@ void low_grip_takes_longer_to_stop() {
     AABB stage;
     stage.expand(glm::vec3{x - 1200.0f, -2000.0f, z - 1200.0f});
     stage.expand(glm::vec3{x + 1200.0f, 2000.0f, z + 1200.0f});
-    rock.paint_surface(stage, SurfaceMaterial::kRock);
+    rock.paint_surface(stage, Surface::Rock);
 
     TerrainCollider gravel(kSeed);
-    gravel.paint_surface(stage, SurfaceMaterial::kGravel);
+    gravel.paint_surface(stage, Surface::Gravel);
     TerrainCollider sand(kSeed);
-    sand.paint_surface(stage, SurfaceMaterial::kSand);
+    sand.paint_surface(stage, Surface::Sand);
     TerrainCollider soaked(kSeed);
-    soaked.paint_surface(stage, SurfaceMaterial::kRock);
+    soaked.paint_surface(stage, Surface::Rock);
     soaked.set_wetness(1.0f);
 
     // Build the entry state on rock so all four runs start identically.
@@ -987,7 +987,7 @@ void props_are_solid() {
     AABB wall;
     wall.expand(glm::vec3{x - 30.0f, collider.height(x, wall_z) - 2.0f, wall_z - 1.5f});
     wall.expand(glm::vec3{x + 30.0f, collider.height(x, wall_z) + 3.0f, wall_z + 1.5f});
-    collider.add_static_box(wall, SurfaceMaterial::kRock);
+    collider.add_static_box(wall, Surface::Rock);
 
     VehicleState s = spawn_vehicle(tuning, collider, x, z, 0.0f);
     InputFrame gas;

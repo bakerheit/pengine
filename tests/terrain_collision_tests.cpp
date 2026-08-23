@@ -237,7 +237,7 @@ void props_are_found_by_a_downward_probe() {
     AABB crate;
     crate.expand(glm::vec3{x - 2.0f, ground, z - 2.0f});
     crate.expand(glm::vec3{x + 2.0f, ground + 1.5f, z + 2.0f});
-    collider.add_static_box(crate, SurfaceMaterial::kRock);
+    collider.add_static_box(crate, Surface::Rock);
     REQUIRE(collider.static_boxes().size() == 1u);
 
     // Directly above: the box top wins.
@@ -292,7 +292,7 @@ void raycast_finds_terrain_and_props() {
     AABB wall;
     wall.expand(hit.point + glm::vec3{-4.0f, 0.5f, -4.0f});
     wall.expand(hit.point + glm::vec3{4.0f, 6.0f, 4.0f});
-    collider.add_static_box(wall, SurfaceMaterial::kRock);
+    collider.add_static_box(wall, Surface::Rock);
 
     const TerrainCollider::GroundHit blocked =
         collider.raycast(origin, glm::vec3{0.6f, -1.0f, 0.35f}, 200.0f);
@@ -314,10 +314,10 @@ void raycast_finds_terrain_and_props() {
 void surfaces_vary_and_grip_follows_them() {
     TerrainCollider collider(kSeed);
 
-    int seen[kSurfaceMaterialCount] = {0, 0, 0, 0};
+    int seen[kSurfaceCount] = {0, 0, 0, 0};
     for (int i = -60; i <= 60; ++i) {
         for (int j = -60; j <= 60; ++j) {
-            const SurfaceMaterial m = collider.material(static_cast<float>(i) * 9.0f,
+            const Surface m = collider.material(static_cast<float>(i) * 9.0f,
                                                         static_cast<float>(j) * 9.0f);
             ++seen[static_cast<std::size_t>(m)];
         }
@@ -334,18 +334,18 @@ void surfaces_vary_and_grip_follows_them() {
                 seen[2], seen[3]);
 
     // The ordering the tyre model depends on.
-    REQUIRE(surface_grip(SurfaceMaterial::kRock, 0.0f) >
-            surface_grip(SurfaceMaterial::kGravel, 0.0f));
-    REQUIRE(surface_grip(SurfaceMaterial::kGravel, 0.0f) >
-            surface_grip(SurfaceMaterial::kGrass, 0.0f));
-    REQUIRE(surface_grip(SurfaceMaterial::kGrass, 0.0f) >
-            surface_grip(SurfaceMaterial::kSand, 0.0f));
+    REQUIRE(surface_grip(Surface::Rock, 0.0f) >
+            surface_grip(Surface::Gravel, 0.0f));
+    REQUIRE(surface_grip(Surface::Gravel, 0.0f) >
+            surface_grip(Surface::Grass, 0.0f));
+    REQUIRE(surface_grip(Surface::Grass, 0.0f) >
+            surface_grip(Surface::Sand, 0.0f));
 
     // Rain takes grip away everywhere. No exceptions: a material that gripped
     // BETTER wet would make "it is slippery in the rain" false a quarter of the
     // time, which is worse than a small inaccuracy.
-    for (std::size_t i = 0; i < kSurfaceMaterialCount; ++i) {
-        const SurfaceMaterial m = static_cast<SurfaceMaterial>(i);
+    for (std::size_t i = 0; i < kSurfaceCount; ++i) {
+        const Surface m = static_cast<Surface>(i);
         REQUIRE_MSG(surface_grip(m, 1.0f) < surface_grip(m, 0.0f),
                     "a surface grips at least as well soaked as it does dry",
                     "rain always costs grip");
@@ -369,17 +369,17 @@ void painted_regions_override_the_classifier() {
     AABB wide;
     wide.expand(glm::vec3{x - 50.0f, -500.0f, z - 50.0f});
     wide.expand(glm::vec3{x + 50.0f, 500.0f, z + 50.0f});
-    collider.paint_surface(wide, SurfaceMaterial::kGravel);
-    REQUIRE(collider.material(x, z) == SurfaceMaterial::kGravel);
+    collider.paint_surface(wide, Surface::Gravel);
+    REQUIRE(collider.material(x, z) == Surface::Gravel);
 
     AABB patch;
     patch.expand(glm::vec3{x - 5.0f, -500.0f, z - 5.0f});
     patch.expand(glm::vec3{x + 5.0f, 500.0f, z + 5.0f});
-    collider.paint_surface(patch, SurfaceMaterial::kSand);
-    REQUIRE_MSG(collider.material(x, z) == SurfaceMaterial::kSand,
+    collider.paint_surface(patch, Surface::Sand);
+    REQUIRE_MSG(collider.material(x, z) == Surface::Sand,
                 "a patch painted on top of a wider region lost to it",
                 "last paint wins");
-    REQUIRE(collider.material(x + 20.0f, z) == SurfaceMaterial::kGravel);
+    REQUIRE(collider.material(x + 20.0f, z) == Surface::Gravel);
 
     // Painting is XZ only, so the height of the ground under it is irrelevant.
     REQUIRE(collider.material(x, z) ==
@@ -387,8 +387,8 @@ void painted_regions_override_the_classifier() {
                 .material);
 
     collider.clear_surface_paint();
-    REQUIRE(collider.material(x + 20.0f, z) != SurfaceMaterial::kGravel ||
-            collider.material(x, z) != SurfaceMaterial::kSand);
+    REQUIRE(collider.material(x + 20.0f, z) != Surface::Gravel ||
+            collider.material(x, z) != Surface::Sand);
 
     apricot_test::pass("painted stage sections override the classifier");
 }
