@@ -29,10 +29,14 @@ constexpr int kBoxCount = 1400;
 // distance cull's cutoff hides behind atmosphere instead of popping.
 constexpr float kRenderDistance = 700.0f;
 
-// One in-game day per this many seconds of SIM time at sky_speed == 1. Short
-// enough that the sun visibly moves while you watch, which is the only way to
-// tell the sky pass is live rather than a painted backdrop.
-constexpr float kSecondsPerDay = 240.0f;
+// Day length is NOT defined here. `game/conditions.h` owns it, because the same
+// number drives weather, grip and the light the sky pass computes — and two
+// copies of one constant are two numbers that eventually disagree. This file
+// used to declare its own 240 s day; when the conditions system landed the two
+// collided at the merge, which is the cheap way to find out.
+//
+// The demo wants a faster sun than a real session does, so `sky_speed` carries
+// that instead. See its default in `overlay.h`.
 
 // Chase camera placement, in the car's own frame.
 constexpr float kCamBack = 9.0f;
@@ -227,7 +231,8 @@ void App::render() {
     const float sim_seconds =
         static_cast<float>(static_cast<double>(rally_.step_index) * kSimDt);
     const float time_of_day =
-        0.28f + sim_seconds * controls_.sky_speed / kSecondsPerDay;
+        0.28f + sim_seconds * controls_.sky_speed /
+                    static_cast<float>(kSecondsPerDay);
 
     WeatherParams weather;
     weather.rain = controls_.rain;

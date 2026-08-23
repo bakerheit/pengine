@@ -73,8 +73,13 @@ struct Controls {
     float overcast = 0.0f;
     float fog = 0.0f;
 
-    // Sky clock, in in-game days per real minute of SIM time. Zero freezes it.
-    float sky_speed = 1.0f;
+    // Multiplier on `game/conditions.h`'s `kSecondsPerDay`. Zero freezes the sky.
+    //
+    // Defaults to 5 so the demo runs a 240 s day against the game's 1200 s one:
+    // short enough that the sun visibly moves while you watch, which is the only
+    // way to tell the sky pass is live rather than a painted backdrop. A real
+    // session wants 1.
+    float sky_speed = 5.0f;
 };
 
 // Build and render the overlay. Call after the 3D pass, before the swap.
