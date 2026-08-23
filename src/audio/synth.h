@@ -220,11 +220,16 @@ struct SfxBank {
     PcmClip lap_record;
 };
 
-// Generate the whole bank. Deterministic: same seed, same samples, on every
-// platform and every run — the noise beds come from core/rng.h, never from
-// std::rand or anything clocked.
-SfxBank synth_bank(uint32_t sample_rate = kDefaultSampleRate,
-                   uint64_t seed = 0xA0D10C0DEull);
+// Generate the whole bank. FULLY DETERMINISTIC: identical samples on every
+// platform and every run, because the noise beds come from core/rng.h keyed on
+// fixed constants, never from std::rand and never from anything clocked.
+//
+// There is deliberately no seed parameter. A per-run bank would buy a little
+// variety and cost the one property that makes an audio bug reportable —
+// "it sounds wrong on my machine" has to be answerable by generating the same
+// bytes here. Variety belongs in how the clips are PLAYED, which is what the
+// *_mix() functions and the per-voice pitch and filter are for.
+SfxBank synth_bank(uint32_t sample_rate = kDefaultSampleRate);
 
 // ---------------------------------------------------------------------------
 //  Per-frame parameter maps

@@ -839,9 +839,7 @@ PcmClip synth_lap_record_stinger(uint32_t sample_rate) {
 //  The bank
 // ---------------------------------------------------------------------------
 
-SfxBank synth_bank(uint32_t sample_rate, uint64_t seed) {
-    (void)seed;  // reserved: every generator is keyed off its own fixed stream
-
+SfxBank synth_bank(uint32_t sample_rate) {
     SfxBank bank;
     bank.sample_rate = sample_rate;
 
