@@ -592,6 +592,53 @@ void there_is_one_paved_way_up_ferrone_hill() {
     apricot_test::pass("one paved way up Ferrone Hill, and one unpaved way off");
 }
 
+// THE PREMIER ROADBLOCK SITE, PROVED ON THE GROUND.
+//
+// city_map_tests.cpp does this for the Camber channel, where a Grade composed
+// after a Carve reconnects exactly one 35 m strip. The Kessel Channel is the
+// opposite claim and needs its own check: Route 1 runs to the water on BOTH
+// banks with a 27 m corridor and a 30 m feather, and the only thing stopping
+// those two corridors from meeting in the middle and quietly deleting the
+// island's best chokepoint is that the bridge between them is DECKED and a
+// decked road may never shape the ground.
+//
+// That rule is a compile-time error in roads.h. This is the measurement that
+// says the rule is doing what it was written for.
+void the_kessel_bridge_is_the_only_crossing() {
+    auto column_is_dry = [](float x) {
+        for (float z = -1500.0f; z <= -1100.0f; z += 5.0f) {
+            if (height_at(kMapSeed, x, z) <= kSeaLevelMetres) return false;
+        }
+        return true;
+    };
+
+    int bridges = 0;
+    bool prev = false;
+    for (float x = -2600.0f; x <= 400.0f; x += 5.0f) {
+        const bool dry = column_is_dry(x);
+        if (dry && !prev) ++bridges;
+        prev = dry;
+    }
+    // Read the deck out of the table rather than repeating it here, or this
+    // line becomes a number that used to be true.
+    const Road* deck = nullptr;
+    for (int i = 0; i < kRoadCount; ++i) {
+        if (kRoads[i].id == 2) deck = &kRoads[i];
+    }
+    REQUIRE_MSG(deck != nullptr, "the Kessel Bridge is gone from the table",
+                "Kessel Channel");
+    std::printf("\n  Kessel Channel: %d land bridge(s) across it; the Kessel "
+                "Bridge is a %.0f m deck at %.0f m above the water\n",
+                bridges, static_cast<double>(deck->length_m()),
+                static_cast<double>(deck->deck_y_m));
+    REQUIRE_MSG(bridges == 0,
+                "something has filled in the Kessel Channel, so the Kessel "
+                "Bridge is no longer the only way across and blocking it costs "
+                "a pursuit nothing",
+                "Kessel Channel");
+    apricot_test::pass("the Kessel Bridge is the only crossing of the channel");
+}
+
 void nickel_heights_punishes_panic() {
     const Built& b = built();
     int dead_ends = 0;
@@ -1113,6 +1160,7 @@ int main() {
     vellum_row_is_a_grid_of_four_way_junctions();
     the_strand_has_no_turnoffs();
     there_is_one_paved_way_up_ferrone_hill();
+    the_kessel_bridge_is_the_only_crossing();
     nickel_heights_punishes_panic();
     no_road_runs_through_the_sea();
     authored_heights_match_the_ground_they_claim();
