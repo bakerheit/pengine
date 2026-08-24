@@ -331,20 +331,47 @@ loading stays ahead of the player and the latency is invisible.
 budget that exists is `max_instances_per_step` (384), denominated in scene nodes
 rather than chunks precisely because a wooded chunk and a bare rock chunk do not
 cost the same, and a chunk that exhausts the budget half way is **carried** to
-the next step and resumes at the prop it stopped on. `max_chunk_builds_per_step`
-(2) bounds meshing separately, because meshing is a different resource.
+the next step and resumes at the prop it stopped on.
 
-Terrain LOD will break this again: with LOD a chunk's *vertex* cost also stops
-being constant, and `docs/design/pinatty.md` §7.1 argues the budget then needs a
-second denomination. That part is still ahead. The part this note claimed was
-missing is not.
+**The second denomination landed with LOD (PENG-27), and it had to.** A chunk's
+*mesh* cost stopped being constant too: level 0 is 4096 quads and level 3 is 64,
+so "two chunks a step" is either 8192 quads or 128 depending on where the player
+is looking. `max_build_quads_per_step` (4096) and `max_chunk_builds_per_step`
+(16) both apply and the tighter wins. The count is generous because the quad
+budget is the one that bounds work — at a count of 2 the shipping config's 2796
+level 3 chunks need 1400 steps and a teleport leaves the horizon empty for
+twenty seconds.
+
+**4096 is one level 0 chunk, and that number came from a measurement rather than
+from arithmetic.** It was 8192 first, on the reasoning that two chunks a step is
+a modest ask. In the running app that was 6.0–6.5 ms of meshing per frame for
+two hundred frames of far-ring fill — a third of a 60 Hz frame spent on terrain
+a kilometre away. Halving it made a full step ≈2.5 ms *at every level*, and took
+frames over a 4 ms streaming budget from hundreds to one in fifteen hundred.
+That uniformity across levels is the property a count-only budget can never
+give.
 
 **Evict in bulk.** Tearing a cell down one removal at a time is O(cell × world)
 and freezes the frame on every crossing; sweep each container once instead.
 
 *Status in apricot:* done, inside the streamer. `evict()` ends in
-`scene.remove_many()` (`src/terrain/streamer.cpp:203`), which is the single
-sweep this rule asks for.
+`scene.remove_many()`, which is the single sweep this rule asks for.
+
+**Eviction has a GPU half, and it did not exist until PENG-27/PENG-28.** Nodes
+came out of the scene and the chunk meshes stayed in the renderer's table
+forever, because that table was append-only by design — a recycled `MeshId`
+aliasing a live node is a bug that points at nothing. Streaming removed the
+option, so the aliasing was made *unrepresentable* instead: a `MeshId` is now
+`slot | generation` and a handle held across a free resolves to `nullptr`,
+draws nothing, and logs. `Streamer::take_released_meshes()` drains the ids the
+host must free — from eviction, from a level change, **and from a dropped
+delivery**, which is the subtle one: the host has already uploaded that mesh and
+nothing else knows it exists.
+
+**A level change is a refit, not a rebuild.** The terrain node is re-pointed at
+the new mesh in place, so the chunk is on screen at its old level right up to
+the frame it is on screen at its new one. Destroying and recreating it would put
+a chunk-sized hole under the player for the length of the activation.
 
 An earlier version of this paragraph described a `pending_evictions()` /
 `mark_evicted()` handshake that the streamer would expose for someone else to
@@ -374,8 +401,30 @@ camera position produce the same load order. The eviction list is sorted too,
 because `unordered_set` iteration order is not guaranteed and a nondeterministic
 eviction order is a nondeterministic test.
 
+**Fill before you resume.** A cold start and a mission teleport both drop a
+camera into a world with nothing around it. Without an explicit fill path the
+player gets a frame of void and then the hitch of the world arriving, which
+`docs/design/pinatty.md` §7.1 calls a blocker in a way steady-state streaming is
+not. `StepMode::Fill` spends no budget and plans only `prime_radius`, so the
+loop is *bounded* — an unbudgeted full-radius plan is not a fix for a hitch, it
+is a longer one. Measured: 68.5 ms in 2 steps on a cold start, 73–78 ms on a
+teleport, spent before the frame clock starts so `FixedStep` is never handed the
+bill.
+
+**`ready()` measures levels about the position it is handed, not about the last
+planned centre**, and that distinction cost a debugging session. `centre_` only
+moves when `plan()` runs, so between a camera jump and the next step it still
+describes the world the player *left*; asked about the destination it reports
+every chunk already at the level it wants, because relative to the old centre it
+is. The teleport then filled zero chunks and resumed on whatever coarse ground
+was lying around. **The symptom was shaped like success** — "filled in 0 steps,
+0.0 ms" — because a fill that never runs and a fill that is very fast print the
+same number. The test that catches it warps *inside* the already-loaded radius,
+where nothing needs loading and everything needs refitting; a test aimed at the
+far side of the island passes either way.
+
 **Generated chunks never touch disk.** A chunk is a pure function of
-`(seed, coord)`, so regenerating is cheaper and safer than caching — and a
+`(seed, coord, lod)`, so regenerating is cheaper and safer than caching — and a
 cached file on disk silently outranks a code change. Caching generated cells to
 disk once flooded pengine's working tree with hundreds of phantom files.
 
@@ -421,6 +470,49 @@ absolute world coordinates and carry a shared closing row (65 vertices per
 coordinate and the seam closes exactly rather than approximately. If a seam
 appears, something stopped being pure; averaging hides that and keeps the
 cause.
+
+**LOD reopened that seam, and the rule survived it intact.** A chunk at level
+`L` samples every `1 << L`-th point of the *same global lattice*, at absolute
+world coordinates, so a coarse chunk's vertices are a strict subset of the fine
+chunk's and agree with them **bit for bit**. Nothing is filtered or decimated —
+a coarse chunk asks the same pure function fewer questions. Two chunks at the
+same level therefore still close exactly, exactly as before.
+
+Two chunks at *different* levels do not share every coordinate along their
+common edge, and there the crack is real. It is covered by a **skirt**: a
+vertical curtain dropped from the perimeter vertices the chunk already has. It
+*adds* geometry and modifies none, which is what keeps the rule above literal
+rather than merely respected. A stitched transition row was considered and
+rejected: it closes the crack exactly and costs the purity, because
+`build_chunk()` would take its four neighbours' levels as arguments and every
+chunk on a ring boundary would need a full rebuild whenever a *neighbour*
+changed ring.
+
+**Skirt depth is measured, and getting the measurement right mattered more than
+the safety factor.** Measuring the relief between *adjacent* perimeter vertices
+is wrong in one direction, and not the obvious one: a level 0 chunk has 1 m
+steps so its skirt came out short, but what it has to hide is a level 3
+neighbour's 8 m chord. The *fine* side is the side that cracks. Measuring
+relief over the coarsest neighbour's cell width fixed it and let the factor drop
+from 3.0 to 1.5 while coverage improved. `tests/terrain_lod_tests.cpp` prints
+the margin left at every level pairing over real terrain rather than asserting
+a skirt merely exists — worst crack 1.803 m against a thinnest margin of
+1.247 m.
+
+**Anything else draped on the terrain now has a range.** Road ribbons, props and
+decals are placed on the *level 0* drawn surface via `mesh_height_at()`. Where
+the ground under them is drawn coarser they are no longer the same surface, by a
+measured amount: mean 0.025 m and worst 1.221 m at level 1, mean 0.258 m and
+worst 6.130 m at level 3. That is the same "what you touch is what draws" rule
+with a second consumer, and the answer is a draw distance, not a tolerance.
+
+**Collision never comes from a coarsened mesh.** `build_chunk_collision()`
+refuses a `lod > 0` mesh outright and says so, and it reads only the ground
+index span so a vertical skirt face cannot enter a set whose whole contract is
+that normals point up. The streamer holds the chunks the player can touch at
+level 0 — including the four *diagonal* neighbours, which a radius of 1 leaves
+out because ring membership is a circular test and their squared distance is 2.
+A car near a chunk corner has wheels there.
 
 ---
 

@@ -21,8 +21,8 @@ keeps what those paid for and deliberately changes three things; see
 > design.
 
 > **Status: 0.1.0, early.** The architecture is settled and enforced by the
-> build. What runs today is an engine and a demo scene, not a game. This README
-> says which is which, and never the other way round.
+> build. What runs today is an engine and a streamed procedural world, not a
+> game. This README says which is which, and never the other way round.
 
 ## The three ideas
 
@@ -73,39 +73,58 @@ apricot 0.1.0
   --log FILE      also append the log to FILE
   --frames N      render N frames, print a summary, then exit
   --no-instancing start on the naive per-node draw path
+  --warp-every N  teleport across the island every N frames
+  --road-probe    bake a probe road at the origin (instrumentation)
   --version       print the version and exit
   --help          this text
 ```
 
 **What you get today.** A window with a GL 3.3+ core context, the fixed-step loop
-at 120 Hz, a drivable car on procedural terrain under a moving sky, and a debug
-overlay. There is no game on top of it: the world is a demo scene — a displaced
-ground plane and 1400 boxes — built to prove the renderer batches, and it is
-marked for deletion in `src/app/demo_scene.h`.
+at 120 Hz, a drivable car on **streamed procedural terrain** under a moving sky,
+and a debug overlay. The terrain loads and unloads around the car in four
+level-of-detail rings out to 2.3 km, with props scattered on the near two.
+
+There is still no game on top of it, and two things are stand-in *models* rather
+than stand-in systems: the car is a red box and a tree is three boxes, because
+the engine has no model loader and no asset on disk. The car it steers like and
+the places the trees grow are both real. The 420 m disc and 1400 boxes that used
+to be here were deleted in PENG-27.
 
 `--frames N` runs the whole thing with nobody at the keyboard and reports what
 it drew, which is how the numbers below were produced rather than remembered:
 
 ```
-$ ./build/bin/apricot --frames 1200
+$ ./build/bin/apricot --frames 1500
 GL 4.1 core (Apple M5), window 2560x1440 drawable
-shader 'shaders/lit_instanced.vert + shaders/lit.frag' linked
-shader 'shaders/sky.vert + shaders/sky.frag' linked
-shader 'shaders/precip.vert + shaders/precip.frag' linked
-shader 'shaders/hud.vert + shaders/hud.frag' linked
-hud: 384x144 procedural glyph atlas, 95 glyphs, no font files
-demo scene: 1402 nodes (1400 boxes over 420 m, 5 materials)
-quit after 213 sim steps (1.77 s of sim time), 1200 frames
-last frame: 364 visible nodes, 5 batches (3 instanced), 5 draw calls,
-            364 instances, longest run 128, 11 binds skipped
-last frame: hud 50 quads in 1 draw(s), rain 1050 drops / 1050 quads
+world: seed 0xA5EED0FFC0FFEE11, rings 4/10/20/36 chunks
+       (256/640/1280/2304 m), scatter to level 1
+cold fill: 2 steps, 68.5 ms, 29 chunks, 8.9 MB of terrain
+quit after 681 sim steps (5.67 s of sim time), 1500 frames
+last frame: 3118 visible nodes, 8 batches (7 instanced), 1124 draw calls,
+            3118 instances, longest run 474, 2244 binds skipped
+terrain: 4053 chunks resident (lod 49 / 268 / 940 / 2796), 4061 meshes,
+         79.6 MB of vertex data
+costs: cull 0.457 ms (peak 1.014), meshing 0.05 ms (peak 4.53),
+       last fill 68.5 ms in 2 steps
+streaming spikes over 4.0 ms: 1 of 1500 frames
 GL error queue clean for the whole session
 ```
 
-Five draw calls for 364 visible nodes is the batching working; press `F7` (or
-pass `--no-instancing`) to watch that collapse to one draw per node. What is
-deliberately *not* there — no transparency pass, no shadows, no shader
-hot-reload — is listed in [`src/gfx/README.md`](src/gfx/README.md).
+The 79.6 MB is the point of the LOD rings: those same 4053 chunks at full detail
+would be 1.30 GB. One run of 474 instances collapsing into a single draw is the
+batching working on the scattered props; press `F7` (or pass `--no-instancing`)
+to watch that collapse to one draw per node. The terrain chunks each carry a
+unique mesh and so are one draw each by construction — that is what most of the
+1124 is.
+
+`--warp-every N` teleports across the island on a timer, which is how the
+fill-before-resume path gets exercised without a human remembering to press
+`F8`. Thirteen warps in one run: every one filled in 2 steps and 73–78 ms and
+resumed on full-detail ground, with resident memory flat at 67–89 MB.
+
+What is deliberately *not* there — no transparency pass, no shadows, no shader
+hot-reload, no terrain splat shader — is listed in
+[`src/gfx/README.md`](src/gfx/README.md).
 
 ### Tests
 
@@ -130,6 +149,7 @@ are here.
 | `Space` | handbrake (analogue) | **yes** — shrinks rear grip, breaks the back loose |
 | `LShift` / `LCtrl` | shift up / down | **yes** — manual gearbox, with a shift cooldown |
 | `F7` | toggle instancing | **yes** — the batching A/B, handled outside `InputFrame` on purpose |
+| `F8` | teleport across the island | **yes** — evicts the world, refills the near ring before resuming. Outside `InputFrame` for the same reason as `F7` |
 | `Esc`, `Ctrl+Q`, `Cmd+Q` | quit | **yes** |
 | `R` | respawn | mapped and latched into the tape; **nothing consumes it.** The rally's `step_rally` used to, and went with it |
 | `C` | cycle camera | mapped, not consumed. The camera is a fixed chase cam |
@@ -163,8 +183,10 @@ src/
   scene/         node storage, world transforms, frustum + distance culling,
                  draw-batch planning. Plans draws, never issues them.
                                                             -> apricot_sim
-  terrain/       the height field (a pure function, not a file), chunk
-                 meshing, and the residency streamer.       -> apricot_sim
+  terrain/       the height field (a pure function, not a file), chunk meshing
+                 at four levels of detail with skirts, and the residency
+                 streamer that decides which chunks exist, at what level, and
+                 when to let go of them.                    -> apricot_sim
   road/          authored spines -> a planar road graph, a ribbon bake that
                  emits PLAIN vertex arrays and owns no GPU resource, and the
                  lane graph traffic and police drive on.    -> apricot_sim
@@ -192,10 +214,13 @@ src/
   platform/      the window, the GL context, and the translation of raw device
                  events into InputFrame.                    -> apricot_host
   gfx/           the only code in the engine allowed to call GL: the bind
-                 cache, shaders, meshes, camera.            -> apricot_host
+                 cache, shaders, meshes, camera, and the upload seam for
+                 road/'s ribbon bake.                       -> apricot_host
                  (see src/gfx/README.md)
-  app/           the frame loop and the debug overlay. Wiring only; it holds
-                 the program's ONE wall clock.              -> apricot (exe)
+  app/           the frame loop, the debug overlay, and world.{h,cpp} -- the
+                 host half of streaming: build, upload, deliver, free. Wiring
+                 only; it holds the program's ONE wall clock.
+                                                            -> apricot (exe)
   main.cpp       argument parsing and not much else.
 
 assets/shaders/          GLSL. The only shipped asset files in the tree.

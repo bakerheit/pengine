@@ -189,8 +189,10 @@ Tickets live on the **coregoo** board (project `PENG`).
   a rule someone will delete.
 - `src/<mod>/README.md` — module docs, co-located with the code, **only where a
   module has genuinely non-obvious structure**. Today: `src/audio/` (the one
-  split module) and `src/gfx/` (the bind-cache invariant, and what is still a
-  stub). **Docs are earned, not scaffolded — no empty shells.**
+  split module), `src/gfx/` (the bind-cache invariant, the mesh generation tag,
+  and what is still a stub), `src/terrain/` (what happens when a chunk changes
+  level of detail, which spans four files and no header owns), `src/city/` and
+  `src/road/`. **Docs are earned, not scaffolded — no empty shells.**
 - `README.md` — what the engine is, how to build and run it, the repo map, and
   an honest account of what is and is not working yet.
 
