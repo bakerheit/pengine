@@ -31,7 +31,7 @@ SIM_DIRS=(
     src/road
     src/city
     src/physics
-    src/game)
+    src/game
     src/traffic
 )
 
