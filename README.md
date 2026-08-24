@@ -112,14 +112,16 @@ streaming spikes over 4.0 ms: 2 of 1500 frames
 GL error queue clean for the whole session
 ```
 
-1500 frames in 6.28 s wall is **4.2 ms a frame** at 2560×1440 with vsync off.
+1500 frames in 6.3–6.7 s wall is **4.2–4.5 ms a frame** at 2560×1440 with vsync
+off (the spread is run-to-run on the same binary, not a range across machines).
 
 The 79.6 MB is the point of the LOD rings: those same 4053 chunks at full detail
 would be 1.30 GB. One run of 896 instances collapsing into a single draw is the
 batching working on the scattered props; press `F7` (or pass `--no-instancing`)
-to watch that collapse to one draw per node — 4672 draws instead of 1070, and
-the frame time roughly doubles. Terrain chunks each carry a unique mesh and so
-are one draw each by construction, which is most of that 1070.
+to watch that collapse to one draw per node: 4672 draws instead of 1070, and the
+same 1500 frames take 14.8 s instead of 6.7 s. Terrain chunks each carry a
+unique mesh and so are one draw each by construction, which is most of that
+1070.
 
 The two spikes are both on the first budgeted frame after a fill and are the
 process committing pages as it grows from 8.9 MB toward 80 MB; removing the
