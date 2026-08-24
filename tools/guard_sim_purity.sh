@@ -28,6 +28,7 @@ SIM_DIRS=(
     src/core
     src/scene
     src/terrain
+    src/road
     src/physics
     src/game
 )
