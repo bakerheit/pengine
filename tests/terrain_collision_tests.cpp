@@ -19,6 +19,7 @@
 #include "physics/terrain_collider.h"
 #include "terrain/chunk.h"
 #include "terrain/heightmap.h"
+#include "terrain/surface.h"
 #include "test_assert.h"
 
 using namespace apricot;
@@ -361,6 +362,89 @@ void surfaces_vary_and_grip_follows_them() {
     apricot_test::pass("materials vary across the world and rain costs grip");
 }
 
+// THE PIN FOR PENG-40. The collider must not have an opinion about materials.
+//
+// It used to. physics/terrain_collider.cpp carried its own classify_surface()
+// -- a hard cutoff on normal.y plus a patch-noise coin flip -- while the mesher
+// splatted with terrain's smooth cascade. Measured over 11,559 land samples in
+// the home basin across three seeds, the two named a DIFFERENT material 40.85%
+// of the time (44.90% island-wide), and physics never returned sand ANYWHERE,
+// because its sand test was an altitude 27 m below sea level. Every beach in
+// the game gripped like grass.
+//
+// This is the materials half of the rule height()/normal() already answer to:
+// collision derives from the geometry that draws. So the number this test holds
+// at zero is a DISAGREEMENT COUNT, not a tolerance. A re-derivation smuggled
+// back into physics shows up here on its first run, rather than as "that gravel
+// section grips like tarmac" three months from now.
+void the_collider_never_classifies_for_itself() {
+    constexpr uint64_t kSeeds[3] = {0xC0FFEEu, 0x0A9C0DE7EA5Eull, 0x9911ull};
+
+    long samples = 0;
+    long disagreements = 0;
+    long seen[kSurfaceCount] = {0, 0, 0, 0};
+
+    for (const uint64_t seed : kSeeds) {
+        const TerrainCollider collider(seed);
+        // Out to +/-1410 m, which is past kIslandRadiusMetres: the sweep has to
+        // reach the COAST or it never sees a beach, and "physics cannot produce
+        // sand" was the loudest symptom of the bug this test pins. An odd pitch
+        // so the lattice cannot alias with a band or noise wavelength in the
+        // classifier and accidentally sample one material.
+        for (int j = -30; j <= 30; ++j) {
+            for (int i = -30; i <= 30; ++i) {
+                const float x = static_cast<float>(i) * 47.0f;
+                const float z = static_cast<float>(j) * 47.0f;
+
+                const Surface from_collider = collider.material(x, z);
+                const Surface from_terrain = surface_kind_at(seed, x, z);
+                ++samples;
+                ++seen[surface_index(from_collider)];
+                if (from_collider != from_terrain) ++disagreements;
+
+                // And the grip carried on a probe hit is the grip of that same
+                // material, or a wheel and a query disagree about the ground
+                // they are both standing on.
+                const TerrainCollider::GroundHit hit = collider.probe_down(
+                    glm::vec3{x, collider.height(x, z) + 1.0f, z}, 5.0f);
+                REQUIRE_MSG(hit.material == from_terrain,
+                            "probe_down reported a different material from the "
+                            "terrain classifier",
+                            "probe agrees");
+                REQUIRE_MSG(hit.grip == surface_grip(from_terrain, 0.0f),
+                            "the grip carried on a hit is not this material's grip",
+                            "grip agrees");
+            }
+        }
+    }
+
+    std::printf("      (%ld samples, %ld disagreements with terrain = %.6f%%)\n",
+                samples, disagreements,
+                100.0 * static_cast<double>(disagreements) /
+                    static_cast<double>(samples));
+    // The sweep is the whole island BOX, so most of it is sea floor and the
+    // sand count is dominated by it. That is not a claim about how much beach
+    // the island has -- it is only here so "sand: 0" cannot pass unnoticed.
+    std::printf("      (collider saw rock %ld, gravel %ld, grass %ld, sand %ld "
+                "-- whole island incl. sea floor)\n",
+                seen[0], seen[1], seen[2], seen[3]);
+
+    REQUIRE_MSG(samples > 10000, "not enough ground sampled to mean anything",
+                "test would be vacuous");
+    REQUIRE_MSG(disagreements == 0,
+                "the collider classified the ground differently from the mesher",
+                "one classifier, not two");
+    // The old bug had a signature: physics could not produce sand at all. If
+    // sand goes back to zero across three seeds and eleven thousand samples,
+    // something has been re-derived.
+    REQUIRE_MSG(seen[surface_index(Surface::Sand)] > 0,
+                "no sample anywhere was sand -- physics has stopped seeing "
+                "beaches again",
+                "beaches exist");
+
+    apricot_test::pass("the collider asks terrain what the ground is");
+}
+
 void painted_regions_override_the_classifier() {
     TerrainCollider collider(kSeed);
     const float x = 100.0f;
@@ -424,6 +508,7 @@ int main() {
     props_are_found_by_a_downward_probe();
     raycast_finds_terrain_and_props();
     surfaces_vary_and_grip_follows_them();
+    the_collider_never_classifies_for_itself();
     painted_regions_override_the_classifier();
     every_query_is_pure();
     return apricot_test::done("terrain_collision_tests");

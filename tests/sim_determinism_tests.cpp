@@ -47,17 +47,25 @@
 #include "physics/vehicle.h"
 #include "terrain/chunk.h"
 #include "terrain/heightmap.h"
+#include "terrain/scatter.h"
+#include "terrain/surface.h"
 #include "test_assert.h"
 
-// NOT INCLUDED, AND IT IS NOT AN OVERSIGHT: terrain/surface.h and
-// terrain/scatter.h. src/terrain/surface.h and src/physics/surface.h each
-// define a DIFFERENT struct called apricot::SurfaceProperties, so the two
-// headers cannot appear in one translation unit — and physics/surface.h
-// arrives here through terrain_collider.h, which this suite cannot do without.
-// Prop scatter's bit-identity is therefore pinned in
-// tests/terrain_determinism_tests.cpp, which is engine-only and unaffected by
-// the rally coming out. The clash is reported on PENG-22; it is a real defect
-// in src/, not a test-side inconvenience.
+// THOSE LAST TWO INCLUDES ARE A REGRESSION TEST IN THEIR OWN RIGHT.
+//
+// terrain/surface.h and terrain/scatter.h used to be excluded from this suite,
+// with a comment explaining why: src/terrain/surface.h and src/physics/surface.h
+// each defined a DIFFERENT struct called apricot::SurfaceProperties, and
+// physics/surface.h arrives here through terrain_collider.h, which this suite
+// cannot do without. Two definitions of one class name, both linked into
+// apricot_sim, is an ODR violation in the shipped library — not a test-side
+// inconvenience — and the visible cost was that prop scatter could not be
+// pinned in the suite that carries the engine's central claim.
+//
+// PENG-40 removed it. There is one material enum (terrain's `Surface`) and
+// physics' properties struct is `TyreSurface`. If somebody reintroduces a
+// clashing name, THIS FILE STOPS COMPILING, which is the loudest and cheapest
+// place for that to be discovered.
 
 using namespace apricot;
 
@@ -923,6 +931,77 @@ void test_terrain_generates_identically_from_one_seed() {
     apricot_test::pass("terrain height, normal and material reproduce exactly");
 }
 
+// The coverage that could not live here until PENG-40, because including
+// terrain/scatter.h alongside terrain_collider.h did not compile.
+//
+// Props are world state a replay has to reproduce: they are solid, the route
+// runs between them, and a tree that exists in one generation and not another
+// is a car that hits nothing in the replay of a run that ended in a tree. The
+// whole prop is compared, not just the position -- kind, variant, ground
+// material, yaw and scale all feed what the player sees and hits.
+void test_prop_scatter_is_bit_identical() {
+    const ChunkCoord chunks[] = {{0, 0}, {4, -6}, {-9, 3}, {17, 21}};
+
+    std::size_t props = 0;
+    std::size_t differed_from_other = 0;
+    std::size_t other_props = 0;
+
+    for (const ChunkCoord c : chunks) {
+        const std::vector<ScatterProp> a = scatter_chunk(kSeed, c);
+        const std::vector<ScatterProp> b = scatter_chunk(kSeed, c);
+        REQUIRE_MSG(a.size() == b.size(),
+                    "one seed produced a different number of props twice",
+                    "scatter");
+        for (std::size_t i = 0; i < a.size(); ++i) {
+            REQUIRE_MSG(a[i].kind == b[i].kind, "prop kind differed", "scatter");
+            REQUIRE_MSG(a[i].variant == b[i].variant, "prop variant differed",
+                        "scatter");
+            REQUIRE_MSG(a[i].ground == b[i].ground,
+                        "prop ground material differed", "scatter");
+            REQUIRE_MSG(a[i].position.x == b[i].position.x &&
+                            a[i].position.y == b[i].position.y &&
+                            a[i].position.z == b[i].position.z,
+                        "prop position differed", "scatter");
+            REQUIRE_MSG(a[i].yaw == b[i].yaw, "prop yaw differed", "scatter");
+            REQUIRE_MSG(a[i].scale == b[i].scale, "prop scale differed", "scatter");
+
+            // The ground a prop stands on is the same ground a wheel is told
+            // about. This is the seam PENG-40 closed, asserted end to end: the
+            // scatter placer and the collider are now reading one classifier.
+            const TerrainCollider collider(kSeed);
+            REQUIRE_MSG(a[i].ground == collider.material(a[i].position.x,
+                                                        a[i].position.z),
+                        "a prop's ground material disagrees with the collider's",
+                        "one classifier");
+        }
+        props += a.size();
+
+        const std::vector<ScatterProp> o = scatter_chunk(kOtherSeed, c);
+        other_props += o.size();
+        if (o.size() != a.size()) {
+            ++differed_from_other;
+        } else {
+            for (std::size_t i = 0; i < a.size(); ++i) {
+                if (a[i].position != o[i].position) { ++differed_from_other; break; }
+            }
+        }
+    }
+
+    // Anti-vacuity, twice over: four empty chunks would satisfy every equality
+    // above, and a scatter that ignored the seed would satisfy the control.
+    REQUIRE_MSG(props > 0, "no props were generated at all, so nothing was compared",
+                "test would be vacuous");
+    REQUIRE_MSG(other_props > 0, "the control seed generated no props", "control");
+    REQUIRE_MSG(differed_from_other > 0,
+                "a different seed scattered props identically", "control");
+
+    std::printf("      %zu props over %zu chunks bit-identical across "
+                "generations; %zu/%zu chunks differ on a second seed\n",
+                props, sizeof(chunks) / sizeof(chunks[0]), differed_from_other,
+                sizeof(chunks) / sizeof(chunks[0]));
+    apricot_test::pass("prop scatter reproduces exactly and follows the seed");
+}
+
 // ---------------------------------------------------------------------------
 //  8. FixedStep: a zero-step frame must not drop a latched edge
 // ---------------------------------------------------------------------------
@@ -1070,6 +1149,7 @@ int main() {
     test_a_different_seed_diverges(rec);
     test_altering_one_input_frame_changes_the_replay(rec, collider);
     test_terrain_generates_identically_from_one_seed();
+    test_prop_scatter_is_bit_identical();
     test_a_zero_step_frame_does_not_drop_a_gear_change(collider);
     test_a_jittering_frame_rate_replays_identically(rec, collider);
     return apricot_test::done("sim_determinism_tests");
