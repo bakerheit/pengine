@@ -65,6 +65,10 @@ apricot_add_suite(terrain_mesh_tests)
 apricot_add_suite(terrain_lod_tests)
 apricot_add_suite(scene_cull_tests)
 apricot_add_suite(streamer_tests)
+# Streaming with LOD (PENG-27). Rings, in-place refits, cold fill and teleport,
+# and the mesh lifetime -- the last of which no node-count assertion can see,
+# because the node counts balance perfectly while the GPU fills up.
+apricot_add_suite(streamer_lod_tests)
 apricot_add_suite(terrain_collision_tests)
 apricot_add_suite(vehicle_tests)
 
