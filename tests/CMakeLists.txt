@@ -53,6 +53,14 @@ apricot_add_suite(streamer_tests)
 apricot_add_suite(terrain_collision_tests)
 apricot_add_suite(vehicle_tests)
 
+# road (PENG-32). The road graph, the ribbon bake and the lane graph, all
+# sim-side: the bake emits plain vertex arrays and owns no GPU resource, which
+# is exactly why these suites can run it headless. tests/road_fixture.h holds
+# the hand-made spine set standing in for the map tables (PENG-41).
+apricot_add_suite(road_graph_tests)
+apricot_add_suite(road_ribbon_tests)
+apricot_add_suite(lane_graph_tests)
+
 # audio (PENG-8). All three link only apricot_sim: gain routing, PCM
 # generation and the whole render loop are device-free by construction, so
 # these measure real waveforms — spectra, zero crossings, seams — on a runner

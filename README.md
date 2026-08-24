@@ -162,6 +162,10 @@ src/
                                                             -> apricot_sim
   terrain/       the height field (a pure function, not a file), chunk
                  meshing, and the residency streamer.       -> apricot_sim
+  road/          authored spines -> a planar road graph, a ribbon bake that
+                 emits PLAIN vertex arrays and owns no GPU resource, and the
+                 lane graph traffic and police drive on.    -> apricot_sim
+                 (see src/road/README.md)
   physics/       terrain collision and vehicle dynamics. Every step function
                  is pure in (state, input, collider, dt).   -> apricot_sim
   game/          the pilot game's sim-side rules. Currently ONE file:
@@ -186,7 +190,9 @@ tools/
   guard_sim_purity.sh    the architecture, enforced. Runs first.
 tests/                   headless suites; each links apricot_sim only
 docs/architecture.md     the design rules, each with what it cost to learn
-docs/design/pinatty.md   the pilot game's map. Design only; no code exists.
+docs/design/pinatty.md   the pilot game's map. Its section 3 road hierarchy is
+                         implemented in src/road/; the map tables are not
+                         written and nothing else of Pinatty exists.
 ```
 
 `assets/` holds **nine GLSL files and nothing else**, which is the point rather

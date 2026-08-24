@@ -4,6 +4,7 @@
 add_subdirectory(core)
 add_subdirectory(scene)
 add_subdirectory(terrain)
+add_subdirectory(road)
 add_subdirectory(physics)
 add_subdirectory(game)
 add_subdirectory(city)      # Pinatty's decision layers (PENG-29)
