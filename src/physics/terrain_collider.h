@@ -112,6 +112,19 @@ public:
     // 0 = dry, 1 = soaked. World state, not per-car state, so it lives with the
     // world. Set it between steps, never during one: a replay reproduces a run
     // only if the weather it was driven in is restored alongside the seed.
+    // DO NOT WIRE THIS UP FROM `Conditions`. Weather already reaches the tyres
+    // through `VehicleTuning::grip_scale`, set by `conditioned_tuning()`. Doing
+    // both applies the rain twice, and the symptom — a car that is mysteriously
+    // twice as slippery as the numbers say — points at neither call site.
+    //
+    // It also cannot be driven from `Conditions` correctly even alone: the
+    // collider is passed const to the sim step and shared with any replay, so
+    // per-collider wetness would let two runs of one tape experience different
+    // weather. That is a desync that reads as a physics bug.
+    //
+    // It stays for a *static* wetness a map author sets on a region — a tunnel
+    // that is always damp — which is a different quantity from today's weather.
+    // Zero callers today, and that is the correct number.
     void set_wetness(float w) { wetness_ = glm::clamp(w, 0.0f, 1.0f); }
     float wetness() const { return wetness_; }
 
