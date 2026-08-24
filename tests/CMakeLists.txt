@@ -60,3 +60,18 @@ apricot_add_suite(vehicle_tests)
 apricot_add_suite(audio_mixer_tests)
 apricot_add_suite(audio_synth_tests)
 apricot_add_suite(audio_engine_tone_tests)
+
+# city (PENG-29). The Pinatty decision layers lifted out of probablecause, with
+# the tests that were pinning them there. They came across because a lifted
+# algorithm with no test is a liability: these are the only thing that says the
+# behaviour survived the move.
+apricot_add_suite(ped_separation_tests)
+apricot_add_suite(ped_reaction_tests)
+apricot_add_suite(character_punch_tests)
+apricot_add_suite(character_getup_tests)
+apricot_add_suite(traffic_ai_tests)
+apricot_add_suite(police_ai_tests)
+apricot_add_suite(weather_tests)
+apricot_add_suite(lightning_tests)
+apricot_add_suite(objective_runtime_tests)
+apricot_add_suite(road_author_tests)
