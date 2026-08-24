@@ -525,8 +525,15 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
     // belt and braces: a car cartwheeling off a jump can hold up_dot below the
     // threshold for well over the delay, and helping it round in mid-air both
     // looks wrong and cancels a third of gravity on the way down.
+    // Hysteresis: engage below recovery_up_dot, and stay engaged until the car
+    // is properly upright at recovery_release_dot. Once the timer is running,
+    // the higher threshold holds it — see the note in vehicle.h for the stable
+    // state this exists to break out of.
+    const float engage_dot = (state.recovery_timer > 0.0f)
+                                 ? tuning.recovery_release_dot
+                                 : tuning.recovery_up_dot;
     const bool inverted =
-        up_dot < tuning.recovery_up_dot &&
+        up_dot < engage_dot &&
         collider.probe_down(body.position, tuning.recovery_ground_reach).hit;
     next.recovery_timer = inverted ? state.recovery_timer + dt : 0.0f;
 

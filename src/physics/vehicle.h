@@ -297,6 +297,20 @@ struct VehicleTuning {
     // Above this much chassis-up the car counts as the right way up and the
     // recovery timer resets.
     float recovery_up_dot = 0.30f;
+    // ...and this much before it counts as recovered again. The gap is
+    // hysteresis, and without it the car has a stable state it cannot leave.
+    //
+    // Measured: resting on its side, up_dot pins at +0.30 — between
+    // min_upright_dot (0.25, below which the suspension stops pushing) and
+    // recovery_up_dot (0.30, below which the righting torque engages), so it
+    // has neither. Worse, brushing 0.30 resets recovery_timer, so
+    // recovery_delay can never elapse and the nudge never fires. The car slid
+    // downhill on its side for sixty seconds of a ninety second drive.
+    //
+    // One threshold cannot both start and stop a corrective force; the point it
+    // stops has to be past the point it starts, or the force switches itself
+    // off the instant it begins working.
+    float recovery_release_dot = 0.75f;
     // Seconds upside down before the nudge starts.
     float recovery_delay = 1.5f;
     // How close the chassis has to be to the ground for the timer to run at
