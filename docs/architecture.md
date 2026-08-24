@@ -11,6 +11,13 @@ below do not. Where a rule is enforced by code that is currently a stub, that
 is called out explicitly rather than glossed — a doc that describes the engine
 you meant to write is worse than no doc.
 
+**The game on top is Pinatty**, a GTA-style open-world crime game rebuilding
+`probablecause`. Its design is [`docs/design/pinatty.md`](design/pinatty.md) and
+**none of it is implemented** — there is no code under `src/` for any of it.
+Apricot Rally, the time trial that used to be the sample, was deleted in
+PENG-23; every rule below that used to be stated in terms of laps, gates or
+ghosts is now stated in terms of the engine, which is where it always belonged.
+
 ---
 
 ## The link graph is the architecture
@@ -87,13 +94,13 @@ by a directory rule. See `src/audio/README.md`.
 
 **The world is a pure function of one 64-bit run seed, and the drive is a pure
 function of its inputs.** Those two facts together are why one mechanism —
-recording an input tape — produces ghost cars in-game *and* bit-exact headless
+recording an input tape — produces in-game replay *and* bit-exact headless
 regression tests. Every rule in this section protects that.
 
 **No `std::rand()`, no `std::random_device`, no global generator state, and no
 time-seeding anywhere in the engine.** A world that differs between two runs of
 the same seed cannot be replayed, cannot be reported as a bug, and cannot be
-raced against a ghost. `src/app/app.h` holds the run seed as a literal for this
+regression-tested. `src/app/app.h` holds the run seed as a literal for this
 reason, with a TODO to take it from the command line — never from the clock.
 
 **Procedural content derives from `hash_coord()`, never from a sequential
@@ -109,10 +116,16 @@ one.
 constant, not a setting; changing it invalidates every recorded tape. Exactly
 one wall clock exists in the whole program, in `App::run()`, and it feeds a
 measured delta to `FixedStep`. Nothing below `App` can observe real time.
-`step_vehicle()` and `step_rally()` take `dt` as a parameter rather than
-reading one, so the functions stay testable at other rates and nobody is
-tempted to reach for a timer inside. The first `std::chrono` call added below
-that line ends replay, and the symptom is "replays desync after a minute".
+`step_vehicle()` takes `dt` as a parameter rather than reading one, so it stays
+testable at other rates and nobody is tempted to reach for a timer inside. Any
+game step function added later inherits the same rule. The first `std::chrono`
+call added below that line ends replay, and the symptom is "replays desync
+after a minute".
+
+**Every clock a game keeps counts sim steps, never wall time.** That is what
+makes a recorded duration a property of the drive rather than of the machine it
+ran on, and it is what lets a tape reproduce a run exactly instead of
+approximately.
 
 **`InputFrame` is the replay format, so it is POD forever.** Trivially
 copyable, standard layout, no padding — all three asserted at compile time.
@@ -122,14 +135,29 @@ rewrites history. Append new fields at the *end* and bump
 invalidates every tape ever recorded, and the failure presents as "the physics
 changed".
 
-**A tape stores inputs, never positions.** `ReplayTape` is a version, a seed
-and a `std::vector<InputFrame>`, one per sim step, indexed by step number.
-Storing positions as well would create a second source of truth for the same
-run, and the only thing two sources of truth ever do is disagree. Playback
-refuses to extrapolate past the end of the tape for the same reason: a
-silently repeated last frame would let a replay drive on past the finish.
+**The tape and its version live in `core/`, not in a game.** `core/replay_tape.h`
+holds `kReplayTapeVersion` and `ReplayTape`. They used to live in `game/`, next
+to the sample that happened to record tapes first, and the cost of that was
+exact and measurable: `tests/sim_determinism_tests.cpp` — the suite that pins
+the format — could not pin the *version*, because reaching into `game/` for it
+is the coupling that suite exists to remove. It carried a written note saying
+so. A format owned by whichever game is currently on top is a format that
+leaves with it. Both are now pinned in one place.
 
-**Record before stepping.** `step_rally()` appends the input that produced the
+**A tape stores inputs, never positions.** `ReplayTape` is a version, a seed, the
+absolute sim step it starts from, and a `std::vector<InputFrame>`, one per sim
+step. Storing positions as well would create a second source of truth for the
+same run, and the only thing two sources of truth ever do is disagree. Playback
+refuses to extrapolate past the end of the tape for the same reason: a silently
+repeated last frame would let a replay drive on past the end of the run it
+recorded, looking entirely plausible while it did.
+
+**The start step is on the tape because purity demands it.** Anything keyed on
+absolute step — `game/conditions.h`'s weather is the live example — would hand a
+tape recorded an hour into a session the conditions of step zero. The symptom
+reads as "replays drift", a long way from the cause.
+
+**Record before stepping.** A recorder appends the input that produced the
 transition *out of* the current state. Recording afterwards offsets the whole
 tape by one step, and the replay drifts from the moment it starts.
 
@@ -138,9 +166,12 @@ tape by one step, and the replay drifts from the moment it starts.
 `game/`.** It records a tape of varied input — throttle, brake, steer,
 handbrake, latched gear-change edges — drives it through `step_vehicle` against
 a real `TerrainCollider`, and compares every `VehicleState` field with `==`.
-The cost of *not* separating it: the proof used to live only inside the sample
-game, so replacing the sample would have taken the guarantee with it and
-unpinned the sim at the exact moment a new game was being built on top of it.
+
+**That argument has since been collected, in full.** The proof used to live only
+inside the sample game, so replacing the sample would have taken the guarantee
+with it and unpinned the sim at the exact moment a new game was being built on
+top of it. The sample was replaced (PENG-23) and this suite did not move a line.
+Keep it that way: nothing in it may ever include from `game/`.
 
 Three things in that suite are load-bearing and easy to delete by accident.
 Both **negative controls** — the same tape on a different seed must diverge, and
@@ -151,11 +182,26 @@ trivially true of two cars that never moved; measured with the throttle cut,
 the run drops from 206.6 m to 0.9 m and still replays perfectly. And the
 comparison helper **proves its own coverage** by flipping a bit at every byte
 offset of a live mid-run state and requiring every byte of every declared
-member to be noticed. That last one is not theoretical: `game/best_lap.cpp`
-once dropped 14 `VehicleState` fields, every wheel's `angular_velocity` among
-them, and it survived a ticket because the test's own comparison skipped those
-exact fields. A helper that quietly skips a field is worse than no test, because
-it reads as coverage.
+member to be noticed. That last one is not theoretical: the sample game's
+best-lap serialiser once dropped 14 `VehicleState` fields, every wheel's
+`angular_velocity` among them, and it survived a ticket because the test's own
+comparison skipped those exact fields. A helper that quietly skips a field is
+worse than no test, because it reads as coverage. (That serialiser was deleted
+with the rally. The lesson was not.)
+
+**The version constant is a golden value too.** `kReplayTapeVersion` is asserted
+by literal in the same suite, for the same reason `hash_coord`'s outputs are:
+bumping it invalidates every tape ever recorded, and the assertion is what makes
+somebody type the new number on purpose instead of discovering the cost three
+tickets later.
+
+**A test must never let the thing it is testing decide when the test stops.**
+The tape-replay loop is bounded by a frame count rather than written as
+`while (replay_input(...))`. With the bare form, an implementation that
+extrapolates past the end of the tape makes the suite *hang* instead of fail —
+and a hung suite reads as a broken CI runner, not a broken tape format. Measured
+while writing it: the sabotaged build ran until it was killed. Bounded, it fails
+in under a second and says what happened.
 
 ### A worked example: why determinism gets its own tests
 
@@ -277,10 +323,18 @@ two frames later. pengine's streamer activates *instances* until a per-frame
 budget runs out and carries a half-activated cell into the next frame, so
 loading stays ahead of the player and the latency is invisible.
 
-*Status in apricot:* `StreamerConfig::max_loads_per_update` is currently a flat
-**chunk** count (2). That is only correct while every chunk costs the same,
-which stops being true the moment terrain LOD or scatter props land. Budgeting
-by vertex count is a tracked TODO in `src/terrain/streamer.h`.
+*Status in apricot:* done, and this note used to say otherwise. There is no
+`StreamerConfig::max_loads_per_update` in this tree — grep returns nothing. The
+budget that exists is `max_instances_per_step` (384), denominated in scene nodes
+rather than chunks precisely because a wooded chunk and a bare rock chunk do not
+cost the same, and a chunk that exhausts the budget half way is **carried** to
+the next step and resumes at the prop it stopped on. `max_chunk_builds_per_step`
+(2) bounds meshing separately, because meshing is a different resource.
+
+Terrain LOD will break this again: with LOD a chunk's *vertex* cost also stops
+being constant, and `docs/design/pinatty.md` §7.1 argues the budget then needs a
+second denomination. That part is still ahead. The part this note claimed was
+missing is not.
 
 **Evict in bulk.** Tearing a cell down one removal at a time is O(cell × world)
 and freezes the frame on every crossing; sweep each container once instead.
@@ -432,9 +486,18 @@ legitimately returns 4.1 core for any 3.2+ core request.
 the backing scale factor, and using logical size for the GL viewport renders
 the frame into the bottom-left quarter of the window.
 
-*Status in apricot:* `gl_state` and `Camera` are implemented. `Shader` and
-`Mesh` are contract-only stubs — see `src/gfx/README.md`. There is no render
-pass yet; the app clears to a flat sky colour and draws the overlay.
+*Status in apricot:* **there is a render pass, and this note used to say there
+was not.** `gl_state`, `Shader`, `Texture` (procedural only), `Mesh` including
+the instanced attribute stream, `Camera`, `Sky`, `Precipitation`, `Hud` and
+`Renderer` are all implemented — see `src/gfx/README.md` for what is still
+deliberately absent (no transparency pass, no shadows, no hot-reload, and the
+renderer's resource tables never free).
+
+Measured on this machine, `./build/bin/apricot --frames 1200`: four shader
+programs linked, 364 visible nodes drawn in 5 batches (3 instanced) in **5 draw
+calls**, 1050 rain quads, the HUD's 50 quads in **one** draw against a
+procedurally generated glyph atlas with no font file on disk, and the GL error
+queue clean for the whole session.
 
 ---
 
@@ -486,7 +549,7 @@ this reason: grip is answerable in a chunk that has never been built.
 "hovering" from "already under the surface".
 
 **Vehicle state is plain data, complete and copyable.** It is what a replay
-diff compares and what a checkpoint restore overwrites, so no pointers, no
+diff compares and what a save-state restore overwrites, so no pointers, no
 back-references, no cached handles. Wheel spin is accumulated in the state
 rather than derived in the renderer from frame time, so a replay reproduces the
 wheel rotation exactly instead of approximately. Steering is smoothed in the
@@ -496,22 +559,32 @@ what the player sees.
 **Wheel order is a contract.** Replay tapes and tuning index by it. Front-left,
 front-right, rear-left, rear-right.
 
-**Reject a gate taken backwards.** Without a direction check on the checkpoint
-trigger, reversing over the last gate repeatedly is the fastest lap in the
-game.
+**Any trigger volume needs a direction check and a swept test.** Both rules were
+paid for by the rally's checkpoint gates, and both outlive it. Without a
+direction check, reversing back and forth over a trigger fires it repeatedly.
+Without sweeping the segment from the car's *previous* position — not its
+pre-step position, its end-of-last-step position — anything moving fast enough
+passes straight through between steps. A trigger tested as a sphere at a point
+in time is a trigger that a fast car does not reliably hit.
 
-**Every clock in the rally counts sim steps, never wall time.** That is what
-makes a lap time a property of the drive rather than of the machine it ran on.
+**Weather reaches the tyres, and only the tyres.** `game/conditions.h` is a pure
+function of `(seed, absolute sim step)` and folds into `VehicleTuning::grip_scale`,
+which sizes the friction circle. It deliberately does not touch engine or brake
+torque: scaling both applies the weather twice, once to the tyre that is sliding
+and again to an engine that does not know what it is driving on.
 
-*Status in apricot:* `step_vehicle()` currently integrates gravity and rests the
-chassis on the terrain so the plumbing is exercised end to end. There is no
-suspension force, no tyre model, no engine curve and no weight transfer —
-throttle, brake and handbrake are read but do not move the car yet.
-`build_route()` emits a plain circle of gates dropped onto the terrain: valid
-and deterministic, but blind to gradient. `height_at()` is one octave of value
-noise — genuinely pure, genuinely smooth, and nothing worth rallying over. All
-three carry tickets and must keep their signatures; physics, meshing and the
-collider all call through them.
+*Status in apricot:* `step_vehicle()` is real. Suspension, a tyre model with a
+friction circle, an engine torque curve, a gearbox with an RPM readout, load
+transfer, handbrake and rollover recovery are all implemented and pinned by
+`tests/vehicle_tests.cpp` — throttle drives the car, brake stops it, the
+handbrake breaks the rear loose and a slide can be caught. Static prop boxes are
+solid.
+
+`height_at()` remains modest for the map ahead of it: fbm plus gated ridged fbm
+plus a radial falloff, tuned for an island a fifth of Pinatty's size.
+`docs/design/pinatty.md` §1.2 lists the retune it needs and §1.3 the terrain
+operators that do not exist yet. It must keep its signature; physics, meshing and
+the collider all call through it.
 
 ---
 
@@ -581,7 +654,7 @@ feature while its tests stayed green. Instantiate the real system.
 over — once when it looks broken and once when it looks fixed.
 
 **A passing test is necessary, never sufficient, for anything a player can see,
-hear or feel.** Determinism tests prove a lap time is reproducible. They cannot
+hear or feel.** Determinism tests prove a drive is reproducible. They cannot
 tell you the car is fun to drive, that the engine note sounds like an engine, or
-that a checkpoint is visible from far enough away to aim at. Watch it, listen to
+that a landmark reads from far enough away to navigate by. Watch it, listen to
 it, drive it.

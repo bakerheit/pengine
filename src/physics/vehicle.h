@@ -286,10 +286,10 @@ struct VehicleTuning {
     // deterministic Conditions for the current step.
     //
     // It rides on the tuning rather than on TerrainCollider because the collider
-    // is passed const to step_rally and shared with the ghost. Wetness stored on
-    // a shared mutable collider would let the ghost and the player experience
-    // different weather from the same tape, which is a desync that looks exactly
-    // like a physics bug.
+    // is passed const to step_vehicle and is shared by every car in the world.
+    // Weather stored on a shared mutable collider would let two cars stepped in
+    // the same frame experience different weather from the same tape, which is
+    // a desync that looks exactly like a physics bug.
     float grip_scale = 1.0f;
     float angular_drag = 1.2f;         // 1/s, exponential decay on spin
 

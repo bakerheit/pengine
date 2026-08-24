@@ -5,13 +5,14 @@
 #include "app/demo_scene.h"
 #include "app/overlay.h"
 #include "core/fixed_step.h"
-#include "game/rally.h"
+#include "game/conditions.h"
 #include "gfx/camera.h"
 #include "gfx/hud.h"
 #include "gfx/precip.h"
 #include "gfx/renderer.h"
 #include "gfx/sky.h"
 #include "physics/terrain_collider.h"
+#include "physics/vehicle.h"
 #include "platform/input.h"
 #include "platform/window.h"
 #include "scene/scene.h"
@@ -69,12 +70,24 @@ private:
     uint64_t seed_ = 0xA5EED0FFC0FFEE11ull;
 
     TerrainCollider collider_{0};
-    RallyState rally_;
+
+    // The drive. There is no game layer between this and the physics yet — the
+    // rally that used to sit here is gone (PENG-23) and Pinatty
+    // (docs/design/pinatty.md) has no code. So App steps the vehicle directly,
+    // which is exactly as much game as this build has.
+    VehicleTuning tuning_;
+    VehicleState car_;
 
     // The car one sim step ago. Render interpolates between this and the
     // current state by clock_.alpha(), which is what stops a 120 Hz sim from
     // visibly juddering on a 144 Hz panel.
     VehicleState prev_car_;
+
+    // Sim steps elapsed. The authoritative sim clock, and the key the weather
+    // is drawn from — conditions_at() is a pure function of (seed, step), so
+    // the sky and the grip agree with each other on every machine.
+    uint64_t step_index_ = 0;
+    Conditions conditions_;
 
     Scene scene_;
     Renderer renderer_;

@@ -5,26 +5,30 @@
 // the drive BIT FOR BIT — every component of every VehicleState at every step.
 // Not "closely". Not "to within a tolerance". The same bits.
 //
-// WHY THIS FILE EXISTS SEPARATELY FROM rally_replay_tests.cpp.
+// WHY THIS FILE EXISTS SEPARATELY, AND WHAT THAT ALREADY BOUGHT.
 //
-// That suite proves the same claim, but it proves it through RallyState, Route
-// and the gate sequencer, because a time-trial game happened to be the sample.
-// The sample is being replaced. If the only proof of bit-exact replay leaves
-// with the sample, the sim is unpinned at precisely the moment a new game is
-// being built on top of it, and the first replay desync of the new game is
-// discovered by a player rather than by CI.
+// The same claim used to be proved only inside the sample game, through
+// RallyState, Route and the gate sequencer, because a time trial happened to
+// be the first thing built on the sim. This suite was split out ahead of the
+// sample being replaced, on the argument that if the only proof of bit-exact
+// replay leaves with the sample, the sim is unpinned at precisely the moment a
+// new game is being built on top of it — and the first replay desync of the
+// new game is found by a player rather than by CI.
 //
-// So nothing below includes anything from game/. The claim belongs to
-// step_vehicle, TerrainCollider, InputFrame, hash_coord and FixedStep — all of
-// which outlive any particular game — and this suite is written against
-// exactly those. A future game gets the guarantee for free.
+// The rally is now gone (PENG-23) and this file did not move a line to survive
+// it. That is the argument, collected.
 //
-// WHAT IS DELIBERATELY NOT HERE: kReplayTapeVersion, and the ReplayTape /
-// ReplayStart structs, which live in game/replay.h. The FORMAT they version is
-// pinned below byte for byte; the version CONSTANT is not, because reaching
-// into game/ to fetch it is the exact coupling this file exists to remove.
-// Rehoming that constant into core/ is a follow-up, and until it happens the
-// pin that matters — InputFrame's layout — is here.
+// So nothing below includes anything from game/, and nothing below ever
+// should. The claim belongs to step_vehicle, TerrainCollider, InputFrame,
+// hash_coord and FixedStep — all of which outlive any particular game — and
+// this suite is written against exactly those. Pinatty gets the guarantee for
+// free.
+//
+// kReplayTapeVersion used to be excluded here, because it lived in
+// game/replay.h and reaching into game/ for it was the exact coupling this
+// file exists to remove. It now lives in core/replay_tape.h, so the version is
+// pinned below alongside the format it versions — which is what the two of
+// them were always for.
 //
 // Every comparison is `==` on the value, never REQUIRE_NEAR. A tolerance here
 // accepts exactly the drift this whole architecture exists to prevent: a wheel
@@ -42,6 +46,7 @@
 
 #include "core/fixed_step.h"
 #include "core/input_frame.h"
+#include "core/replay_tape.h"
 #include "core/rng.h"
 #include "physics/terrain_collider.h"
 #include "physics/vehicle.h"
@@ -627,6 +632,88 @@ void test_the_tape_format_is_a_flat_block_of_bytes(const Recording& rec,
 }
 
 // ---------------------------------------------------------------------------
+//  2b. The version that pairs with that format
+// ---------------------------------------------------------------------------
+
+// Pinned the way rng_determinism_tests.cpp pins a golden value, and for the
+// same reason. The literal is not the point; the DELIBERATENESS is. Bumping
+// kReplayTapeVersion means every tape ever recorded is now refused, and this
+// assertion is what makes somebody type the new number on purpose rather than
+// discover the cost three tickets later.
+//
+// It could not be written until PENG-23, because the constant lived in game/
+// and this suite includes nothing from there. It lives in core/replay_tape.h
+// now, next to the layout above that it versions.
+void test_the_tape_version_is_pinned(const Recording& rec,
+                                     const TerrainCollider& collider) {
+    REQUIRE_MSG(kReplayTapeVersion == 3u,
+                "kReplayTapeVersion changed; every recorded tape is now junk, "
+                "which is fine if you meant it",
+                "tape version");
+
+    // A default-constructed tape stamps the current version. A tape that
+    // defaults to 0 is a tape that claims to be older than the format.
+    const ReplayTape fresh;
+    REQUIRE(fresh.version == kReplayTapeVersion);
+    REQUIRE(fresh.start_step == 0u);
+    REQUIRE(fresh.frames.empty());
+
+    // And the real thing drives the real step. Not a hand-built stand-in: the
+    // engine's own tape type, read through the engine's own accessor, feeding
+    // step_vehicle, compared against the recorded run with ==.
+    ReplayTape tape;
+    tape.seed = rec.tape.seed;
+    tape.frames = rec.tape.frames;
+
+    const VehicleTuning tuning;
+    std::vector<VehicleState> played;
+    played.reserve(tape.frames.size());
+
+    // BOUNDED, and the bound is not paranoia. Written as a bare
+    // `while (replay_input(...))` this loop trusts the function under test to
+    // decide when to stop — so an implementation that extrapolates past the end
+    // makes the suite HANG rather than fail, and a hung suite reads as a broken
+    // CI runner rather than a broken tape format. Measured: it ran until it was
+    // killed. Never let the thing being tested control the loop that tests it.
+    const uint64_t limit = rec.tape.frames.size() + 16u;
+
+    VehicleState car = rec.tape.start;
+    InputFrame in;
+    uint64_t i = 0;
+    for (; i < limit && replay_input(tape, i, in); ++i) {
+        car = step_vehicle(car, tuning, in, collider, kDt);
+        played.push_back(car);
+    }
+    REQUIRE_MSG(i < limit,
+                "replay_input kept answering past the end of the tape; a replay "
+                "would drive on past the run it recorded",
+                "no extrapolation");
+
+    REQUIRE_MSG(played.size() == rec.states.size(),
+                "replay_input handed back a different number of frames than "
+                "were recorded",
+                "tape length");
+    const long bad = first_divergence(rec.states, played);
+    REQUIRE_MSG(bad < 0, "a run driven through ReplayTape diverged from the "
+                         "run that recorded it",
+                "ReplayTape replay");
+
+    // NEVER EXTRAPOLATES, and this is the assertion that says so. A silently
+    // repeated last frame would let a replay drive on past the end of the run
+    // it recorded, looking entirely plausible the whole way.
+    InputFrame past_the_end;
+    REQUIRE_MSG(!replay_input(tape, tape.frames.size(), past_the_end),
+                "replay_input answered past the end of the tape",
+                "no extrapolation");
+    REQUIRE(!replay_input(tape, tape.frames.size() + 1000u, past_the_end));
+
+    std::printf("      tape v%u, %zu frames, replayed through replay_input bit "
+                "for bit\n",
+                static_cast<unsigned>(kReplayTapeVersion), tape.frames.size());
+    apricot_test::pass("the replay tape version is pinned and the tape drives the step");
+}
+
+// ---------------------------------------------------------------------------
 //  3. THE HEADLINE: a recorded tape replays bit for bit
 // ---------------------------------------------------------------------------
 
@@ -849,8 +936,8 @@ void test_terrain_generates_identically_from_one_seed() {
     // hash_coord() itself, which every one of those bottoms out in, is pinned by
     // GOLDEN VALUES in tests/rng_determinism_tests.cpp, and its order
     // independence in tests/terrain_determinism_tests.cpp. Both suites are
-    // engine-only and neither is affected by the rally coming out, so this one
-    // deliberately does NOT restate their golden values: a second copy is a
+    // engine-only, so this one deliberately does NOT restate their golden
+    // values: a second copy is a
     // second place to regenerate, and the whole point of a golden value is that
     // changing it is a single deliberate act with a known cost attached.
     const TerrainCollider ca(kSeed);
@@ -1152,6 +1239,7 @@ int main() {
 
     test_the_comparison_helper_reads_every_field(rec);
     test_the_tape_format_is_a_flat_block_of_bytes(rec, collider);
+    test_the_tape_version_is_pinned(rec, collider);
     test_a_recorded_tape_replays_bit_for_bit(rec, collider);
     test_two_colliders_from_one_seed_agree(rec);
     test_a_different_seed_diverges(rec);

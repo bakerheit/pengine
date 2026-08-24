@@ -115,7 +115,7 @@ private:
     // reaches look_dx and whips the camera round.
     int discard_motion_frames_ = 0;
 
-    // The active pad, or null. One pad: this is a single-seat rally game, and
+    // The active pad, or null. One pad: this is a single-seat game, and
     // a second attached controller silently fighting the first for the
     // steering axis is worse than ignoring it.
     _SDL_GameController* pad_ = nullptr;

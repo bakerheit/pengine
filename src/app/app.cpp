@@ -87,14 +87,13 @@ bool App::init() {
     gl_state::invalidate_all();
 
     collider_ = TerrainCollider(seed_);
-    rally_ = RallyState{};
-    rally_.route = build_route(seed_, collider_, 8);
 
-    // Park the car on the terrain at the origin rather than dropping it from
-    // an arbitrary height, so the first second of the sim is not a fall.
-    rally_.car.position =
-        glm::vec3{0.0f, collider_.height(0.0f, 0.0f) + 1.0f, 0.0f};
-    prev_car_ = rally_.car;
+    // spawn_vehicle settles the car on its springs and aligns it to the slope
+    // it is standing on. Assigning a position by hand instead drops it in with
+    // its struts at free length and the first step launches it, which looks
+    // like a physics bug and is not one.
+    car_ = spawn_vehicle(tuning_, collider_, 0.0f, 0.0f, 0.0f);
+    prev_car_ = car_;
 
     // --- renderer and its passes -------------------------------------------
     // Every one of these is fatal if it fails. A renderer that starts with a
@@ -132,10 +131,10 @@ bool App::init() {
     controls_.overcast = 0.30f;
     controls_.fog = 0.55f;
 
-    AP_INFO("seed 0x%016llX, %zu checkpoints, ground at origin %.2f m",
+    AP_INFO("seed 0x%016llX, car spawned at %.2f m (ground %.2f m)",
             static_cast<unsigned long long>(seed_),
-            rally_.route.checkpoints.size(),
-            static_cast<double>(rally_.car.position.y));
+            static_cast<double>(car_.position.y),
+            static_cast<double>(collider_.height(0.0f, 0.0f)));
 
     gl_errors_ += drain_gl_errors("after init");
 
@@ -208,8 +207,8 @@ void App::update_camera() {
     // Interpolate the car between its previous and current sim states. Without
     // this a 120 Hz sim visibly steps on a 144 Hz panel.
     const float a = static_cast<float>(clock_.alpha());
-    const glm::vec3 pos = glm::mix(prev_car_.position, rally_.car.position, a);
-    const glm::quat rot = glm::slerp(prev_car_.orientation, rally_.car.orientation, a);
+    const glm::vec3 pos = glm::mix(prev_car_.position, car_.position, a);
+    const glm::quat rot = glm::slerp(prev_car_.orientation, car_.orientation, a);
 
     const glm::vec3 forward = rot * glm::vec3{0.0f, 0.0f, -1.0f};
     const glm::vec3 up{0.0f, 1.0f, 0.0f};
@@ -236,7 +235,7 @@ void App::render() {
 
     // Sim time, not wall time. See the note in app.h.
     const float sim_seconds =
-        static_cast<float>(static_cast<double>(rally_.step_index) * kSimDt);
+        static_cast<float>(static_cast<double>(step_index_) * kSimDt);
     const float time_of_day =
         0.28f + sim_seconds * controls_.sky_speed /
                     static_cast<float>(kSecondsPerDay);
@@ -277,7 +276,7 @@ void App::render() {
                            static_cast<float>(window_.height())};
         hud_.begin(vp);
 
-        const float speed_kmh = glm::length(rally_.car.velocity) * 3.6f;
+        const float speed_kmh = glm::length(car_.velocity) * 3.6f;
         char line[64];
 
         hud_.rect({20.0f, vp.y - 118.0f}, {330.0f, vp.y - 20.0f},
@@ -288,16 +287,19 @@ void App::render() {
         std::snprintf(line, sizeof(line), "%3.0f KM/H", static_cast<double>(speed_kmh));
         hud_.text(line, {36.0f, vp.y - 104.0f}, 34.0f, {1.0f, 0.94f, 0.80f, 1.0f});
 
-        std::snprintf(line, sizeof(line), "LAP %d/%d", rally_.timing.lap + 1,
-                      rally_.timing.target_laps);
+        // Everything below is read straight off the car and the conditions —
+        // no game layer computes it, because there is not one. A real HUD data
+        // model comes back with the pilot game, in apricot_sim where a headless
+        // test can reach it.
+        std::snprintf(line, sizeof(line), "GEAR %d   %4.0f RPM", car_.gear,
+                      static_cast<double>(car_.engine_rpm));
         hud_.text(line, {36.0f, vp.y - 62.0f}, 18.0f, {0.85f, 0.90f, 1.0f, 1.0f});
 
-        std::snprintf(line, sizeof(line), "TIME %6.2f", rally_.timing.lap_time);
-        hud_.text(line, {36.0f, vp.y - 40.0f}, 18.0f, {0.85f, 0.90f, 1.0f, 1.0f});
-
-        std::snprintf(line, sizeof(line), "CP %d/%zu", rally_.next_checkpoint + 1,
-                      rally_.route.checkpoints.size());
-        hud_.text(line, {200.0f, vp.y - 62.0f}, 18.0f, {0.80f, 1.0f, 0.85f, 1.0f});
+        std::snprintf(line, sizeof(line), "%s / %s   GRIP %.2f",
+                      daylight_name(conditions_.daylight),
+                      weather_name(conditions_.weather),
+                      static_cast<double>(conditions_.grip));
+        hud_.text(line, {36.0f, vp.y - 40.0f}, 18.0f, {0.80f, 1.0f, 0.85f, 1.0f});
 
         std::snprintf(line, sizeof(line), "%d DRAWS  %d INST", render_stats_.draw_calls,
                       render_stats_.instances);
@@ -315,7 +317,7 @@ void App::render() {
     stats.sim_steps = last_steps_;
     stats.step_clamped = last_clamped_;
     stats.alpha = clock_.alpha();
-    stats.sim_step_index = static_cast<unsigned long long>(rally_.step_index);
+    stats.sim_step_index = static_cast<unsigned long long>(step_index_);
     stats.scene_nodes = static_cast<int>(scene_.size());
     stats.visible_nodes = render_stats_.visible_nodes;
     stats.batches = render_stats_.batches;
@@ -388,9 +390,16 @@ int App::run() {
             // Snapshot before EACH step, not before the batch: prev_car_ has to
             // be exactly one step behind or the render interpolation covers the
             // wrong span on a multi-step frame.
-            prev_car_ = rally_.car;
-            step_rally(rally_, input_.frame(), collider_,
-                       static_cast<float>(kSimDt));
+            prev_car_ = car_;
+
+            // Conditions are a pure function of (seed, ABSOLUTE step), never an
+            // accumulator, so a tape replayed from any point in the session
+            // gets its own weather back. See game/conditions.h.
+            conditions_ = conditions_at(seed_, step_index_);
+            car_ = step_vehicle(car_, conditioned_tuning(tuning_, conditions_),
+                                input_.frame(), collider_,
+                                static_cast<float>(kSimDt));
+            ++step_index_;
         }
 
         // Consume latched edges ONLY when a step actually ran. On a zero-step
@@ -403,9 +412,8 @@ int App::run() {
         if (demo_.car_node != kInvalidId) {
             const float a = static_cast<float>(clock_.alpha());
             Transform t;
-            t.position = glm::mix(prev_car_.position, rally_.car.position, a);
-            t.rotation =
-                glm::slerp(prev_car_.orientation, rally_.car.orientation, a);
+            t.position = glm::mix(prev_car_.position, car_.position, a);
+            t.rotation = glm::slerp(prev_car_.orientation, car_.orientation, a);
             t.scale = demo_.car_half * 2.0f;
             scene_.set_transform(demo_.car_node, t);
         }
@@ -424,8 +432,8 @@ int App::run() {
     }
 
     AP_INFO("quit after %llu sim steps (%.2f s of sim time), %d frames",
-            static_cast<unsigned long long>(rally_.step_index),
-            rally_.timing.total_time, frames_rendered_);
+            static_cast<unsigned long long>(step_index_),
+            static_cast<double>(step_index_) * kSimDt, frames_rendered_);
     AP_INFO("last frame: %d visible nodes, %d batches (%d instanced), "
             "%d draw calls, %d instances, longest run %d, %u binds skipped",
             render_stats_.visible_nodes, render_stats_.batches,

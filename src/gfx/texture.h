@@ -15,7 +15,7 @@ namespace apricot {
 // and there are no image files on disk, which is not a limitation being worked
 // around — it is the point. A procedural texture cannot go missing from a
 // package, cannot be the wrong colour space because someone re-exported it, and
-// costs nothing to version. The generators below cover what a rally game
+// costs nothing to version. The generators below cover what a driving game
 // actually needs: ground, scenery, and a debug checker.
 //
 // Every generator tiles seamlessly. A texture with a visible seam laid over
