@@ -18,7 +18,6 @@
 
 #include "core/fixed_step.h"
 #include "core/input_frame.h"
-#include "game/rally.h"
 #include "physics/terrain_collider.h"
 #include "physics/vehicle.h"
 #include "test_assert.h"
@@ -494,30 +493,12 @@ void the_same_tape_replays_bit_for_bit() {
     REQUIRE_MSG(identical(before, end_a), "step_vehicle mutated the state it was given",
                 "step does not mutate its input");
 
-    // And the same through the REAL game path — tape, replay_input, step_rally
-    // — because that is what a ghost car actually runs.
-    RallyState r1;
-    RallyState r2;
-    for (RallyState* r : {&r1, &r2}) {
-        r->tuning = tuning;
-        r->car = spawn_vehicle(tuning, collider_a, x, z, 0.7f);
-        r->recording = false;
-        r->route = build_route(kSeed, collider_a, 6);
-    }
-    ReplayTape recorded;
-    recorded.seed = kSeed;
-    recorded.frames = tape;
-
-    for (RallyState* r : {&r1, &r2}) {
-        InputFrame f;
-        for (uint64_t step = 0; replay_input(recorded, step, f); ++step) {
-            step_rally(*r, f, collider_a, kDt);
-        }
-    }
-    REQUIRE_MSG(identical(r1.car, r2.car), "the rally layer replayed differently",
-                "bit-identical through step_rally");
-    REQUIRE(r1.timing.total_time == r2.timing.total_time);
-    REQUIRE(r1.step_index == r2.step_index);
+    // This used to re-run the whole tape a third time through the rally's
+    // step_rally, to prove the game layer did not perturb the physics. The
+    // rally is gone (PENG-23) and the claim it was making — a tape driven
+    // through ReplayTape/replay_input reproduces the run exactly — is pinned
+    // against the ENGINE in tests/sim_determinism_tests.cpp, which includes
+    // nothing from game/ and therefore survives the next game too.
 
     std::printf("      (%zu frames, ended at %.3f, %.3f, %.3f — bit for bit)\n",
                 tape.size(), static_cast<double>(end_a.position.x),
@@ -904,9 +885,12 @@ void the_gearbox_exposes_real_revs_and_a_gear() {
 
 // The case the rest of the engine actually produces today.
 //
-// src/app builds a RallyState{} and steps it: a DEFAULT-constructed
-// VehicleState, sitting at the world origin with no regard for where the ground
-// is. On roughly half of all seeds that is inside a hill. This module does not
+// A DEFAULT-constructed VehicleState sits at the world origin with no regard
+// for where the ground is, and on roughly half of all seeds that is inside a
+// hill. Any shell that declares a car as a member and starts stepping it hands
+// the physics exactly this. src/app/ does park its car on the terrain first,
+// deliberately — but that is app being careful, not the module being safe, and
+// the next caller will not be. This module does not
 // get to call that the caller's problem — a car that is somewhere impossible
 // has to end up somewhere possible, without being fired into orbit on the way.
 void a_car_put_somewhere_impossible_ends_up_somewhere_possible() {
@@ -929,7 +913,7 @@ void a_car_put_somewhere_impossible_ends_up_somewhere_possible() {
 
     for (const Case& c : cases) {
         const TerrainCollider collider(c.seed);
-        VehicleState s;  // exactly what RallyState{} hands to step_vehicle
+        VehicleState s;  // exactly what a default-constructed shell hands over
         if (c.bury) {
             float x = 0.0f;
             float z = 0.0f;

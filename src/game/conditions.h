@@ -10,15 +10,15 @@ namespace apricot {
 // grip that leaves.
 //
 // A PURE FUNCTION OF (seed, sim step). Not an accumulator, and that is not a
-// shortcut — it is the only shape that survives the ghost.
+// shortcut — it is the only shape that survives a replay.
 //
-// A ghost is the player's own tape replayed. If the weather were integrated
-// into mutable session state, a ghost running its lap at a different point in
-// the session would be handed different grip and would stop reproducing the
-// lap it recorded — and the symptom would read as "replays drift", which is
-// the worst week of anyone's life. Keying conditions to the ABSOLUTE step
-// index instead means a tape carries the step it started at (game/replay.h)
-// and gets its own weather back, exactly.
+// If the weather were integrated into mutable session state, a tape replayed
+// from a different point in the session would be handed different grip and
+// would stop reproducing the run it recorded — and the symptom would read as
+// "replays drift", which is the worst week of anyone's life. Keying conditions
+// to the ABSOLUTE step index instead means a tape carries the step it started
+// at (ReplayTape::start_step, core/replay_tape.h) and gets its own weather
+// back, exactly.
 
 // One in-game day. Twenty minutes of sim, so a long session actually sees dusk
 // arrive rather than hearing about it.
@@ -69,14 +69,12 @@ const char* daylight_name(Daylight d);
 
 // Fold the conditions into the tuning handed to step_vehicle.
 //
-// STAND-IN, and deliberately a visible one. physics/vehicle.h's VehicleTuning
-// has no tyre-grip term yet — its tyre model is a placeholder that does not
-// respond to throttle at all — so grip is expressed here by scaling the drive
-// and brake forces and by leaning on rolling resistance in standing water.
-// When the vehicle dynamics ticket adds a real grip coefficient, this function
-// should set THAT field and stop scaling engine_force/brake_force. The rest of
-// the game does not have to change: it already only ever sees the tuning that
-// comes out of here.
+// Weather reaches the car through VehicleTuning::grip_scale — the tyre
+// friction circle — and through rolling resistance in standing water, and
+// nowhere else. It does NOT touch engine or brake torque: doing both would
+// apply the weather twice, once to the tyre that is actually sliding and again
+// to an engine that does not know what it is driving on. See the note in
+// conditions.cpp; it is pinned by tests/conditions_tests.cpp.
 VehicleTuning conditioned_tuning(const VehicleTuning& base, const Conditions& c);
 
 }  // namespace apricot

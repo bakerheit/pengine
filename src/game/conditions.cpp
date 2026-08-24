@@ -124,13 +124,20 @@ VehicleTuning conditioned_tuning(const VehicleTuning& base,
                                  const Conditions& c) {
     VehicleTuning out = base;
 
-    // Grip is deliberately NOT applied here. It reaches the car through
-    // TerrainCollider::set_wetness() -> GroundHit::grip -> the tyre friction
-    // circle, per wheel and per surface. This function used to scale engine and
-    // brake force by c.grip as a stand-in, back when the vehicle step had a
-    // single engine_force. Doing both now would apply weather twice: once to
-    // the tyre that is actually sliding, and again to an engine that does not
-    // know what it is driving on. Call set_wetness(c.wetness) instead.
+    // Weather reaches the car through the TYRE and nowhere else. This function
+    // used to scale engine and brake force by c.grip as a stand-in, back when
+    // the vehicle step had a single engine_force; doing that now would apply
+    // the weather twice — once to the tyre that is actually sliding, and again
+    // to an engine that does not know what it is driving on. So it sets
+    // grip_scale, which vehicle.cpp multiplies into GroundHit::grip to size the
+    // friction circle, and it leaves engine and brake torque alone.
+    //
+    // CAUTION, and the comment that used to sit here got this backwards.
+    // TerrainCollider::set_wetness() is a SECOND route to the same friction
+    // circle, for how wet the SURFACE is. Nothing calls it today. If a caller
+    // ever drives it from these same Conditions, the session weather lands on
+    // the tyres twice and the car gets mysteriously undrivable in light rain.
+    // Pick one owner for weather-into-grip before wiring the other up.
     //
     // Standing water still drags on the wheels where the tyres DO bite, and
     // that is a separate effect from losing grip, so it stays.
