@@ -93,6 +93,39 @@ Not done, deliberately:
 - **No transparency pass.** Everything lit is opaque; rain and the HUD do their
   own blending inline.
 - **No shadows, no normal mapping, no post-processing.**
-- **`Renderer`'s resource tables never free.** Handles are indices and nothing
-  is removed, because a recycled `MeshId` aliasing live scene nodes is a class
-  of bug the engine does not need yet. Streaming will have to solve it.
+- **No terrain splat shader.** `TerrainVertex` carries four-way
+  `material_weights` and the lit shader does not read them, so terrain draws as
+  one tiled diffuse rather than blended rock/gravel/grass/sand. Attribute
+  location 3 is reserved for a tangent, so wiring it needs a location and a
+  fragment change together. Not started.
+
+## Freeing a mesh, and the generation tag
+
+`Renderer`'s mesh table **frees now** (PENG-28). It did not used to, and the
+reason it gave was sound: a recycled `MeshId` aliasing a live scene node draws
+one chunk's geometry where another's belongs, and the symptom points nowhere.
+Streaming removed the option — a 2.5 km ring is thousands of chunk meshes and
+they turn over continuously — so the aliasing is made *unrepresentable* rather
+than merely unlikely.
+
+A `MeshId` is **slot | generation**, not an index:
+
+| bits | meaning |
+|---|---|
+| 0-15 | slot into the mesh table |
+| 16-31 | generation, bumped on every free |
+
+A handle held across the free of its slot resolves to `nullptr`, draws nothing,
+and **logs**. That is a bug you can find. Slot `0xFFFF` is never issued, so a
+real handle can never collide with `kInvalidId`. A slot whose generation would
+wrap is retired instead of reused.
+
+`Mesh::destroy()` already pairs every `glDelete*` with its
+`gl_state::on_*_deleted()` hook, which is why `remove_mesh()` does not
+re-litigate the bind-cache invariant — it delegates to the thing that already
+obeys it.
+
+**Materials are still append-only, deliberately.** Nothing streams them: every
+terrain chunk shares one material and the road layers share six, all created at
+startup. A free path for a table that never grows would be untested code
+guarding a case that does not occur.
