@@ -90,6 +90,7 @@ struct Run {
     double worst_plain_step_ms = 0.0;  // a step with no refresh on it
     double refresh_step_ms = 0.0;    // mean cost OF a refresh step's refresh
     double moved_m = 0.0;            // total along-lane distance travelled
+    double ped_neighbours = 0.0;     // mean neighbours found per stepped ped
     bool cap_bound = false;
 };
 
@@ -163,6 +164,11 @@ Run measure(const LaneGraph& lanes, const CrowdTuning& tune,
                                             static_cast<double>(st.peds)
                                       : 0.0;
             r.stepped += st.vehicles_stepped + st.peds_stepped;
+            r.ped_neighbours +=
+                st.peds_stepped > 0
+                    ? static_cast<double>(st.ped_neighbour_tests) /
+                          static_cast<double>(st.peds_stepped)
+                    : 0.0;
             if (st.vehicles >= tune.max_vehicles || st.peds >= tune.max_peds)
                 r.cap_bound = true;
         }
@@ -192,6 +198,7 @@ Run measure(const LaneGraph& lanes, const CrowdTuning& tune,
     r.veh_analytic_pct *= 100.0 * inv;
     r.ped_analytic_pct *= 100.0 * inv;
     r.stepped = static_cast<std::size_t>(static_cast<double>(r.stepped) * inv);
+    r.ped_neighbours *= inv;
     r.refresh_step_ms =
         refreshes > 0 ? refresh_total / static_cast<double>(refreshes) : 0.0;
     return r;
@@ -396,13 +403,21 @@ void bench_push_to_failure(const LaneGraph& lanes) {
                 "\n   Marginal cost, from the two largest runs that fit: "
                 "%.1f ns per car per step,\n"
                 "   %.1f ns per pedestrian per step (decision phases only, "
-                "excluding refresh/publish/scene).\n",
+                "excluding refresh/publish/scene).\n"
+                "   A stepped pedestrian finds %.2f neighbours on average, so "
+                "that %.1f ns is almost\n"
+                "   entirely the nine-bucket gather over cold memory and almost "
+                "none of it is separation.\n",
                 last_under.refresh_step_ms, last_under.worst_step_ms,
                 last_under.worst_plain_step_ms,
                 last_under.vehicles > 0
                     ? last_under.per_step.vehicles * 1e6 /
                           static_cast<double>(last_under.vehicles)
                     : 0.0,
+                last_under.peds > 0 ? last_under.per_step.peds * 1e6 /
+                                          static_cast<double>(last_under.peds)
+                                    : 0.0,
+                last_under.ped_neighbours,
                 last_under.peds > 0 ? last_under.per_step.peds * 1e6 /
                                           static_cast<double>(last_under.peds)
                                     : 0.0);

@@ -222,6 +222,19 @@ pedestrian per step.** A pedestrian is five times a car because its work is a
 nine-bucket neighbour gather over cold memory and a car's is a modulo and a
 `pose()`.
 
+**A stepped pedestrian finds 0.06 neighbours on average**, so that 63.9 ns is
+almost entirely *finding out there is nobody there*. The nine bucket-start
+probes are nine random accesses into a table sized to the population; the
+candidates they turn up are nearly free because there are nearly none.
+
+That was worth knowing precisely, because the obvious fix is the wrong one:
+packing the cell key and the position into the bucket entries so a bucket scan
+is contiguous **made no measurable difference** (63.9 ns vs 62.5 ns, noise), and
+the change was reverted. There is nothing to scan. The fix that would work is a
+coarse occupancy pre-check over a much larger cell, so the 94% of pedestrians
+with no neighbour at all pay one probe instead of nine — **not done here**, and
+deliberately: it moves the wall and does not move the recommendation.
+
 Two things that number hides, and both matter more than it does:
 
 - **The mean fitting is not the same as fitting.** At the largest run that fits,
