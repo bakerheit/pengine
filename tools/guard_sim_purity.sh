@@ -32,6 +32,7 @@ SIM_DIRS=(
     src/physics
     src/game
     src/city
+    src/traffic
 )
 
 # src/audio is the one SPLIT module: these files build into apricot_sim, while

@@ -8,6 +8,7 @@ add_subdirectory(road)
 add_subdirectory(physics)
 add_subdirectory(game)
 add_subdirectory(city)      # Pinatty's decision layers (PENG-29)
+add_subdirectory(traffic)   # ambient population: phantoms + the active set (PENG-26)
 add_subdirectory(audio)     # split: synth -> sim, device -> host
 
 # Host-side modules (hardware lives here and only here):

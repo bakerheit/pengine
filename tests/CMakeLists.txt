@@ -83,3 +83,11 @@ apricot_add_suite(weather_tests)
 apricot_add_suite(lightning_tests)
 apricot_add_suite(objective_runtime_tests)
 apricot_add_suite(road_author_tests)
+
+# traffic (PENG-26). The ambient population: whether a city's worth of agents
+# fits in a 120 Hz step, and whether sub-rate scheduling survives contact with
+# a streamed world. traffic_determinism_tests carries the negative controls --
+# the index-keyed sub-rate schedule is required to DIVERGE -- and
+# traffic_bench measures. tests/traffic_harness.h is the rig both drive.
+apricot_add_suite(traffic_determinism_tests)
+apricot_add_suite(traffic_bench)
