@@ -65,15 +65,19 @@ void test_lane_counts_follow_the_hierarchy() {
     REQUIRE(n.lanes.lane_count() == 34);
     REQUIRE(n.lanes.junction_count() == n.graph.node_count());
 
-    // Freeway edges carry three lanes each way; a street carries one.
-    for (const RoadEdge& e : n.graph.edges()) {
-        const std::vector<LaneRef> ls = n.lanes.lanes_of_edge(0);
-        (void)ls;
-        if (e.cls != RoadClass::Freeway) continue;
-        std::size_t on_edge = 0;
-        for (LaneRef r = 0; r < n.lanes.lane_count(); ++r)
-            if (n.graph.edge(n.lanes.lane(r).edge).spine_id == e.spine_id) ++on_edge;
-        REQUIRE(on_edge == 6);
+    // lanes_of_edge is the layout opposing() and neighbour() index off, so it
+    // is a contract: forward lanes first, then the returning ones.
+    for (uint32_t ei = 0; ei < n.graph.edge_count(); ++ei) {
+        const RoadEdge& e = n.graph.edge(ei);
+        const int per_dir = road_class_def(e.cls).lanes_per_dir;
+        const std::vector<LaneRef> ls = n.lanes.lanes_of_edge(ei);
+        REQUIRE(ls.size() == static_cast<std::size_t>(2 * per_dir));
+        for (std::size_t k = 0; k < ls.size(); ++k) {
+            const Lane& l = n.lanes.lane(ls[k]);
+            REQUIRE(l.edge == ei);
+            REQUIRE(l.forward == (static_cast<int>(k) < per_dir));
+            REQUIRE(l.index == static_cast<int>(k) % per_dir);
+        }
     }
     std::printf("      %zu lanes over %zu edges\n", n.lanes.lane_count(),
                 n.graph.edge_count());
