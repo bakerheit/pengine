@@ -55,6 +55,10 @@ struct Host {
     MeshId next_mesh = 1000;
     int deliveries = 0;
 
+    // Every mesh id the streamer has handed back for freeing. The host owns GPU
+    // memory, so "did the world let go of it" is only answerable here.
+    std::vector<MeshId> freed;
+
     Host(uint64_t s, StreamerConfig cfg) : seed(s), streamer(s, cfg) {}
 
     StreamerStats tick(glm::vec3 cam) {
@@ -63,12 +67,16 @@ struct Host {
         // Copy: deliver() does not touch pending_loads(), but a test that
         // depends on that is a test that breaks when the implementation
         // changes for a good reason.
-        const std::vector<ChunkCoord> want = streamer.pending_loads();
-        for (const ChunkCoord c : want) {
-            const ChunkMesh m = build_chunk(seed, c);
-            streamer.deliver(c, next_mesh++, m.bounds);
+        const std::vector<ChunkRequest> want = streamer.pending_loads();
+        for (const ChunkRequest& r : want) {
+            const ChunkMesh m = build_chunk(seed, r.coord, r.lod);
+            streamer.deliver(r.coord, r.lod, next_mesh++, m.bounds);
             ++deliveries;
         }
+        // Freeing is the host's job and the host is this struct, so it does the
+        // host's job: drain what the streamer let go of and count it. A test
+        // that never drained would pass while the real app leaked.
+        streamer.take_released_meshes(freed);
         return st;
     }
 
@@ -402,7 +410,7 @@ void a_delivery_for_an_abandoned_chunk_is_dropped() {
 
     // Ask for chunks around the origin but do not deliver them.
     s.step(scene, proto, glm::vec3{0.0f});
-    const std::vector<ChunkCoord> requested = s.pending_loads();
+    const std::vector<ChunkRequest> requested = s.pending_loads();
     REQUIRE(!requested.empty());
 
     // Drive away. The requests are abandoned.
@@ -413,14 +421,27 @@ void a_delivery_for_an_abandoned_chunk_is_dropped() {
     // Now the slow worker finally reports back. This is the real race: a chunk
     // that took several frames to build while the camera kept moving.
     const std::size_t before = scene.size();
-    for (const ChunkCoord c : requested) {
-        s.deliver(c, 4242u, AABB{});
+    MeshId stale_mesh = 4242u;
+    for (const ChunkRequest& r : requested) {
+        s.deliver(r.coord, r.lod, stale_mesh++, AABB{});
     }
+
+    // A dropped delivery still had a mesh uploaded for it, and the host has to
+    // be told. Silently dropping it was the leak: nothing else in the system
+    // knows that upload exists, so a player driving back and forth across a
+    // boundary would accumulate them for as long as they kept doing it.
+    std::vector<MeshId> handed_back;
+    s.take_released_meshes(handed_back);
+    REQUIRE_MSG(handed_back.size() == requested.size(),
+                "a stale delivery's mesh was dropped without being handed back "
+                "to be freed",
+                "stale");
+
     s.step(scene, proto, centre_of(ChunkCoord{40, 40}));
     scene.update();
 
-    for (const ChunkCoord c : requested) {
-        REQUIRE_MSG(!s.resident(c),
+    for (const ChunkRequest& r : requested) {
+        REQUIRE_MSG(!s.resident(r.coord),
                     "a stale delivery was activated far from the camera",
                     "stale");
     }

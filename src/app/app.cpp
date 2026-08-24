@@ -21,14 +21,31 @@ namespace {
 
 using WallClock = std::chrono::steady_clock;
 
-// Placeholder world size. Deleted along with demo_scene when real terrain
-// lands.
-constexpr float kFieldRadius = 420.0f;
-constexpr int kBoxCount = 1400;
-
 // How far the renderer draws. The fog band is set just inside it so the
 // distance cull's cutoff hides behind atmosphere instead of popping.
-constexpr float kRenderDistance = 700.0f;
+//
+// 2400 m, up from the 700 m the placeholder scene used, because the whole point
+// of terrain LOD is that the far ring is affordable and there is no point
+// paying for a 2304 m ring of chunks and then fog-culling it at 700. The island
+// is 2.8 km across (terrain/heightmap.h, kIslandRadiusMetres), so this is
+// "you can see the far coast", which is the legibility argument
+// docs/design/pinatty.md makes for landmarks.
+constexpr float kRenderDistance = 2400.0f;
+
+// The near plane pays for that distance. Depth precision is distributed by the
+// near/far RATIO, so pushing far from 900 to 2600 without touching near would
+// cost precision up close where the car is. The chase camera sits 9 m back, so
+// half a metre of near plane costs nothing anyone can see and buys the ratio
+// back more than threefold.
+constexpr float kNearPlane = 0.5f;
+
+// Streaming work above this, in milliseconds, is a spike worth naming in the
+// log. Set just over half a 120 Hz step so it catches anything that could cost
+// a frame, and comfortably above the steady-state cost so it stays quiet.
+constexpr double kStreamSpikeMs = 4.0;
+
+// How many spikes get a line each before the log falls back to counting them.
+constexpr int kMaxSpikeLogs = 3;
 
 // Day length is NOT defined here. `game/conditions.h` owns it, because the same
 // number drives weather, grip and the light the sky pass computes — and two
@@ -43,6 +60,44 @@ constexpr float kRenderDistance = 700.0f;
 constexpr float kCamBack = 9.0f;
 constexpr float kCamUp = 3.6f;
 constexpr float kCamLookAhead = 6.0f;
+
+// Spines for --road-probe, and INSTRUMENTATION RATHER THAN CONTENT.
+//
+// The road module bakes ribbons from authored spines and says plainly where
+// those come from: the map tables, which are PENG-41's and are not in the tree.
+// So the shipped path passes an empty list and no road draws.
+//
+// That would leave the whole bake-upload-draw chain never executed, and this
+// working agreement is explicit that a feature nobody has run is a feature
+// nobody may describe as working. Two crossing streets through the spawn point
+// is the smallest thing that exercises a carriageway, a junction plate,
+// sidewalks, kerbs and a crosswalk at once. It is off by default, it is named a
+// probe everywhere it appears, and it is deleted the day map_spines() exists.
+//
+// It is NOT a placeholder city, and the difference matters: --frames and
+// --warp-every are the same kind of thing, and demo_scene.cpp — which this
+// ticket deleted — was not.
+std::vector<RoadSpine> probe_spines() {
+    std::vector<RoadSpine> out;
+
+    RoadSpine ns;
+    ns.cls = RoadClass::Street;
+    ns.id = 1;
+    for (int i = -4; i <= 4; ++i) {
+        ns.points.push_back(glm::vec2{0.0f, static_cast<float>(i) * 40.0f});
+    }
+    out.push_back(ns);
+
+    RoadSpine ew;
+    ew.cls = RoadClass::Arterial;
+    ew.id = 2;
+    for (int i = -4; i <= 4; ++i) {
+        ew.points.push_back(glm::vec2{static_cast<float>(i) * 40.0f, 0.0f});
+    }
+    out.push_back(ew);
+
+    return out;
+}
 
 const char* gl_error_name(GLenum e) {
     switch (e) {
@@ -124,14 +179,107 @@ bool App::init() {
         AP_ERROR("hud init failed; cannot continue");
         return false;
     }
-    if (!build_demo_scene(scene_, renderer_, collider_, seed_, kBoxCount,
-                          kFieldRadius, demo_)) {
-        AP_ERROR("demo scene build failed; cannot continue");
+
+    // --- the car's box -------------------------------------------------------
+    {
+        Texture car_tex;
+        if (!car_tex.make_checker(64, 2, glm::vec3{0.85f, 0.16f, 0.12f},
+                                  glm::vec3{0.95f, 0.90f, 0.85f})) {
+            AP_ERROR("car texture generation failed; cannot continue");
+            return false;
+        }
+        car_material_ = renderer_.add_material(std::move(car_tex));
+        car_mesh_ = renderer_.add_mesh(make_box(glm::vec3{0.5f}));
+        if (car_mesh_ == kInvalidId) {
+            AP_ERROR("car mesh upload failed; cannot continue");
+            return false;
+        }
+
+        Renderable r;
+        r.mesh = car_mesh_;
+        r.material = car_material_;
+        Transform t;
+        t.scale = car_half_ * 2.0f;
+        car_node_ = scene_.create(r, t, make_box(glm::vec3{0.5f}).bounds);
+    }
+
+    // --- the streamed world --------------------------------------------------
+    //
+    // city::kMapSeed, THE SAME ONE THE COLLIDER GOT, and it must stay that way.
+    //
+    // The streamer meshes chunks from this seed and physics reconstructs the
+    // lattice from the collider's. Hand them different seeds and the engine's
+    // oldest rule — the solid the car touches IS the surface the player sees —
+    // is broken in the most confusing way available: everything renders, the
+    // car drives, and it drives on a landscape that is not the one on screen.
+    //
+    // This very nearly shipped. The map ticket changed the collider to
+    // city::kMapSeed while this ticket was writing the streamer against seed_,
+    // and the two merged cleanly because neither line mentions the other.
+    if (!world_.init(renderer_, city::kMapSeed, StreamerConfig{})) {
+        AP_ERROR("world init failed; cannot continue");
         return false;
+    }
+
+    // So it is checked rather than commented. The drawn surface under the spawn
+    // point, reconstructed from the streamer's seed, against the ground physics
+    // will actually put the car on. These are the same function of the same
+    // seed, so the only tolerance that means anything is zero.
+    {
+        const float drawn = mesh_height_at(world_.streamer().seed(), 0.0f, 0.0f);
+        const float driven = collider_.height(0.0f, 0.0f);
+        if (drawn != driven) {
+            AP_ERROR("the world drawn is not the world driven: terrain seed "
+                     "0x%016llX gives %.4f m at the origin, collider seed "
+                     "0x%016llX gives %.4f m. Refusing to start.",
+                     static_cast<unsigned long long>(world_.streamer().seed()),
+                     static_cast<double>(drawn),
+                     static_cast<unsigned long long>(collider_.seed()),
+                     static_cast<double>(driven));
+            return false;
+        }
+    }
+
+    // --- roads ---------------------------------------------------------------
+    // Empty unless --road-probe. See probe_spines(): the map module owns the
+    // real ones and they are not in the tree, so the shipped call bakes,
+    // uploads and draws nothing — every step of it real, run over no input.
+    if (!world_.set_roads(renderer_, scene_,
+                          road_probe_ ? probe_spines()
+                                      : std::vector<RoadSpine>{})) {
+        AP_ERROR("road bake/upload failed; cannot continue");
+        return false;
+    }
+    if (road_probe_) {
+        AP_WARN("--road-probe: two crossing streets at the origin. This is "
+                "INSTRUMENTATION, not map content; the spine tables are "
+                "PENG-41's and are not in this tree.");
+    }
+
+    // COLD FILL, BEFORE THE CLOCK STARTS.
+    //
+    // Without this the first frame renders a car suspended over nothing and the
+    // world arrives around it over the following second, with a hitch on the
+    // frame that does the most work. Filling here costs the same milliseconds
+    // and spends them during startup, where a hundred of them are invisible,
+    // instead of during play, where they are the first thing anyone notices.
+    // run() resets the frame clock after the first present, so this time is not
+    // charged to the sim as dropped steps either.
+    {
+        const WallClock::time_point t0 = WallClock::now();
+        last_fill_steps_ = world_.fill(scene_, renderer_, car_.position);
+        last_fill_ms_ = std::chrono::duration<double>(WallClock::now() - t0)
+                            .count() * 1000.0;
+        AP_INFO("cold fill: %d steps, %.1f ms, %zu chunks, %.1f MB of terrain",
+                last_fill_steps_, last_fill_ms_,
+                world_.stats().resident_chunks,
+                static_cast<double>(world_.stats().mesh_bytes) /
+                    (1024.0 * 1024.0));
     }
 
     camera_.aspect = static_cast<float>(window_.width()) /
                      static_cast<float>(window_.height() > 0 ? window_.height() : 1);
+    camera_.near_plane = kNearPlane;
     camera_.far_plane = kRenderDistance + 200.0f;
     update_camera();
 
@@ -156,6 +304,12 @@ bool App::init() {
 void App::shutdown() {
     // Order matters only in that the GL resources must die while the context
     // is still alive, so everything gfx goes before the window.
+    //
+    // The world goes FIRST of all, because it is the only thing here that owns
+    // resources jointly with something else: its chunk meshes live in the
+    // renderer's table and its nodes live in the scene, and it is the only
+    // object that knows which mesh belongs to which node.
+    world_.shutdown(scene_, renderer_);
     hud_.destroy();
     rain_.destroy();
     sky_.destroy();
@@ -208,10 +362,69 @@ void App::poll_events() {
             AP_INFO("instancing %s", controls_.instancing ? "ON" : "OFF (naive path)");
         }
 
+        // F8 warps across the island. Same reasoning as F7: a debug action
+        // handled here rather than in InputMapper, because InputFrame is the
+        // replay tape format and a teleport recorded into a tape would change
+        // what a replay does. Latched rather than acted on here so the warp
+        // happens at a step boundary with the rest of the world update.
+        if (e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
+            e.key.keysym.sym == SDLK_F8) {
+            teleport_requested_ = true;
+        }
+
         input_.handle_event(e);
     }
 
     input_.end_frame();
+}
+
+void App::teleport(glm::vec3 to) {
+    // A mission warp, and the thing it is really testing is the fill path.
+    //
+    // Order matters and each line buys something specific:
+    //
+    //   1. spawn_vehicle rather than assigning a position, so the car arrives
+    //      settled on its springs and aligned to the slope it lands on. Setting
+    //      position by hand drops it in with its struts at free length and the
+    //      first step launches it, which looks like a physics bug and is not.
+    //   2. prev_car_ = car_, or the render interpolation spends one frame
+    //      drawing the car smeared across the island between where it was and
+    //      where it is.
+    //   3. FILL BEFORE RESUMING. The destination has nothing resident. Without
+    //      this the player is dropped into void and the ground arrives around
+    //      them over the next second, with the meshing hitch landing on the
+    //      frame they are most likely to be looking at something.
+    //   4. clock_.reset(), because everything above took real milliseconds and
+    //      FixedStep would otherwise owe the sim all of them at once and warn
+    //      about dropped steps.
+    // spawn_vehicle takes (x, z, yaw). Passing (x, yaw, z) compiles perfectly
+    // and puts the car on the z = 0 line every time, facing a direction derived
+    // from where it should have been standing.
+    car_ = spawn_vehicle(tuning_, collider_, to.x, to.z, 0.0f);
+    prev_car_ = car_;
+
+    const WallClock::time_point t0 = WallClock::now();
+    last_fill_steps_ = world_.fill(scene_, renderer_, car_.position);
+    last_fill_ms_ =
+        std::chrono::duration<double>(WallClock::now() - t0).count() * 1000.0;
+
+    update_camera();
+    clock_.reset();
+
+    // The destination's level is logged alongside the cost, because a fill that
+    // did NOTHING and a fill that was merely fast print the same number of
+    // milliseconds otherwise. A zero-step fill is legitimate — the whole island
+    // fits inside the evict radius, so a warp can land on ground that is
+    // already resident at the level it wants — but "legitimate" and "the
+    // readiness test is broken again" look identical without this.
+    const ChunkCoord under = chunk_at(car_.position.x, car_.position.z);
+    AP_INFO("teleport to (%.0f, %.0f): filled in %d steps / %.1f ms, "
+            "destination lod %d, %zu chunks, %.1f MB",
+            static_cast<double>(to.x), static_cast<double>(to.z),
+            last_fill_steps_, last_fill_ms_,
+            world_.streamer().resident_lod(under),
+            world_.stats().resident_chunks,
+            static_cast<double>(world_.stats().mesh_bytes) / (1024.0 * 1024.0));
 }
 
 void App::update_camera() {
@@ -271,8 +484,18 @@ void App::render() {
     sky_.render(camera_, env, sim_seconds);
 
     // 2. Opaque world, batched.
+    //
+    // Timed because docs/design/pinatty.md's recommendation — cap resident
+    // static instances near 60k and get there with draw-distance tiers rather
+    // than building a BVH — is only sound while this number stays small. It was
+    // measured at 0.278 ms for 60k synthetic nodes; this is the same scan over
+    // the real thing, and it is the number that says when a broadphase has
+    // stopped being premature. Display only: it never reaches the sim.
+    const WallClock::time_point cull_t0 = WallClock::now();
     const Scene::CullResult& culled =
         scene_.cull(camera_.frustum(), camera_.position, kRenderDistance);
+    cull_ms_ = std::chrono::duration<double>(WallClock::now() - cull_t0).count() *
+               1000.0;
 
     Renderer::Options opts;
     opts.instancing = controls_.instancing;
@@ -343,6 +566,31 @@ void App::render() {
     stats.rain_quads = rain_.drawn_quads();
     stats.time_of_day = env.time_of_day;
     stats.gl_errors = gl_errors_;
+
+    const World::Stats& ws = world_.stats();
+    stats.resident_chunks = ws.resident_chunks;
+    for (int l = 0; l <= kMaxChunkLod; ++l) {
+        stats.resident_by_lod[l] = ws.resident_by_lod[l];
+    }
+    stats.live_meshes = ws.live_meshes;
+    stats.terrain_mb =
+        static_cast<double>(ws.mesh_bytes) / (1024.0 * 1024.0);
+    stats.chunks_built = ws.chunks_built;
+    stats.chunks_refitted = ws.chunks_refitted;
+    stats.chunks_evicted = ws.chunks_evicted;
+    stats.meshes_freed = ws.meshes_freed;
+    stats.stream_budget_hit = ws.budget_exhausted;
+    stats.cull_ms = cull_ms_;
+    stats.mesh_ms = mesh_ms_;
+    stats.fill_ms = last_fill_ms_;
+    stats.fill_steps = last_fill_steps_;
+
+    // Peaks, not just the instantaneous value. The instantaneous one is what a
+    // human watches; the peak is what says whether a spike happened while they
+    // were looking at something else, which for streaming is most of the time.
+    peak_cull_ms_ = std::max(peak_cull_ms_, cull_ms_);
+    peak_mesh_ms_ = std::max(peak_mesh_ms_, mesh_ms_);
+
     overlay::draw(window_, stats, controls_);
 
     // Check the error queue for the first stretch of frames. Every frame
@@ -418,16 +666,79 @@ int App::run() {
         // the guard silently drops presses at high frame rates.
         if (tick.steps > 0) input_.consume_edges();
 
-        // The car node is the only transform that moves; the scenery is static,
-        // so Scene::update only ever walks one dirty node per frame.
-        if (demo_.car_node != kInvalidId) {
+        // The car node is the only transform that MOVES; the streamed world is
+        // static, so Scene::update walks one dirty node per frame plus whatever
+        // the streamer created this frame.
+        if (car_node_ != kInvalidId) {
             const float a = static_cast<float>(clock_.alpha());
             Transform t;
             t.position = glm::mix(prev_car_.position, car_.position, a);
             t.rotation = glm::slerp(prev_car_.orientation, car_.orientation, a);
-            t.scale = demo_.car_half * 2.0f;
-            scene_.set_transform(demo_.car_node, t);
+            t.scale = car_half_ * 2.0f;
+            scene_.set_transform(car_node_, t);
         }
+
+        // Residency, once per FRAME rather than once per sim step.
+        //
+        // The budgets are what a frame can afford, so a frame that owed three
+        // sim steps would otherwise do three times the meshing on the frame
+        // that was already late — which is the hitch amplifying itself.
+        //
+        // Keying it to frames is safe here in a way it would not be for AI LOD,
+        // and the reason is worth stating: nothing about residency reaches the
+        // sim. Physics queries the height field analytically and never asks
+        // what is loaded, so two machines at different frame rates stream
+        // differently and simulate identically.
+        //
+        // The FOCUS IS THE CAR, NOT THE CAMERA. The camera is a render-side
+        // object updated at frame rate and free to look anywhere; streaming
+        // keyed to where you are looking is streaming that depends on the
+        // display. See docs/design/pinatty.md 7.2.
+        if (warp_interval_ > 0 && frames_rendered_ > 0 &&
+            frames_rendered_ % warp_interval_ == 0) {
+            teleport_requested_ = true;
+        }
+
+        if (teleport_requested_) {
+            teleport_requested_ = false;
+            // Around the island rather than to one fixed spot, so successive
+            // warps evict and refill genuinely different ground instead of
+            // bouncing between two neighbourhoods that stay half-resident.
+            const float angle = static_cast<float>(warps_done_) * 1.1f;
+            const float radius = 900.0f;
+            teleport(glm::vec3{std::cos(angle) * radius, 0.0f,
+                               std::sin(angle) * radius});
+            ++warps_done_;
+            last = WallClock::now();  // do not charge the fill to the next frame
+        } else {
+            const WallClock::time_point mesh_t0 = WallClock::now();
+            world_.update(scene_, renderer_, car_.position);
+            mesh_ms_ =
+                std::chrono::duration<double>(WallClock::now() - mesh_t0).count() *
+                1000.0;
+
+            // A streaming spike, named with the work that caused it. This fires
+            // rarely by construction — the budgets exist to keep it that way —
+            // so unlike a warning that fires every launch it still means
+            // something when it appears. Without the breakdown a spike is just
+            // a number, and "meshing was slow" is not a lead.
+            if (mesh_ms_ > kStreamSpikeMs) {
+                ++stream_spikes_;
+                // The first few, then silence and a count at exit. A spike
+                // during the opening fill is expected and logging two hundred
+                // of them buries the one that happens an hour into a drive,
+                // which is the only one anybody needed to see.
+                if (stream_spikes_ <= kMaxSpikeLogs) {
+                    const World::Stats& s = world_.stats();
+                    AP_WARN("streaming spike: %.2f ms for %d chunks / %d quads, "
+                            "%d instances, %d refits, %d evictions, %d frees",
+                            mesh_ms_, s.chunks_built, s.quads_built,
+                            s.instances_activated, s.chunks_refitted,
+                            s.chunks_evicted, s.meshes_freed);
+                }
+            }
+        }
+
         scene_.update();
 
         rain_.update(camera_, controls_.rain, static_cast<float>(kSimDt) *
@@ -454,6 +765,20 @@ int App::run() {
     AP_INFO("last frame: hud %d quads in %d draw(s), rain %d drops / %d quads",
             hud_.last_quad_count(), hud_.last_draw_calls(), rain_.live_drops(),
             rain_.drawn_quads());
+    {
+        const World::Stats& ws = world_.stats();
+        AP_INFO("terrain: %zu chunks resident (lod %zu / %zu / %zu / %zu), "
+                "%zu meshes, %.1f MB of vertex data",
+                ws.resident_chunks, ws.resident_by_lod[0], ws.resident_by_lod[1],
+                ws.resident_by_lod[2], ws.resident_by_lod[3], ws.live_meshes,
+                static_cast<double>(ws.mesh_bytes) / (1024.0 * 1024.0));
+        AP_INFO("costs: cull %.3f ms (peak %.3f), meshing %.2f ms (peak %.2f), "
+                "last fill %.1f ms in %d steps",
+                cull_ms_, peak_cull_ms_, mesh_ms_, peak_mesh_ms_, last_fill_ms_,
+                last_fill_steps_);
+        AP_INFO("streaming spikes over %.1f ms: %d of %d frames",
+                kStreamSpikeMs, stream_spikes_, frames_rendered_);
+    }
 
     gl_errors_ += drain_gl_errors("at shutdown");
     if (gl_errors_ > 0) {

@@ -22,16 +22,31 @@ void print_usage() {
         "  --log FILE      also append the log to FILE\n"
         "  --frames N      render N frames, print a summary, then exit\n"
         "  --no-instancing start on the naive per-node draw path\n"
+        "  --warp-every N  teleport across the island every N frames\n"
+        "  --road-probe    bake a probe road at the origin (see below)\n"
         "  --version       print the version and exit\n"
         "  --help          this text\n"
         "\n"
-        "Controls: WASD drive, Space handbrake. F7 toggles instancing.\n"
-        "Esc or Ctrl+Q quits.\n"
+        "Controls: WASD drive, Space handbrake. F7 toggles instancing,\n"
+        "F8 warps across the island. Esc or Ctrl+Q quits.\n"
         "\n"
         "--frames exists so the renderer can be exercised without a human at\n"
         "the keyboard: it runs a fixed number of frames, reports the draw and\n"
         "instance counts and the GL error state, and returns non-zero if any\n"
-        "GL call failed.\n",
+        "GL call failed.\n"
+        "\n"
+        "--warp-every is the same idea applied to STREAMING. A teleport evicts\n"
+        "the entire resident world and refills it somewhere else, which is the\n"
+        "hardest thing the streamer does and the one path a human would have to\n"
+        "remember to test. Repeating it on a timer means a run either survives\n"
+        "a dozen of them with a clean GL queue and a flat mesh count, or it\n"
+        "does not.\n"
+        "\n"
+        "--road-probe is INSTRUMENTATION, not content. src/road/ bakes ribbons\n"
+        "from authored spines and the spine tables belong to the map module,\n"
+        "which is not in this tree -- so normally no road is drawn and the\n"
+        "bake, upload and draw path would never run. This gives it two\n"
+        "crossing streets to run over. It goes away when the tables land.\n",
         APRICOT_VERSION);
 }
 
@@ -40,7 +55,9 @@ void print_usage() {
 int main(int argc, char** argv) {
     const char* log_path = nullptr;
     int frame_limit = 0;
+    int warp_every = 0;
     bool instancing = true;
+    bool road_probe = false;
 
     for (int i = 1; i < argc; ++i) {
         const char* a = argv[i];
@@ -72,6 +89,18 @@ int main(int argc, char** argv) {
             instancing = false;
             continue;
         }
+        if (std::strcmp(a, "--road-probe") == 0) {
+            road_probe = true;
+            continue;
+        }
+        if (std::strcmp(a, "--warp-every") == 0 && i + 1 < argc) {
+            warp_every = std::atoi(argv[++i]);
+            if (warp_every <= 0) {
+                std::fprintf(stderr, "--warp-every needs a positive count\n");
+                return 2;
+            }
+            continue;
+        }
         std::fprintf(stderr, "unknown argument: %s\n", a);
         print_usage();
         return 2;
@@ -87,6 +116,8 @@ int main(int argc, char** argv) {
     // Set before init(): both affect what the first frame does.
     app.set_frame_limit(frame_limit);
     app.set_instancing(instancing);
+    app.set_warp_interval(warp_every);
+    app.set_road_probe(road_probe);
     if (!app.init()) {
         AP_ERROR("startup failed");
         app.shutdown();

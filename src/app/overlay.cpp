@@ -110,6 +110,30 @@ void draw(Window& window, const Stats& stats, Controls& controls) {
         }
 
         ImGui::Separator();
+        ImGui::Text("terrain %zu chunks  %.1f MB  %zu meshes",
+                    stats.resident_chunks, stats.terrain_mb, stats.live_meshes);
+        // The line that says whether LOD is on. All of it at level 0 means the
+        // rings are not being applied, and the MB figure above is about to say
+        // so much more loudly.
+        ImGui::Text("   lod  %zu / %zu / %zu / %zu", stats.resident_by_lod[0],
+                    stats.resident_by_lod[1], stats.resident_by_lod[2],
+                    stats.resident_by_lod[3]);
+        ImGui::Text("   this frame  +%d built  ~%d refit  -%d evict  "
+                    "%d freed",
+                    stats.chunks_built, stats.chunks_refitted,
+                    stats.chunks_evicted, stats.meshes_freed);
+        ImGui::Text("   mesh %.2f ms   cull %.3f ms", stats.mesh_ms,
+                    stats.cull_ms);
+        if (stats.stream_budget_hit) {
+            ImGui::TextColored(ImVec4{1.0f, 0.82f, 0.35f, 1.0f},
+                               "   instance budget carried a chunk over");
+        }
+        if (stats.fill_steps > 0) {
+            ImGui::TextDisabled("   last fill %.1f ms in %d steps (F8 warps)",
+                                stats.fill_ms, stats.fill_steps);
+        }
+
+        ImGui::Separator();
         ImGui::Text("hud    %d quads in %d draw%s", stats.hud_quads,
                     stats.hud_draw_calls, stats.hud_draw_calls == 1 ? "" : "s");
         ImGui::Text("rain   %d drops -> %d quads", stats.rain_drops,
