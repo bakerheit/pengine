@@ -57,6 +57,13 @@ apricot_add_suite(terrain_determinism_tests)
 # its measurements, because a map that passes every assertion can still be
 # boring and only the numbers will tell you.
 apricot_add_suite(city_map_tests)
+
+# The road network (roads.h, spines.cpp) and whether it is a place you can
+# drive. This suite runs the REAL chain end to end -- map_spines() into a real
+# RoadGraph into a real ribbon bake, on the real terrain -- and it is where the
+# drape-at-every-LOD measurement lives, because that measurement is only worth
+# anything taken over the vertices the baker actually emitted.
+apricot_add_suite(city_roads_tests)
 apricot_add_suite(terrain_mesh_tests)
 # LOD (PENG-27). The coarse lattice is a strict subset of the fine one, so the
 # same-level seam is untouched; the DIFFERENT-level crack is real, and this

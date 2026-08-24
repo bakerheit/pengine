@@ -116,10 +116,22 @@ enum class OpShape : uint8_t {
     Corridor   // polyline + half_width_m, carrying a vertical profile
 };
 
-// Longest corridor the tables may author. A road that needs more than eight
-// control points is several roads, and saying so in a static_assert is
-// cheaper than discovering a truncated corridor as a cliff across a highway.
-inline constexpr int kMaxCorridorPoints = 8;
+// Longest corridor the tables may author.
+//
+// It is exactly kMaxRoadPoints (roads.h), and that is load-bearing rather than
+// tidy: ONE ROAD MUST BECOME EXACTLY ONE CORRIDOR.
+//
+// It used to be 8, and roads longer than that were split into several
+// corridors sharing an endpoint. That is wrong in a way that is invisible
+// until you measure it. A corridor's nearest-point search CLAMPS to its own
+// polyline, so past its last control point it keeps applying that point's
+// height as a flat cap for a whole half width. Two corridors meeting end to
+// end therefore each flatten the other's approach, and the later one in the
+// table wins -- which turns the last twenty metres of a climbing road into a
+// level shelf and then a lump, on ground that is supposed to be a constant
+// gradient. Splitting a road is the one thing that manufactures that, so a
+// road is never split.
+inline constexpr int kMaxCorridorPoints = kMaxRoadPoints;
 
 // A corridor control point: position in the XZ plane and the height the road
 // or channel is at THERE. `y` is authored, not draped — that is the whole
@@ -608,18 +620,10 @@ inline constexpr int kBaseOpCount =
 //     planar is a road bed a coarse lattice cannot reproduce. The whole
 //     level-of-detail argument rests on this number being one.
 //
-// A road longer than kMaxCorridorPoints becomes several corridors sharing an
-// endpoint, which composes to the identical field: two corridors meeting at a
-// shared point agree on the profile there, and each one's nearest-point search
-// is exact on its own run.
+// ONE ROAD, ONE CORRIDOR. See the note on kMaxCorridorPoints for why a road is
+// never split into two.
 
-// How many corridors one road needs.
-constexpr int road_corridor_count(const Road& r) {
-    if (!r.shapes_ground) return 0;
-    const int segs = r.count - 1;
-    const int per = kMaxCorridorPoints - 1;
-    return (segs + per - 1) / per;
-}
+constexpr int road_corridor_count(const Road& r) { return r.shapes_ground ? 1 : 0; }
 
 constexpr int count_road_grade_ops() {
     int n = 0;
@@ -654,29 +658,22 @@ constexpr TerrainOpTable build_terrain_ops() {
 
     for (int i = 0; i < kRoadCount; ++i) {
         const Road& r = kRoads[i];
-        const int runs = road_corridor_count(r);
-        const int per = kMaxCorridorPoints - 1;
-        for (int run = 0; run < runs; ++run) {
-            const int first = run * per;
-            int last = first + per;
-            if (last > r.count - 1) last = r.count - 1;
+        if (!r.shapes_ground) continue;
 
-            TerrainOp op{};
-            op.kind = OpKind::Grade;
-            op.shape = OpShape::Corridor;
-            // The road's own name is the operator's note, so a failing
-            // measurement names the road rather than an index.
-            op.note = r.name;
-            for (int p = first; p <= last; ++p) {
-                op.path[p - first] = CorridorPoint{r.path[p].x, r.path[p].z,
-                                                   r.path[p].y};
-            }
-            op.path_count = last - first + 1;
-            op.half_width_m = r.corridor_half_m();
-            op.feather_m = r.feather_m();
-            op.strength = 1.0f;
-            out[w++] = op;
+        TerrainOp op{};
+        op.kind = OpKind::Grade;
+        op.shape = OpShape::Corridor;
+        // The road's own name is the operator's note, so a failing measurement
+        // names the road rather than an index.
+        op.note = r.name;
+        for (int p = 0; p < r.count; ++p) {
+            op.path[p] = CorridorPoint{r.path[p].x, r.path[p].z, r.path[p].y};
         }
+        op.path_count = r.count;
+        op.half_width_m = r.corridor_half_m();
+        op.feather_m = r.feather_m();
+        op.strength = 1.0f;
+        out[w++] = op;
     }
     return out;
 }

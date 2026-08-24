@@ -84,12 +84,21 @@ inline constexpr int kMaxRoadPoints = 16;
 // One control point of a road centreline: position in the XZ plane, and the
 // height the ROAD BED is at there.
 //
-// `y` is authored, never draped. For a road that shapes the ground it is the
-// Grade corridor's profile and the terrain conforms to it. For a road that does
-// not, it is a claim about where the ground already is, and
-// tests/city_roads_tests.cpp holds it to that claim within a metre — an
-// unchecked "documentation" field is a field that goes stale and then gets
-// believed.
+// `y` is authored, never draped, and it means two different things depending on
+// which side of `shapes_ground` the road is on.
+//
+//   * For a road that SHAPES the ground it is the Grade corridor's own vertical
+//     profile, and the terrain conforms to it. The road decides.
+//   * For a road that does not, it is a CLAIM ABOUT WHERE THE GROUND ALREADY
+//     IS, recorded to the nearest half metre, and tests/city_roads_tests.cpp
+//     holds it to that claim within a metre. An unchecked "documentation" field
+//     is a field that goes stale and then gets believed.
+//
+// The second kind earns its keep. It caught three Saltmarsh alleys meeting on
+// what turned out to be Route 1's embankment, two and a half metres above the
+// marsh they are supposed to be part of, and it is why Vellum Row's southern
+// streets read 12.5 and 13.5 rather than a tidy 12.0 — Halloway Square's plate
+// feathers 660 m and genuinely lifts that edge of downtown.
 struct RoadPoint {
     float x = 0.0f;
     float z = 0.0f;
@@ -499,46 +508,46 @@ inline constexpr Road kRoads[] = {
 
     {.name = "Vellum NS 1", .id = 20, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-261.5f, -406.7f, 12.0f}, {-330.5f, 249.7f, 12.0f}}, .count = 2},
+     .path = {{-261.5f, -406.7f, 12.0f}, {-330.5f, 249.7f, 12.5f}}, .count = 2},
     {.name = "Vellum NS 2", .id = 21, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-170.0f, -397.0f, 12.0f}, {-239.0f, 259.3f, 12.0f}}, .count = 2},
+     .path = {{-170.0f, -397.0f, 12.0f}, {-239.0f, 259.3f, 13.0f}}, .count = 2},
     {.name = "Vellum NS 3", .id = 22, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-78.5f, -387.4f, 12.0f}, {-147.5f, 269.0f, 12.0f}}, .count = 2},
     {.name = "Vellum NS 4", .id = 23, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{13.0f, -377.8f, 12.0f}, {-56.0f, 278.6f, 12.0f}}, .count = 2},
+     .path = {{13.0f, -377.8f, 12.0f}, {-56.0f, 278.6f, 13.5f}}, .count = 2},
     // The middle north-south run is the district spine and carries the traffic,
     // so it is the one street here wide enough to be worth blocking.
     {.name = "Vellum Row (the street)", .id = 24, .district = DistrictId::VellumRow,
      .cls = RoadClass::Arterial, .block_quality = 160,
-     .path = {{104.5f, -368.2f, 12.0f}, {35.5f, 288.2f, 12.0f}}, .count = 2},
+     .path = {{104.5f, -368.2f, 12.0f}, {35.5f, 288.2f, 13.5f}}, .count = 2},
     {.name = "Vellum NS 6", .id = 25, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{196.0f, -358.6f, 12.0f}, {127.0f, 297.8f, 12.0f}}, .count = 2},
+     .path = {{196.0f, -358.6f, 12.0f}, {127.0f, 297.8f, 13.0f}}, .count = 2},
     {.name = "Vellum NS 7", .id = 26, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{287.5f, -349.0f, 12.0f}, {218.5f, 307.4f, 12.0f}}, .count = 2},
     {.name = "Vellum NS 8", .id = 27, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{379.0f, -339.3f, 12.0f}, {310.0f, 317.0f, 12.0f}}, .count = 2},
+     .path = {{379.0f, -339.3f, 12.0f}, {310.0f, 317.0f, 12.5f}}, .count = 2},
     {.name = "Vellum NS 9", .id = 28, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{470.5f, -329.7f, 12.0f}, {401.5f, 326.7f, 12.0f}}, .count = 2},
 
     {.name = "Vellum EW 1", .id = 30, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-380.1f, 224.4f, 12.0f}, {455.3f, 312.2f, 12.0f}}, .count = 2},
+     .path = {{-380.1f, 224.4f, 11.0f}, {455.3f, 312.2f, 12.0f}}, .count = 2},
     {.name = "Vellum EW 2", .id = 31, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-373.6f, 162.7f, 12.0f}, {461.8f, 250.5f, 12.0f}}, .count = 2},
+     .path = {{-373.6f, 162.7f, 11.5f}, {461.8f, 250.5f, 12.0f}}, .count = 2},
     {.name = "Vellum EW 3", .id = 32, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-367.1f, 101.1f, 12.0f}, {468.3f, 188.9f, 12.0f}}, .count = 2},
+     .path = {{-367.1f, 101.1f, 11.5f}, {468.3f, 188.9f, 12.0f}}, .count = 2},
     {.name = "Vellum EW 4", .id = 33, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-360.7f, 39.4f, 12.0f}, {474.7f, 127.2f, 12.0f}}, .count = 2},
+     .path = {{-360.7f, 39.4f, 11.5f}, {474.7f, 127.2f, 12.0f}}, .count = 2},
     {.name = "Vellum EW 5", .id = 34, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-354.2f, -22.2f, 12.0f}, {481.2f, 65.6f, 12.0f}}, .count = 2},
@@ -547,16 +556,16 @@ inline constexpr Road kRoads[] = {
     // its worst traffic are.
     {.name = "Halloway Street", .id = 35, .district = DistrictId::VellumRow,
      .cls = RoadClass::Arterial, .block_quality = 160,
-     .path = {{-347.7f, -83.9f, 12.0f}, {487.7f, 3.9f, 12.0f}}, .count = 2},
+     .path = {{-347.7f, -83.9f, 12.0f}, {487.7f, 3.9f, 11.5f}}, .count = 2},
     {.name = "Vellum EW 7", .id = 36, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-341.2f, -145.6f, 12.0f}, {494.2f, -57.8f, 12.0f}}, .count = 2},
+     .path = {{-341.2f, -145.6f, 12.0f}, {494.2f, -57.8f, 11.5f}}, .count = 2},
     {.name = "Vellum EW 8", .id = 37, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-334.7f, -207.2f, 12.0f}, {500.7f, -119.4f, 12.0f}}, .count = 2},
+     .path = {{-334.7f, -207.2f, 12.0f}, {500.7f, -119.4f, 11.5f}}, .count = 2},
     {.name = "Vellum EW 9", .id = 38, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-328.3f, -268.9f, 12.0f}, {507.1f, -181.1f, 12.0f}}, .count = 2},
+     .path = {{-328.3f, -268.9f, 12.0f}, {507.1f, -181.1f, 11.5f}}, .count = 2},
     {.name = "Vellum EW 10", .id = 39, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-321.8f, -330.5f, 12.0f}, {513.6f, -242.7f, 12.0f}}, .count = 2},
@@ -629,92 +638,139 @@ inline constexpr Road kRoads[] = {
     // =======================================================================
     //
     // Alleys, 6 m, no sidewalk and no kerb: too tight for a cruiser to swing.
-    // There is deliberately NO through route the minimap could helpfully draw —
-    // the lanes connect to each other and to the four creek crossings, and
-    // knowing which of them comes out where is the local knowledge this whole
-    // district exists to reward.
+    // There is deliberately NO through route the minimap could helpfully draw.
+    // The lanes on the north bank connect to each other and to the four creek
+    // crossings, and knowing which lane comes out at which crossing is the
+    // local knowledge this whole district exists to reward.
+    //
+    // EVERY COORDINATE HERE IS MEASURED OFF THE CREEK, not placed by eye. The
+    // Saltmarsh creek is a Carve in terrain_ops.h running
+    // (-1560,420) (-1100,300) (-700,90) (-480,-260) with a 15 m half width, and
+    // the first draft of this district had four lanes FORDING it while two of
+    // the four bridges sat in dry ground 56 m from any water. The crossings
+    // below sit at one fifth, two fifths, three fifths and four fifths of the
+    // creek's length, square to it, 60 m each side; every lane stops at a bank.
+    // tests/city_roads_tests.cpp re-derives that from the operator table on
+    // every run, so moving the creek breaks the build rather than the fiction.
     //
     // All of it stands on the Saltmarsh plate, flat at 5.5 m at full strength,
-    // so none of it shapes the ground. The creek crossings are decks: an
-    // embankment would dam the creek, and the creek is what makes chases here
+    // so none of the lanes shapes the ground. The crossings are DECKS: an
+    // embankment would dam the creek, and the creek is what makes a chase here
     // fragment instead of stop.
 
+    // --- the north bank: the old town ---------------------------------------
     {.name = "Quay Lane", .id = 60, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Alley, .block_quality = 10,
-     .path = {{-1330.0f, -180.0f, 5.5f}, {-1180.0f, -120.0f, 5.5f},
-              {-1090.0f, 10.0f, 5.5f}, {-1120.0f, 150.0f, 5.5f}},
-     .count = 4},
+     .path = {{-1300.0f, -190.0f, 5.5f}, {-1200.0f, -100.0f, 5.5f},
+              {-1120.0f, 20.0f, 5.5f}},
+     .count = 3},
     {.name = "Netmenders Row", .id = 61, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Alley, .block_quality = 10,
-     .path = {{-1330.0f, -180.0f, 5.5f}, {-1280.0f, -40.0f, 5.5f},
-              {-1300.0f, 120.0f, 5.5f}, {-1230.0f, 250.0f, 5.5f}},
-     .count = 4},
+     .path = {{-1300.0f, -190.0f, 5.5f}, {-1270.0f, -110.0f, 5.5f},
+              {-1200.0f, -100.0f, 5.5f}},
+     .count = 3},
     {.name = "Cooper Steps", .id = 62, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Alley, .block_quality = 0,  // blind, both ends
-     .path = {{-1180.0f, -120.0f, 5.5f}, {-1280.0f, -40.0f, 5.5f}},
-     .count = 2},
+     .path = {{-1200.0f, -100.0f, 5.5f}, {-1220.0f, 10.0f, 5.5f},
+              {-1145.0f, 75.0f, 6.5f}, {-1120.0f, 20.0f, 5.5f}},
+     .count = 4},
     {.name = "Old Tide Street", .id = 63, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Street, .block_quality = 60,
-     .path = {{-1330.0f, -180.0f, 5.5f}, {-1000.0f, -240.0f, 5.5f},
-              {-700.0f, -200.0f, 5.5f}, {-560.0f, -120.0f, 5.5f}},
+     .path = {{-1300.0f, -190.0f, 5.5f}, {-1050.0f, -230.0f, 5.5f},
+              {-800.0f, -190.0f, 5.5f}, {-660.0f, -140.0f, 5.5f}},
      .count = 4},
     {.name = "Gullet Lane", .id = 64, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Alley, .block_quality = 0,
-     .path = {{-1000.0f, -240.0f, 5.5f}, {-1090.0f, 10.0f, 5.5f}},
-     .count = 2},
-    // THE CUT-THROUGH. It looks like two dead ends from either end and is not.
+     .path = {{-1050.0f, -230.0f, 5.5f}, {-1000.0f, -120.0f, 5.5f},
+              {-1120.0f, 20.0f, 5.5f}},
+     .count = 3},
+    // THE CUT. From Old Tide Street it reads as a service alley behind the
+    // warehouses; it is in fact the fastest way to the third crossing, and the
+    // AI does not take it.
     {.name = "the Cut", .id = 65, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Alley, .block_quality = 0,
-     .path = {{-700.0f, -200.0f, 5.5f}, {-760.0f, -60.0f, 5.5f},
-              {-660.0f, 40.0f, 5.5f}, {-700.0f, 150.0f, 5.5f},
-              {-800.0f, 210.0f, 5.5f}},
-     .count = 5},
+     .path = {{-800.0f, -190.0f, 5.5f}, {-880.0f, -80.0f, 5.5f},
+              {-837.0f, 94.2f, 5.5f}},
+     .count = 3},
     {.name = "Fishgate", .id = 66, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Alley, .block_quality = 10,
-     .path = {{-560.0f, -120.0f, 5.5f}, {-600.0f, 40.0f, 5.5f},
-              {-660.0f, 40.0f, 5.5f}},
-     .count = 3},
+     .path = {{-660.0f, -140.0f, 5.5f}, {-673.7f, -64.5f, 5.5f}},
+     .count = 2},
     {.name = "Marsh Row", .id = 67, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Alley, .block_quality = 10,
-     .path = {{-1230.0f, 250.0f, 5.5f}, {-1120.0f, 150.0f, 5.5f},
-              {-960.0f, 130.0f, 5.5f}, {-872.0f, 100.0f, 5.5f}},
-     .count = 4},
+     .path = {{-1120.0f, 20.0f, 5.5f}, {-960.0f, -40.0f, 5.5f},
+              {-880.0f, -80.0f, 5.5f}},
+     .count = 3},
     {.name = "Lower Marsh", .id = 68, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Alley, .block_quality = 10,
-     .path = {{-872.0f, 100.0f, 5.5f}, {-800.0f, 210.0f, 5.5f}},
+     .path = {{-1000.0f, -120.0f, 5.5f}, {-960.0f, -40.0f, 5.5f}},
      .count = 2},
+    // The slip that puts the old town on Route 1. One of them, at the far
+    // western end, which is why a chase that enters Saltmarsh from the east has
+    // to cross the creek to get out again.
+    {.name = "the Rimway Slip", .id = 69, .district = DistrictId::Saltmarsh,
+     .cls = RoadClass::Street, .block_quality = 140, .shapes_ground = true,
+     .path = {{-1050.0f, 110.0f, 7.0f}, {-1080.0f, 60.0f, 6.0f},
+              {-1120.0f, 20.0f, 5.5f}},
+     .count = 3},
 
-    // The four creek crossings. All passable, none fast: a soft chokepoint set
-    // where a chase FRAGMENTS instead of stopping. Decked, at plate height.
+    // --- the four crossings -------------------------------------------------
+    // All passable, none fast. Soft chokepoints: a chase FRAGMENTS here instead
+    // of stopping, which is a different and better thing than a wall.
+    // The strip between Route 1 and the creek is cut off from the old town by
+    // the freeway, so it is its own road with its own ramp. That is what a
+    // freeway through a town DOES, and it is why the two crossings at this end
+    // feel further away than they look.
+    {.name = "the Bankside", .id = 76, .district = DistrictId::Saltmarsh,
+     .cls = RoadClass::Street, .block_quality = 80, .shapes_ground = true,
+     .path = {{-1150.0f, 115.3f, 7.0f}, {-1074.2f, 218.7f, 5.5f},
+              {-1200.0f, 260.0f, 5.5f}, {-1315.8f, 294.4f, 5.5f}},
+     .count = 4},
+
     {.name = "Creek Crossing 1", .id = 70, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Alley, .structure = RoadStructure::Bridge,
      .block_quality = 30, .deck_y_m = 5.5f,
-     .path = {{-1395.0f, 312.0f, 5.5f}, {-1365.0f, 428.0f, 5.5f}},
+     .path = {{-1315.8f, 294.4f, 5.5f}, {-1285.6f, 410.5f, 5.5f}},
      .count = 2},
     {.name = "Creek Crossing 2", .id = 71, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Alley, .structure = RoadStructure::Bridge,
      .block_quality = 30, .deck_y_m = 5.5f,
-     .path = {{-1230.0f, 250.0f, 5.5f}, {-1170.0f, 370.0f, 5.5f}},
+     .path = {{-1074.2f, 218.7f, 5.5f}, {-1018.4f, 324.9f, 5.5f}},
      .count = 2},
     {.name = "Creek Crossing 3", .id = 72, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Alley, .structure = RoadStructure::Bridge,
      .block_quality = 30, .deck_y_m = 5.5f,
-     .path = {{-800.0f, 210.0f, 5.5f}, {-760.0f, 330.0f, 5.5f}},
+     .path = {{-837.0f, 94.2f, 5.5f}, {-781.2f, 200.4f, 5.5f}},
      .count = 2},
     {.name = "Creek Crossing 4", .id = 73, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Alley, .structure = RoadStructure::Bridge,
      .block_quality = 30, .deck_y_m = 5.5f,
-     .path = {{-560.0f, -120.0f, 5.5f}, {-500.0f, -30.0f, 5.5f}},
+     .path = {{-673.7f, -64.5f, 5.5f}, {-572.1f, -0.6f, 5.5f}},
      .count = 2},
 
-    // South of the creek: the strip that the four crossings lead to, and the
-    // link on to Halloway's West Arm.
+    // --- the south bank -----------------------------------------------------
     {.name = "Saltings Road", .id = 74, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Street, .block_quality = 70, .shapes_ground = true,
-     .path = {{-1365.0f, 428.0f, 5.5f}, {-1170.0f, 370.0f, 5.5f},
-              {-950.0f, 380.0f, 5.5f}, {-760.0f, 330.0f, 5.5f},
-              {-1010.0f, 560.0f, 7.0f}},
+     .path = {{-1285.6f, 410.5f, 5.5f}, {-1120.0f, 390.0f, 5.5f},
+              {-1018.4f, 324.9f, 5.5f}, {-900.0f, 270.0f, 5.5f},
+              {-872.0f, 248.0f, 6.0f}},
      .count = 5},
+    // The eastern half of the south bank. It is a SEPARATE road because Route 1
+    // comes off the creek bridge between the two halves: a road running through
+    // that point would be a crossroads on a motorway, so the two halves ramp on
+    // at two different places instead.
+    {.name = "Fishermans Road", .id = 77, .district = DistrictId::Saltmarsh,
+     .cls = RoadClass::Street, .block_quality = 70, .shapes_ground = true,
+     .path = {{-803.5f, 289.3f, 7.0f}, {-781.2f, 200.4f, 5.5f},
+              {-680.0f, 150.0f, 5.5f}, {-600.0f, 60.0f, 5.5f},
+              {-572.1f, -0.6f, 5.5f}},
+     .count = 5},
+
+    {.name = "Marsh Hill Road", .id = 75, .district = DistrictId::Saltmarsh,
+     .cls = RoadClass::Street, .block_quality = 120, .shapes_ground = true,
+     .path = {{-1018.4f, 324.9f, 5.5f}, {-1010.0f, 450.0f, 6.2f},
+              {-1010.0f, 560.0f, 7.0f}},
+     .count = 3},
 
     // =======================================================================
     //  80-89. OSTEND DOCKS — straight-line speed inside a trap.
@@ -726,27 +782,27 @@ inline constexpr Road kRoads[] = {
 
     {.name = "the Apron Spine", .id = 80, .district = DistrictId::OstendDocks,
      .cls = RoadClass::Arterial, .block_quality = 200, .shapes_ground = true,
-     .path = {{-1440.0f, -520.0f, 5.5f}, {-1700.0f, -560.0f, 5.0f},
+     .path = {{-1453.0f, -522.0f, 6.0f}, {-1700.0f, -560.0f, 5.0f},
               {-1950.0f, -600.0f, 5.0f}},
      .count = 3},
+    // Both berths GRADE, and the reason is not obvious from the map: the
+    // Kessel Channel's feather reaches 300 m past its own half width and cuts a
+    // five metre trough across the south end of the apron, which the drape
+    // measurement found and no amount of looking at the table would have. A
+    // container quay is dead level or it is not a container quay.
     {.name = "Berth 1", .id = 81, .district = DistrictId::OstendDocks,
-     .cls = RoadClass::Arterial, .block_quality = 120,
+     .cls = RoadClass::Arterial, .block_quality = 120, .shapes_ground = true,
      .path = {{-1700.0f, -560.0f, 5.0f}, {-1690.0f, -840.0f, 5.0f}},
      .count = 2},
     // DEAD END AT THE WATER, and it looks exactly like Berth 1 from the spine.
     {.name = "Berth 2", .id = 82, .district = DistrictId::OstendDocks,
-     .cls = RoadClass::Arterial, .block_quality = 60,
+     .cls = RoadClass::Arterial, .block_quality = 60, .shapes_ground = true,
      .path = {{-1950.0f, -600.0f, 5.0f}, {-1960.0f, -880.0f, 5.0f}},
      .count = 2},
     {.name = "the Container Run", .id = 83, .district = DistrictId::OstendDocks,
      .cls = RoadClass::Arterial, .block_quality = 220, .shapes_ground = true,
      .path = {{-1690.0f, -840.0f, 5.0f}, {-1960.0f, -880.0f, 5.0f}},
      .count = 2},
-    {.name = "the Dock Gate", .id = 84, .district = DistrictId::OstendDocks,
-     .cls = RoadClass::Arterial, .block_quality = 180, .shapes_ground = true,
-     .path = {{-1440.0f, -520.0f, 5.5f}, {-1436.0f, -420.0f, 6.5f}},
-     .count = 2},
-
     // =======================================================================
     //  90-99. KEPLER FLATS — hazards as terrain.
     // =======================================================================
@@ -774,46 +830,23 @@ inline constexpr Road kRoads[] = {
      .path = {{-1050.0f, -1720.0f, 9.0f}, {-1050.0f, -1900.0f, 9.0f}},
      .count = 2},
 
+
     // =======================================================================
     //  100-119. FERRONE HILL — vertical.
     // =======================================================================
-
-    // THE SHOULDER. The one paved road up, and the best roadblock in the game:
-    // block it and the hill is sealed to anyone who has not found the fire
-    // road. block_quality is deliberately LOW on it — a derived-only selector
-    // will happily stage two cruisers across a hairpin and kill the player with
-    // a cutscene they cannot avoid (pinatty section 3.1). The place to block
-    // this road is the foot, and the foot is its own entry below.
-    {.name = "the Shoulder", .id = 100, .district = DistrictId::FerroneHill,
-     .cls = RoadClass::Street, .block_quality = 40, .shapes_ground = true,
-     .path = {{560.0f, -980.0f, 20.0f},
-              {900.0f, -1080.0f, 44.0f},
-              {620.0f, -1240.0f, 66.0f},
-              {980.0f, -1360.0f, 88.0f},
-              {700.0f, -1470.0f, 104.0f},
-              {880.0f, -1580.0f, 116.0f}},
-     .count = 6},
-
-    // The foot. Wide, straight and visible from a long way: THIS is where a
-    // block on Ferrone Hill belongs.
-    {.name = "the Hill Foot", .id = 101, .district = DistrictId::FerroneHill,
-     .cls = RoadClass::Arterial, .block_quality = 250, .shapes_ground = true,
-     .path = {{470.0f, -900.0f, 13.0f}, {560.0f, -980.0f, 20.0f}},
-     .count = 2},
-
-    // THE FIRE ROAD. Unmarked, unpaved, and the single most valuable piece of
-    // local knowledge Pinatty has to teach: it is the way off the hill when the
-    // Shoulder is shut. Never stage a block on it — a player who has earned
-    // this route has earned the escape.
-    {.name = "the fire road", .id = 102, .district = DistrictId::FerroneHill,
-     .cls = RoadClass::Dirt, .block_quality = 0, .shapes_ground = true,
-     .path = {{880.0f, -1580.0f, 116.0f},
-              {1080.0f, -1500.0f, 96.0f},
-              {1180.0f, -1360.0f, 74.0f},
-              {1150.0f, -1200.0f, 52.0f},
-              {1040.0f, -1060.0f, 34.0f},
-              {900.0f, -970.0f, 24.0f}},
-     .count = 6},
+    // ORDERED STUB-FIRST, AND THE ORDER IS THE MAP.
+    //
+    // Grade corridors compose in table order like every other operator, and a
+    // corridor keeps applying its END height as a flat cap for half a width
+    // past its last point. So where a short spur meets a road that is climbing,
+    // whichever composes LAST decides the ground: put the spur second and it
+    // levels off the through road's final twenty metres, which reads on a
+    // hillside as a shelf and then a lump, and measured 0.30 m of level-3
+    // drape on the Shoulder before these entries were swapped.
+    //
+    // So the spurs are listed first and the through road last. The spurs are
+    // level and do not mind being capped at the junction height; the road whose
+    // gradient IS the gameplay wins its own approach.
 
     // Terrace streets off the Shoulder. Short, level along the contour, and
     // every one of them a cul-de-sac: a missed hairpin is a 30 m drop.
@@ -823,16 +856,130 @@ inline constexpr Road kRoads[] = {
      .count = 2},
     {.name = "Middle Terrace", .id = 104, .district = DistrictId::FerroneHill,
      .cls = RoadClass::Street, .block_quality = 20, .shapes_ground = true,
-     .path = {{980.0f, -1360.0f, 88.0f}, {1160.0f, -1420.0f, 88.0f}},
+     .path = {{980.0f, -1360.0f, 87.26f}, {1060.0f, -1385.0f, 87.26f}},
      .count = 2},
     {.name = "Lower Terrace", .id = 105, .district = DistrictId::FerroneHill,
      .cls = RoadClass::Street, .block_quality = 20, .shapes_ground = true,
-     .path = {{900.0f, -1080.0f, 44.0f}, {1060.0f, -1140.0f, 44.0f}},
+     .path = {{900.0f, -1080.0f, 47.08f}, {1060.0f, -1140.0f, 47.08f}},
      .count = 2},
+    // THE FIRE ROAD. Unmarked, unpaved, and the single most valuable piece of
+    // local knowledge Pinatty has to teach: it is the way off the hill when the
+    // Shoulder is shut. Never stage a block on it — a player who has earned
+    // this route has earned the escape.
+    {.name = "the fire road", .id = 102, .district = DistrictId::FerroneHill,
+     .cls = RoadClass::Dirt, .block_quality = 0, .shapes_ground = true,
+     .path = {{880.0f, -1580.0f, 116.00f},
+              {1080.0f, -1500.0f, 92.26f},
+              {1162.6f, -1384.4f, 76.60f},
+              {1180.0f, -1360.0f, 76.60f},
+              {1174.5f, -1330.5f, 76.60f},
+              {1150.0f, -1200.0f, 61.97f},
+              {1040.0f, -1060.0f, 42.35f},
+              {900.0f, -970.0f, 24.00f}},
+     .count = 8},
+    // The foot. Wide, straight and visible from a long way: THIS is where a
+    // block on Ferrone Hill belongs.
+    {.name = "the Hill Foot", .id = 101, .district = DistrictId::FerroneHill,
+     .cls = RoadClass::Arterial, .block_quality = 250, .shapes_ground = true,
+     .path = {{470.0f, -900.0f, 13.0f}, {560.0f, -980.0f, 20.0f}},
+     .count = 2},
+    // THE SHOULDER. The one paved road up, and the best roadblock in the game:
+    // block it and the hill is sealed to anyone who has not found the fire
+    // road. block_quality is deliberately LOW on it — a derived-only selector
+    // will happily stage two cruisers across a hairpin and kill the player with
+    // a cutscene they cannot avoid (pinatty section 3.1). The place to block
+    // this road is the foot, and the foot is its own entry above.
+    //
+    // EVERY HAIRPIN IS A LEVEL PLATFORM, AND THAT IS NOT DECORATION.
+    //
+    // A Grade corridor takes its height from the NEAREST point on its own
+    // polyline. Where a road doubles back inside its own width, two arms are
+    // equidistant from the ground between them and the operator has to pick
+    // one -- so the height field STEPS, vertically, from one arm's profile to
+    // the other's. Measured on the first draft of this road, with the climb
+    // running straight through the apexes: a SEVEN METRE CLIFF down the middle
+    // of the second hairpin, 26 m from the apex, directly under the kerb line.
+    //
+    // Levelling 70 m either side of each apex removes it at the source. Near a
+    // hairpin both arms are then at the same height, so there is nothing for
+    // the field to step between, and the climb happens on the straights where
+    // the arms are far enough apart that neither is inside the other's
+    // corridor. It is also simply what a real switchback does, because you
+    // cannot climb and turn hard at the same time.
+    //
+    // The residual is OFF THE ROAD and is reported rather than hidden: on the
+    // bank between two legs, about 35 m out, the field still steps by roughly
+    // half a metre. That is a retaining wall between switchbacks, which is what
+    // a retaining wall between switchbacks looks like. The carriageway, the
+    // kerbs and the sidewalks are clean.
+    //
+    // 1568 m, 560 m of it level platform, 9.5 per cent on the climbing legs --
+    // which is the figure docs/design/pinatty.md section 3.1 asks for, arrived
+    // at rather than typed in.
+    {.name = "the Shoulder", .id = 100, .district = DistrictId::FerroneHill,
+     .cls = RoadClass::Street, .block_quality = 40, .shapes_ground = true,
+     .corridor_feather_m = 20.0f,
+     .path = {{560.0f, -980.0f, 20.00f},
+              {832.8f, -1060.2f, 47.08f},
+              {900.0f, -1080.0f, 47.08f},
+              {839.2f, -1114.7f, 47.08f},
+              {680.8f, -1205.3f, 64.46f},
+              {620.0f, -1240.0f, 64.46f},
+              {686.4f, -1262.1f, 64.46f},
+              {913.6f, -1337.9f, 87.26f},
+              {980.0f, -1360.0f, 87.26f},
+              {914.8f, -1385.6f, 87.26f},
+              {765.2f, -1444.4f, 102.58f},
+              {700.0f, -1470.0f, 102.58f},
+              {759.7f, -1506.5f, 102.58f},
+              {880.0f, -1580.0f, 116.00f}},
+     .count = 14},
 
     // =======================================================================
     //  120-139. NICKEL HEIGHTS — dead ends punish panic.
     // =======================================================================
+    // The stadium ramp composes FIRST, by the same rule as the Ferrone Hill
+    // block: it is the one road here that climbs, and a cul-de-sac sitting at
+    // plate height sixty metres away should not be dragged up the berm with it.
+    // The stadium is on a raised berm, so its access road climbs.
+    {.name = "the Stadium Approach", .id = 129,
+     .district = DistrictId::NickelHeights, .cls = RoadClass::Arterial,
+     .block_quality = 130, .shapes_ground = true,
+     .path = {{1160.0f, 660.0f, 11.5f}, {1210.0f, 700.0f, 15.0f},
+              {1250.0f, 720.0f, 20.0f}},
+     .count = 3},
+    {.name = "Sycamore Loop", .id = 123, .district = DistrictId::NickelHeights,
+     .cls = RoadClass::Street, .block_quality = 40, .shapes_ground = true,
+     .path = {{950.0f, 200.0f, 11.0f}, {1090.0f, 180.0f, 11.5f},
+              {1180.0f, 260.0f, 12.0f}, {1120.0f, 360.0f, 12.0f},
+              {980.0f, 350.0f, 11.0f}, {950.0f, 200.0f, 11.0f}},
+     .count = 6},
+    {.name = "Marlow Loop", .id = 124, .district = DistrictId::NickelHeights,
+     .cls = RoadClass::Street, .block_quality = 40, .shapes_ground = true,
+     .path = {{950.0f, 470.0f, 11.0f}, {820.0f, 460.0f, 11.0f},
+              {760.0f, 400.0f, 11.0f}, {830.0f, 330.0f, 11.0f},
+              {950.0f, 380.0f, 11.0f}},
+     .count = 5},
+    {.name = "Pennant Loop", .id = 125, .district = DistrictId::NickelHeights,
+     .cls = RoadClass::Street, .block_quality = 40, .shapes_ground = true,
+     .path = {{1220.0f, 60.0f, 11.5f}, {1340.0f, 120.0f, 12.0f},
+              {1330.0f, 250.0f, 12.0f}, {1200.0f, 240.0f, 12.0f},
+              {1180.0f, 130.0f, 11.5f}, {1220.0f, 60.0f, 11.5f}},
+     .count = 6},    // THE THREE THAT GO NOWHERE. From the collector they read exactly like the
+    // three above.
+    {.name = "Corvid Close", .id = 126, .district = DistrictId::NickelHeights,
+     .cls = RoadClass::Street, .block_quality = 0, .shapes_ground = true,
+     .path = {{1160.0f, 660.0f, 11.5f}, {1200.0f, 800.0f, 11.5f},
+              {1120.0f, 850.0f, 11.5f}},
+     .count = 3},
+    {.name = "Aldermans End", .id = 127, .district = DistrictId::NickelHeights,
+     .cls = RoadClass::Street, .block_quality = 0, .shapes_ground = true,
+     .path = {{820.0f, 460.0f, 11.0f}, {750.0f, 410.0f, 11.0f}},
+     .count = 2},
+    {.name = "Kestrel Close", .id = 128, .district = DistrictId::NickelHeights,
+     .cls = RoadClass::Street, .block_quality = 0, .shapes_ground = true,
+     .path = {{1400.0f, 160.0f, 12.0f}, {1450.0f, 300.0f, 12.5f}},
+     .count = 2},
     //
     // Two collectors, three loops off them, and three cul-de-sacs that look
     // exactly like loops until you are in them. Long sight lines mean the
@@ -842,6 +989,17 @@ inline constexpr Road kRoads[] = {
     // These DO shape the ground: the Nickel Heights plate is Flatten at
     // strength 0.75, which leaves the suburb rolling on purpose, and rolling
     // ground is exactly what a level-3 lattice disagrees with.
+
+    // The one ramp from Route 1 down to the southern half of the district.
+    // Everything south of the freeway is reached through here or the long way
+    // round via Halloway Square, which is the whole reason a wrong turn in
+    // Nickel Heights is expensive.
+    {.name = "the South Ramp", .id = 130,
+     .district = DistrictId::NickelHeights, .cls = RoadClass::Arterial,
+     .block_quality = 200, .shapes_ground = true,
+     .path = {{1010.0f, 553.7f, 12.0f}, {1010.0f, 660.0f, 11.5f},
+              {1160.0f, 660.0f, 11.5f}},
+     .count = 3},
 
     {.name = "the North Collector", .id = 120,
      .district = DistrictId::NickelHeights, .cls = RoadClass::Arterial,
@@ -858,49 +1016,8 @@ inline constexpr Road kRoads[] = {
     {.name = "the Spine", .id = 122, .district = DistrictId::NickelHeights,
      .cls = RoadClass::Arterial, .block_quality = 180, .shapes_ground = true,
      .path = {{950.0f, 40.0f, 11.0f}, {950.0f, 380.0f, 11.0f},
-              {950.0f, 720.0f, 11.5f}},
+              {950.0f, 550.3f, 12.0f}},
      .count = 3},
-    {.name = "Sycamore Loop", .id = 123, .district = DistrictId::NickelHeights,
-     .cls = RoadClass::Street, .block_quality = 40, .shapes_ground = true,
-     .path = {{950.0f, 200.0f, 11.0f}, {1090.0f, 180.0f, 11.5f},
-              {1180.0f, 260.0f, 12.0f}, {1120.0f, 360.0f, 12.0f},
-              {980.0f, 350.0f, 11.0f}, {950.0f, 200.0f, 11.0f}},
-     .count = 6},
-    {.name = "Marlow Loop", .id = 124, .district = DistrictId::NickelHeights,
-     .cls = RoadClass::Street, .block_quality = 40, .shapes_ground = true,
-     .path = {{950.0f, 540.0f, 11.0f}, {820.0f, 520.0f, 11.0f},
-              {760.0f, 420.0f, 11.0f}, {830.0f, 330.0f, 11.0f},
-              {950.0f, 380.0f, 11.0f}},
-     .count = 5},
-    {.name = "Pennant Loop", .id = 125, .district = DistrictId::NickelHeights,
-     .cls = RoadClass::Street, .block_quality = 40, .shapes_ground = true,
-     .path = {{1220.0f, 60.0f, 11.5f}, {1340.0f, 120.0f, 12.0f},
-              {1330.0f, 250.0f, 12.0f}, {1200.0f, 240.0f, 12.0f},
-              {1180.0f, 130.0f, 11.5f}, {1220.0f, 60.0f, 11.5f}},
-     .count = 6},
-    // THE THREE THAT GO NOWHERE. From the collector they read exactly like the
-    // three above.
-    {.name = "Corvid Close", .id = 126, .district = DistrictId::NickelHeights,
-     .cls = RoadClass::Street, .block_quality = 0, .shapes_ground = true,
-     .path = {{1160.0f, 660.0f, 11.5f}, {1230.0f, 780.0f, 11.5f},
-              {1160.0f, 840.0f, 11.5f}},
-     .count = 3},
-    {.name = "Aldermans End", .id = 127, .district = DistrictId::NickelHeights,
-     .cls = RoadClass::Street, .block_quality = 0, .shapes_ground = true,
-     .path = {{820.0f, 520.0f, 11.0f}, {720.0f, 590.0f, 11.0f}},
-     .count = 2},
-    {.name = "Kestrel Close", .id = 128, .district = DistrictId::NickelHeights,
-     .cls = RoadClass::Street, .block_quality = 0, .shapes_ground = true,
-     .path = {{1400.0f, 160.0f, 12.0f}, {1450.0f, 300.0f, 12.5f}},
-     .count = 2},
-    // The stadium is on a raised berm, so its access road climbs.
-    {.name = "the Stadium Approach", .id = 129,
-     .district = DistrictId::NickelHeights, .cls = RoadClass::Arterial,
-     .block_quality = 130, .shapes_ground = true,
-     .path = {{1160.0f, 660.0f, 11.5f}, {1210.0f, 700.0f, 15.0f},
-              {1250.0f, 720.0f, 20.0f}},
-     .count = 3},
-
     // =======================================================================
     //  140-149. THE STRAND — served by Route 1 and nothing else.
     // =======================================================================
@@ -929,15 +1046,38 @@ inline constexpr Road kRoads[] = {
               {-330.0f, 2230.0f, 6.0f}, {560.0f, 2240.0f, 6.0f},
               {600.0f, 2100.0f, 6.0f}, {170.0f, 2130.0f, 6.0f}},
      .count = 6},
+    // Inside the loop, not outside it. It ran south to z = 2000 in the first
+    // draft, and z = 2000 at this x is 220 m from the Camber channel's
+    // centreline -- inside a 300 m feather that pulls the ground to -0.24 m.
+    // The taxiway was under water and nothing but the measurement said so.
     {.name = "the Apron", .id = 151, .district = DistrictId::CamberPoint,
      .cls = RoadClass::Street, .block_quality = 20,
-     .path = {{-330.0f, 2110.0f, 6.0f}, {-330.0f, 2000.0f, 6.0f}},
+     .path = {{-330.0f, 2170.0f, 6.0f}, {100.0f, 2180.0f, 6.0f}},
      .count = 2},
+
 
     // =======================================================================
     //  160-179. MARROW — off-road, where the cruiser cannot follow.
     // =======================================================================
-    //
+    // Stub-first, for the reason spelled out in the Ferrone Hill block above:
+    // the farm track was cutting 0.37 m out of the haul road's embankment
+    // where the two run parallel out of the same junction.
+
+    {.name = "the quarry ramp", .id = 162, .district = DistrictId::Marrow,
+     .cls = RoadClass::Dirt, .block_quality = 0, .shapes_ground = true,
+     .path = {{-1470.0f, 1390.0f, 48.0f}, {-1530.0f, 1300.0f, 47.0f},
+              {-1470.0f, 1210.0f, 47.0f}},
+     .count = 3},
+    {.name = "the spoil track", .id = 163, .district = DistrictId::Marrow,
+     .cls = RoadClass::Dirt, .block_quality = 0, .shapes_ground = true,
+     .path = {{-1300.0f, 1280.0f, 52.0f}, {-1230.0f, 1420.0f, 64.0f},
+              {-1200.0f, 1540.0f, 76.0f}},
+     .count = 3},
+    {.name = "the farm track", .id = 164, .district = DistrictId::Marrow,
+     .cls = RoadClass::Dirt, .block_quality = 20, .shapes_ground = true,
+     .path = {{-1100.0f, 1200.0f, 36.0f}, {-1250.0f, 1120.0f, 36.0f},
+              {-1420.0f, 1080.0f, 34.0f}, {-1560.0f, 1120.0f, 33.0f}},
+     .count = 4},    //
     // A dirt web with no signage, one paved link out, and a haul road with a
     // drop on the outside. Grip changes under you.
 
@@ -949,25 +1089,10 @@ inline constexpr Road kRoads[] = {
      .count = 5},
     {.name = "the haul road", .id = 161, .district = DistrictId::Marrow,
      .cls = RoadClass::Dirt, .block_quality = 30, .shapes_ground = true,
-     .path = {{-1470.0f, 1390.0f, 48.0f}, {-1300.0f, 1280.0f, 62.0f},
-              {-1100.0f, 1200.0f, 38.0f}},
-     .count = 3},
-    {.name = "the quarry ramp", .id = 162, .district = DistrictId::Marrow,
-     .cls = RoadClass::Dirt, .block_quality = 0, .shapes_ground = true,
-     .path = {{-1470.0f, 1390.0f, 48.0f}, {-1530.0f, 1300.0f, 47.0f},
-              {-1470.0f, 1210.0f, 47.0f}},
-     .count = 3},
-    {.name = "the spoil track", .id = 163, .district = DistrictId::Marrow,
-     .cls = RoadClass::Dirt, .block_quality = 0, .shapes_ground = true,
-     .path = {{-1300.0f, 1280.0f, 62.0f}, {-1230.0f, 1420.0f, 66.0f},
-              {-1200.0f, 1540.0f, 76.0f}},
-     .count = 3},
-    {.name = "the farm track", .id = 164, .district = DistrictId::Marrow,
-     .cls = RoadClass::Dirt, .block_quality = 20, .shapes_ground = true,
-     .path = {{-1100.0f, 1200.0f, 36.0f}, {-1250.0f, 1120.0f, 36.0f},
-              {-1420.0f, 1080.0f, 34.0f}, {-1560.0f, 1120.0f, 33.0f}},
-     .count = 4},
-
+     .path = {{-1470.0f, 1390.0f, 48.0f}, {-1337.8f, 1304.4f, 52.0f},
+              {-1300.0f, 1280.0f, 52.0f}, {-1258.2f, 1263.3f, 52.0f},
+              {-1100.0f, 1200.0f, 36.0f}},
+     .count = 5},
     // =======================================================================
     //  180-199. INTER-DISTRICT LINKS.
     // =======================================================================
@@ -987,9 +1112,10 @@ inline constexpr Road kRoads[] = {
     // Vellum Row to Saltmarsh.
     {.name = "the Marsh Road", .id = 181, .district = DistrictId::Count,
      .cls = RoadClass::Arterial, .block_quality = 150, .shapes_ground = true,
-     .path = {{-347.7f, -83.9f, 12.0f}, {-460.0f, -100.0f, 9.0f},
-              {-560.0f, -120.0f, 5.5f}},
-     .count = 3},
+     .path = {{-347.7f, -83.9f, 12.0f}, {-420.0f, -290.0f, 12.0f},
+              {-560.0f, -340.0f, 9.0f}, {-680.0f, -250.0f, 5.5f},
+              {-660.0f, -140.0f, 5.5f}},
+     .count = 5},
     // Vellum Row to Nickel Heights.
     {.name = "the Nickel Road", .id = 182, .district = DistrictId::Count,
      .cls = RoadClass::Arterial, .block_quality = 160, .shapes_ground = true,
