@@ -8,6 +8,7 @@ add_subdirectory(road)
 add_subdirectory(city)     # Pinatty: map tables + terrain ops, and the AI decision layers
 add_subdirectory(physics)
 add_subdirectory(game)
+add_subdirectory(traffic)   # ambient population: phantoms + the active set (PENG-26)
 add_subdirectory(audio)     # split: synth -> sim, device -> host
 
 # Host-side modules (hardware lives here and only here):

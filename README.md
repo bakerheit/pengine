@@ -176,6 +176,10 @@ src/
                  character parameters, landmarks, and the five terrain
                  operators (Flatten, Bench, Carve, Mound, Grade). Not a data
                  file, on purpose — see src/city/map.h.     -> apricot_sim
+  traffic/       the ambient population: the analytic phantom schedule every
+                 lane carries, and the bounded active set instantiated out of
+                 it on approach.                            -> apricot_sim
+                 (see src/traffic/README.md)
   physics/       terrain collision and vehicle dynamics. Every step function
                  is pure in (state, input, collider, dt).   -> apricot_sim
   game/          the pilot game's sim-side rules. Currently ONE file:

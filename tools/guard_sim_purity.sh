@@ -32,6 +32,8 @@ SIM_DIRS=(
     src/city
     src/physics
     src/game)
+    src/traffic
+)
 
 # src/audio is the one SPLIT module: these files build into apricot_sim, while
 # device.{h,cpp} and miniaudio_impl.c build into apricot_host and are exempt.
