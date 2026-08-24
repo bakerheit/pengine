@@ -36,6 +36,11 @@
 #include "city/roads.h"
 #include "city/spines.h"
 #include "city/terrain_ops.h"
+#include "core/fixed_step.h"
+#include "core/input_frame.h"
+#include "physics/terrain_collider.h"
+#include "physics/vehicle.h"
+#include "road/lane_graph.h"
 #include "road/ribbon.h"
 #include "road/road_graph.h"
 #include "terrain/chunk.h"
@@ -817,6 +822,283 @@ void the_operator_table_is_still_cheap() {
     apricot_test::pass("the operator index still has headroom");
 }
 
+// ---------------------------------------------------------------------------
+//  7. THE ACCEPTANCE TEST: actually drive it
+// ---------------------------------------------------------------------------
+//
+// Everything above proves the network is CONNECTED. That is a graph property
+// and it is not the same claim as "you can drive from one district to another",
+// which is a claim about a car, a gearbox, four tyres and the ground. A graph
+// can be beautifully connected across a forty per cent side slope.
+//
+// So: plan a route with the real LaneGraph, put a real VehicleState on it, and
+// drive it there through the real step_vehicle() against a real
+// TerrainCollider at the real 120 Hz. The only thing invented here is the
+// driver, and it is deliberately crude — a proportional steer at a look-ahead
+// point and a throttle that holds a speed, with no recovery and no reverse. A
+// road a crude driver cannot get down is a road worth knowing about.
+
+struct Journey {
+    bool arrived = false;
+    float driven_m = 0.0f;
+    double sim_s = 0.0;
+    float worst_off_route_m = 0.0f;
+    float worst_below_ground_m = 0.0f;
+    float top_speed_mps = 0.0f;
+    int steps_taken = 0;
+};
+
+// Where the car is on the route line.
+struct OnLine {
+    std::size_t seg = 0;
+    float off_m = 0.0f;
+    glm::vec2 point{0.0f};
+};
+
+// Project onto the polyline, searching FORWARD ONLY from `cursor`.
+//
+// Forward only, because a route can double back on itself — it does, out of
+// Vellum Row, where the only merge onto Route 1 faces west — and a free search
+// would let the car "progress" by snapping to the far arm.
+//
+// The search window is at least kMinSegs segments AND at least kMinM metres,
+// and needing both is a lesson rather than a belt and braces. A lane centreline
+// is sampled by the draper, so a freeway leg can be one 700 m segment while an
+// alley is twenty 6 m ones. A window expressed only in metres pins the cursor
+// on the long segment forever; one expressed only in segments scans a kilometre
+// of alley every step.
+OnLine project_forward(const std::vector<glm::vec3>& line, glm::vec2 here,
+                       std::size_t& cursor) {
+    constexpr std::size_t kMinSegs = 12;
+    constexpr float kMinM = 260.0f;
+
+    OnLine best;
+    float best_d2 = 1e30f;
+    float scanned = 0.0f;
+    std::size_t n = 0;
+    for (std::size_t i = cursor; i + 1 < line.size(); ++i, ++n) {
+        const glm::vec2 a{line[i].x, line[i].z};
+        const glm::vec2 b{line[i + 1].x, line[i + 1].z};
+        const glm::vec2 e = b - a;
+        const float len2 = glm::dot(e, e);
+        float t = len2 > 0.0f ? glm::dot(here - a, e) / len2 : 0.0f;
+        t = std::max(0.0f, std::min(1.0f, t));
+        const glm::vec2 p = a + e * t;
+        const float d2 = glm::dot(here - p, here - p);
+        if (d2 < best_d2) {
+            best_d2 = d2;
+            best.seg = i;
+            best.point = p;
+        }
+        scanned += std::sqrt(len2);
+        if (n + 1 >= kMinSegs && scanned >= kMinM) break;
+    }
+    best.off_m = std::sqrt(best_d2);
+    cursor = best.seg;
+    return best;
+}
+
+// A point `ahead` metres further along the line, INTERPOLATED rather than
+// snapped to the next vertex. Snapping makes the target jump seven hundred
+// metres when the car joins a freeway, and the car weaves after it.
+glm::vec2 point_ahead(const std::vector<glm::vec3>& line, const OnLine& at,
+                      float ahead) {
+    glm::vec2 p = at.point;
+    float left = ahead;
+    for (std::size_t i = at.seg; i + 1 < line.size(); ++i) {
+        const glm::vec2 b{line[i + 1].x, line[i + 1].z};
+        const float d = glm::length(b - p);
+        if (d >= left) return d > 0.0f ? p + (b - p) * (left / d) : b;
+        left -= d;
+        p = b;
+    }
+    return glm::vec2{line.back().x, line.back().z};
+}
+
+// Concatenate a route's lanes into one polyline, dropping the duplicate point
+// where one lane ends and the next begins.
+std::vector<glm::vec3> route_line(const LaneGraph& lanes,
+                                  const std::vector<LaneRef>& route) {
+    std::vector<glm::vec3> out;
+    for (const LaneRef r : route) {
+        for (const glm::vec3& p : lanes.lane(r).centreline) {
+            if (!out.empty() &&
+                glm::length(glm::vec2{p.x - out.back().x,
+                                      p.z - out.back().z}) < 0.05f) {
+                continue;
+            }
+            out.push_back(p);
+        }
+    }
+    return out;
+}
+
+Journey drive(const std::vector<glm::vec3>& line, glm::vec2 destination,
+              const TerrainCollider& collider, float target_speed_mps,
+              int max_steps) {
+    Journey j;
+    if (line.size() < 2) return j;
+
+    const VehicleTuning tuning;
+    const glm::vec2 d0 =
+        glm::normalize(glm::vec2{line[1].x - line[0].x, line[1].z - line[0].z});
+    // forward = orientation * (0,0,-1) and yaw turns about +Y, so a heading of
+    // (fx, fz) is atan2(-fx, -fz).
+    VehicleState car = spawn_vehicle(tuning, collider, line[0].x, line[0].z,
+                                     std::atan2(-d0.x, -d0.y));
+
+    std::size_t cursor = 0;
+    glm::vec3 last = car.position;
+
+    for (int step = 0; step < max_steps; ++step) {
+        const glm::vec2 here{car.position.x, car.position.z};
+
+        // ARRIVED MEANS "reached the place we were sent", not "reached the end
+        // of the last lane on the route". The last lane can be a 1.5 km
+        // perimeter loop whose far end is nowhere near the destination.
+        if (glm::length(destination - here) < 25.0f) {
+            j.arrived = true;
+            break;
+        }
+
+        const OnLine on = project_forward(line, here, cursor);
+        j.worst_off_route_m = std::max(j.worst_off_route_m, on.off_m);
+
+        const float speed = glm::length(glm::vec2{car.velocity.x, car.velocity.z});
+        j.top_speed_mps = std::max(j.top_speed_mps, speed);
+
+        // Look further ahead the faster we go: the whole trick that keeps a
+        // proportional controller from weaving.
+        const glm::vec2 target = point_ahead(line, on, 10.0f + speed * 0.85f);
+
+        const glm::vec3 fwd = vehicle_forward(car);
+        const glm::vec2 f2 = glm::normalize(glm::vec2{fwd.x, fwd.z});
+        glm::vec2 tt = target - here;
+        tt = glm::length(tt) < 0.01f ? f2 : glm::normalize(tt);
+        // Positive cross means the target is to the RIGHT of travel, which is
+        // the same sign as InputFrame::steer. Getting this backwards drives the
+        // car away from the route in a slow spiral and reads exactly like a map
+        // whose roads do not connect.
+        const float alpha =
+            std::atan2(f2.x * tt.y - f2.y * tt.x, glm::dot(f2, tt));
+
+        InputFrame in;
+        in.steer = std::max(-1.0f, std::min(1.0f, alpha * 1.8f));
+        // Slow down FOR the corner instead of trying to steer through it at
+        // speed. Without this the car understeers off every switchback and the
+        // suite measures the driver rather than the road.
+        const float want =
+            target_speed_mps *
+            (1.0f - 0.6f * std::min(1.0f, std::fabs(alpha) * 1.7f));
+        if (speed < want) {
+            in.throttle = 1.0f;
+        } else if (speed > want * 1.1f) {
+            in.brake = 0.5f;
+        }
+
+        car = step_vehicle(car, tuning, in, collider, static_cast<float>(kSimDt));
+        ++j.steps_taken;
+
+        j.driven_m += glm::length(glm::vec2{car.position.x - last.x,
+                                            car.position.z - last.z});
+        last = car.position;
+        j.worst_below_ground_m =
+            std::max(j.worst_below_ground_m,
+                     collider.height(car.position.x, car.position.z) -
+                         car.position.y);
+    }
+    j.sim_s = static_cast<double>(j.steps_taken) * kSimDt;
+    return j;
+}
+
+void run_journey(const LaneGraph& lanes, const TerrainCollider& collider,
+                 const char* what, glm::vec2 from, glm::vec2 to,
+                 float speed_mps, int max_steps) {
+    // Start on a lane already pointing the right way. Without the heading the
+    // nearest lane is whichever side of the street is a millimetre closer, and
+    // half the time that is the one going the other way.
+    const LaneProjection a =
+        lanes.nearest_lane_along(from, glm::normalize(to - from), 140.0f);
+    const LaneProjection b = lanes.nearest_lane(to, 140.0f);
+    REQUIRE_MSG(a.valid() && b.valid(),
+                "no lane within 140 m of one end of this journey", what);
+
+    const std::vector<LaneRef> route = lanes.plan_route(a.lane, b.lane);
+    REQUIRE_MSG(!route.empty(), "the lane graph could not plan this journey",
+                what);
+
+    const std::vector<glm::vec3> line = route_line(lanes, route);
+    float plan_m = 0.0f;
+    for (std::size_t i = 0; i + 1 < line.size(); ++i) {
+        plan_m += glm::length(glm::vec2{line[i + 1].x - line[i].x,
+                                        line[i + 1].z - line[i].z});
+    }
+
+    const Journey j = drive(line, to, collider, speed_mps, max_steps);
+    std::printf("    %-40s %s  %5.0f m planned over %2zu lanes, drove %5.0f m "
+                "in %5.1f s, top %4.1f m/s, %4.1f m off the lane at worst, "
+                "sank %.2f m\n",
+                what, j.arrived ? "ARRIVED" : "STOPPED",
+                static_cast<double>(plan_m), route.size(),
+                static_cast<double>(j.driven_m), j.sim_s,
+                static_cast<double>(j.top_speed_mps),
+                static_cast<double>(j.worst_off_route_m),
+                static_cast<double>(j.worst_below_ground_m));
+
+    REQUIRE_MSG(j.arrived,
+                "a real car could not complete this journey on the authored "
+                "roads",
+                what);
+    // The chassis origin under the drawn ground means the car fell through
+    // something. Suspension travel is centimetres; half a metre is a hole.
+    REQUIRE_MSG(j.worst_below_ground_m < 0.5f,
+                "the car sank below the drawn ground on this journey", what);
+}
+
+void a_real_car_drives_from_district_to_district() {
+    const Built& b = built();
+    LaneGraph lanes;
+    lanes.build(b.graph, b.ground.sampler(), LaneBuildParams{});
+    REQUIRE_MSG(lanes.lane_count() > 100, "the lane graph is nearly empty",
+                "drive");
+
+    const TerrainCollider collider{kMapSeed};
+    std::printf("\n  DRIVING IT, real vehicle, real terrain, %d Hz: %zu lanes "
+                "over %zu junctions\n",
+                static_cast<int>(kSimHz), lanes.lane_count(),
+                lanes.junction_count());
+
+    // Downtown to the airfield: out of Vellum Row's grid, onto Route 1, along
+    // the Camber Reach and over the causeway — the one land bridge in 2.5 km of
+    // water.
+    run_journey(lanes, collider, "Vellum Row -> Camber Point",
+                glm::vec2{70.0f, -40.0f}, glm::vec2{170.0f, 2130.0f}, 17.0f,
+                180000);
+
+    // Downtown to the top of the hill: the Shoulder's switchbacks at 9.5 per
+    // cent. If the hairpin platforms are wrong, this is where it shows.
+    run_journey(lanes, collider, "Vellum Row -> Ferrone Hill (the Shoulder)",
+                glm::vec2{70.0f, -40.0f}, glm::vec2{880.0f, -1580.0f}, 14.0f,
+                180000);
+
+    // Across the water, over the Kessel Bridge. The longest drive on the map.
+    run_journey(lanes, collider, "Vellum Row -> Kepler Flats",
+                glm::vec2{70.0f, -40.0f}, glm::vec2{-500.0f, -1900.0f}, 17.0f,
+                240000);
+
+    // Out to the 2.2 km straight, which is the one place the answer is speed.
+    run_journey(lanes, collider, "Vellum Row -> The Strand",
+                glm::vec2{70.0f, -40.0f}, glm::vec2{1900.0f, -300.0f}, 20.0f,
+                180000);
+
+    // And out to the dirt.
+    run_journey(lanes, collider, "Vellum Row -> Marrow",
+                glm::vec2{70.0f, -40.0f}, glm::vec2{-1100.0f, 1200.0f}, 15.0f,
+                240000);
+
+    apricot_test::pass("a real car drives from one district to another");
+}
+
 }  // namespace
 
 int main() {
@@ -837,5 +1119,6 @@ int main() {
     nothing_climbs_faster_than_a_car_can();
     no_freeway_crosses_anything_at_grade();
     the_operator_table_is_still_cheap();
+    a_real_car_drives_from_district_to_district();
     return apricot_test::done("city_roads_tests");
 }
