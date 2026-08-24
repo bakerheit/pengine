@@ -12,8 +12,11 @@ is called out explicitly rather than glossed — a doc that describes the engine
 you meant to write is worse than no doc.
 
 **The game on top is Pinatty**, a GTA-style open-world crime game rebuilding
-`probablecause`. Its design is [`docs/design/pinatty.md`](design/pinatty.md) and
-**none of it is implemented** — there is no code under `src/` for any of it.
+`probablecause`. Its design is [`docs/design/pinatty.md`](design/pinatty.md).
+**Its MAP is implemented and nothing else is**: `src/city/` holds the ten
+district polygons, their character parameters, the landmark table and the five
+terrain operators that `height_at()` evaluates (PENG-41). Roads, traffic,
+police, missions and buildings are still design only.
 Apricot Rally, the time trial that used to be the sample, was deleted in
 PENG-23; every rule below that used to be stated in terms of laps, gates or
 ghosts is now stated in terms of the engine, which is where it always belonged.
@@ -377,7 +380,10 @@ cached file on disk silently outranks a code change. Caching generated cells to
 disk once flooded pengine's working tree with hundreds of phantom files.
 
 **The seed is the world identity — and from Pinatty onward, so is the map.**
-This rule has been amended, deliberately, and the amendment is narrow.
+This rule has been amended, deliberately, the amendment is narrow, and as of
+PENG-41 it is implemented: `city::kMapSeed` is pinned in the map tables and
+`App` builds its `TerrainCollider` from it, while `App::seed_` carries the
+session.
 
 Pinatty is an *authored* city: a specific place with named districts that a
 player learns, not a fresh draw per seed. So the world is now a pure function
@@ -580,11 +586,25 @@ transfer, handbrake and rollover recovery are all implemented and pinned by
 handbrake breaks the rear loose and a slide can be caught. Static prop boxes are
 solid.
 
-`height_at()` remains modest for the map ahead of it: fbm plus gated ridged fbm
-plus a radial falloff, tuned for an island a fifth of Pinatty's size.
-`docs/design/pinatty.md` §1.2 lists the retune it needs and §1.3 the terrain
-operators that do not exist yet. It must keep its signature; physics, meshing and
-the collider all call through it.
+`height_at()` has been retuned for Pinatty and now ends by applying the
+authored terrain operators in `src/city/terrain_ops.h` (PENG-41). The island is
+15.95 km² of land in a 6144 m box, 74.1% of it under 5°, peaking at 129.8 m on
+Ferrone Hill — measured and printed by `tests/city_map_tests.cpp` on every run,
+not quoted from the design. `kHomeRadiusMetres` is gone; the spawn guarantee it
+provided is now an authored Flatten, so `height_at(seed, 0, 0)` is 12.0 m
+exactly for every seed. It keeps its signature; physics, meshing and the
+collider all call through it.
+
+**The operators go LAST, on metres, and the design document had that wrong.**
+§1.3 puts them inside the normalised shape, before the metre mapping. That does
+not survive contact with the map for two reasons, and the second decides it:
+targets would have to be authored in normalised shape units rather than metres,
+and a Carve could not reach a stated depth below sea level at all — but worse,
+the island mask MULTIPLIES the shape, so an operator applied before it gets
+scaled down by the mask and TILTED by the mask's gradient. Every flattened area
+in Pinatty is near the coast: the dock apron, the Strand promenade, the airfield
+on its spit, the causeway. A flatten inside the mask comes out neither flat nor
+at the height it was asked for, exactly where it matters most.
 
 ---
 
