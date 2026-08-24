@@ -90,6 +90,27 @@ void require_first_prop(uint64_t seed, ChunkCoord c, int kind, int variant,
 // of those three would have invalidated every tape and save seed; they were
 // done together so the cost is paid once.
 //
+// SOME OF THEM MOVED AGAIN WHEN THE ROAD NETWORK LANDED, and the cost was paid
+// again on purpose. src/city/roads.h now derives a Grade corridor for every
+// road that shapes the ground, which is 52 km of authored centreline, so the
+// height field genuinely changed anywhere a road runs. Two sample points had to
+// MOVE rather than merely be re-pinned, and that distinction is the interesting
+// part:
+//
+//   * The plate normal sample was (-640, 320.5) on the Saltmarsh plate. Route 1
+//     now passes 58 m from it, and although the HEIGHT there is still exactly
+//     5.5 m, the corridor's feather reaches one of the four offsets normal_at()
+//     samples and tips the normal by 4.3e-5. That is nothing to a car and
+//     everything to this assertion, whose entire job is to prove that at full
+//     weight an operator IS its target and not a lerp toward it. Re-pinning the
+//     tilted value would have left a test asserting "exactly +Y" against a
+//     number that is not +Y. The sample moved to Kepler Flats instead, which is
+//     plate at full weight with the nearest road 100 m away.
+//   * The operator-free scatter chunk was {-20, 20}. Marrow's spoil track now
+//     runs through it, so it is not operator-free any more and the comment
+//     below would have become false. It moved to {-28, -28}, which a sweep of
+//     the whole world box confirms no operator reaches.
+//
 // The sample points come in TWO GROUPS and the split is load-bearing. The first
 // four sit on authored operator plates, which is where a player spends most of
 // their time — and which is exactly why they are useless on their own: a plate
@@ -102,7 +123,7 @@ void golden_values() {
     // --- on an authored plate: pins the operators and the metre mapping ---
     REQUIRE(bits(height_at(0ull, 0.0000f, 0.0000f)) == 0x41400000u);
     REQUIRE(bits(height_at(1ull, 100.0000f, -250.0000f)) == 0x41400000u);
-    REQUIRE(bits(height_at(3735928559ull, -640.0000f, 320.5000f)) == 0x40B00000u);
+    REQUIRE(bits(height_at(3735928559ull, -800.0000f, -1650.0000f)) == 0x41100000u);
     REQUIRE(bits(height_at(12648430ull, 37.2500f, 991.7500f)) == 0x41600000u);
 
     // A plate is dead level by construction, so its normal is exactly +Y and
@@ -113,7 +134,7 @@ void golden_values() {
                    0x00000000u);
     require_normal(1ull, 100.0000f, -250.0000f, 0x00000000u, 0x3F800000u,
                    0x00000000u);
-    require_normal(3735928559ull, -640.0000f, 320.5000f, 0x00000000u,
+    require_normal(3735928559ull, -800.0000f, -1650.0000f, 0x00000000u,
                    0x3F800000u, 0x00000000u);
     require_normal(12648430ull, 37.2500f, 991.7500f, 0x00000000u, 0x3F800000u,
                    0x00000000u);
@@ -122,8 +143,8 @@ void golden_values() {
                     0x3F800000u, 0x00000000u);
     require_weights(1ull, 100.0000f, -250.0000f, 0x00000000u, 0x00000000u,
                     0x3F800000u, 0x00000000u);
-    require_weights(3735928559ull, -640.0000f, 320.5000f, 0x00000000u,
-                    0x00000000u, 0x3F675282u, 0x3DC56BF0u);
+    require_weights(3735928559ull, -800.0000f, -1650.0000f, 0x00000000u,
+                    0x00000000u, 0x3F800000u, 0x00000000u);
     require_weights(12648430ull, 37.2500f, 991.7500f, 0x00000000u, 0x00000000u,
                     0x3F800000u, 0x00000000u);
 
@@ -152,10 +173,12 @@ void golden_values() {
                     0x3F25B209u, 0x3EB49BEEu, 0x00000000u);
 
     // --- scatter ---
-    // Three of these chunks sit inside the city and one, {-20, 20}, is out in
-    // the Meadows on ground the operators never touch. Keep it that way: with
-    // only urban chunks here the scatter pins would stop noticing a change to
-    // the terrain the props stand on.
+    // Three of these chunks sit inside the city and one, {-28, -28}, is out in
+    // the Meadows on ground NO operator reaches. Keep it that way: with only
+    // urban chunks here the scatter pins would stop noticing a change to the
+    // terrain the props stand on, because a plate returns its target whatever
+    // the noise does. It used to be {-20, 20}, which stopped qualifying the day
+    // Marrow's spoil track was authored through it.
     REQUIRE(scatter_chunk(0ull, ChunkCoord{0, 0}).size() == 166u);
     require_first_prop(0ull, ChunkCoord{0, 0}, 0, 1, 0x40E5AB3Eu, 0x41400000u,
                        0x3F3610F4u, 0x40C05075u, 0x3F848E6Cu);
@@ -164,10 +187,10 @@ void golden_values() {
                        0xC2FEFB48u, 0x4016C910u, 0x3FB3311Eu);
     REQUIRE(scatter_chunk(12648430ull, ChunkCoord{-5, 7}).size() == 157u);
     require_first_prop(12648430ull, ChunkCoord{-5, 7}, 0, 2, 0xC39E5830u,
-                       0x4144265Du, 0x43E16D8Au, 0x3F39F3A6u, 0x3FADCF45u);
-    REQUIRE(scatter_chunk(0ull, ChunkCoord{-20, 20}).size() == 140u);
-    require_first_prop(0ull, ChunkCoord{-20, 20}, 0, 3, 0xC49F9475u,
-                       0x42663BA2u, 0x44A03264u, 0x3F2E4C2Au, 0x3FA6AD24u);
+                       0x4132EA90u, 0x43E16D8Au, 0x3F39F3A6u, 0x3FADCF45u);
+    REQUIRE(scatter_chunk(0ull, ChunkCoord{-28, -28}).size() == 151u);
+    require_first_prop(0ull, ChunkCoord{-28, -28}, 0, 0, 0xC4DEB4EAu,
+                       0x4160B25Bu, 0xC4DFF36Au, 0x3FC1E4DFu, 0x3F3BC556u);
 
     apricot_test::pass("golden terrain values unchanged");
 }

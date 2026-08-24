@@ -11,14 +11,16 @@ keeps what those paid for and deliberately changes three things; see
 `probablecause` in an authored 16 km² island city. The map design is
 [`docs/design/pinatty.md`](docs/design/pinatty.md).
 
-> **Pinatty has started. `src/city/` is real: the map itself — ten district
-> polygons with their character parameters, thirty landmarks, and the terrain
-> operators the height field evaluates (PENG-41).** Everything that hangs off
-> the map — roads, traffic, police, missions, buildings — is still design only,
-> so keep reading that document as a plan for those. There was previously a
-> placeholder sample game, Apricot Rally, a time trial with checkpoints and lap
-> timing; it was deleted in PENG-23 because it was scaffolding that read as
-> design.
+> **Pinatty has started, and it has roads.** `src/city/` is real: the map — ten
+> district polygons with their character parameters, thirty landmarks, and the
+> terrain operators the height field evaluates (PENG-41) — and the road network,
+> 92 authored spines and 52.8 km of centreline that bake into 129,484 triangles
+> and draw. You can drive from any district to any other; a headless suite does
+> exactly that with the real vehicle, five times, across the island. Traffic,
+> police, missions and buildings are still design only, so keep reading that
+> document as a plan for those. There was previously a placeholder sample game,
+> Apricot Rally, a time trial with checkpoints and lap timing; it was deleted in
+> PENG-23 because it was scaffolding that read as design.
 
 > **Status: 0.1.0, early.** The architecture is settled and enforced by the
 > build. What runs today is an engine and a streamed procedural world, not a
@@ -74,15 +76,17 @@ apricot 0.1.0
   --frames N      render N frames, print a summary, then exit
   --no-instancing start on the naive per-node draw path
   --warp-every N  teleport across the island every N frames
-  --road-probe    bake a probe road at the origin (instrumentation)
   --version       print the version and exit
   --help          this text
 ```
 
 **What you get today.** A window with a GL 3.3+ core context, the fixed-step loop
-at 120 Hz, a drivable car on **streamed procedural terrain** under a moving sky,
-and a debug overlay. The terrain loads and unloads around the car in four
-level-of-detail rings out to 2.3 km, with props scattered on the near two.
+at 120 Hz, a drivable car on **streamed procedural terrain with Pinatty's road
+network on it**, under a moving sky, and a debug overlay. The terrain loads and
+unloads around the car in four level-of-detail rings out to 2.3 km, with props
+scattered on the near two. The roads are baked once at startup into six meshes
+by material: measured on an M5, 129,484 triangles for 7.86 MB of vertex data,
+and the whole thing runs at **3.80 ms a frame (263 FPS) over 1199 frames**.
 
 There is still no game on top of it, and two things are stand-in *models* rather
 than stand-in systems: the car is a red box and a tree is three boxes, because
@@ -205,9 +209,11 @@ src/
                  meshing, and the residency streamer. height_at() evaluates
                  city/'s terrain operators as its last step.
                                                             -> apricot_sim
-  city/          PINATTY'S MAP, as constexpr C++ tables: district polygons and
-                 character parameters, landmarks, and the five terrain
-                 operators (Flatten, Bench, Carve, Mound, Grade). Not a data
+  city/          PINATTY'S MAP AND ROADS, as constexpr C++ tables: district
+                 polygons and character parameters, landmarks, the five terrain
+                 operators (Flatten, Bench, Carve, Mound, Grade), and the 92
+                 authored road spines. Every road corridor operator is DERIVED
+                 from the road table rather than written beside it. Not a data
                  file, on purpose — see src/city/map.h.     -> apricot_sim
   traffic/       the ambient population: the analytic phantom schedule every
                  lane carries, and the bounded active set instantiated out of
@@ -241,8 +247,9 @@ tools/
 tests/                   headless suites; each links apricot_sim only
 docs/architecture.md     the design rules, each with what it cost to learn
 docs/design/pinatty.md   the pilot game's map. Its section 3 road hierarchy is
-                         implemented in src/road/; the map tables are not
-                         written and nothing else of Pinatty exists.
+                         implemented in src/road/ and authored in src/city/;
+                         the map tables and the road network are written and
+                         wired. Traffic, police, missions and buildings are not.
 ```
 
 `assets/` holds **nine GLSL files and nothing else**, which is the point rather

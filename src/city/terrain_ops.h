@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "city/map.h"
+#include "city/roads.h"
 
 namespace apricot {
 namespace city {
@@ -115,10 +116,22 @@ enum class OpShape : uint8_t {
     Corridor   // polyline + half_width_m, carrying a vertical profile
 };
 
-// Longest corridor the tables may author. A road that needs more than eight
-// control points is several roads, and saying so in a static_assert is
-// cheaper than discovering a truncated corridor as a cliff across a highway.
-inline constexpr int kMaxCorridorPoints = 8;
+// Longest corridor the tables may author.
+//
+// It is exactly kMaxRoadPoints (roads.h), and that is load-bearing rather than
+// tidy: ONE ROAD MUST BECOME EXACTLY ONE CORRIDOR.
+//
+// It used to be 8, and roads longer than that were split into several
+// corridors sharing an endpoint. That is wrong in a way that is invisible
+// until you measure it. A corridor's nearest-point search CLAMPS to its own
+// polyline, so past its last control point it keeps applying that point's
+// height as a flat cap for a whole half width. Two corridors meeting end to
+// end therefore each flatten the other's approach, and the later one in the
+// table wins -- which turns the last twenty metres of a climbing road into a
+// level shelf and then a lump, on ground that is supposed to be a constant
+// gradient. Splitting a road is the one thing that manufactures that, so a
+// road is never split.
+inline constexpr int kMaxCorridorPoints = kMaxRoadPoints;
 
 // A corridor control point: position in the XZ plane and the height the road
 // or channel is at THERE. `y` is authored, not draped — that is the whole
@@ -391,7 +404,7 @@ inline float apply_op(const TerrainOp& op, float h, float x, float z) {
 //   5. Grade    — roads, which win over everything, because a road that a
 //                 district plate half-buried is how you get a 30% gradient
 //                 nobody authored.
-inline constexpr TerrainOp kTerrainOps[] = {
+inline constexpr TerrainOp kBaseOps[] = {
     // ---- 1. Flatten: the district plates ---------------------------------
     {.kind = OpKind::Flatten,
      .shape = OpShape::Rect,
@@ -575,75 +588,97 @@ inline constexpr TerrainOp kTerrainOps[] = {
      .feather_m = 160.0f,
      .target_m = -7.0f},
 
-    // ---- 5. Grade: roads win ----------------------------------------------
-    {.kind = OpKind::Grade,
-     .shape = OpShape::Corridor,
-     .note = "The Camber Causeway. 900 m, two lanes, water on both sides, no "
-             "shoulder: one stopped vehicle closes the only road to the plane",
-     .path = {{215.0f, 1420.0f, 16.0f},
-              {200.0f, 1650.0f, 10.0f},
-              {185.0f, 1880.0f, 7.0f},
-              {170.0f, 2130.0f, 6.0f}},
-     .path_count = 4,
-     .half_width_m = 13.0f,
-     .feather_m = 24.0f},
-
-    {.kind = OpKind::Grade,
-     .shape = OpShape::Corridor,
-     .note = "The Shoulder: the one paved way up Ferrone Hill. Switchbacks at "
-             "9 per cent, and blocking it seals the hill",
-     .path = {{560.0f, -980.0f, 20.0f},
-              {900.0f, -1080.0f, 44.0f},
-              {620.0f, -1240.0f, 66.0f},
-              {980.0f, -1360.0f, 88.0f},
-              {700.0f, -1470.0f, 104.0f},
-              {880.0f, -1580.0f, 116.0f}},
-     .path_count = 6,
-     .half_width_m = 11.0f,
-     .feather_m = 26.0f,
-     .strength = 0.96f},
-
-    {.kind = OpKind::Grade,
-     .shape = OpShape::Corridor,
-     .note = "Route 1 west: the Rimway from the Kessel bridgehead down past "
-             "the docks. Authored flat because the Freeway class is 30 m wide",
-     .path = {{-1500.0f, -1060.0f, 11.0f},
-              {-1480.0f, -700.0f, 8.0f},
-              {-1420.0f, -300.0f, 8.5f},
-              {-1240.0f, 120.0f, 9.0f}},
-     .path_count = 4,
-     .half_width_m = 17.0f,
-     .feather_m = 34.0f,
-     .strength = 0.95f},
-
-    {.kind = OpKind::Grade,
-     .shape = OpShape::Corridor,
-     .note = "Route 1 east: south edge of Vellum Row out to the Strand, the "
-             "stretch where a roadblock is a suggestion rather than a wall",
-     .path = {{-380.0f, 470.0f, 12.0f},
-              {420.0f, 520.0f, 12.0f},
-              {1120.0f, 560.0f, 12.5f},
-              {1820.0f, 620.0f, 13.0f}},
-     .path_count = 4,
-     .half_width_m = 17.0f,
-     .feather_m = 34.0f,
-     .strength = 0.95f},
-
-    {.kind = OpKind::Grade,
-     .shape = OpShape::Corridor,
-     .note = "Marrow's haul road: quarry floor to the farm pad, the grade a "
-             "loaded truck can actually pull",
-     .path = {{-1470.0f, 1390.0f, 48.0f},
-              {-1300.0f, 1280.0f, 62.0f},
-              {-1100.0f, 1200.0f, 38.0f}},
-     .path_count = 3,
-     .half_width_m = 9.0f,
-     .feather_m = 30.0f,
-     .strength = 0.92f},
 };
 
-inline constexpr int kTerrainOpCount =
-    static_cast<int>(sizeof(kTerrainOps) / sizeof(kTerrainOps[0]));
+inline constexpr int kBaseOpCount =
+    static_cast<int>(sizeof(kBaseOps) / sizeof(kBaseOps[0]));
+
+// ---------------------------------------------------------------------------
+//  5. Grade: roads win, and they are DERIVED FROM THE ROAD TABLE
+// ---------------------------------------------------------------------------
+//
+// There is no hand-written Grade in kBaseOps and there must never be one
+// again. Every Grade corridor below is generated from `kRoads` in roads.h --
+// the same table map_spines() hands to the road module -- so a road and the
+// ground it sits on cannot disagree about where the road is. They used to be
+// two tables: five corridors here and, later, a spine list over there. Two
+// descriptions of one road is the oldest failure in this repo wearing a new
+// hat, and the symptom would have been a carriageway floating over a ridge
+// with an operator note explaining, confidently, why the ridge was correct.
+//
+// The derivation is deliberately dull:
+//
+//   * only roads with `shapes_ground` (see the long note on that field -- a
+//     decked road must never grade, and a road on an exactly-flat plate has
+//     nothing to gain);
+//   * half width from the class, via Road::corridor_half_m(), which is the
+//     ribbon's own footprint plus kLodCorridorMarginM so that every LOD level
+//     agrees about where the road bed is;
+//   * STRENGTH EXACTLY 1.0, always. Below 1 the operator leaves some of the
+//     noise showing, which is lovely for a suburb and fatal here: at less than
+//     full weight the corridor is no longer planar, and a road bed that is not
+//     planar is a road bed a coarse lattice cannot reproduce. The whole
+//     level-of-detail argument rests on this number being one.
+//
+// ONE ROAD, ONE CORRIDOR. See the note on kMaxCorridorPoints for why a road is
+// never split into two.
+
+constexpr int road_corridor_count(const Road& r) { return r.shapes_ground ? 1 : 0; }
+
+constexpr int count_road_grade_ops() {
+    int n = 0;
+    for (int i = 0; i < kRoadCount; ++i) n += road_corridor_count(kRoads[i]);
+    return n;
+}
+
+inline constexpr int kRoadGradeOpCount = count_road_grade_ops();
+inline constexpr int kTerrainOpCount = kBaseOpCount + kRoadGradeOpCount;
+
+// The whole table, with an INT subscript.
+//
+// Every loop over the operators counts with an int -- kTerrainOpCount is an
+// int, because the bucket index stores op numbers as uint8_t and its
+// static_asserts compare against int. std::array subscripts by size_t, so
+// using one directly would mean a cast at every call site in this header and
+// in every test that walks the table. One cast, here, instead.
+struct TerrainOpTable {
+    TerrainOp ops[kTerrainOpCount]{};
+
+    constexpr const TerrainOp& operator[](int i) const { return ops[i]; }
+    constexpr TerrainOp& operator[](int i) { return ops[i]; }
+};
+
+// The authored plates, terraces, berms and water, then every road. Grade still
+// composes LAST, which is what keeps the Camber Causeway on top of the Camber
+// channel instead of at the bottom of it.
+constexpr TerrainOpTable build_terrain_ops() {
+    TerrainOpTable out{};
+    int w = 0;
+    for (int i = 0; i < kBaseOpCount; ++i) out[w++] = kBaseOps[i];
+
+    for (int i = 0; i < kRoadCount; ++i) {
+        const Road& r = kRoads[i];
+        if (!r.shapes_ground) continue;
+
+        TerrainOp op{};
+        op.kind = OpKind::Grade;
+        op.shape = OpShape::Corridor;
+        // The road's own name is the operator's note, so a failing measurement
+        // names the road rather than an index.
+        op.note = r.name;
+        for (int p = 0; p < r.count; ++p) {
+            op.path[p] = CorridorPoint{r.path[p].x, r.path[p].z, r.path[p].y};
+        }
+        op.path_count = r.count;
+        op.half_width_m = r.corridor_half_m();
+        op.feather_m = r.feather_m();
+        op.strength = 1.0f;
+        out[w++] = op;
+    }
+    return out;
+}
+
+inline constexpr TerrainOpTable kTerrainOps = build_terrain_ops();
 
 // ---------------------------------------------------------------------------
 //  The bucket index
@@ -694,33 +729,72 @@ constexpr int op_bucket_axis_clamped(float v) {
     return i >= kOpBucketsPerSide ? kOpBucketsPerSide - 1 : i;
 }
 
+// List op `i` in every bucket its box touches.
+//
+// Called once per SHAPE for a circle or a rectangle, and once per SEGMENT for a
+// corridor, which is the whole reason it is a function.
+constexpr void index_op_box(OpIndex& ix, int i, Vec2 lo, Vec2 hi) {
+    const int x0 = op_bucket_axis_clamped(lo.x);
+    const int x1 = op_bucket_axis_clamped(hi.x);
+    const int z0 = op_bucket_axis_clamped(lo.z);
+    const int z1 = op_bucket_axis_clamped(hi.z);
+    for (int bz = z0; bz <= z1; ++bz) {
+        for (int bx = x0; bx <= x1; ++bx) {
+            const int b = bz * kOpBucketsPerSide + bx;
+            // Already listed here for this op? Every box belonging to one op is
+            // inserted consecutively, so the last entry is the only one that
+            // can be a duplicate -- and skipping it keeps each bucket's list
+            // both ascending AND free of repeats, which is what lets the walk
+            // in apply_terrain_ops() apply each op exactly once, in table
+            // order.
+            if (ix.count[b] > 0 &&
+                ix.op[b][ix.count[b] - 1] == static_cast<uint8_t>(i)) {
+                continue;
+            }
+            if (ix.count[b] >= kMaxOpsPerBucket) {
+                ix.overflowed = true;
+                continue;
+            }
+            ix.op[b][ix.count[b]] = static_cast<uint8_t>(i);
+            ix.count[b] = static_cast<uint8_t>(ix.count[b] + 1);
+            if (ix.count[b] > ix.max_in_bucket) {
+                ix.max_in_bucket = ix.count[b];
+            }
+            if (ix.count[b] == 1) ++ix.occupied;
+        }
+    }
+}
+
+// A CORRIDOR IS INDEXED SEGMENT BY SEGMENT, NOT BY ITS BOUNDING BOX.
+//
+// The box of a road that runs 2.2 km diagonally is 2.2 km on a side and the
+// road touches almost none of it. Before the road table landed the whole map
+// held five corridors and the waste did not matter; now it holds one per road,
+// and a dozen of them crossing the same square kilometre would each claim
+// every bucket in it and blow kMaxOpsPerBucket -- turning "the map has roads"
+// into "the operator index silently dropped a harbour".
+//
+// It is also strictly MORE correct in the sense that matters: the union of the
+// per-segment boxes still covers every point the op can reach, because any
+// point within (half width + feather) of the polyline is within that distance
+// of one of its segments. Nothing the op affects can fall outside the index.
 constexpr OpIndex build_op_index() {
     OpIndex ix{};
     for (int i = 0; i < kTerrainOpCount; ++i) {
-        const Vec2 lo = kTerrainOps[i].bounds_min();
-        const Vec2 hi = kTerrainOps[i].bounds_max();
-        const int x0 = op_bucket_axis_clamped(lo.x);
-        const int x1 = op_bucket_axis_clamped(hi.x);
-        const int z0 = op_bucket_axis_clamped(lo.z);
-        const int z1 = op_bucket_axis_clamped(hi.z);
-        for (int bz = z0; bz <= z1; ++bz) {
-            for (int bx = x0; bx <= x1; ++bx) {
-                const int b = bz * kOpBucketsPerSide + bx;
-                if (ix.count[b] >= kMaxOpsPerBucket) {
-                    ix.overflowed = true;
-                    continue;
-                }
-                // Ops are inserted in TABLE ORDER, so each bucket's list is
-                // ascending and walking it preserves composition order. A
-                // bucket that reordered its ops would be a different city on
-                // one side of a 128 m line.
-                ix.op[b][ix.count[b]] = static_cast<uint8_t>(i);
-                ix.count[b] = static_cast<uint8_t>(ix.count[b] + 1);
-                if (ix.count[b] > ix.max_in_bucket) {
-                    ix.max_in_bucket = ix.count[b];
-                }
-                if (ix.count[b] == 1) ++ix.occupied;
-            }
+        const TerrainOp& op = kTerrainOps[i];
+        if (op.shape != OpShape::Corridor) {
+            index_op_box(ix, i, op.bounds_min(), op.bounds_max());
+            continue;
+        }
+        const float r = op.half_width_m + op.feather_m;
+        for (int k = 0; k + 1 < op.path_count; ++k) {
+            const CorridorPoint a = op.path[k];
+            const CorridorPoint b = op.path[k + 1];
+            const float minx = (a.x < b.x ? a.x : b.x) - r;
+            const float maxx = (a.x > b.x ? a.x : b.x) + r;
+            const float minz = (a.z < b.z ? a.z : b.z) - r;
+            const float maxz = (a.z > b.z ? a.z : b.z) + r;
+            index_op_box(ix, i, Vec2{minx, minz}, Vec2{maxx, maxz});
         }
     }
     return ix;

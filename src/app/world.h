@@ -73,12 +73,10 @@ public:
 
     // Bake `spines` into ribbons, upload them and put them in the scene.
     //
-    // NOTHING IN THE ENGINE SUPPLIES SPINES YET. src/road/road_graph.h says so
-    // itself: the spine tables belong to the map module (PENG-41) and this
-    // module takes them as a parameter, so wiring is one call the day they
-    // land. Until then App passes an empty list and no road draws. That is not
-    // a stub — the bake, the upload and the draw are all real and all run; they
-    // are simply run over nothing.
+    // App passes city::map_spines() — Pinatty's authored road network, 92
+    // spines and 52.8 km of centreline. This stays a PARAMETER rather than a
+    // call into src/city/ so the whole chain can be driven from a test with a
+    // different network, which is exactly what tests/city_roads_tests.cpp does.
     //
     // An empty spine list is a success and produces no geometry. Returns false
     // only if a bake that HAD geometry failed to reach the GPU.

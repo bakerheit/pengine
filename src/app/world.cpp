@@ -82,28 +82,46 @@ MeshData make_rock(uint8_t variant) {
 
 // How far out road ribbons are drawn, in metres.
 //
-// NOT A PERFORMANCE NUMBER. Ribbons are draped onto the LEVEL 0 drawn surface
-// by the baker, via mesh_height_at(). Past the level 0 and level 1 rings the
-// terrain beneath them is drawn coarser, and the ribbon and the ground it was
-// draped on stop being the same surface. Measured on this terrain by
-// tests/terrain_lod_tests.cpp:
+// IT WAS 640, AND THE REASON IT WAS 640 HAS BEEN FIXED.
 //
-// over Marrow's quarry, which is 60 m cut into a 120 m hill and the steepest
-// ground anybody can drape a road across:
+// Ribbons are draped onto the LEVEL 0 drawn surface by the baker, via
+// mesh_height_at(). Past the level 0 and level 1 rings the terrain beneath them
+// is drawn coarser, and the ribbon and the ground it was draped on stop being
+// the same surface. Measured over Marrow's quarry before src/city/ authored any
+// roads (tests/terrain_lod_tests.cpp):
 //
 //     level 1 (2 m)  mean 0.002 m  worst 0.324 m
 //     level 2 (4 m)  mean 0.010 m  worst 0.677 m
 //     level 3 (8 m)  mean 0.036 m  worst 1.020 m
 //
-// So this is the outer edge of the level 1 ring: 640 m, where a road is off its
-// ground by millimetres typically and a third of a metre at the very worst. Beyond it a road visibly floats, and floating
-// geometry is a worse artefact than a road that is not drawn — the same rule as
-// "collision derives from the geometry that draws", with a second consumer.
+// That last number is why this was pinned to the outer edge of the level 1
+// ring. The proper fix was named there: a terrain operator that carves the road
+// corridor into the height field itself, so every level agrees about where the
+// road bed is. src/city/roads.h now derives one from every road that needs it,
+// and tests/city_roads_tests.cpp measures the result over the vertices the
+// baker actually emitted rather than over a patch of hillside:
 //
-// The proper fix is a terrain operator that carves the road corridor into the
-// height field itself, so every level agrees about where the road bed is. That
-// belongs to the map module and is not this ticket. Until then, this distance.
-constexpr float kRoadDrawDistanceMetres = 640.0f;
+//     level 1 (2 m)  mean 0.0001 m  worst 0.110 m
+//     level 2 (4 m)  mean 0.0003 m  worst 0.146 m
+//     level 3 (8 m)  mean 0.0011 m  worst 0.311 m
+//
+// Inside a corridor at full weight the height IS the corridor's own profile --
+// linear along it, constant across it, a plane -- and every LOD level samples
+// the same lattice and interpolates linearly, so a plane comes back a plane.
+// The residual is at hairpins and at junctions where two graded roads meet at
+// different gradients. So there is no longer a drape reason to draw roads any
+// nearer than everything else, and this matches the renderer's distance.
+//
+// ONE HONEST CAVEAT, because the name of this constant over-promises.
+// max_draw_distance is a PER-NODE cull and RoadMeshes::attach creates six
+// nodes -- one per material -- each with the bounds of the whole island. The
+// cull measures to the closest point of a node's box, so a camera standing
+// anywhere on the island is zero metres from all six. This value is therefore a
+// coarse on/off switch for the whole network and never was a ring; the 640 m
+// version culled nothing either. Making it a real distance ring means tiling
+// the bake spatially, which is src/road/ and src/gfx/ work and not this
+// module's to do. Said out loud rather than left reading like a budget.
+constexpr float kRoadDrawDistanceMetres = 2400.0f;
 
 bool World::init(Renderer& renderer, uint64_t seed, const StreamerConfig& cfg) {
     streamer_ = Streamer(seed, cfg);
@@ -260,8 +278,9 @@ bool World::set_roads(Renderer& renderer, Scene& scene,
     // The ground the ribbons drape onto is the MESHED surface, not the height
     // field. TerrainGround binds the right one — road_graph.h makes that a
     // parameter rather than a call precisely so it cannot be got wrong here,
-    // and the baker measured 0.000000000 m of error across 676 carriageway
-    // vertices against it.
+    // and tests/city_roads_tests.cpp re-checks it across all 65,514 draped
+    // vertices of the real map: every one of them sits on the level 0 surface
+    // to within a millimetre, and the suite fails if one does not.
     const TerrainGround ground{seed_};
 
     RoadGraph graph;

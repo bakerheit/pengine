@@ -11,6 +11,7 @@
 
 #include "app/overlay.h"
 #include "city/map.h"
+#include "city/spines.h"
 #include "core/log.h"
 #include "gfx/gl_state.h"
 #include "gfx/sky_env.h"
@@ -60,44 +61,6 @@ constexpr int kMaxSpikeLogs = 3;
 constexpr float kCamBack = 9.0f;
 constexpr float kCamUp = 3.6f;
 constexpr float kCamLookAhead = 6.0f;
-
-// Spines for --road-probe, and INSTRUMENTATION RATHER THAN CONTENT.
-//
-// The road module bakes ribbons from authored spines and says plainly where
-// those come from: the map tables, which are PENG-41's and are not in the tree.
-// So the shipped path passes an empty list and no road draws.
-//
-// That would leave the whole bake-upload-draw chain never executed, and this
-// working agreement is explicit that a feature nobody has run is a feature
-// nobody may describe as working. Two crossing streets through the spawn point
-// is the smallest thing that exercises a carriageway, a junction plate,
-// sidewalks, kerbs and a crosswalk at once. It is off by default, it is named a
-// probe everywhere it appears, and it is deleted the day map_spines() exists.
-//
-// It is NOT a placeholder city, and the difference matters: --frames and
-// --warp-every are the same kind of thing, and demo_scene.cpp — which this
-// ticket deleted — was not.
-std::vector<RoadSpine> probe_spines() {
-    std::vector<RoadSpine> out;
-
-    RoadSpine ns;
-    ns.cls = RoadClass::Street;
-    ns.id = 1;
-    for (int i = -4; i <= 4; ++i) {
-        ns.points.push_back(glm::vec2{0.0f, static_cast<float>(i) * 40.0f});
-    }
-    out.push_back(ns);
-
-    RoadSpine ew;
-    ew.cls = RoadClass::Arterial;
-    ew.id = 2;
-    for (int i = -4; i <= 4; ++i) {
-        ew.points.push_back(glm::vec2{static_cast<float>(i) * 40.0f, 0.0f});
-    }
-    out.push_back(ew);
-
-    return out;
-}
 
 const char* gl_error_name(GLenum e) {
     switch (e) {
@@ -241,19 +204,14 @@ bool App::init() {
     }
 
     // --- roads ---------------------------------------------------------------
-    // Empty unless --road-probe. See probe_spines(): the map module owns the
-    // real ones and they are not in the tree, so the shipped call bakes,
-    // uploads and draws nothing — every step of it real, run over no input.
-    if (!world_.set_roads(renderer_, scene_,
-                          road_probe_ ? probe_spines()
-                                      : std::vector<RoadSpine>{})) {
+    // Pinatty's road network, from the authored tables in src/city/roads.h.
+    // This used to be an empty list plus a --road-probe flag that baked two
+    // crossing streets at the origin so the bake/upload/draw path was exercised
+    // at all; the flag existed to be deleted the day map_spines() landed, and
+    // this is that day.
+    if (!world_.set_roads(renderer_, scene_, city::map_spines())) {
         AP_ERROR("road bake/upload failed; cannot continue");
         return false;
-    }
-    if (road_probe_) {
-        AP_WARN("--road-probe: two crossing streets at the origin. This is "
-                "INSTRUMENTATION, not map content; the spine tables are "
-                "PENG-41's and are not in this tree.");
     }
 
     // COLD FILL, BEFORE THE CLOCK STARTS.
@@ -634,6 +592,16 @@ int App::run() {
         if (dt > 0.0) {
             fps_ = fps_ + (1.0 / dt - fps_) * kFpsSmoothing;
         }
+        // The SMOOTHED number is for the overlay, where a reader wants a value
+        // that stops jittering. The summary at the end wants the honest mean
+        // over the session, so accumulate the raw deltas too — and only after
+        // the first present, for the same reason frame_ms_ starts there: one
+        // 100 ms shader compile in a 600-frame mean is a 0.17 ms lie.
+        if (!first_frame) {
+            frame_ms_total_ += dt * 1000.0;
+            ++frames_timed_;
+            if (dt * 1000.0 > worst_frame_ms_) worst_frame_ms_ = dt * 1000.0;
+        }
 
         poll_events();
 
@@ -778,6 +746,16 @@ int App::run() {
                 last_fill_steps_);
         AP_INFO("streaming spikes over %.1f ms: %d of %d frames",
                 kStreamSpikeMs, stream_spikes_, frames_rendered_);
+        if (frames_timed_ > 0) {
+            const double mean = frame_ms_total_ / frames_timed_;
+            AP_INFO("frame time: %.2f ms mean over %d frames (%.0f FPS), "
+                    "%.2f ms worst; roads %zu triangles in %zu layers, %.2f MB",
+                    mean, frames_timed_, 1000.0 / mean, worst_frame_ms_,
+                    world_.roads().triangle_count(),
+                    world_.roads().layer_count(),
+                    static_cast<double>(world_.roads().gpu_bytes()) /
+                        (1024.0 * 1024.0));
+        }
     }
 
     gl_errors_ += drain_gl_errors("at shutdown");

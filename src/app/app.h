@@ -58,11 +58,6 @@ public:
     // remembers to press the key, which is to say the path that ships broken.
     void set_warp_interval(int frames) { warp_interval_ = frames; }
 
-    // Bake and draw a probe road network at the origin. Instrumentation, so the
-    // bake-upload-draw chain is exercised while the real spine tables (PENG-41)
-    // do not exist. See probe_spines() in app.cpp.
-    void set_road_probe(bool on) { road_probe_ = on; }
-
 private:
     void poll_events();
     void render();
@@ -135,7 +130,6 @@ private:
     bool teleport_requested_ = false;
     int warp_interval_ = 0;
     int warps_done_ = 0;
-    bool road_probe_ = false;
 
     // What the last fill cost, in wall milliseconds. App owns the only clock in
     // the program, so this is measured here and not inside World.
@@ -160,6 +154,12 @@ private:
     // Frame stats, smoothed for display only. Never fed back into the sim.
     double fps_ = 0.0;
     double frame_ms_ = 0.0;
+
+    // Raw totals for the end-of-session summary. fps_ and frame_ms_ above are
+    // smoothed for the overlay and are the wrong thing to quote in a report.
+    double frame_ms_total_ = 0.0;
+    double worst_frame_ms_ = 0.0;
+    int frames_timed_ = 0;
     int last_steps_ = 0;
     bool last_clamped_ = false;
 
