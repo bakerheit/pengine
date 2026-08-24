@@ -5,92 +5,11 @@
 #include <algorithm>
 #include <cmath>
 
-#include "core/rng.h"
 #include "terrain/heightmap.h"
+#include "terrain/surface.h"  // surface_kind_at
 
 namespace apricot {
 namespace {
-
-// --- the mesh lattice --------------------------------------------------------
-// One cell of the lattice the mesher walks. Index space matches
-// terrain/chunk.cpp exactly: i runs along +X, j along +Z, and the world
-// coordinate of a lattice point is (index * kTerrainVertexMetres) — the same
-// absolute world value both neighbouring chunks evaluate, which is why their
-// shared edge closes and why we can reproduce it without knowing which chunk
-// we are in.
-// Barycentric weights of (u, v) on whichever of the cell's two triangles
-// contains it, in the mesher's vertex order a=(0,0) b=(1,0) c=(0,1) d=(1,1).
-//
-// terrain/chunk.cpp emits {a, c, b} then {b, c, d}: the shared edge is the
-// ANTI-diagonal b--c, so u + v <= 1 is the first triangle and u + v >= 1 the
-// second. Get that backwards and the surface is subtly wrong on exactly half
-// of every cell — a bug that looks like noise, not like a mistake.
-// --- surface classification --------------------------------------------------
-// TERRAIN DOES NOT OWN MATERIALS YET. src/terrain/ generates shape and nothing
-// else, so the tyre model has nothing to ask. This classifier lives here so
-// grip is driven by something real rather than a constant, and it is written
-// against PHYSICAL rules — angle of repose, sediment settling low — rather than
-// tuned to the current placeholder height field, so replacing that field with
-// real ridged terrain does not turn the whole world to rock.
-//
-// The moment src/terrain/ ships a material or biome field, DELETE this and call
-// through to it. Two sources of truth for what the ground is made of will drift
-// from what the renderer paints, and the symptom is "that gravel section grips
-// like tarmac".
-
-// Broad value noise on its own lattice, so materials come in stage-sized
-// patches instead of per-metre confetti.
-constexpr float kPatchMetres = 140.0f;
-constexpr uint32_t kPatchChannel = 7u;
-
-float patch_lattice(uint64_t seed, int32_t ix, int32_t iz) {
-    return static_cast<float>(hash_coord3(seed, ix, iz, kPatchChannel) >> 40) *
-           (1.0f / 16777216.0f);
-}
-
-float smooth_step(float t) { return t * t * (3.0f - 2.0f * t); }
-
-float patch_noise(uint64_t seed, float x, float z) {
-    const float sx = x / kPatchMetres;
-    const float sz = z / kPatchMetres;
-    const float fx = std::floor(sx);
-    const float fz = std::floor(sz);
-    const int32_t ix = static_cast<int32_t>(fx);
-    const int32_t iz = static_cast<int32_t>(fz);
-
-    const float tx = smooth_step(sx - fx);
-    const float tz = smooth_step(sz - fz);
-
-    const float n00 = patch_lattice(seed, ix, iz);
-    const float n10 = patch_lattice(seed, ix + 1, iz);
-    const float n01 = patch_lattice(seed, ix, iz + 1);
-    const float n11 = patch_lattice(seed, ix + 1, iz + 1);
-
-    const float a = n00 + (n10 - n00) * tx;
-    const float b = n01 + (n11 - n01) * tx;
-    return a + (b - a) * tz;
-}
-
-// Cosine of the angle of repose. Loose material does not sit on a face steeper
-// than roughly 32 degrees; above that you are driving on what is left, which is
-// rock. This is why the threshold is a physical constant and not a feel dial.
-constexpr float kReposeCos = 0.848f;  // cos(32 deg)
-
-// Below this fraction of the height field's amplitude counts as valley floor,
-// where washed-out sediment collects.
-constexpr float kSandFraction = -0.18f;
-
-SurfaceMaterial classify_surface(uint64_t seed, float x, float z) {
-    const glm::vec3 n = normal_at(seed, x, z);
-    if (n.y < kReposeCos) return SurfaceMaterial::kRock;
-
-    if (height_at(seed, x, z) < kHeightMetres * kSandFraction) {
-        return SurfaceMaterial::kSand;
-    }
-
-    return patch_noise(seed, x, z) > 0.55f ? SurfaceMaterial::kGravel
-                                           : SurfaceMaterial::kGrass;
-}
 
 // --- ray helpers -------------------------------------------------------------
 
@@ -196,8 +115,7 @@ glm::vec3 TerrainCollider::normal(float x, float z) const {
 
 // --- props -------------------------------------------------------------------
 
-void TerrainCollider::add_static_box(const AABB& bounds,
-                                     SurfaceMaterial material) {
+void TerrainCollider::add_static_box(const AABB& bounds, Surface material) {
     // An inverted (never-expanded) AABB passes every containment test it is
     // given and would become a prop covering the entire world.
     if (!bounds.valid()) return;
@@ -208,15 +126,14 @@ void TerrainCollider::clear_static_boxes() { boxes_.clear(); }
 
 // --- materials ---------------------------------------------------------------
 
-void TerrainCollider::paint_surface(const AABB& region,
-                                    SurfaceMaterial material) {
+void TerrainCollider::paint_surface(const AABB& region, Surface material) {
     if (!region.valid()) return;
     paint_.push_back(SurfacePaint{region, material});
 }
 
 void TerrainCollider::clear_surface_paint() { paint_.clear(); }
 
-SurfaceMaterial TerrainCollider::material(float x, float z) const {
+Surface TerrainCollider::material(float x, float z) const {
     // Reverse order: the last paint laid down wins, so a small patch dropped
     // on top of a big one behaves the way anyone painting it would expect.
     for (std::size_t i = paint_.size(); i > 0u; --i) {
@@ -226,7 +143,21 @@ SurfaceMaterial TerrainCollider::material(float x, float z) const {
             return p.material;
         }
     }
-    return classify_surface(seed_, x, z);
+    // Delegates to terrain's classifier rather than repeating it -- the same
+    // fix, one layer up, that height()/normal() already took.
+    //
+    // This file used to hold its own classify_surface(): a hard cutoff on
+    // normal.y and a patch-noise coin flip. It was not close. Measured over
+    // 11,559 land samples in the home basin it named a DIFFERENT material from
+    // the mesher 40.85% of the time, and it never returned sand ANYWHERE on the
+    // island, because its sand test was an altitude 27 m below sea level. Every
+    // beach in the game gripped like grass. Its own comment predicted the
+    // symptom -- "that gravel section grips like tarmac" -- and was right.
+    //
+    // surface_kind_at() evaluates the field rather than reading a mesh, so this
+    // still answers in chunks that have never been meshed. Grip must not depend
+    // on streaming state.
+    return surface_kind_at(seed_, x, z);
 }
 
 float TerrainCollider::grip(float x, float z) const {
@@ -239,7 +170,7 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
     glm::vec3 origin, float max_distance) const {
     float surface_y = height(origin.x, origin.z);
     glm::vec3 surface_n = normal(origin.x, origin.z);
-    SurfaceMaterial mat = material(origin.x, origin.z);
+    Surface mat = material(origin.x, origin.z);
     bool prop = false;
 
     for (const StaticBox& b : boxes_) {
@@ -282,7 +213,7 @@ TerrainCollider::GroundHit TerrainCollider::raycast(glm::vec3 origin,
     bool found = false;
     glm::vec3 best_n{0.0f, 1.0f, 0.0f};
     bool best_is_prop = false;
-    SurfaceMaterial best_mat = SurfaceMaterial::kRock;
+    Surface best_mat = Surface::Rock;
 
     // --- terrain: march until the ray crosses the surface, then bisect ------
     // Signed height above the meshed surface. Marching the SIGN rather than

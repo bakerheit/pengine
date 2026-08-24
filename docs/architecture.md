@@ -148,7 +148,7 @@ altering one `InputFrame` must change the run — without them every assertion
 still passes if the step ignored the terrain, or ignored the tape. An
 **anti-vacuity floor** on distance travelled, because "bit-identical" is
 trivially true of two cars that never moved; measured with the throttle cut,
-the run drops from 222.7 m to 1.2 m and still replays perfectly. And the
+the run drops from 206.6 m to 0.9 m and still replays perfectly. And the
 comparison helper **proves its own coverage** by flipping a bit at every byte
 offset of a live mid-run state and requiring every byte of every declared
 member to be noticed. That last one is not theoretical: `game/best_lap.cpp`
@@ -447,10 +447,39 @@ construction* the ground the player sees. Any parallel re-derivation drifts
 from the visual mesh, and the resulting "the car floats on that hill" bug is
 invisible until someone drives there.
 
+**And so does the MATERIAL.** The same rule, one layer up, and it has now been
+paid for twice. `TerrainCollider::material()` calls `surface_kind_at()` — the
+classifier the mesher splats with — and physics classifies nothing.
+
+It used to. `terrain_collider.cpp` carried its own `classify_surface()`: a hard
+cutoff on `normal.y` plus a patch-noise coin flip, written when terrain owned
+no materials, with a comment saying to delete it the day terrain shipped one.
+Terrain shipped one, and exposed `surface_kind_at()` for exactly this caller.
+Nobody deleted the copy. Measured across 11,559 land samples in the home basin
+over three seeds, the two classifiers named a **different material 40.85% of
+the time** — 44.90% island-wide — so the grip under the car disagreed with the
+texture under the car nearly everywhere, not just at edges. Worse, physics
+never returned sand *anywhere on the island*, because its sand test was an
+altitude 27 m below sea level: every beach in the game gripped like grass.
+
+The pattern to recognise is that this is the identical failure to the one
+`height()`/`normal()` had, and it was found the same way — by measuring the
+disagreement rather than by driving around. Heights agreed to 15 microns but
+normals were out by up to 1.02, most of a right angle. Both now read
+`0.000000`, and so does the material disagreement, pinned as a **count** in
+`tests/terrain_collision_tests.cpp`.
+
+There is exactly one material enum, `terrain::Surface`, because terrain draws
+the ground. Physics owns only what a material *grips like*
+(`TyreSurface`, in `physics/surface.h`). A grip column in both modules is two
+sources of truth for the car's handling, and when there were two they
+disagreed: rock was 0.95 in terrain and 1.15 in physics.
+
 **Physics must not depend on streaming state.** Ground queries are valid
 anywhere, including in chunks that have never been meshed. A collider that only
 answers inside resident chunks turns a streaming hiccup into a fall through the
-world.
+world. `surface_kind_at()` evaluates the field rather than reading a mesh for
+this reason: grip is answerable in a chunk that has never been built.
 
 **Probes report penetration as a negative distance, and callers need that.**
 `GroundHit::distance` is not clamped at zero: the sign is how a caller tells

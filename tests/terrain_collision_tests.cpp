@@ -19,6 +19,7 @@
 #include "physics/terrain_collider.h"
 #include "terrain/chunk.h"
 #include "terrain/heightmap.h"
+#include "terrain/surface.h"
 #include "test_assert.h"
 
 using namespace apricot;
@@ -237,7 +238,7 @@ void props_are_found_by_a_downward_probe() {
     AABB crate;
     crate.expand(glm::vec3{x - 2.0f, ground, z - 2.0f});
     crate.expand(glm::vec3{x + 2.0f, ground + 1.5f, z + 2.0f});
-    collider.add_static_box(crate, SurfaceMaterial::kRock);
+    collider.add_static_box(crate, Surface::Rock);
     REQUIRE(collider.static_boxes().size() == 1u);
 
     // Directly above: the box top wins.
@@ -292,7 +293,7 @@ void raycast_finds_terrain_and_props() {
     AABB wall;
     wall.expand(hit.point + glm::vec3{-4.0f, 0.5f, -4.0f});
     wall.expand(hit.point + glm::vec3{4.0f, 6.0f, 4.0f});
-    collider.add_static_box(wall, SurfaceMaterial::kRock);
+    collider.add_static_box(wall, Surface::Rock);
 
     const TerrainCollider::GroundHit blocked =
         collider.raycast(origin, glm::vec3{0.6f, -1.0f, 0.35f}, 200.0f);
@@ -314,10 +315,10 @@ void raycast_finds_terrain_and_props() {
 void surfaces_vary_and_grip_follows_them() {
     TerrainCollider collider(kSeed);
 
-    int seen[kSurfaceMaterialCount] = {0, 0, 0, 0};
+    int seen[kSurfaceCount] = {0, 0, 0, 0};
     for (int i = -60; i <= 60; ++i) {
         for (int j = -60; j <= 60; ++j) {
-            const SurfaceMaterial m = collider.material(static_cast<float>(i) * 9.0f,
+            const Surface m = collider.material(static_cast<float>(i) * 9.0f,
                                                         static_cast<float>(j) * 9.0f);
             ++seen[static_cast<std::size_t>(m)];
         }
@@ -334,18 +335,18 @@ void surfaces_vary_and_grip_follows_them() {
                 seen[2], seen[3]);
 
     // The ordering the tyre model depends on.
-    REQUIRE(surface_grip(SurfaceMaterial::kRock, 0.0f) >
-            surface_grip(SurfaceMaterial::kGravel, 0.0f));
-    REQUIRE(surface_grip(SurfaceMaterial::kGravel, 0.0f) >
-            surface_grip(SurfaceMaterial::kGrass, 0.0f));
-    REQUIRE(surface_grip(SurfaceMaterial::kGrass, 0.0f) >
-            surface_grip(SurfaceMaterial::kSand, 0.0f));
+    REQUIRE(surface_grip(Surface::Rock, 0.0f) >
+            surface_grip(Surface::Gravel, 0.0f));
+    REQUIRE(surface_grip(Surface::Gravel, 0.0f) >
+            surface_grip(Surface::Grass, 0.0f));
+    REQUIRE(surface_grip(Surface::Grass, 0.0f) >
+            surface_grip(Surface::Sand, 0.0f));
 
     // Rain takes grip away everywhere. No exceptions: a material that gripped
     // BETTER wet would make "it is slippery in the rain" false a quarter of the
     // time, which is worse than a small inaccuracy.
-    for (std::size_t i = 0; i < kSurfaceMaterialCount; ++i) {
-        const SurfaceMaterial m = static_cast<SurfaceMaterial>(i);
+    for (std::size_t i = 0; i < kSurfaceCount; ++i) {
+        const Surface m = static_cast<Surface>(i);
         REQUIRE_MSG(surface_grip(m, 1.0f) < surface_grip(m, 0.0f),
                     "a surface grips at least as well soaked as it does dry",
                     "rain always costs grip");
@@ -361,6 +362,89 @@ void surfaces_vary_and_grip_follows_them() {
     apricot_test::pass("materials vary across the world and rain costs grip");
 }
 
+// THE PIN FOR PENG-40. The collider must not have an opinion about materials.
+//
+// It used to. physics/terrain_collider.cpp carried its own classify_surface()
+// -- a hard cutoff on normal.y plus a patch-noise coin flip -- while the mesher
+// splatted with terrain's smooth cascade. Measured over 11,559 land samples in
+// the home basin across three seeds, the two named a DIFFERENT material 40.85%
+// of the time (44.90% island-wide), and physics never returned sand ANYWHERE,
+// because its sand test was an altitude 27 m below sea level. Every beach in
+// the game gripped like grass.
+//
+// This is the materials half of the rule height()/normal() already answer to:
+// collision derives from the geometry that draws. So the number this test holds
+// at zero is a DISAGREEMENT COUNT, not a tolerance. A re-derivation smuggled
+// back into physics shows up here on its first run, rather than as "that gravel
+// section grips like tarmac" three months from now.
+void the_collider_never_classifies_for_itself() {
+    constexpr uint64_t kSeeds[3] = {0xC0FFEEu, 0x0A9C0DE7EA5Eull, 0x9911ull};
+
+    long samples = 0;
+    long disagreements = 0;
+    long seen[kSurfaceCount] = {0, 0, 0, 0};
+
+    for (const uint64_t seed : kSeeds) {
+        const TerrainCollider collider(seed);
+        // Out to +/-1410 m, which is past kIslandRadiusMetres: the sweep has to
+        // reach the COAST or it never sees a beach, and "physics cannot produce
+        // sand" was the loudest symptom of the bug this test pins. An odd pitch
+        // so the lattice cannot alias with a band or noise wavelength in the
+        // classifier and accidentally sample one material.
+        for (int j = -30; j <= 30; ++j) {
+            for (int i = -30; i <= 30; ++i) {
+                const float x = static_cast<float>(i) * 47.0f;
+                const float z = static_cast<float>(j) * 47.0f;
+
+                const Surface from_collider = collider.material(x, z);
+                const Surface from_terrain = surface_kind_at(seed, x, z);
+                ++samples;
+                ++seen[surface_index(from_collider)];
+                if (from_collider != from_terrain) ++disagreements;
+
+                // And the grip carried on a probe hit is the grip of that same
+                // material, or a wheel and a query disagree about the ground
+                // they are both standing on.
+                const TerrainCollider::GroundHit hit = collider.probe_down(
+                    glm::vec3{x, collider.height(x, z) + 1.0f, z}, 5.0f);
+                REQUIRE_MSG(hit.material == from_terrain,
+                            "probe_down reported a different material from the "
+                            "terrain classifier",
+                            "probe agrees");
+                REQUIRE_MSG(hit.grip == surface_grip(from_terrain, 0.0f),
+                            "the grip carried on a hit is not this material's grip",
+                            "grip agrees");
+            }
+        }
+    }
+
+    std::printf("      (%ld samples, %ld disagreements with terrain = %.6f%%)\n",
+                samples, disagreements,
+                100.0 * static_cast<double>(disagreements) /
+                    static_cast<double>(samples));
+    // The sweep is the whole island BOX, so most of it is sea floor and the
+    // sand count is dominated by it. That is not a claim about how much beach
+    // the island has -- it is only here so "sand: 0" cannot pass unnoticed.
+    std::printf("      (collider saw rock %ld, gravel %ld, grass %ld, sand %ld "
+                "-- whole island incl. sea floor)\n",
+                seen[0], seen[1], seen[2], seen[3]);
+
+    REQUIRE_MSG(samples > 10000, "not enough ground sampled to mean anything",
+                "test would be vacuous");
+    REQUIRE_MSG(disagreements == 0,
+                "the collider classified the ground differently from the mesher",
+                "one classifier, not two");
+    // The old bug had a signature: physics could not produce sand at all. If
+    // sand goes back to zero across three seeds and eleven thousand samples,
+    // something has been re-derived.
+    REQUIRE_MSG(seen[surface_index(Surface::Sand)] > 0,
+                "no sample anywhere was sand -- physics has stopped seeing "
+                "beaches again",
+                "beaches exist");
+
+    apricot_test::pass("the collider asks terrain what the ground is");
+}
+
 void painted_regions_override_the_classifier() {
     TerrainCollider collider(kSeed);
     const float x = 100.0f;
@@ -369,17 +453,17 @@ void painted_regions_override_the_classifier() {
     AABB wide;
     wide.expand(glm::vec3{x - 50.0f, -500.0f, z - 50.0f});
     wide.expand(glm::vec3{x + 50.0f, 500.0f, z + 50.0f});
-    collider.paint_surface(wide, SurfaceMaterial::kGravel);
-    REQUIRE(collider.material(x, z) == SurfaceMaterial::kGravel);
+    collider.paint_surface(wide, Surface::Gravel);
+    REQUIRE(collider.material(x, z) == Surface::Gravel);
 
     AABB patch;
     patch.expand(glm::vec3{x - 5.0f, -500.0f, z - 5.0f});
     patch.expand(glm::vec3{x + 5.0f, 500.0f, z + 5.0f});
-    collider.paint_surface(patch, SurfaceMaterial::kSand);
-    REQUIRE_MSG(collider.material(x, z) == SurfaceMaterial::kSand,
+    collider.paint_surface(patch, Surface::Sand);
+    REQUIRE_MSG(collider.material(x, z) == Surface::Sand,
                 "a patch painted on top of a wider region lost to it",
                 "last paint wins");
-    REQUIRE(collider.material(x + 20.0f, z) == SurfaceMaterial::kGravel);
+    REQUIRE(collider.material(x + 20.0f, z) == Surface::Gravel);
 
     // Painting is XZ only, so the height of the ground under it is irrelevant.
     REQUIRE(collider.material(x, z) ==
@@ -387,8 +471,8 @@ void painted_regions_override_the_classifier() {
                 .material);
 
     collider.clear_surface_paint();
-    REQUIRE(collider.material(x + 20.0f, z) != SurfaceMaterial::kGravel ||
-            collider.material(x, z) != SurfaceMaterial::kSand);
+    REQUIRE(collider.material(x + 20.0f, z) != Surface::Gravel ||
+            collider.material(x, z) != Surface::Sand);
 
     apricot_test::pass("painted stage sections override the classifier");
 }
@@ -424,6 +508,7 @@ int main() {
     props_are_found_by_a_downward_probe();
     raycast_finds_terrain_and_props();
     surfaces_vary_and_grip_follows_them();
+    the_collider_never_classifies_for_itself();
     painted_regions_override_the_classifier();
     every_query_is_pure();
     return apricot_test::done("terrain_collision_tests");

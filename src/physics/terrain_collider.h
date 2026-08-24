@@ -7,7 +7,7 @@
 #include <glm/glm.hpp>
 
 #include "core/aabb.h"
-#include "physics/surface.h"
+#include "physics/surface.h"  // brings in terrain/surface.h: Surface, surface_grip
 #include "terrain/chunk.h"
 
 namespace apricot {
@@ -44,7 +44,7 @@ inline constexpr float kTerrainVertexMetres =
 // A solid prop: a static world-space box the suspension can land on.
 struct StaticBox {
     AABB bounds;
-    SurfaceMaterial material = SurfaceMaterial::kRock;
+    Surface material = Surface::Rock;
 };
 
 // A stretch of stage painted with a material, overriding whatever the terrain
@@ -54,7 +54,7 @@ struct StaticBox {
 // height field is retuned.
 struct SurfacePaint {
     AABB region;
-    SurfaceMaterial material = SurfaceMaterial::kGravel;
+    Surface material = Surface::Gravel;
 };
 
 class TerrainCollider {
@@ -66,14 +66,17 @@ public:
     // --- the drivable surface -----------------------------------------------
 
     // Ground height / surface normal in metres at a world XZ, ON THE MESHED
-    // SURFACE. Pure.
+    // SURFACE. Pure. Both delegate to terrain's own reconstruction
+    // (mesh_height_at / mesh_normal_at) rather than repeating it here.
     //
-    // The normal is the barycentric blend of the triangle's three VERTEX
-    // normals, which is exactly what the renderer shades with. The flat
-    // face normal would be cheaper and is arguably more "correct" for a
-    // triangle, but it is piecewise constant: it snaps as a wheel crosses a
-    // triangle edge, and the tyre axes built from it snap with it. Blending
-    // gives a continuous normal and matches the lit surface.
+    // The normal is the FACE normal of the drawn triangle, not a blend of its
+    // three vertex normals. This header used to claim the opposite, and argued
+    // for it: a blended normal is continuous, so the tyre axes do not snap as a
+    // wheel crosses a triangle edge. The argument is real and the code was
+    // still wrong -- a blend is the SHADING normal, and measured against the
+    // face normal it was out by up to 1.02, which for unit vectors is most of a
+    // right angle. Contact was being resolved against a plane the geometry does
+    // not have and the car never fully settled. They now agree to 0.000000.
     float height(float x, float z) const;
     glm::vec3 normal(float x, float z) const;
 
@@ -88,18 +91,19 @@ public:
     // Static geometry is registered ONCE at world setup and never touched
     // during a step. step_vehicle() takes this object by const reference and
     // is pure in it; anything that mutates the collider mid-run breaks replay.
-    void add_static_box(const AABB& bounds,
-                        SurfaceMaterial material = SurfaceMaterial::kRock);
+    void add_static_box(const AABB& bounds, Surface material = Surface::Rock);
     void clear_static_boxes();
     const std::vector<StaticBox>& static_boxes() const { return boxes_; }
 
     // --- surface materials ---------------------------------------------------
-    void paint_surface(const AABB& region, SurfaceMaterial material);
+    void paint_surface(const AABB& region, Surface material);
     void clear_surface_paint();
 
     // Material at a world XZ. Painted regions win, last paint first; otherwise
-    // the terrain classifier decides from altitude, slope and a spatial hash.
-    SurfaceMaterial material(float x, float z) const;
+    // this is terrain's surface_kind_at() and nothing else -- the same
+    // classifier the mesher splats with, so the ground the car grips is by
+    // construction the ground the player sees. physics does not classify.
+    Surface material(float x, float z) const;
 
     // Peak friction coefficient at a world XZ, wetness already applied.
     float grip(float x, float z) const;
@@ -120,7 +124,7 @@ public:
         glm::vec3 point{0.0f};
         glm::vec3 normal{0.0f, 1.0f, 0.0f};
 
-        SurfaceMaterial material = SurfaceMaterial::kRock;
+        Surface material = Surface::Rock;
         // Peak friction coefficient here, wetness already applied. Carried on
         // the hit so a wheel does not have to re-query the surface it just
         // touched — and so the two can never disagree.

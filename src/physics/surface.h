@@ -1,33 +1,34 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
 
 #include <glm/glm.hpp>
 
+#include "terrain/surface.h"
+
 namespace apricot {
 
-// What a tyre is standing on, and how much it can hold.
+// How a tyre experiences a surface.
+//
+// WHAT THE GROUND IS belongs to terrain: `Surface`, in terrain/surface.h, is
+// the one material enum in the engine and terrain is what draws it. WHAT A
+// MATERIAL GRIPS LIKE belongs here, because it is a property of the tyre model
+// and a second vehicle scales it rather than redefining it.
+//
+// physics used to own a parallel `SurfaceMaterial` enum with its own
+// classifier, and the two drifted exactly the way that always goes: measured
+// over 11,559 land samples in the home basin, the two classifiers named a
+// DIFFERENT material 40.85% of the time, and physics never once returned sand
+// anywhere on the island — every beach in the game gripped like grass. See
+// PENG-40. That is why there is one enum now and it is not this module's.
 //
 // The tyre model never reads a material directly — it reads the GRIP that
 // comes out of this table. Keeping the lookup here rather than inside the
 // vehicle means "sand is slippery" is one number in one place instead of a
-// branch buried in the force loop, and it means the terrain side can gain a
-// fifth material without the vehicle knowing.
+// branch buried in the force loop, and it means terrain can gain a fifth
+// material without the vehicle knowing.
 
-// Ordered loosest-to-grippiest is tempting but wrong: these values are
-// SERIALISED into replay-adjacent tuning and debug output, so the numbers are
-// the contract. Append only.
-enum class SurfaceMaterial : uint8_t {
-    kRock = 0,     // hardpack, bedrock, the fast stuff
-    kGravel = 1,   // classic rally loose surface
-    kGrass = 2,    // verges and meadows
-    kSand = 3,     // riverbeds and dunes; the one that eats momentum
-};
-
-inline constexpr std::size_t kSurfaceMaterialCount = 4;
-
-struct SurfaceProperties {
+struct TyreSurface {
     // Peak friction coefficient (mu) the tyre can reach on this surface.
     float dry_grip;
 
@@ -44,27 +45,30 @@ struct SurfaceProperties {
     float rolling_scale;
 };
 
-// The whole feel of a surface, in one row each.
-inline constexpr SurfaceProperties kSurfaceTable[kSurfaceMaterialCount] = {
-    /* kRock   */ {1.15f, 0.82f, 1.00f},
-    /* kGravel */ {0.95f, 0.88f, 1.35f},
-    /* kGrass  */ {0.72f, 0.46f, 1.60f},
-    /* kSand   */ {0.55f, 0.48f, 3.20f},
+// The whole feel of a surface, in one row each. Indexed by Surface, so the row
+// order is terrain's enum order — rock, gravel, grass, sand — and inserting a
+// material in the middle of that enum re-tunes the car as well as re-texturing
+// the world. Append only, on both sides.
+inline constexpr TyreSurface kTyreSurfaceTable[kSurfaceCount] = {
+    /* Rock   */ {1.15f, 0.82f, 1.00f},
+    /* Gravel */ {0.95f, 0.88f, 1.35f},
+    /* Grass  */ {0.72f, 0.46f, 1.60f},
+    /* Sand   */ {0.55f, 0.48f, 3.20f},
 };
 
-inline constexpr const SurfaceProperties& surface_properties(SurfaceMaterial m) {
-    const std::size_t i = static_cast<std::size_t>(m);
+inline constexpr const TyreSurface& tyre_surface(Surface s) {
+    const std::size_t i = surface_index(s);
     // Clamped rather than asserted: a material that arrives out of range from
     // a future terrain module should degrade to rock, not read off the end of
     // the table in a release build where the assert is gone.
-    return kSurfaceTable[i < kSurfaceMaterialCount ? i : 0u];
+    return kTyreSurfaceTable[i < kSurfaceCount ? i : 0u];
 }
 
 // Peak friction coefficient for a material at a given wetness in [0, 1].
 // Linear between the dry and wet rows — a puddle is not a phase change, and a
 // curve here would only be a second thing to tune.
-inline float surface_grip(SurfaceMaterial m, float wetness) {
-    const SurfaceProperties& p = surface_properties(m);
+inline float surface_grip(Surface s, float wetness) {
+    const TyreSurface& p = tyre_surface(s);
     const float w = glm::clamp(wetness, 0.0f, 1.0f);
     return p.dry_grip + (p.wet_grip - p.dry_grip) * w;
 }
@@ -72,8 +76,8 @@ inline float surface_grip(SurfaceMaterial m, float wetness) {
 // Rolling-resistance multiplier. Wetness does not change it: a wet surface is
 // slipperier, not stickier, and folding both effects into one number would
 // make the two impossible to tune apart.
-inline float surface_rolling_scale(SurfaceMaterial m) {
-    return surface_properties(m).rolling_scale;
+inline float surface_rolling_scale(Surface s) {
+    return tyre_surface(s).rolling_scale;
 }
 
 }  // namespace apricot
