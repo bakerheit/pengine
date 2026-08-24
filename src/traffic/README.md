@@ -211,26 +211,30 @@ Reproduce with `./build/bin/traffic_bench --full`; `ctest` runs the short ladder
 | Config | cars | peds | ms/step | % budget |
 |---|---|---|---|---|
 | 110 m / 55 m | 42 | 47 | 0.012 | 0.1% |
-| **220 m / 110 m** (the doc's first pass) | **169** | **355** | **0.042** | **0.5%** |
-| 450 m / 200 m | 531 | 1,105 | 0.130 | 1.6% |
-| 900 m / 340 m | 1,668 | 2,661 | 0.376 | 4.5% |
-| whole district | 8,551 | 68,306 | 7.04 | 84% |
-| whole district, 2x density | 21,361 | 140,875 | 17.03 | 204% |
+| **220 m / 110 m** (the doc's first pass) | **169** | **355** | **0.041** | **0.5%** |
+| 450 m / 200 m | 531 | 1,105 | 0.123 | 1.5% |
+| 900 m / 340 m | 1,668 | 2,661 | 0.364 | 4.4% |
+| whole district | 8,551 | 68,306 | 6.79 | 82% |
+| whole district, 2x density | 21,361 | 140,875 | 15.16 | 182% |
 
-Marginal cost, decision phases only: **13.5 ns per car per step, 63.9 ns per
+Run-to-run spread on this machine is about 5%; every figure below comes from one
+`--full` run of the committed tree rather than from a best-of.
+
+Marginal cost, decision phases only: **13.9 ns per car per step, 63.3 ns per
 pedestrian per step.** A pedestrian is five times a car because its work is a
 nine-bucket neighbour gather over cold memory and a car's is a modulo and a
 `pose()`.
 
-**A stepped pedestrian finds 0.06 neighbours on average**, so that 63.9 ns is
+**A stepped pedestrian finds 0.06 neighbours on average**, so that 63.3 ns is
 almost entirely *finding out there is nobody there*. The nine bucket-start
 probes are nine random accesses into a table sized to the population; the
 candidates they turn up are nearly free because there are nearly none.
 
 That was worth knowing precisely, because the obvious fix is the wrong one:
 packing the cell key and the position into the bucket entries so a bucket scan
-is contiguous **made no measurable difference** (63.9 ns vs 62.5 ns, noise), and
-the change was reverted. There is nothing to scan. The fix that would work is a
+is contiguous **made no measurable difference** (63.9 ns vs 62.5 ns across two
+runs, inside the 5% spread), and the change was reverted. There is nothing to
+scan. The fix that would work is a
 coarse occupancy pre-check over a much larger cell, so the 94% of pedestrians
 with no neighbour at all pay one probe instead of nine — **not done here**, and
 deliberately: it moves the wall and does not move the recommendation.
@@ -238,21 +242,22 @@ deliberately: it moves the wall and does not move the recommendation.
 Two things that number hides, and both matter more than it does:
 
 - **The mean fitting is not the same as fitting.** At the largest run that fits,
-  `refresh()` alone costs 4.4 ms on the step it lands on and the worst whole step
-  is 11.1 ms — over budget — while the mean is 7.0. Membership refresh has to be
-  spread across steps before any of this ships.
+  `refresh()` alone costs 4.16 ms on the step it lands on and the worst whole
+  step is 10.7 ms — over budget — while the mean is 6.79. Membership refresh has
+  to be spread across steps before any of this ships.
 - **Sub-rate scheduling buys far less than k.** At k = 8 the per-step agent count
-  drops 8x and the frame only drops **2.0x**, because `refresh`, `rebuild_buckets`,
-  `publish` and `Scene::update` are all proportional to the POPULATION and not to
+  drops 8x and the frame only drops **2.02x** (6.88 ms to 3.40 ms), because
+  `refresh`, `rebuild_buckets`, `publish` and `Scene::update` are all
+  proportional to the POPULATION and not to
   how many of it you chose to think about. Sub-rate attacks the decision cost;
   the decision cost was 65% of the frame.
 
-The population that is merely *defined* costs **1.3 ns per phantom**: evaluating
-all 12,480 vehicle phantoms in the district, every step, would be 0.017 ms — 0.2%
+The population that is merely *defined* costs **2.0 ns per phantom**: evaluating
+all 12,480 vehicle phantoms in the district, every step, would be 0.024 ms — 0.3%
 of the budget, and nothing ever asks for all of them.
 
-Render side, separately: **74,367 agent nodes cull in 0.163 ms** (2.2 ns/node,
-1% of a 60 Hz frame). Culling agents is not a problem at any scale reached here.
+Render side, separately: **74,367 agent nodes cull in 0.158 ms** (2.1 ns/node,
+0.9% of a 60 Hz frame). Culling agents is not a problem at any scale reached here.
 
 **Analytic share**, at 450 m / 200 m over 7.5 s of sim: cars **51%**, pedestrians
 **96%**. Turning `per_slot_speed` on moves that by less than a point (51.2% /
