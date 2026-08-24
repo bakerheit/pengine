@@ -89,7 +89,10 @@ void Crowd::clear() {
     lane_buckets_.clear();
     touched_lanes_.clear();
     leader_gap_.clear();
-    ped_cells_.clear();
+    ped_bucket_start_.clear();
+    ped_bucket_items_.clear();
+    ped_bucket_of_.clear();
+    ped_table_ = 0;
     ped_cell_keys_.clear();
     ped_pos_frozen_.clear();
     dead_nodes_.clear();
@@ -454,19 +457,34 @@ void Crowd::rebuild_buckets() {
 
     std::size_t table = 64;
     while (table < np * 2u) table <<= 1;
-    ped_cells_.assign(table, {});
-    ped_cell_keys_.assign(np, 0);
+    ped_table_ = table;
+
+    ped_cell_keys_.resize(np);
+    ped_bucket_of_.resize(np);
+    ped_bucket_items_.resize(np);
+    ped_bucket_start_.assign(table + 1, 0u);
+
     for (std::size_t i = 0; i < np; ++i) {
         const int32_t cx = floor_div(ped_pos_frozen_[i].x, PED_SEPARATION_RADIUS);
         const int32_t cz = floor_div(ped_pos_frozen_[i].y, PED_SEPARATION_RADIUS);
         ped_cell_keys_[i] = (static_cast<int64_t>(cx) << 32) |
                             static_cast<int64_t>(static_cast<uint32_t>(cz));
-        // Appended in index order, and index order IS identity order, so a
-        // bucket's contents are ordered by identity and the float sum in
-        // ped_separation() is reproducible.
-        ped_cells_[cell_hash(cx, cz) & (table - 1u)].push_back(
-            static_cast<uint32_t>(i));
+        const uint32_t b =
+            static_cast<uint32_t>(cell_hash(cx, cz) & (table - 1u));
+        ped_bucket_of_[i] = b;
+        ++ped_bucket_start_[b + 1];
     }
+    for (std::size_t b = 0; b < table; ++b)
+        ped_bucket_start_[b + 1] += ped_bucket_start_[b];
+
+    // Scattered by ascending ped index, and index order IS identity order, so a
+    // bucket's contents come out ordered by identity. ped_separation() SUMS a
+    // push vector over them, float addition is not associative, and that is the
+    // whole reason this scatter has to be stable.
+    std::vector<uint32_t> cursor(ped_bucket_start_.begin(),
+                                 ped_bucket_start_.end() - 1);
+    for (std::size_t i = 0; i < np; ++i)
+        ped_bucket_items_[cursor[ped_bucket_of_[i]]++] = static_cast<uint32_t>(i);
 }
 
 // ---------------------------------------------------------------------------
@@ -593,7 +611,7 @@ void Crowd::step_peds(int64_t step) {
     if (!graph_) return;
     const int k = std::max(1, tuning_.ped_sub_rate);
     const float dt = static_cast<float>(k) * kSimDtF;
-    const std::size_t table = ped_cells_.size();
+    const std::size_t table = ped_table_;
 
     stats_.peds_stepped = 0;
     stats_.peds_analytic = 0;
@@ -620,9 +638,12 @@ void Crowd::step_peds(int64_t step) {
                     const int32_t qz = cz + dz;
                     const int64_t want = (static_cast<int64_t>(qx) << 32) |
                                          static_cast<int64_t>(static_cast<uint32_t>(qz));
-                    const std::vector<uint32_t>& bucket =
-                        ped_cells_[cell_hash(qx, qz) & (table - 1u)];
-                    for (uint32_t j : bucket) {
+                    const uint32_t b =
+                        static_cast<uint32_t>(cell_hash(qx, qz) & (table - 1u));
+                    const uint32_t lo = ped_bucket_start_[b];
+                    const uint32_t hi = ped_bucket_start_[b + 1];
+                    for (uint32_t e = lo; e < hi; ++e) {
+                        const uint32_t j = ped_bucket_items_[e];
                         // The bucket is a SUPERSET of the cell — two cells can
                         // hash to it. Comparing the real cell coordinates is
                         // what stops a colliding cell being counted twice, and

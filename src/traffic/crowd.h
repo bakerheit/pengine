@@ -318,10 +318,25 @@ private:
 
     // Ped neighbour grid, cell == PED_SEPARATION_RADIUS so a ped scans its own
     // cell plus the eight around it.
-    std::vector<std::vector<uint32_t>> ped_cells_;
+    //
+    // A COUNTING SORT INTO FLAT ARRAYS, not a vector of buckets. The obvious
+    // shape — std::vector<std::vector<uint32_t>>, cleared each step — frees and
+    // re-allocates every inner vector on every step, and at a hundred thousand
+    // pedestrians that is the single most expensive thing in the frame. This
+    // form clears with one fill of an integer array and allocates nothing after
+    // the first step.
+    //
+    // The table is sized to the POPULATION, not to the area: a dense grid over
+    // the active box is fine at a 160 m radius and is megabytes of memset per
+    // step at a kilometre. Two cells can therefore share a bucket, which is why
+    // the real cell coordinates are compared on the way out.
+    std::vector<uint32_t> ped_bucket_start_;  // size table + 1
+    std::vector<uint32_t> ped_bucket_items_;  // size peds_, ped indices
+    std::vector<uint32_t> ped_bucket_of_;     // size peds_, bucket per ped
     std::vector<int64_t> ped_cell_keys_;
     std::vector<glm::vec2> ped_pos_frozen_;
     std::vector<glm::vec2> ped_scratch_;
+    std::size_t ped_table_ = 0;
 
     std::vector<NodeId> dead_nodes_;
     std::vector<LaneRef> lane_scratch_;
