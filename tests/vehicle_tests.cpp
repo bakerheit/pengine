@@ -418,6 +418,36 @@ void the_car_stays_on_the_surface_over_a_long_drive() {
     // no wheel contact ever leaves the drawn surface, and the centre of mass
     // never ends a step underneath it. Airborne TIME is a property of the
     // terrain's amplitude, which is a feel decision for a human -- PENG-16.
+    // FAILING AS OF PENG-40, AND THE THRESHOLD HAS DELIBERATELY NOT BEEN MOVED.
+    // It reads 0.231. It is not measuring airtime any more, so lowering it
+    // would relabel a bug as terrain amplitude and bake it in forever.
+    //
+    // What the car actually does: at t=15 s it rolls, and from t=30 s it lies
+    // on its side sliding downhill for the remaining sixty seconds with up.y
+    // pinned at +0.30 and recovery_timer at 0.00. It is wedged in a dead band
+    // between two tuning constants five hundredths apart:
+    //
+    //   min_upright_dot  = 0.25  -> below this the SUSPENSION is switched off
+    //   recovery_up_dot  = 0.30  -> below this the RIGHTING TORQUE engages
+    //
+    // Resting between them, the car has neither. The ground guard holds the
+    // bodywork out of the terrain and it skates. Crossing 0.30 also RESETS
+    // recovery_timer to zero, so recovery_delay (1.5 s) can never elapse once
+    // the car is balanced on the line.
+    //
+    // Pre-existing, not caused by the material fix. The same drive on the old
+    // classifier already spent 29.9% of its ninety seconds on its side, and
+    // finished doing 39.9 m/s across the SEA FLOOR 33.9 m below sea level —
+    // which is where its healthier-looking 53% came from. Lower grip now means
+    // less energy to knock the car back off the threshold, so what was
+    // intermittent became permanent.
+    //
+    // Measured candidate fix (NOT applied — it is a feel decision and a new
+    // VehicleTuning field): give the engage threshold hysteresis, so recovery
+    // holds until the car is properly upright instead of releasing at the same
+    // value that engaged it. With a release threshold of 0.75 this drive goes
+    // to 81% grounded and 7398 all-four samples, passing at the 0.45 below
+    // untouched. Needs its own ticket and a human on the number.
     REQUIRE_MSG(grounded_fraction > 0.45f,
                 "the car spent most of the drive in the air", "mostly on the ground");
 

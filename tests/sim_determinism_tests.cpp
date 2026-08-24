@@ -105,8 +105,9 @@ constexpr float kSteerGain = 1.2f;
 // and spends the rest of the tape on its roof. An inverted car still replays
 // bit-for-bit, so the suite would stay green while testing an integrator
 // falling over. Governed to these speeds the measured run is 0 of 2400 steps
-// inverted and 312 airborne — enough air to exercise suspension extension and
-// re-contact, not enough to become a barrel roll.
+// inverted and 230 airborne — enough air to exercise suspension extension and
+// re-contact, not enough to become a barrel roll. (312 airborne before
+// PENG-40; same reason as the floors below.)
 constexpr float kDriveSpeed = 15.0f;
 constexpr float kCornerSpeed = 11.0f;
 
@@ -136,8 +137,15 @@ constexpr int kBrakeTo = 1560;
 constexpr int kShiftDownAt[] = {300, 1200};
 constexpr int kShiftUpAt[] = {330, 700, 1240};
 
-// ANTI-VACUITY FLOORS. Measured on this seed: 222.7 m of path, 177.2 m of net
-// displacement, top speed 15.7 m/s. The floors sit well under those, because
+// ANTI-VACUITY FLOORS. Measured on this seed: 206.6 m of path, 168.9 m of net
+// displacement, top speed 15.1 m/s. (222.7 / 177.2 / 15.7 before PENG-40 gave
+// physics the terrain classifier: the ground the tape is driven over is a
+// different mix of materials now, so the same inputs cover slightly less
+// ground. The tape still replays bit for bit, which is the claim.) With the
+// throttle cut the same recording drops to 0.9 m and still replays perfectly,
+// and the floor below fires -- that control was re-run for these figures.
+//
+// The floors sit well under the measured values, because
 // their job is not to pin the trajectory — it is to fail loudly on the day a
 // change quietly stops the car, at which point "the replay is bit-identical"
 // becomes true of two cars sitting still and this suite becomes decoration.
