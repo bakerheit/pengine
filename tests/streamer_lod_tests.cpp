@@ -405,6 +405,57 @@ void a_teleport_across_the_island_fills_before_it_resumes() {
                 steps, h.streamer.resident_count(), h.uploaded.size());
 }
 
+void a_warp_inside_the_loaded_radius_still_refits_before_it_resumes() {
+    // THE REGRESSION THIS EXISTS FOR, and it is the one a teleport test aimed
+    // at the far side of the island cannot catch.
+    //
+    // Warp somewhere that is ALREADY RESIDENT but at the wrong level -- the
+    // outer rings of the world you are standing in. Nothing has to be loaded;
+    // everything has to be REFITTED, because what was level 3 background is
+    // about to be the ground under the car.
+    //
+    // ready() originally measured levels about the last planned centre, which
+    // between the jump and the next step still describes the world the player
+    // left. Relative to that centre, every chunk at the destination was already
+    // at the level it wanted, so ready() said yes, the fill loop ran zero
+    // iterations, and the car resumed standing on an 8 m chord.
+    //
+    // The symptom was silent and shaped like success: "filled in 0 steps,
+    // 0.0 ms". A fill that never runs looks exactly like a fill that is very
+    // fast, which is why this asserts on the WORK DONE and not just on the
+    // final state.
+    Host h(0xFA11ull, tiered_config());
+    const glm::vec3 spawn = centre_of(ChunkCoord{0, 0});
+    h.fill(spawn);
+    h.settle(spawn);
+
+    // A chunk out in the coarse rings of the world we already have.
+    const ChunkCoord dest{6, 0};
+    REQUIRE_MSG(h.streamer.resident(dest),
+                "the destination was not already resident, so this test is not "
+                "exercising the case it was written for",
+                "warp inside");
+    REQUIRE_MSG(h.streamer.resident_lod(dest) > 0,
+                "the destination was already level 0; pick a coarser one",
+                "warp inside");
+
+    const glm::vec3 to = centre_of(dest);
+    REQUIRE_MSG(!h.streamer.ready(to),
+                "ready() claims a coarse, already-resident destination is fine "
+                "to resume on; it is measuring levels about the wrong centre",
+                "warp inside");
+
+    const int steps = h.fill(to);
+    REQUIRE_MSG(steps > 0, "the fill loop did no work at all", "warp inside");
+    REQUIRE_MSG(h.streamer.resident_lod(dest) == 0,
+                "the destination is still coarse after a fill that claimed to "
+                "have finished",
+                "warp inside");
+    std::printf("    [warp inside] refit %d coarse chunks to level 0 in %d "
+                "fill steps\n",
+                1, steps);
+}
+
 // --- 6. the scatter tier ----------------------------------------------------
 
 void chunks_past_the_scatter_tier_carry_terrain_only() {
@@ -535,6 +586,8 @@ int main() {
     apricot_test::pass("a cold start fills before it is ready");
     a_teleport_across_the_island_fills_before_it_resumes();
     apricot_test::pass("a teleport across the island fills before it resumes");
+    a_warp_inside_the_loaded_radius_still_refits_before_it_resumes();
+    apricot_test::pass("a warp inside the loaded radius still refits first");
     chunks_past_the_scatter_tier_carry_terrain_only();
     apricot_test::pass("chunks past the scatter tier carry terrain only");
     two_streamers_crossing_rings_agree_exactly();

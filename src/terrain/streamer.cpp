@@ -90,14 +90,16 @@ StreamerConfig Streamer::normalised(StreamerConfig cfg) {
     return cfg;
 }
 
-int Streamer::lod_for(ChunkCoord c) const {
-    const int d2 = sq_distance(c, centre_);
+int Streamer::lod_about(ChunkCoord c, ChunkCoord centre) const {
+    const int d2 = sq_distance(c, centre);
     for (int l = 0; l < kMaxChunkLod; ++l) {
         const int r = cfg_.lod_ring[l];
         if (d2 <= r * r) return l;
     }
     return kMaxChunkLod;
 }
+
+int Streamer::lod_for(ChunkCoord c) const { return lod_about(c, centre_); }
 
 int Streamer::resident_lod(ChunkCoord c) const {
     const auto it = resident_.find(c);
@@ -121,11 +123,28 @@ bool Streamer::ready(glm::vec3 camera_pos) const {
             const ChunkCoord c{centre.x + dx, centre.z + dz};
             const auto it = resident_.find(c);
             if (it == resident_.end()) return false;
+
             // Resident at the WRONG level is not ready. Resuming on a level 3
             // chunk under the car puts it on an 8 m chord while physics
             // reconstructs the 1 m lattice, and the car sinks into ground it is
             // visibly standing on.
-            if (it->second.lod != lod_for(c)) return false;
+            //
+            // LEVELS ARE MEASURED ABOUT THE POSITION PASSED IN, NOT ABOUT THE
+            // LAST PLANNED CENTRE. That distinction is the entire value of this
+            // function and it was wrong at first. lod_for() answers relative to
+            // centre_, which only moves when plan() runs — so immediately after
+            // a teleport it still describes the world the player just left. Ask
+            // it about the destination and it says every chunk there is already
+            // at the level it wants, because relative to the OLD centre it is.
+            //
+            // The symptom was silent and exactly backwards from a crash: the
+            // teleport reported "filled in 0 steps / 0.0 ms" and resumed on
+            // whatever coarse ground happened to be lying around. It only
+            // showed up because a warp inside the already-loaded radius was
+            // measured, and the fill it was supposed to prove cost nothing at
+            // all. A fill that never runs looks exactly like a fill that is
+            // very fast.
+            if (it->second.lod != lod_about(c, centre)) return false;
         }
     }
     return true;

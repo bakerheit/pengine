@@ -122,7 +122,14 @@ struct StreamerConfig {
     // ---- budgets ------------------------------------------------------------
 
     // Ceiling on MESH BUILDS handed to the caller per step, as a count.
-    int max_chunk_builds_per_step = 2;
+    //
+    // Generous, because the quad budget below is the one that actually bounds
+    // the work and this only stops a pathological step. 16 level 3 chunks are
+    // 1024 quads between them — a quarter of one level 0 chunk — so a count
+    // budget tight enough to matter near the player starves the far rings: at
+    // 2 a step, the 2796 level 3 chunks of the shipping config take 1400 steps
+    // to arrive, and a teleport leaves the horizon empty for twenty seconds.
+    int max_chunk_builds_per_step = 16;
 
     // Ceiling on mesh QUADS handed to the caller per step.
     //
@@ -134,9 +141,22 @@ struct StreamerConfig {
     // fill 64x slower than they need to while the near ones are still allowed
     // to spike.
     //
-    // Both budgets apply and the tighter one wins. 8192 is two level 0 chunks,
-    // or 128 level 3 chunks, for the same measured meshing cost.
-    int max_build_quads_per_step = 8192;
+    // Both budgets apply and the tighter one wins.
+    //
+    // 4096 IS ONE LEVEL 0 CHUNK, AND THAT IS THE POINT. It was 8192 first, on
+    // the arithmetic that two chunks a step is a modest ask. Measured in the
+    // running app it was not: the far-ring fill sat at 6.0-6.5 ms of meshing
+    // per frame for two hundred frames, which is a third of a 60 Hz frame spent
+    // on terrain that is a kilometre away. Halving it costs nothing that
+    // matters — the fill takes twice as many frames and each one is invisible
+    // instead of expensive.
+    //
+    // The budget cannot split a chunk, so one level 0 chunk (2.3 ms) is the
+    // floor on a frame that wants one. At this size a full step is ~2.5 ms
+    // whatever the level: one level 0 chunk, or four level 1, or sixty-four
+    // level 3. That uniformity is the useful property, and it is what a
+    // count-only budget could never give.
+    int max_build_quads_per_step = 4096;
 
     // Ceiling on INSTANCES activated per step — scene nodes created, counting
     // the chunk's own terrain node as one.
@@ -262,9 +282,15 @@ public:
     // The level a resident chunk is currently built at, or -1 if not resident.
     int resident_lod(ChunkCoord c) const;
 
-    // The level this chunk WANTS to be at, given the last planned centre. Pure
-    // in (coord, centre, config), which is what keeps two machines at the same
-    // camera position planning the same world.
+    // The level this chunk WANTS to be at, given the LAST PLANNED CENTRE.
+    //
+    // Note which centre. centre_ only moves when plan() runs, so between a
+    // camera jump and the next step this still describes the world the player
+    // just left. That is correct for asking "what did the last plan decide"
+    // and wrong for asking "is the place I am about to be ready", which is why
+    // ready() measures about the position it is handed instead. Getting those
+    // two confused made a teleport report a 0 ms fill and resume on coarse
+    // ground.
     int lod_for(ChunkCoord c) const;
 
     // Chunks resident at each level. Index is the level. For telemetry and for
@@ -318,6 +344,11 @@ private:
     };
 
     static StreamerConfig normalised(StreamerConfig cfg);
+
+    // The level `c` wants, measured about an ARBITRARY centre rather than the
+    // last planned one. The centre is a parameter precisely because the two
+    // callers need different ones — see the note on lod_for().
+    int lod_about(ChunkCoord c, ChunkCoord centre) const;
 
     void plan(glm::vec3 camera_pos, StepMode mode);
     void evict(Scene& scene);

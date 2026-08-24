@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 namespace apricot {
 
 class Window;
@@ -50,6 +52,30 @@ struct Stats {
     int hud_draw_calls = 0;
     int rain_drops = 0;
     int rain_quads = 0;
+
+    // --- terrain streaming ---------------------------------------------------
+    // resident_by_lod is the number that says whether the LOD rings are doing
+    // their job. If it ever reads as everything at level 0, the ring config is
+    // not being applied and the memory figure is about to explain why.
+    std::size_t resident_chunks = 0;
+    std::size_t resident_by_lod[4] = {0, 0, 0, 0};
+    std::size_t live_meshes = 0;
+    double terrain_mb = 0.0;
+    int chunks_built = 0;
+    int chunks_refitted = 0;
+    int chunks_evicted = 0;
+    int meshes_freed = 0;
+    bool stream_budget_hit = false;
+
+    // Wall milliseconds spent in Scene::cull() and in build_chunk() on the
+    // frame just rendered. Measured in App, which owns the program's only
+    // clock, and display-only — neither ever reaches the sim.
+    double cull_ms = 0.0;
+    double mesh_ms = 0.0;
+
+    // What the last cold fill or teleport cost.
+    double fill_ms = 0.0;
+    int fill_steps = 0;
 
     float time_of_day = 0.5f;
 

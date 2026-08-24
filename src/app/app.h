@@ -2,8 +2,8 @@
 
 #include <cstdint>
 
-#include "app/demo_scene.h"
 #include "app/overlay.h"
+#include "app/world.h"
 #include "core/fixed_step.h"
 #include "game/conditions.h"
 #include "gfx/camera.h"
@@ -49,6 +49,14 @@ public:
     // Start on the naive per-node path instead of the batched one, so the A/B
     // can be measured without a human clicking a checkbox.
     void set_instancing(bool on) { controls_.instancing = on; }
+
+    // Teleport across the island every N frames. 0 = never.
+    //
+    // Same reasoning as --frames, applied to the hardest thing the streamer
+    // does: a warp evicts the whole resident world and refills it somewhere
+    // else. It is exactly the path that only gets tested when somebody
+    // remembers to press the key, which is to say the path that ships broken.
+    void set_warp_interval(int frames) { warp_interval_ = frames; }
 
 private:
     void poll_events();
@@ -102,7 +110,39 @@ private:
     Sky sky_;
     Precipitation rain_;
     Hud hud_;
-    DemoScene demo_;
+    World world_;
+
+    // The player's car, drawn as a box.
+    //
+    // The MODEL is the placeholder here, not the vehicle: physics/vehicle.cpp
+    // is 910 lines of real car. There is no model loader and no asset on disk,
+    // so until one exists the thing you steer is a red box, and saying so is
+    // better than a comment implying a car is coming.
+    MeshId car_mesh_ = kInvalidId;
+    MaterialId car_material_ = kInvalidId;
+    NodeId car_node_ = kInvalidId;
+    glm::vec3 car_half_{0.9f, 0.6f, 2.0f};
+
+    // Teleport the car across the island and refill before resuming. Bound to a
+    // key so the cold-fill path is exercisable by hand, because it is the path
+    // a mission warp will take and it must not be first run in anger.
+    void teleport(glm::vec3 to);
+    bool teleport_requested_ = false;
+    int warp_interval_ = 0;
+    int warps_done_ = 0;
+
+    // What the last fill cost, in wall milliseconds. App owns the only clock in
+    // the program, so this is measured here and not inside World.
+    double last_fill_ms_ = 0.0;
+    int last_fill_steps_ = 0;
+
+    // Frame costs, measured here for the same reason. Display only; neither
+    // ever reaches the sim, which sees a constant dt and nothing else.
+    double cull_ms_ = 0.0;
+    double mesh_ms_ = 0.0;
+    double peak_cull_ms_ = 0.0;
+    double peak_mesh_ms_ = 0.0;
+    int stream_spikes_ = 0;
 
     overlay::Controls controls_;
 
