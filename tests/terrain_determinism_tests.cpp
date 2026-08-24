@@ -79,34 +79,95 @@ void require_first_prop(uint64_t seed, ChunkCoord c, int kind, int variant,
 // --- pinned values -----------------------------------------------------------
 // GOLDEN VALUES, as exact IEEE bit patterns. These are the outputs of the
 // current generator, pinned so that ANY change to the noise, the octave counts,
-// the mix weights, the island falloff or the material thresholds is caught
-// HERE rather than discovered as a silently different world three tickets
-// later.
+// the mix weights, the island falloff, the material thresholds OR THE AUTHORED
+// TERRAIN OPERATORS is caught HERE rather than discovered as a silently
+// different world three tickets later.
+//
+// EVERY NUMBER IN THIS FUNCTION MOVED IN PENG-41, deliberately and all at once.
+// The terrain was retuned from a rally island a fifth of Pinatty's size (see
+// the constant table in terrain/heightmap.h), the spawn-lift dome was deleted,
+// and src/city/'s terrain operators now run at the end of height_at(). Any one
+// of those three would have invalidated every tape and save seed; they were
+// done together so the cost is paid once.
+//
+// The sample points come in TWO GROUPS and the split is load-bearing. The first
+// four sit on authored operator plates, which is where a player spends most of
+// their time — and which is exactly why they are useless on their own: a plate
+// returns its authored target no matter what the noise underneath it does, so
+// a suite pinned only there would sail through a complete rewrite of the fBm.
+// The second four sit where NO operator reaches, and city_map_tests.cpp asserts
+// that they do, so the day somebody grows a district over one of them the test
+// says so instead of quietly going blind.
 void golden_values() {
-    REQUIRE(bits(height_at(0ull, 0.0000f, 0.0000f)) == 0x4274EC79u);
-    REQUIRE(bits(height_at(1ull, 100.0000f, -250.0000f)) == 0x4258A6A4u);
-    REQUIRE(bits(height_at(3735928559ull, -640.0000f, 320.5000f)) == 0x41A20C96u);
-    REQUIRE(bits(height_at(12648430ull, 37.2500f, 991.7500f)) == 0xC13BB95Du);
+    // --- on an authored plate: pins the operators and the metre mapping ---
+    REQUIRE(bits(height_at(0ull, 0.0000f, 0.0000f)) == 0x41400000u);
+    REQUIRE(bits(height_at(1ull, 100.0000f, -250.0000f)) == 0x41400000u);
+    REQUIRE(bits(height_at(3735928559ull, -640.0000f, 320.5000f)) == 0x40B00000u);
+    REQUIRE(bits(height_at(12648430ull, 37.2500f, 991.7500f)) == 0x41600000u);
 
-    require_normal(0ull, 0.0000f, 0.0000f, 0x3B689F3Eu, 0x3F7FFF2Au, 0x3B6B7F3Bu);
-    require_normal(1ull, 100.0000f, -250.0000f, 0x3F0F6044u, 0x3F456E3Fu, 0xBE9AECCFu);
-    require_normal(3735928559ull, -640.0000f, 320.5000f, 0x3DCFA80Fu, 0x3F72A62Cu, 0xBE9AB53Du);
-    require_normal(12648430ull, 37.2500f, 991.7500f, 0xBB942448u, 0x3F7C75DAu, 0x3E29A186u);
+    // A plate is dead level by construction, so its normal is exactly +Y and
+    // its bit pattern is exactly 0x3F800000. If that ever comes back as
+    // 0x3F7FFFxx the "at full weight the operator IS the target" rule in
+    // city/terrain_ops.h has been softened back into a lerp.
+    require_normal(0ull, 0.0000f, 0.0000f, 0x00000000u, 0x3F800000u,
+                   0x00000000u);
+    require_normal(1ull, 100.0000f, -250.0000f, 0x00000000u, 0x3F800000u,
+                   0x00000000u);
+    require_normal(3735928559ull, -640.0000f, 320.5000f, 0x00000000u,
+                   0x3F800000u, 0x00000000u);
+    require_normal(12648430ull, 37.2500f, 991.7500f, 0x00000000u, 0x3F800000u,
+                   0x00000000u);
 
-    require_weights(0ull, 0.0000f, 0.0000f, 0x00000000u, 0x3EB79230u, 0x3F2436E8u, 0x00000000u);
-    require_weights(1ull, 100.0000f, -250.0000f, 0x3ED5397Au, 0x3F156343u, 0x00000000u, 0x00000000u);
-    require_weights(3735928559ull, -640.0000f, 320.5000f, 0x00000000u, 0x3B69C3FCu, 0x3F7F163Cu, 0x00000000u);
-    require_weights(12648430ull, 37.2500f, 991.7500f, 0x00000000u, 0x00000000u, 0x00000000u, 0x3F800000u);
+    require_weights(0ull, 0.0000f, 0.0000f, 0x00000000u, 0x00000000u,
+                    0x3F800000u, 0x00000000u);
+    require_weights(1ull, 100.0000f, -250.0000f, 0x00000000u, 0x00000000u,
+                    0x3F800000u, 0x00000000u);
+    require_weights(3735928559ull, -640.0000f, 320.5000f, 0x00000000u,
+                    0x00000000u, 0x3F675282u, 0x3DC56BF0u);
+    require_weights(12648430ull, 37.2500f, 991.7500f, 0x00000000u, 0x00000000u,
+                    0x3F800000u, 0x00000000u);
 
-    REQUIRE(scatter_chunk(0ull, ChunkCoord{0, 0}).size() == 99u);
-    require_first_prop(0ull, ChunkCoord{0, 0}, 0, 0, 0x4118BEB0u, 0x42747EDEu,
-                       0x40052770u, 0x40C79FEDu, 0x3F8F357Cu);
-    REQUIRE(scatter_chunk(1ull, ChunkCoord{3, -2}).size() == 152u);
-    require_first_prop(1ull, ChunkCoord{3, -2}, 1, 0, 0x434101E9u, 0x42465568u,
-                       0xC2FEFB48u, 0x4016C910u, 0x3F9FD0F8u);
-    REQUIRE(scatter_chunk(12648430ull, ChunkCoord{-5, 7}).size() == 156u);
+    // --- operator-free: THESE are what pin the noise ---
+    REQUIRE(bits(height_at(0ull, -1500.0000f, 900.0000f)) == 0x42C2B676u);
+    REQUIRE(bits(height_at(1ull, 900.0000f, 1100.0000f)) == 0x4216B2BDu);
+    REQUIRE(bits(height_at(3735928559ull, 600.0000f, -2200.0000f)) == 0x41C1D6D5u);
+    REQUIRE(bits(height_at(12648430ull, -1900.0000f, 1400.0000f)) == 0x41F8A9B2u);
+
+    require_normal(0ull, -1500.0000f, 900.0000f, 0x3F279A75u, 0x3F3B0581u,
+                   0xBE46B80Au);
+    require_normal(1ull, 900.0000f, 1100.0000f, 0xBE092778u, 0x3F7BA1B8u,
+                   0xBE011B3Cu);
+    require_normal(3735928559ull, 600.0000f, -2200.0000f, 0x3D463C19u,
+                   0x3F7ED353u, 0xBDA90A0Cu);
+    require_normal(12648430ull, -1900.0000f, 1400.0000f, 0xBEDCA29Bu,
+                   0x3F635316u, 0x3E246B02u);
+
+    require_weights(0ull, -1500.0000f, 900.0000f, 0x3F3341A2u, 0x3E997CBCu,
+                    0x00000000u, 0x00000000u);
+    require_weights(1ull, 900.0000f, 1100.0000f, 0x00000000u, 0x00000000u,
+                    0x3F800000u, 0x00000000u);
+    require_weights(3735928559ull, 600.0000f, -2200.0000f, 0x00000000u,
+                    0x00000000u, 0x3F800000u, 0x00000000u);
+    require_weights(12648430ull, -1900.0000f, 1400.0000f, 0x00000000u,
+                    0x3F25B209u, 0x3EB49BEEu, 0x00000000u);
+
+    // --- scatter ---
+    // Three of these chunks sit inside the city and one, {-20, 20}, is out in
+    // the Meadows on ground the operators never touch. Keep it that way: with
+    // only urban chunks here the scatter pins would stop noticing a change to
+    // the terrain the props stand on.
+    REQUIRE(scatter_chunk(0ull, ChunkCoord{0, 0}).size() == 166u);
+    require_first_prop(0ull, ChunkCoord{0, 0}, 0, 1, 0x40E5AB3Eu, 0x41400000u,
+                       0x3F3610F4u, 0x40C05075u, 0x3F848E6Cu);
+    REQUIRE(scatter_chunk(1ull, ChunkCoord{3, -2}).size() == 157u);
+    require_first_prop(1ull, ChunkCoord{3, -2}, 0, 0, 0x434101E9u, 0x41400000u,
+                       0xC2FEFB48u, 0x4016C910u, 0x3FB3311Eu);
+    REQUIRE(scatter_chunk(12648430ull, ChunkCoord{-5, 7}).size() == 157u);
     require_first_prop(12648430ull, ChunkCoord{-5, 7}, 0, 2, 0xC39E5830u,
-                       0x423C0749u, 0x43E16D8Au, 0x3F39F3A6u, 0x3FADCF45u);
+                       0x4144265Du, 0x43E16D8Au, 0x3F39F3A6u, 0x3FADCF45u);
+    REQUIRE(scatter_chunk(0ull, ChunkCoord{-20, 20}).size() == 140u);
+    require_first_prop(0ull, ChunkCoord{-20, 20}, 0, 3, 0xC49F9475u,
+                       0x42663BA2u, 0x44A03264u, 0x3F2E4C2Au, 0x3FA6AD24u);
 
     apricot_test::pass("golden terrain values unchanged");
 }
@@ -215,12 +276,28 @@ void generation_is_order_independent() {
 
 // A single seed bit must change the world, or two players on "different" seeds
 // are racing the same island.
+//
+// THE GRID MOVED OFF THE ORIGIN IN PENG-41, and the reason is the point of the
+// authored map rather than an inconvenience. Inside a terrain operator at full
+// weight the height is the operator's authored target, so two seeds agree there
+// EXACTLY -- that is what "authored" means, and it is why downtown is flat on
+// every seed. The old grid sat entirely inside the Vellum Row plate, so every
+// one of its 49 samples agreed and the test failed, correctly.
+//
+// Separation is a property of the NOISE, so it is sampled where the noise is
+// what you get: a 7 x 7 grid centred 2.1 km north-west of the origin, measured
+// to be untouched by any operator in the table. The complementary property --
+// that the authored parts do NOT vary with the seed -- is asserted right after,
+// because it is now just as load-bearing and nothing else pins it.
+constexpr float kNoiseGridCentreX = -2100.0f;
+constexpr float kNoiseGridCentreZ = -2100.0f;
+
 void seeds_are_separated() {
     int differing = 0;
     for (int32_t z = -3; z <= 3; ++z) {
         for (int32_t x = -3; x <= 3; ++x) {
-            const float wx = static_cast<float>(x) * 137.0f;
-            const float wz = static_cast<float>(z) * 137.0f;
+            const float wx = kNoiseGridCentreX + static_cast<float>(x) * 137.0f;
+            const float wz = kNoiseGridCentreZ + static_cast<float>(z) * 137.0f;
             if (bits(height_at(1ull, wx, wz)) != bits(height_at(2ull, wx, wz))) {
                 ++differing;
             }
@@ -228,10 +305,32 @@ void seeds_are_separated() {
     }
     REQUIRE_MSG(differing == 49, "two seeds agreed somewhere", "seed separation");
 
-    // And one flipped bit of the seed, not just a different number.
-    REQUIRE(bits(height_at(0x1000000000000000ull, 12.0f, 34.0f)) !=
-            bits(height_at(0x1000000000000001ull, 12.0f, 34.0f)));
-    apricot_test::pass("seeds produce separated worlds");
+    // And one flipped bit of the seed, not just a different number. Sampled
+    // out in the noise for the same reason as the grid above.
+    REQUIRE(bits(height_at(0x1000000000000000ull, -2012.0f, -2034.0f)) !=
+            bits(height_at(0x1000000000000001ull, -2012.0f, -2034.0f)));
+
+    // THE OTHER HALF OF THE CONTRACT. The world is a pure function of
+    // (map, seed, coord), and the map's contribution must NOT move with the
+    // seed: an authored plate is the same plate in every session, or Pinatty is
+    // not a place a player can learn. Twenty-five points across the Vellum Row
+    // plate, four wildly different seeds, one height.
+    for (int32_t z = -2; z <= 2; ++z) {
+        for (int32_t x = -2; x <= 2; ++x) {
+            const float wx = static_cast<float>(x) * 90.0f;
+            const float wz = static_cast<float>(z) * 90.0f;
+            const uint32_t ref = bits(height_at(0ull, wx, wz));
+            const uint64_t others[] = {1ull, 0xDEADBEEFull,
+                                       0x0A9C0DE7EA5Eull,
+                                       0xFFFFFFFFFFFFFFFFull};
+            for (const uint64_t s : others) {
+                REQUIRE_MSG(bits(height_at(s, wx, wz)) == ref,
+                            "the authored downtown plate moved with the seed",
+                            "map is not seed-dependent");
+            }
+        }
+    }
+    apricot_test::pass("seeds separate the noise and never move the map");
 }
 
 // --- shape invariants ---------------------------------------------------------
@@ -284,39 +383,54 @@ void the_world_is_an_island() {
     apricot_test::pass("the world is an island bounded by water");
 }
 
-// The car spawns at the world origin. Every seed must therefore put dry,
-// drivable land there — not "most seeds". This is checked across a wide spread
-// of seeds because the failure it guards against is exactly the one nobody
-// finds in testing: seed 1 works, seed 2 works, and the seed some player rolls
-// six months from now drops them into a lagoon.
-void every_seed_spawns_on_dry_land() {
+// THE SPAWN IS AUTHORED NOW, AND THAT IS A STRONGER GUARANTEE.
+//
+// This test used to prove that a 380 m dome of lifted terrain at the world
+// origin kept every seed's spawn point out of the water. That dome
+// (kHomeRadiusMetres) is gone: Pinatty's origin is downtown, so the dome would
+// not have been a safety net, it would have BEEN the ground under the financial
+// district.
+//
+// What replaced it is not weaker, it is exact. The Vellum Row plate in
+// src/city/terrain_ops.h is a Flatten at full weight over the origin, and a
+// Flatten at full weight returns its authored target, so height_at() at the
+// spawn is 12.0 m FOR EVERY SEED, by equality and not by tolerance. The old
+// version could only promise "above water somewhere". This one names the
+// number.
+//
+// The seed spread is unchanged and still matters, because "for every seed" is
+// exactly the claim: the failure this guards against is the one nobody finds in
+// testing, where seed 1 works, seed 2 works, and the seed a player rolls six
+// months from now does something else.
+void the_authored_spawn_is_authored() {
     for (uint64_t s = 0; s < 200; ++s) {
-        // A mix of small sequential seeds and widely scattered ones. Small
-        // seeds are what tests and defaults use; scattered ones are what the
-        // game will actually roll.
         const uint64_t seeds[] = {s, s * 0x9E3779B97F4A7C15ull,
                                   ~s * 0xD6E8FEB86659FD93ull};
         for (const uint64_t seed : seeds) {
-            const float h = height_at(seed, 0.0f, 0.0f);
-            REQUIRE_MSG(h > kSeaLevelMetres + 2.0f,
-                        "the spawn point was not dry land", "spawn");
+            REQUIRE_MSG(bits(height_at(seed, 0.0f, 0.0f)) == 0x41400000u,
+                        "the spawn point is not on the authored plate", "spawn");
 
-            // And drivable, not the face of a cliff.
-            REQUIRE_MSG(normal_at(seed, 0.0f, 0.0f).y > 0.7f,
-                        "the spawn point is too steep to start on", "spawn");
+            // Dead level, so the car does not start rolling. On a plate the
+            // central difference is a difference of two identical floats, so
+            // the normal is exactly +Y rather than nearly it.
+            const glm::vec3 n = normal_at(seed, 0.0f, 0.0f);
+            REQUIRE_MSG(bits(n.y) == 0x3F800000u,
+                        "the spawn point is not exactly level", "spawn");
 
-            // The surrounding area too — spawning on a one-metre island is
-            // not meaningfully better than spawning in the sea.
+            // And the plate is a PLATE, not a point: 60 m out in every
+            // direction is the same height. A spawn guarantee that holds at
+            // one coordinate is not a guarantee.
             for (int a = 0; a < 8; ++a) {
                 const float t = static_cast<float>(a) * 0.78539816f;  // 2pi/8
                 const float r = 60.0f;
-                REQUIRE_MSG(height_at(seed, r * std::cos(t), r * std::sin(t)) >
-                                kSeaLevelMetres,
-                            "the spawn area is not surrounded by land", "spawn");
+                REQUIRE_MSG(bits(height_at(seed, r * std::cos(t),
+                                           r * std::sin(t))) == 0x41400000u,
+                            "the spawn plate is not flat around the origin",
+                            "spawn");
             }
         }
     }
-    apricot_test::pass("every seed spawns on dry, drivable land");
+    apricot_test::pass("the authored spawn is at exactly 12.0 m for every seed");
 }
 
 // A height field cannot overhang, so this is an invariant and not a preference.
@@ -501,9 +615,17 @@ void scatter_density_follows_the_material() {
     // Count props by the material they stand on, across a wide area, and check
     // the ordering matches the density table. Grass is the only full-density
     // material, so it must dominate; bare rock must be the rarest.
+    //
+    // THE AREA WIDENED IN PENG-41, from +/- 8 chunks to +/- 30. Eight chunks is
+    // 512 m, which is now the financial district, the civic core and the old
+    // town -- three authored Flatten plates, dead level and therefore all one
+    // material. Rock and gravel both counted zero, so the ordering check
+    // compared nothing to nothing and failed. Thirty chunks is 1.9 km and takes
+    // in the massif, the quarry country and the beaches, which is what "follows
+    // the surface material" was always asking about.
     int by_surface[kSurfaceCount] = {0, 0, 0, 0};
-    for (int32_t cz = -8; cz <= 8; ++cz) {
-        for (int32_t cx = -8; cx <= 8; ++cx) {
+    for (int32_t cz = -30; cz <= 30; ++cz) {
+        for (int32_t cx = -30; cx <= 30; ++cx) {
             for (const ScatterProp& p : scatter_chunk(kSeed, ChunkCoord{cx, cz})) {
                 ++by_surface[surface_index(p.ground)];
             }
@@ -544,7 +666,7 @@ int main() {
     seeds_are_separated();
     heights_stay_inside_their_analytic_bounds();
     the_world_is_an_island();
-    every_seed_spawns_on_dry_land();
+    the_authored_spawn_is_authored();
     normals_are_unit_and_upward();
     material_weights_are_a_partition();
     beaches_are_at_the_water_line_and_cliffs_are_rock();

@@ -317,51 +317,64 @@ inline float op_weight(const TerrainOp& op, float x, float z, float& profile_y) 
     return 0.0f;
 }
 
-// Apply one op to one height. Every branch is a blend toward a target, which
-// is why the bounds proof in kOpTargetFloorMetres works.
+// Apply one op to one height.
+//
+// Every kind is the same two steps -- work out the target, then blend toward
+// it -- and that uniformity is what makes the bounds proof in
+// kOpTargetFloorMetres hold for all five.
 inline float apply_op(const TerrainOp& op, float h, float x, float z) {
     float profile_y = 0.0f;
     const float w = op_weight(op, x, z, profile_y) * op.strength;
     if (w <= 0.0f) return h;
 
+    float target = op.target_m;
     switch (op.kind) {
-        case OpKind::Flatten:
-            return h + (op.target_m - h) * w;
-
         case OpKind::Grade:
-            return h + (profile_y - h) * w;
-
-        case OpKind::Carve: {
-            const float t = h + (op.target_m - h) * w;
-            // Never raises. The clamp only bites where the ground is ALREADY
-            // below the carve target, which is open water inside a harbour
-            // mouth, so the crease it introduces is a shoreline rather than a
-            // contour line across a hillside.
-            return t < h ? t : h;
-        }
-
-        case OpKind::Mound: {
-            const float t = h + (op.target_m - h) * w;
-            return t > h ? t : h;
-        }
+            // The corridor's own authored vertical profile, interpolated
+            // along it. The road decides its height and the terrain conforms;
+            // draping the road onto whatever the noise did is how the
+            // reference implementation ended up reconciling two disagreeing
+            // ground heights after the fact.
+            target = profile_y;
+            break;
 
         case OpKind::Bench: {
             // Flat treads with smooth risers. A plain round() to the nearest
             // terrace has an infinite gradient at every half-step, and a
-            // height field cannot express a retaining wall — it expresses it
+            // height field cannot express a retaining wall -- it expresses it
             // as one sample of near-vertical slope, which the normal takes
-            // personally. Instead: hold the tread flat over most of the step
-            // and spend the last `riser` fraction climbing, with a smoothstep,
-            // so the result is C1 in the height it is terracing.
+            // personally. So: hold the tread flat over most of the step and
+            // spend the last `riser` fraction climbing, through a smoothstep,
+            // which leaves the result C1 in the height it is terracing.
             const float f = (h - op.target_m) / op.step_m;
             const float k = std::floor(f);
             const float frac = f - k;
             const float s = smoothstep01(1.0f - op.riser, 1.0f, frac);
-            const float terraced = op.target_m + op.step_m * (k + s);
-            return h + (terraced - h) * w;
+            target = op.target_m + op.step_m * (k + s);
+            break;
         }
+
+        default:
+            break;
     }
-    return h;
+
+    // AT FULL WEIGHT THE OPERATOR *IS* THE TARGET, spelled as a branch rather
+    // than left to `h + (target - h) * 1.0f`. That expression is algebraically
+    // the target and is not always the target in floating point: it rounds
+    // twice, so a plate authored dead level comes out varying in the last bit
+    // or two across its whole area. This is continuous -- the branch takes the
+    // value the blend converges to -- and it is what lets a test assert that
+    // the runway, the downtown plate and the authored spawn point are at the
+    // heights the table says, by equality rather than by tolerance.
+    float out = (w >= 1.0f) ? target : h + (target - h) * w;
+
+    // Carve never raises and Mound never lowers. The clamp only bites where
+    // the ground is already past the target -- open water inside a harbour
+    // mouth, or a hill already taller than a berm -- so the crease it leaves
+    // is a shoreline rather than a contour line across a hillside.
+    if (op.kind == OpKind::Carve && out > h) out = h;
+    if (op.kind == OpKind::Mound && out < h) out = h;
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -409,19 +422,20 @@ inline constexpr TerrainOp kTerrainOps[] = {
 
     {.kind = OpKind::Flatten,
      .shape = OpShape::Rect,
-     .note = "Ostend Docks: the container apron. Dead level, because a "
-             "straddle carrier does not do gradients",
-     .centre = {-1830.0f, -620.0f},
-     .half_m = {520.0f, 400.0f},
-     .feather_m = 200.0f,
-     .target_m = 4.5f},
+     .note = "Ostend Docks: the container apron, cut into a 15-23 m coastal "
+             "bluff. Dead level, because a straddle carrier does not do "
+             "gradients",
+     .centre = {-1560.0f, -640.0f},
+     .half_m = {450.0f, 330.0f},
+     .feather_m = 210.0f,
+     .target_m = 5.0f},
 
     {.kind = OpKind::Flatten,
      .shape = OpShape::Rect,
      .note = "Kepler Flats: refinery and rail yard. Rail is why it is flat - "
              "a level crossing on a slope is not a level crossing",
-     .centre = {-560.0f, -1700.0f},
-     .half_m = {620.0f, 340.0f},
+     .centre = {-560.0f, -1760.0f},
+     .half_m = {620.0f, 330.0f},
      .feather_m = 260.0f,
      .target_m = 9.0f},
 
@@ -429,8 +443,8 @@ inline constexpr TerrainOp kTerrainOps[] = {
      .shape = OpShape::Rect,
      .note = "Nickel Heights: suburbs. Strength 0.75 on purpose - the streets "
              "should roll a little, or every sight line is infinite",
-     .centre = {1250.0f, 330.0f},
-     .half_m = {540.0f, 430.0f},
+     .centre = {1080.0f, 340.0f},
+     .half_m = {420.0f, 430.0f},
      .feather_m = 300.0f,
      .target_m = 11.0f,
      .strength = 0.75f},
@@ -439,8 +453,8 @@ inline constexpr TerrainOp kTerrainOps[] = {
      .shape = OpShape::Rect,
      .note = "Camber Point: the airfield. The flattest large surface in the "
              "world, which is where handling gets tested and stunts land",
-     .centre = {220.0f, 2020.0f},
-     .half_m = {600.0f, 250.0f},
+     .centre = {150.0f, 2140.0f},
+     .half_m = {520.0f, 180.0f},
      .feather_m = 200.0f,
      .target_m = 6.0f},
 
@@ -448,24 +462,24 @@ inline constexpr TerrainOp kTerrainOps[] = {
      .shape = OpShape::Corridor,
      .note = "The Strand: 2.2 km of promenade behind the beach, one gentle "
              "curve, so the only decision on it is the throttle",
-     .path = {{1560.0f, 620.0f, 13.0f},
-              {1760.0f, 1080.0f, 11.0f},
-              {1700.0f, 1560.0f, 9.0f},
-              {1450.0f, 1900.0f, 7.5f}},
+     .path = {{1960.0f, -420.0f, 14.0f},
+              {2020.0f, 300.0f, 12.0f},
+              {1860.0f, 1000.0f, 10.0f},
+              {1620.0f, 1560.0f, 8.0f}},
      .path_count = 4,
      .half_width_m = 150.0f,
      .feather_m = 190.0f,
-     .target_m = 10.0f,
+     .target_m = 11.0f,
      .strength = 0.9f},
 
     {.kind = OpKind::Flatten,
      .shape = OpShape::Circle,
      .note = "Marrow: the farm pad. One flat thing in the whole district, so "
              "the dirt web around it reads as rough by comparison",
-     .centre = {-1420.0f, 1180.0f},
-     .radius_m = 220.0f,
-     .feather_m = 200.0f,
-     .target_m = 46.0f,
+     .centre = {-1080.0f, 1180.0f},
+     .radius_m = 200.0f,
+     .feather_m = 190.0f,
+     .target_m = 36.0f,
      .strength = 0.8f},
 
     // ---- 2. Bench: terraces ----------------------------------------------
@@ -473,8 +487,8 @@ inline constexpr TerrainOp kTerrainOps[] = {
      .shape = OpShape::Circle,
      .note = "Ferrone Hill: mansion plots. Terraces are what make a hillside "
              "buildable, and the risers are what make the switchbacks legible",
-     .centre = {760.0f, -1480.0f},
-     .radius_m = 560.0f,
+     .centre = {860.0f, -1420.0f},
+     .radius_m = 520.0f,
      .feather_m = 300.0f,
      .target_m = 40.0f,
      .step_m = 9.0f,
@@ -486,7 +500,7 @@ inline constexpr TerrainOp kTerrainOps[] = {
      .shape = OpShape::Circle,
      .note = "The stadium berm in Nickel Heights. A District-tier landmark "
              "has to be visible over a suburb, so the bowl sits up on ground",
-     .centre = {1450.0f, 700.0f},
+     .centre = {1250.0f, 720.0f},
      .radius_m = 150.0f,
      .feather_m = 140.0f,
      .target_m = 22.0f},
@@ -495,21 +509,10 @@ inline constexpr TerrainOp kTerrainOps[] = {
      .shape = OpShape::Circle,
      .note = "Marrow's spoil heap. Everything the quarry took out had to go "
              "somewhere, and the somewhere is a jump",
-     .centre = {-1760.0f, 1560.0f},
-     .radius_m = 170.0f,
+     .centre = {-1180.0f, 1560.0f},
+     .radius_m = 160.0f,
      .feather_m = 150.0f,
-     .target_m = 86.0f},
-
-    {.kind = OpKind::Mound,
-     .shape = OpShape::Corridor,
-     .note = "Camber Causeway embankment. 900 m, water both sides, no "
-             "shoulder: one stopped vehicle closes the only road to the plane",
-     .path = {{330.0f, 1180.0f, 8.0f}, {270.0f, 1560.0f, 7.0f},
-              {240.0f, 1800.0f, 6.5f}},
-     .path_count = 3,
-     .half_width_m = 26.0f,
-     .feather_m = 40.0f,
-     .target_m = 6.5f},
+     .target_m = 78.0f},
 
     // ---- 4. Carve: the water ---------------------------------------------
     {.kind = OpKind::Carve,
@@ -527,15 +530,13 @@ inline constexpr TerrainOp kTerrainOps[] = {
 
     {.kind = OpKind::Carve,
      .shape = OpShape::Corridor,
-     .note = "The harbour inlet at Ostend. Deep enough for a ship, which is "
-             "the reason the docks are where they are",
-     .path = {{-2740.0f, -520.0f, 0.0f},
-              {-2200.0f, -560.0f, 0.0f},
-              {-1700.0f, -640.0f, 0.0f},
-              {-1380.0f, -760.0f, 0.0f}},
-     .path_count = 4,
-     .half_width_m = 150.0f,
-     .feather_m = 130.0f,
+     .note = "The harbour basin at Ostend. Deep enough for a ship, short "
+             "enough to leave the eastern two thirds of the apron dry",
+     .path = {{-2380.0f, -580.0f, 0.0f},
+              {-2200.0f, -600.0f, 0.0f}},
+     .path_count = 2,
+     .half_width_m = 100.0f,
+     .feather_m = 100.0f,
      .target_m = -11.0f},
 
     {.kind = OpKind::Carve,
@@ -553,36 +554,44 @@ inline constexpr TerrainOp kTerrainOps[] = {
 
     {.kind = OpKind::Carve,
      .shape = OpShape::Circle,
-     .note = "Marrow's quarry pit, cut into the upland. A spiral ramp with a "
-             "drop on the outside, and no cruiser follows you down it",
-     .centre = {-1980.0f, 1420.0f},
-     .radius_m = 230.0f,
-     .feather_m = 170.0f,
-     .target_m = 21.0f},
+     .note = "Marrow's quarry pit, 60 m into the side of a 120 m hill. A ramp "
+             "with a drop on the outside, and no cruiser follows you down it",
+     .centre = {-1480.0f, 1300.0f},
+     .radius_m = 180.0f,
+     .feather_m = 150.0f,
+     .target_m = 46.0f},
 
     {.kind = OpKind::Carve,
-     .shape = OpShape::Circle,
-     .note = "The bay south-east of the Strand, so Camber Point is a SPIT "
-             "with one causeway rather than a corner of the mainland",
-     .centre = {900.0f, 1820.0f},
-     .radius_m = 420.0f,
-     .feather_m = 380.0f,
-     .target_m = -6.0f},
-
-    {.kind = OpKind::Carve,
-     .shape = OpShape::Circle,
-     .note = "The western half of the same channel, keeping the causeway a "
-             "causeway instead of an isthmus",
-     .centre = {-260.0f, 1700.0f},
-     .radius_m = 330.0f,
-     .feather_m = 330.0f,
-     .target_m = -5.0f},
+     .shape = OpShape::Corridor,
+     .note = "The Camber channel: severs the southern peninsula end to end, "
+             "so the only way to the plane is the causeway graded back across "
+             "it below. This pair is why composition order is part of the map",
+     .path = {{-1150.0f, 1980.0f, 0.0f},
+              {-650.0f, 1820.0f, 0.0f},
+              {0.0f, 1730.0f, 0.0f},
+              {700.0f, 1690.0f, 0.0f}},
+     .path_count = 4,
+     .half_width_m = 140.0f,
+     .feather_m = 160.0f,
+     .target_m = -7.0f},
 
     // ---- 5. Grade: roads win ----------------------------------------------
     {.kind = OpKind::Grade,
      .shape = OpShape::Corridor,
-     .note = "The Shoulder: the one paved way up Ferrone Hill. Eleven "
-             "switchbacks at 9%, and blocking it seals the hill",
+     .note = "The Camber Causeway. 900 m, two lanes, water on both sides, no "
+             "shoulder: one stopped vehicle closes the only road to the plane",
+     .path = {{215.0f, 1420.0f, 16.0f},
+              {200.0f, 1650.0f, 10.0f},
+              {185.0f, 1880.0f, 7.0f},
+              {170.0f, 2130.0f, 6.0f}},
+     .path_count = 4,
+     .half_width_m = 13.0f,
+     .feather_m = 24.0f},
+
+    {.kind = OpKind::Grade,
+     .shape = OpShape::Corridor,
+     .note = "The Shoulder: the one paved way up Ferrone Hill. Switchbacks at "
+             "9 per cent, and blocking it seals the hill",
      .path = {{560.0f, -980.0f, 20.0f},
               {900.0f, -1080.0f, 44.0f},
               {620.0f, -1240.0f, 66.0f},
@@ -613,8 +622,8 @@ inline constexpr TerrainOp kTerrainOps[] = {
              "stretch where a roadblock is a suggestion rather than a wall",
      .path = {{-380.0f, 470.0f, 12.0f},
               {420.0f, 520.0f, 12.0f},
-              {1080.0f, 560.0f, 12.5f},
-              {1520.0f, 640.0f, 13.0f}},
+              {1120.0f, 560.0f, 12.5f},
+              {1820.0f, 620.0f, 13.0f}},
      .path_count = 4,
      .half_width_m = 17.0f,
      .feather_m = 34.0f,
@@ -624,9 +633,9 @@ inline constexpr TerrainOp kTerrainOps[] = {
      .shape = OpShape::Corridor,
      .note = "Marrow's haul road: quarry floor to the farm pad, the grade a "
              "loaded truck can actually pull",
-     .path = {{-1960.0f, 1620.0f, 34.0f},
-              {-1700.0f, 1420.0f, 48.0f},
-              {-1520.0f, 1240.0f, 47.0f}},
+     .path = {{-1470.0f, 1390.0f, 48.0f},
+              {-1300.0f, 1280.0f, 62.0f},
+              {-1100.0f, 1200.0f, 38.0f}},
      .path_count = 3,
      .half_width_m = 9.0f,
      .feather_m = 30.0f,

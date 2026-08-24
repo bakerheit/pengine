@@ -33,7 +33,7 @@ namespace city {
 inline constexpr Landmark kLandmarks[] = {
     // ---- Island tier: three, and two must be visible from anywhere --------
     {.name = "Ferrone Mast",
-     .pos = {760.0f, -1480.0f},
+     .pos = {600.0f, -1780.0f},
      .height_m = 60.0f,
      .tier = LandmarkTier::Island,
      .kind = LandmarkKind::Mast,
@@ -47,36 +47,37 @@ inline constexpr Landmark kLandmarks[] = {
      .district = DistrictId::VellumRow},
 
     {.name = "Kepler flare stack",
-     .pos = {-520.0f, -1740.0f},
+     .pos = {-520.0f, -1800.0f},
      .height_m = 46.0f,
      .tier = LandmarkTier::Island,
      .kind = LandmarkKind::FlareStack,
-     .district = DistrictId::KeplerFlats},
+     .district = DistrictId::KeplerFlats,
+     .lit = true},  // island-tier for burning, not for height
 
     // ---- District tier: which district am I in ---------------------------
     {.name = "Ostend gantry crane 1",
-     .pos = {-1620.0f, -760.0f},
+     .pos = {-1480.0f, -800.0f},
      .height_m = 42.0f,
      .tier = LandmarkTier::District,
      .kind = LandmarkKind::Crane,
      .district = DistrictId::OstendDocks},
 
     {.name = "Ostend gantry crane 2",
-     .pos = {-1660.0f, -600.0f},
+     .pos = {-1520.0f, -680.0f},
      .height_m = 42.0f,
      .tier = LandmarkTier::District,
      .kind = LandmarkKind::Crane,
      .district = DistrictId::OstendDocks},
 
     {.name = "Ostend gantry crane 3",
-     .pos = {-1700.0f, -440.0f},
+     .pos = {-1560.0f, -560.0f},
      .height_m = 42.0f,
      .tier = LandmarkTier::District,
      .kind = LandmarkKind::Crane,
      .district = DistrictId::OstendDocks},
 
     {.name = "Ostend gantry crane 4",
-     .pos = {-1740.0f, -290.0f},
+     .pos = {-1600.0f, -450.0f},
      .height_m = 42.0f,
      .tier = LandmarkTier::District,
      .kind = LandmarkKind::Crane,
@@ -97,42 +98,44 @@ inline constexpr Landmark kLandmarks[] = {
      .district = DistrictId::NickelHeights},
 
     {.name = "Nickel stadium bowl",
-     .pos = {1450.0f, 700.0f},
+     .pos = {1250.0f, 720.0f},
      .height_m = 26.0f,
      .tier = LandmarkTier::District,
      .kind = LandmarkKind::StadiumBowl,
      .district = DistrictId::NickelHeights},
 
     {.name = "Strand Ferris wheel",
-     .pos = {1620.0f, 1420.0f},
+     .pos = {1780.0f, 1180.0f},
      .height_m = 44.0f,
      .tier = LandmarkTier::District,
      .kind = LandmarkKind::FerrisWheel,
-     .district = DistrictId::TheStrand},
+     .district = DistrictId::TheStrand,
+     .lit = true},
 
     {.name = "Camber lighthouse",
-     .pos = {700.0f, 2180.0f},
+     .pos = {520.0f, 2170.0f},
      .height_m = 32.0f,
      .tier = LandmarkTier::District,
      .kind = LandmarkKind::Lighthouse,
-     .district = DistrictId::CamberPoint},
+     .district = DistrictId::CamberPoint,
+     .lit = true},
 
     {.name = "Camber control tower",
-     .pos = {200.0f, 2020.0f},
+     .pos = {110.0f, 2170.0f},
      .height_m = 24.0f,
      .tier = LandmarkTier::District,
      .kind = LandmarkKind::ControlTower,
      .district = DistrictId::CamberPoint},
 
     {.name = "Marrow quarry face",
-     .pos = {-1980.0f, 1420.0f},
+     .pos = {-1480.0f, 1300.0f},
      .height_m = 30.0f,
      .tier = LandmarkTier::District,
      .kind = LandmarkKind::QuarryFace,
      .district = DistrictId::Marrow},
 
     {.name = "Marrow grain silo",
-     .pos = {-1420.0f, 1180.0f},
+     .pos = {-1080.0f, 1180.0f},
      .height_m = 21.0f,
      .tier = LandmarkTier::District,
      .kind = LandmarkKind::Silo,
@@ -176,10 +179,11 @@ inline constexpr Landmark kLandmarks[] = {
      .height_m = 12.0f,
      .tier = LandmarkTier::Corner,
      .kind = LandmarkKind::Neon,
-     .district = DistrictId::VellumRow},
+     .district = DistrictId::VellumRow,
+     .lit = true},
 
     {.name = "Strand pier head",
-     .pos = {1700.0f, 1180.0f},
+     .pos = {2060.0f, 260.0f},
      .height_m = 10.0f,
      .tier = LandmarkTier::Corner,
      .kind = LandmarkKind::Pier,
@@ -209,21 +213,21 @@ inline constexpr Landmark kLandmarks[] = {
      .district = DistrictId::VellumRow},
 
     {.name = "Mural: the long shift",
-     .pos = {-700.0f, -1830.0f},
+     .pos = {-700.0f, -1880.0f},
      .height_m = 11.0f,
      .tier = LandmarkTier::Corner,
      .kind = LandmarkKind::Mural,
      .district = DistrictId::KeplerFlats},
 
     {.name = "Mural: the crane operator",
-     .pos = {-1950.0f, -560.0f},
+     .pos = {-1660.0f, -520.0f},
      .height_m = 10.0f,
      .tier = LandmarkTier::Corner,
      .kind = LandmarkKind::Mural,
      .district = DistrictId::OstendDocks},
 
     {.name = "Mural: the last summer",
-     .pos = {1480.0f, 1620.0f},
+     .pos = {1620.0f, 1480.0f},
      .height_m = 12.0f,
      .tier = LandmarkTier::Corner,
      .kind = LandmarkKind::Mural,
@@ -233,7 +237,7 @@ inline constexpr Landmark kLandmarks[] = {
     // not in a district, but they are what tells you which rural road you are
     // on, which is exactly what a landmark is for.
     {.name = "Windbreak: the north line",
-     .pos = {-1560.0f, -820.0f},
+     .pos = {-900.0f, -760.0f},
      .height_m = 13.0f,
      .tier = LandmarkTier::Corner,
      .kind = LandmarkKind::Windbreak,
@@ -289,6 +293,21 @@ static_assert(count_tier(LandmarkTier::Island) >= 2,
               "navigate this island by");
 static_assert(count_tier(LandmarkTier::District) >= 8,
               "not enough district-tier landmarks to tell the districts apart");
+
+// At least two island-tier landmarks must read by DAYLIGHT, or half the map
+// has nothing to navigate by until the sun goes down. Which two, and whether
+// they actually clear the horizon, is a measurement -- see
+// tests/city_map_tests.cpp -- but "there are at least two unlit ones" is
+// answerable here.
+constexpr int count_unlit_island() {
+    int n = 0;
+    for (int i = 0; i < kLandmarkCount; ++i) {
+        if (kLandmarks[i].tier == LandmarkTier::Island && !kLandmarks[i].lit) ++n;
+    }
+    return n;
+}
+static_assert(count_unlit_island() >= 2,
+              "fewer than two island-tier landmarks are visible in daylight");
 
 // WHY THERE IS NO "ISLAND TIER IS TALLER THAN DISTRICT TIER" ASSERTION HERE.
 //

@@ -2,9 +2,26 @@
 
 #include <cmath>
 
+#include "city/terrain_ops.h"
 #include "terrain/noise.h"
 
 namespace apricot {
+
+// The authored operators are blends toward a target, so every height they can
+// produce lies between the field and that target. Assert the op table's legal
+// target window sits inside the field's own analytic bounds and the two facts
+// compose into a proof: operators cannot push a height outside the range that
+// culling, streaming and the bounds test in terrain_determinism_tests rely on.
+// city/terrain_ops.h asserts the other half — that every op target is inside
+// that window — and the two modules do not include each other, so this is the
+// one place both numbers are visible at once.
+static_assert(city::kOpTargetFloorMetres >= kMinHeightMetres,
+              "a terrain operator may carve below the height field's analytic "
+              "minimum");
+static_assert(city::kOpTargetCeilingMetres <= kMaxHeightMetres,
+              "a terrain operator may mound above the height field's analytic "
+              "maximum");
+
 namespace {
 
 // --- octave counts -----------------------------------------------------------
@@ -13,9 +30,11 @@ namespace {
 // about to overwrite anyway.
 constexpr int kContinentOctaves = 3;
 
-// Six octaves off a 96 m base takes the finest hill detail down to 3 m, which
-// is about the size of a rut. Below that the mesh cannot resolve it (a 65-vert
-// chunk samples every metre) and it becomes shading noise.
+// Six octaves off the 240 m base takes the finest hill detail down to 7.5 m.
+// It used to reach 3 m off a 96 m base, which is about the size of a rut —
+// right for a rally stage, and wrong for a street, where a 3 m undulation is a
+// pothole in every carriageway. The octave count did not change; the base
+// wavelength did, and the finest detail moved with it.
 constexpr int kHillOctaves = 6;
 
 constexpr int kRidgeOctaves = 5;
@@ -40,13 +59,21 @@ constexpr int kSeaFloorOctaves = 3;
 // without a clamp. A clamp here would be a lie: it would flatten every peak in
 // the world to the same altitude and read, from a distance, as a plateau biome
 // nobody designed.
-constexpr float kLowlandSpan = 0.42f;
-constexpr float kMountainSpan = 0.58f;
+//
+// Pinatty moves these from 0.42/0.58 to 0.30/0.70: flatter ordinary ground,
+// with the relief concentrated where the spine gate switches it on. A city
+// needs most of its land boring.
+constexpr float kLowlandSpan = 0.30f;
+constexpr float kMountainSpan = 0.70f;
 
 // Split of the lowland term between "where the land is high" and "what the
 // ground does underfoot".
-constexpr float kLowlandContinentShare = 0.55f;
-constexpr float kLowlandHillShare = 0.45f;
+//
+// Weighted toward the continental term for Pinatty (was 0.55/0.45): less local
+// bumpiness underfoot, which is what a street grid needs and what a rally
+// stage did not.
+constexpr float kLowlandContinentShare = 0.70f;
+constexpr float kLowlandHillShare = 0.30f;
 
 // Contrast applied to the continental term before it is used, for the reason
 // spelled out on contrast() in noise.h: the raw field spans about [0.37, 0.86]
@@ -58,8 +85,12 @@ constexpr float kContinentContrast = 2.4f;
 // this window: no spine at all below kSpineStart, full spine above kSpineFull.
 // Mountains grow out of high ground. A ridge that erupts from a coastal flat
 // reads as broken even to someone who could not say why.
-constexpr float kSpineStart = 0.35f;
-constexpr float kSpineFull = 0.72f;
+//
+// Gated harder for Pinatty (was 0.35/0.72), so the mountain is genuinely
+// absent from about 90% of the map. One massif you can see from everywhere
+// beats four you keep driving into.
+constexpr float kSpineStart = 0.55f;
+constexpr float kSpineFull = 0.85f;
 
 // Sharpening applied to the ridged term: r^1.5, spelled `r * sqrt(r)`.
 //
@@ -75,11 +106,6 @@ constexpr float kSpineFull = 0.72f;
 // of an ulp apart, and every libm is. A last-bit difference here is a
 // different world from the same seed, discovered as a desync months later.
 inline float ridge_sharpen(float r) { return r * std::sqrt(r); }
-
-// How hard the origin is lifted toward dry land. See kHomeRadiusMetres in the
-// header; 0.42 puts the shape at the origin comfortably above kShoreLevel even
-// when the underlying field says "deep bay".
-constexpr float kHomeLift = 0.42f;
 
 // Wavelength of the noise that pushes the coastline in and out.
 constexpr float kCoastWarpWavelengthMetres = 700.0f;
@@ -107,22 +133,10 @@ float land_shape(uint64_t seed, float x, float z) {
 
     const float shape = kLowlandSpan * lowland + kMountainSpan * mountain;
 
-    // Spawn guarantee. See kHomeRadiusMetres.
-    //
-    // The lift is scaled by (1 - shape)^2, so ground that is already high is
-    // left essentially alone while a lagoon at the origin is raised clear of
-    // the water. Squared rather than linear because a linear falloff still
-    // adds a third of the lift to a 60 m ridge, which turns the middle of
-    // every island into the same mountain.
-    //
-    // Everything here is smoothstep and polynomial, so the result is C1: no
-    // crease appears at the edge of the home region. A max() against a floor
-    // would have been simpler and would have drawn a visible contour line
-    // around the spawn area on every seed.
-    const float home = 1.0f - smoothstep01(0.0f, kHomeRadiusMetres,
-                                           std::sqrt(x * x + z * z));
-    const float headroom = 1.0f - shape;
-    return shape + home * kHomeLift * headroom * headroom;
+    // No spawn-lift dome. See the note where kHomeRadiusMetres used to be
+    // declared: on an authored map the spawn is authored, and the dome sat
+    // exactly under the financial district.
+    return shape;
 }
 
 }  // namespace
@@ -170,7 +184,37 @@ float height_at(uint64_t seed, float x, float z) {
                         0.5f;
     h += (1.0f - mask) * kSeaFloorReliefMetres * swell;
 
-    return h;
+    // THE AUTHORED TERRAIN OPERATORS, LAST, ON METRES.
+    //
+    // This is where the map stops being noise and starts being Pinatty: the
+    // flat plate under the financial district, the harbour deep enough for a
+    // ship, the channel the bridge crosses, the terraces on Ferrone Hill and
+    // the graded corridor up the Shoulder. See src/city/terrain_ops.h.
+    //
+    // WHY LAST, AND WHY ON METRES. docs/design/pinatty.md section 1.3 puts the
+    // operators inside the normalised shape instead —
+    //
+    //     h = map_to_metres( apply_ops( noise_shape(x, z), x, z ) )
+    //
+    // — and that ordering does not survive contact with the map. Two reasons,
+    // and the second is the one that decides it:
+    //
+    //   * Targets would be authored in normalised shape units. A designer says
+    //     "the dock apron is at 4.5 m", not "the dock apron is at 0.244 of the
+    //     island's vertical span", and a Carve could not reach below sea level
+    //     to a stated depth at all.
+    //   * The island mask MULTIPLIES the shape. Applying an operator before the
+    //     mask means the mask then scales the authored flat down — and worse,
+    //     tilts it, because the mask has a gradient. Every flattened area in
+    //     this map is near the coast: the dock apron, the Strand promenade, the
+    //     Camber airfield on its spit, the causeway. A flatten inside the mask
+    //     comes out neither flat nor at the height it was asked for, exactly
+    //     where it matters most.
+    //
+    // Applying them here costs the operators the mask's protection at the very
+    // edge of the world box, which is why every op target is asserted inside
+    // the height field's own analytic bounds below rather than trusted.
+    return city::apply_terrain_ops(h, x, z);
 }
 
 glm::vec3 normal_at(uint64_t seed, float x, float z) {

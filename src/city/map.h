@@ -399,6 +399,22 @@ struct Landmark {
     LandmarkTier tier = LandmarkTier::Corner;
     LandmarkKind kind = LandmarkKind::Mural;
     DistrictId district = DistrictId::Count;
+
+    // Lit at night, and therefore visible from further at night than its
+    // height alone would carry it.
+    //
+    // THIS FIELD EXISTS BECAUSE AN ASSERTION FAILED. The tiers ought to be
+    // ordered by how far a thing reads, and reach ought to follow height above
+    // sea level -- except that the Kepler flare stack tops out at 55 m ASL on
+    // a coastal plate while the Marrow quarry face, a DISTRICT-tier landmark,
+    // tops out at 71 m on a hill. Measured, the ordering is simply false.
+    //
+    // It is false because the flare is island-tier for BURNING, not for being
+    // tall, which is what docs/design/pinatty.md says and what the table did
+    // not. So the table says it now, and the invariant it supports is the true
+    // one: an island-tier landmark either out-tops every district-tier landmark
+    // or it is lit.
+    bool lit = false;
 };
 
 // ---------------------------------------------------------------------------

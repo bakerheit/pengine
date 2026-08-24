@@ -799,13 +799,32 @@ void a_slide_can_be_caught() {
     gas.throttle = 0.9f;
     for (int i = 0; i < 480; ++i) entry = step_vehicle(entry, tuning, gas, collider, kDt);
 
-    // Provoke: half a second of handbrake and lock.
+    // Provoke: 1.25 s of handbrake and lock.
+    //
+    // IT USED TO BE HALF A SECOND, and PENG-41 showed that was not a slide.
+    // The ground under this test is now an authored Flatten at full weight --
+    // Pinatty's downtown plate, DEAD level, zero relief under the wheelbase --
+    // so for the first time the terrain contributes nothing and the tyre model
+    // is on its own. Measured there, at 120 Hz on grass:
+    //
+    //     yank  60 steps -> provoked  6.6 deg, abandoned settles to  0.0
+    //     yank  90 steps -> provoked 13.7 deg, abandoned settles to  0.1
+    //     yank 120 steps -> provoked 21.3 deg, abandoned settles to  8.2
+    //     yank 150 steps -> provoked 29.2 deg, abandoned holds at   21.1
+    //     yank 200 steps -> provoked 42.8 deg, and NOBODY catches it (32.8)
+    //
+    // Half a second only bends the car about six degrees, which is inside the
+    // tyre's linear range where any stable car self-centres -- so the negative
+    // control at the bottom was passing on the old bumpy terrain because the
+    // BUMPS kept the car unsettled, not because the slip curve falls off. That
+    // is the terrain being tested, not the car. 150 steps puts the tyres past
+    // the peak on ground that is doing nothing, which is the claim.
     InputFrame yank;
     yank.throttle = 0.3f;
     yank.steer = 0.75f;
     yank.handbrake = 1.0f;
     VehicleState sliding = entry;
-    for (int i = 0; i < 60; ++i) {
+    for (int i = 0; i < 150; ++i) {
         sliding = step_vehicle(sliding, tuning, yank, collider, kDt);
     }
     const float provoked = body_slip_degrees(sliding);

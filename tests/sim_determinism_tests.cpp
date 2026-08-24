@@ -86,12 +86,27 @@ constexpr uint64_t kOtherSeed = 0xC0FFEE1234ull;
 // 2400 steps = 20 seconds of sim at 120 Hz.
 constexpr int kRecordSteps = 2400;
 
-// Where the recorded run starts. Comfortably inside kHomeRadiusMetres (380 m),
-// which is the band the height field guarantees is dry land — a spawn in a
-// lagoon records a car bobbing in the sea, which reproduces perfectly and
-// proves nothing.
-constexpr float kSpawnX = -60.0f;
-constexpr float kSpawnZ = 40.0f;
+// Where the recorded run starts.
+//
+// IT MOVED IN PENG-41, and the reason is worth stating because it would look
+// arbitrary otherwise. It used to sit near the world origin, inside the 380 m
+// spawn-lift dome the height field carried so that no seed could drop the car
+// in a lagoon. That dome is gone, and the origin is now the middle of Pinatty's
+// financial district: an AUTHORED Flatten at full weight, which returns its
+// target height for every seed.
+//
+// That is exactly right for the map and exactly wrong for this suite, because
+// it kills the negative control: two different seeds produce the identical
+// dead-level plate, so the same tape reproduces the same run and "a different
+// seed must diverge" fails. It did fail, correctly, the day the operators
+// landed.
+//
+// So the recording moved to ordinary countryside on the west coast, measured
+// untouched by any terrain operator and dry, gently sloped land for BOTH kSeed
+// and kOtherSeed across a 600 m box — a spawn in a lagoon records a car bobbing
+// in the sea, which reproduces perfectly and proves nothing.
+constexpr float kSpawnX = -1960.0f;
+constexpr float kSpawnZ = 280.0f;
 constexpr float kSpawnYaw = 0.7f;
 
 // --- the recorded drive ------------------------------------------------------
@@ -947,10 +962,16 @@ void test_terrain_generates_identically_from_one_seed() {
     std::size_t samples = 0;
     std::size_t differed_from_other = 0;
 
+    // THE GRID WIDENED IN PENG-41, by a factor of ten in each axis, so it
+    // spans the whole island rather than a 500 m square around the origin.
+    // That square is now Pinatty's downtown plate: an authored Flatten at full
+    // weight, identical on every seed, so `differed_from_other` counted zero
+    // and the anti-vacuity control below failed -- correctly. The prime-ish
+    // spacings are kept so the samples do not all land on the vertex lattice.
     for (int ix = -12; ix <= 12; ++ix) {
         for (int iz = -12; iz <= 12; ++iz) {
-            const float x = static_cast<float>(ix) * 23.5f;
-            const float z = static_cast<float>(iz) * 19.25f;
+            const float x = static_cast<float>(ix) * 235.0f;
+            const float z = static_cast<float>(iz) * 192.5f;
             ++samples;
 
             REQUIRE_MSG(height_at(kSeed, x, z) == height_at(kSeed, x, z),
