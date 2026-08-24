@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include "core/log.h"
 #include "terrain/heightmap.h"
 #include "terrain/surface.h"
 
@@ -65,6 +66,103 @@ LatticeCell lattice_cell(float x, float z) {
     return c;
 }
 
+// The chunk's perimeter vertex indices, as one closed ring.
+//
+// THE ORDER IS LOAD-BEARING and it is: bottom row toward +X, right column
+// toward +Z, top row toward -X, left column toward -Z. That traversal makes
+// the skirt quads below come out facing OUTWARD under the engine's
+// counter-clockwise front-face rule. Reverse it and the entire curtain is
+// back-facing, which under GL_CULL_FACE means it is invisible — and an
+// invisible skirt does not read as "the winding is wrong", it reads as "skirts
+// do not work", which is a much longer afternoon.
+std::vector<uint32_t> perimeter_ring(int verts) {
+    std::vector<uint32_t> ring;
+    if (verts < 2) return ring;
+    const uint32_t v = static_cast<uint32_t>(verts);
+    ring.reserve(static_cast<std::size_t>(4 * (verts - 1)));
+
+    const auto at = [v](uint32_t i, uint32_t j) { return j * v + i; };
+
+    for (uint32_t i = 0; i + 1 < v; ++i) ring.push_back(at(i, 0));
+    for (uint32_t j = 0; j + 1 < v; ++j) ring.push_back(at(v - 1u, j));
+    for (uint32_t i = v - 1u; i > 0; --i) ring.push_back(at(i, v - 1u));
+    for (uint32_t j = v - 1u; j > 0; --j) ring.push_back(at(0, j));
+
+    return ring;
+}
+
+// Hang the curtain. See the long note in chunk.h for why this and not a
+// stitched transition row.
+void append_skirt(ChunkMesh& mesh, int verts) {
+    const std::vector<uint32_t> ring = perimeter_ring(verts);
+    if (ring.size() < 3u) return;
+
+    // --- depth, MEASURED -----------------------------------------------------
+    //
+    // The crack at a boundary is the gap between one side's surface and the
+    // other side's CHORD across the coarsest cell either of them might use. So
+    // the quantity to measure is the relief over a span that wide — not the
+    // relief between adjacent vertices.
+    //
+    // Measuring adjacent steps was the first thing tried here and it is subtly
+    // wrong in exactly one direction. A level 0 chunk has 1 m steps, so its
+    // measured relief is small and its skirt comes out short; but the thing it
+    // has to hide is a level 3 neighbour's 8 m chord, which departs from the
+    // field by far more than any single 1 m step does. The fine side is
+    // therefore the side that cracks, which is the opposite of the intuition,
+    // and it showed up as the 0|1 boundary having the thinnest margin of all
+    // six pairings while 2|3 had the fattest.
+    //
+    // `window` is the coarsest neighbour cell expressed in THIS chunk's
+    // vertices: 8 at level 0, 1 at level 3. Every height involved was already
+    // computed above, so this still costs no extra height_at() calls.
+    const int window = lod_step(kMaxChunkLod) / lod_step(mesh.lod);
+    const std::size_t span =
+        std::min(static_cast<std::size_t>(window), ring.size() - 1u);
+
+    float max_relief = 0.0f;
+    for (std::size_t k = 0; k < ring.size(); ++k) {
+        const float here = mesh.vertices[ring[k]].position.y;
+        for (std::size_t d = 1; d <= span; ++d) {
+            const std::size_t n = (k + d) % ring.size();
+            const float dh = here - mesh.vertices[ring[n]].position.y;
+            const float a = dh < 0.0f ? -dh : dh;
+            if (a > max_relief) max_relief = a;
+        }
+    }
+
+    float depth = max_relief * kSkirtReliefFactor;
+    if (depth < kMinSkirtMetres) depth = kMinSkirtMetres;
+    mesh.skirt_depth = depth;
+
+    // --- the dropped copies --------------------------------------------------
+    // Each perimeter vertex gets a twin directly below it, carrying the SAME
+    // normal, uv and material weights. Sharing them is deliberate: the skirt is
+    // only ever seen through a crack, edge on, and shading it like the ground
+    // it hangs from is what stops the crack reading as a dark line instead of
+    // as nothing at all.
+    const uint32_t base = static_cast<uint32_t>(mesh.vertices.size());
+    mesh.vertices.reserve(mesh.vertices.size() + ring.size());
+    for (const uint32_t idx : ring) {
+        TerrainVertex v = mesh.vertices[idx];
+        v.position.y -= depth;
+        mesh.vertices.push_back(v);
+        mesh.bounds.expand(v.position);
+    }
+
+    // --- the quads -----------------------------------------------------------
+    mesh.indices.reserve(mesh.indices.size() + ring.size() * 6u);
+    for (uint32_t k = 0; k < static_cast<uint32_t>(ring.size()); ++k) {
+        const uint32_t n = (k + 1u) % static_cast<uint32_t>(ring.size());
+        const uint32_t top_a = ring[k];
+        const uint32_t top_b = ring[n];
+        const uint32_t low_a = base + k;
+        const uint32_t low_b = base + n;
+        mesh.indices.insert(mesh.indices.end(),
+                            {top_a, top_b, low_a, top_b, low_b, low_a});
+    }
+}
+
 }  // namespace
 
 ChunkCoord chunk_at(float world_x, float world_z) {
@@ -78,18 +176,21 @@ glm::vec2 chunk_origin(ChunkCoord c) {
                      static_cast<float>(c.z) * kChunkMetres};
 }
 
-ChunkMesh build_chunk(uint64_t seed, ChunkCoord coord) {
+ChunkMesh build_chunk(uint64_t seed, ChunkCoord coord, int lod) {
     ChunkMesh mesh;
     mesh.coord = coord;
+    mesh.lod = lod < 0 ? 0 : (lod > kMaxChunkLod ? kMaxChunkLod : lod);
 
-    constexpr float kStep = kVertexSpacingMetres;
+    const int verts = lod_verts(mesh.lod);
+    const int quads = lod_quads(mesh.lod);
+    const float kStep = lod_spacing_metres(mesh.lod);
     const glm::vec2 origin = chunk_origin(coord);
 
-    mesh.vertices.reserve(static_cast<std::size_t>(kChunkVerts) *
-                          static_cast<std::size_t>(kChunkVerts));
+    mesh.vertices.reserve(static_cast<std::size_t>(verts) *
+                          static_cast<std::size_t>(verts));
 
-    for (int j = 0; j < kChunkVerts; ++j) {
-        for (int i = 0; i < kChunkVerts; ++i) {
+    for (int j = 0; j < verts; ++j) {
+        for (int i = 0; i < verts; ++i) {
             // Evaluated at the absolute WORLD coordinate, not a chunk-local
             // one. That is what makes a shared edge bit-identical between
             // neighbours: both chunks ask height_at() the same question.
@@ -100,6 +201,10 @@ ChunkMesh build_chunk(uint64_t seed, ChunkCoord coord) {
             // land at a very slightly different coordinate from its
             // neighbour's first — and "very slightly different" is exactly the
             // crack this whole scheme exists to avoid.
+            //
+            // At lod > 0 the stride is wider, but the coordinates are still
+            // points of the SAME global lattice, so a coarse chunk and a fine
+            // one agree bit for bit wherever they both have a vertex.
             const float wx = origin.x + static_cast<float>(i) * kStep;
             const float wz = origin.y + static_cast<float>(j) * kStep;
 
@@ -123,19 +228,26 @@ ChunkMesh build_chunk(uint64_t seed, ChunkCoord coord) {
         }
     }
 
-    mesh.indices.reserve(static_cast<std::size_t>(kChunkQuads) *
-                         static_cast<std::size_t>(kChunkQuads) * 6u);
-    for (int j = 0; j < kChunkQuads; ++j) {
-        for (int i = 0; i < kChunkQuads; ++i) {
-            const uint32_t a = static_cast<uint32_t>(j * kChunkVerts + i);
+    mesh.indices.reserve(static_cast<std::size_t>(quads) *
+                         static_cast<std::size_t>(quads) * 6u);
+    for (int j = 0; j < quads; ++j) {
+        for (int i = 0; i < quads; ++i) {
+            const uint32_t a = static_cast<uint32_t>(j * verts + i);
             const uint32_t b = a + 1u;
-            const uint32_t c = a + static_cast<uint32_t>(kChunkVerts);
+            const uint32_t c = a + static_cast<uint32_t>(verts);
             const uint32_t d = c + 1u;
             // Counter-clockwise when viewed from above (+Y), matching the
             // engine's front-face winding. See the quad-split note above.
             mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
         }
     }
+
+    // Everything emitted so far is ground. The skirt is appended after it, and
+    // this line is what lets collision tell the two apart by construction
+    // rather than by inspecting a normal.
+    mesh.surface_index_count = mesh.indices.size();
+
+    append_skirt(mesh, verts);
 
     return mesh;
 }
@@ -145,7 +257,22 @@ ChunkCollision build_chunk_collision(const ChunkMesh& mesh) {
     out.coord = mesh.coord;
     out.bounds = mesh.bounds;
 
-    const std::size_t tri_count = mesh.indices.size() / 3u;
+    // A coarsened mesh is the "downsampled copy" this engine forbids collision
+    // from being derived from, and returning plausible triangles for one is how
+    // a car ends up resting on a chord while the player watches it float over
+    // the ridge that chord cuts across. Refuse, say so, hand back nothing.
+    if (mesh.lod != 0) {
+        AP_ERROR("chunk collision: refusing a lod %d mesh at (%d, %d). "
+                 "Collision comes from the level 0 surface or it comes from "
+                 "nowhere -- see the note on build_chunk_collision().",
+                 mesh.lod, mesh.coord.x, mesh.coord.z);
+        return out;
+    }
+
+    // Only the top surface. The skirt's faces are vertical, so their normals
+    // are horizontal, and the +Y flip below would turn each one into a contact
+    // plane the geometry does not have.
+    const std::size_t tri_count = mesh.surface_index_count / 3u;
     out.triangles.reserve(tri_count);
 
     for (std::size_t t = 0; t < tri_count; ++t) {

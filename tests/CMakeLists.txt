@@ -58,6 +58,11 @@ apricot_add_suite(terrain_determinism_tests)
 # boring and only the numbers will tell you.
 apricot_add_suite(city_map_tests)
 apricot_add_suite(terrain_mesh_tests)
+# LOD (PENG-27). The coarse lattice is a strict subset of the fine one, so the
+# same-level seam is untouched; the DIFFERENT-level crack is real, and this
+# suite measures it against the skirt that has to cover it rather than
+# asserting a skirt merely exists.
+apricot_add_suite(terrain_lod_tests)
 apricot_add_suite(scene_cull_tests)
 apricot_add_suite(streamer_tests)
 apricot_add_suite(terrain_collision_tests)

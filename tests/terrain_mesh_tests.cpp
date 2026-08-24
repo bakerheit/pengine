@@ -62,12 +62,26 @@ void mesh_has_the_expected_shape() {
     const ChunkMesh m = build_chunk(7ull, ChunkCoord{2, -4});
 
     REQUIRE(m.coord == (ChunkCoord{2, -4}));
-    REQUIRE(m.vertices.size() ==
-            static_cast<std::size_t>(kChunkVerts) *
-                static_cast<std::size_t>(kChunkVerts));
-    REQUIRE(m.indices.size() ==
-            static_cast<std::size_t>(kChunkQuads) *
-                static_cast<std::size_t>(kChunkQuads) * 6u);
+    REQUIRE(m.lod == 0);
+
+    // Grid first, then the skirt ring appended after it (PENG-27). The grid
+    // block is asserted separately from the total on purpose: it is what the
+    // row-major indexing below depends on, and folding the two into one number
+    // would let a skirt of the wrong size hide inside a total that still adds
+    // up.
+    const std::size_t grid_verts = static_cast<std::size_t>(kChunkVerts) *
+                                   static_cast<std::size_t>(kChunkVerts);
+    const std::size_t skirt_verts =
+        static_cast<std::size_t>(4 * (kChunkVerts - 1));
+    REQUIRE(m.vertices.size() == grid_verts + skirt_verts);
+
+    const std::size_t ground_indices = static_cast<std::size_t>(kChunkQuads) *
+                                       static_cast<std::size_t>(kChunkQuads) * 6u;
+    REQUIRE(m.surface_index_count == ground_indices);
+    REQUIRE(m.indices.size() == ground_indices + skirt_verts * 6u);
+
+    // The curtain has to be a real length or it hides nothing.
+    REQUIRE(m.skirt_depth >= kMinSkirtMetres);
 
     // Every index must address a real vertex. An out-of-range index is a
     // renderer crash on someone else's machine.
@@ -107,7 +121,12 @@ void mesh_has_the_expected_shape() {
 
 void winding_is_counter_clockwise_from_above() {
     const ChunkMesh m = build_chunk(11ull, ChunkCoord{0, 0});
-    for (std::size_t t = 0; t + 2 < m.indices.size(); t += 3) {
+    // GROUND triangles only. The skirt (PENG-27) is a vertical curtain, so
+    // "faces upward" is not a property it has or should have; its own winding
+    // rule is "faces out of the chunk" and tests/terrain_lod_tests.cpp checks
+    // that one. Walking the whole index buffer here would assert a rule against
+    // geometry the rule was never about.
+    for (std::size_t t = 0; t + 2 < m.surface_index_count; t += 3) {
         const glm::vec3& a = m.vertices[m.indices[t + 0]].position;
         const glm::vec3& b = m.vertices[m.indices[t + 1]].position;
         const glm::vec3& c = m.vertices[m.indices[t + 2]].position;
@@ -132,8 +151,15 @@ void collision_triangles_are_the_drawn_triangles() {
 
             REQUIRE_MSG(col.coord == mesh.coord, "collision lost the coord",
                         "collision");
-            REQUIRE_MSG(col.triangles.size() * 3u == mesh.indices.size(),
-                        "collision triangle count does not match the mesh",
+            // Against the GROUND span, not the whole index buffer: the skirt
+            // (PENG-27) is drawn and deliberately not collided, because a
+            // vertical face has no place in a set whose contract is that a
+            // normal points up. "Collision is the geometry that draws" still
+            // holds exactly — over the surface, which is the only part of a
+            // chunk anything can stand on.
+            REQUIRE_MSG(col.triangles.size() * 3u == mesh.surface_index_count,
+                        "collision triangle count does not match the mesh's "
+                        "ground triangles",
                         "collision");
 
             for (std::size_t t = 0; t < col.triangles.size(); ++t) {
