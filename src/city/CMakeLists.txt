@@ -8,3 +8,7 @@
 # free of the engine stayed behind. See README.md for the list and why.
 #
 # Several files here are header-only and deliberately have no entry below.
+target_sources(apricot_sim PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/police_ai.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/traffic_ai.cpp
+)
