@@ -1,6 +1,19 @@
 # pengine-apricot — working agreement
 
-A **C++17 / OpenGL 3.3** game engine and its sample game, **Apricot Rally**.
+A **C++17 / OpenGL 3.3** game engine, and the pilot game being built on it.
+
+**The pilot game is Pinatty** — a GTA-style open-world crime game, a rebuild of
+`probablecause`. The map design is [`docs/design/pinatty.md`](docs/design/pinatty.md).
+**None of it is written yet: there is no code under `src/` for any of it.** Do
+not describe any part of Pinatty as working, and do not treat its design
+document as a description of the tree.
+
+There used to be a sample game, Apricot Rally — a time trial with a checkpoint
+route, lap timing and a ghost car. It was a placeholder and it was deleted in
+PENG-23. If you find a reference to a route, a gate, a lap, a split, a best lap
+or a ghost anywhere in this tree, it is a leftover: it is not a feature, and it
+is not a plan.
+
 This file loads into every session and subagent. It is the rules of the road;
 it links out to the detail rather than restating it.
 
@@ -56,6 +69,9 @@ Three targets. Dependencies flow **sim → host → exe**, never back.
 | `apricot_host` | `apricot_sim`, SDL2, glad, ImGui, miniaudio | `platform` `gfx`, plus `audio/device.cpp` + `audio/miniaudio_impl.c` |
 | `apricot` (exe) | `apricot_host` | `app` + `main.cpp` |
 
+`src/game/` currently holds one thing — `conditions.{h,cpp}`, the deterministic
+weather that feeds `VehicleTuning::grip_scale`. Pinatty's rules land there.
+
 **Each module owns its own `CMakeLists.txt`** and attaches its files with
 `target_sources()`. The root `CMakeLists.txt` declares three source-less
 targets and nothing else. Do not add sources at the root; do not edit another
@@ -98,9 +114,12 @@ reasoning in [`docs/architecture.md`](docs/architecture.md).
 
 - **`InputFrame` is the replay tape format.** POD, standard layout, no padding,
   all asserted at compile time. Append fields at the **end** and bump
-  `kReplayTapeVersion`. Reordering or resizing an existing field, or
-  renumbering a `ButtonBit`, silently invalidates every recorded tape — and the
-  failure reads as "the physics changed".
+  `kReplayTapeVersion` (`core/replay_tape.h`, next to the `ReplayTape` it
+  versions). Reordering or resizing an existing field, or renumbering a
+  `ButtonBit`, silently invalidates every recorded tape — and the failure reads
+  as "the physics changed". Both the format and the version are pinned in
+  `tests/sim_determinism_tests.cpp`; the version is a golden value, so bumping
+  it is a deliberate act with a stated cost.
 - **No wall clock below `App`.** `App::run()` owns the program's only clock.
   Sim functions take `dt` as a parameter. The first `std::chrono` call added
   under that line ends replay, and the symptom arrives a minute later as a
@@ -145,9 +164,9 @@ The expensive failure mode is **"ships green but broken in-game."**
    stale binary wastes time twice: once looking broken, once looking fixed.
 4. **Feel-check anything perceivable.** If a player could see, hear or feel it,
    run it and watch it. **A passing test is necessary, never sufficient.**
-   Determinism tests prove a lap time is reproducible; they cannot tell you the
+   Determinism tests prove a drive is reproducible; they cannot tell you the
    car is fun to drive, that the engine note sounds like an engine, or that a
-   checkpoint is visible from far enough away to aim at.
+   landmark reads from far enough away to navigate by.
 5. **Verify count and usage claims.** Before writing "N call sites" or "X is
    unused", read the header and grep with word boundaries.
 6. **Never document a feature as working unless you ran it.** Much of this tree
