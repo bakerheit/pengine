@@ -23,6 +23,7 @@ void print_usage() {
         "  --frames N      render N frames, print a summary, then exit\n"
         "  --no-instancing start on the naive per-node draw path\n"
         "  --warp-every N  teleport across the island every N frames\n"
+        "  --road-probe    bake a probe road at the origin (see below)\n"
         "  --version       print the version and exit\n"
         "  --help          this text\n"
         "\n"
@@ -39,7 +40,13 @@ void print_usage() {
         "hardest thing the streamer does and the one path a human would have to\n"
         "remember to test. Repeating it on a timer means a run either survives\n"
         "a dozen of them with a clean GL queue and a flat mesh count, or it\n"
-        "does not.\n",
+        "does not.\n"
+        "\n"
+        "--road-probe is INSTRUMENTATION, not content. src/road/ bakes ribbons\n"
+        "from authored spines and the spine tables belong to the map module,\n"
+        "which is not in this tree -- so normally no road is drawn and the\n"
+        "bake, upload and draw path would never run. This gives it two\n"
+        "crossing streets to run over. It goes away when the tables land.\n",
         APRICOT_VERSION);
 }
 
@@ -50,6 +57,7 @@ int main(int argc, char** argv) {
     int frame_limit = 0;
     int warp_every = 0;
     bool instancing = true;
+    bool road_probe = false;
 
     for (int i = 1; i < argc; ++i) {
         const char* a = argv[i];
@@ -81,6 +89,10 @@ int main(int argc, char** argv) {
             instancing = false;
             continue;
         }
+        if (std::strcmp(a, "--road-probe") == 0) {
+            road_probe = true;
+            continue;
+        }
         if (std::strcmp(a, "--warp-every") == 0 && i + 1 < argc) {
             warp_every = std::atoi(argv[++i]);
             if (warp_every <= 0) {
@@ -105,6 +117,7 @@ int main(int argc, char** argv) {
     app.set_frame_limit(frame_limit);
     app.set_instancing(instancing);
     app.set_warp_interval(warp_every);
+    app.set_road_probe(road_probe);
     if (!app.init()) {
         AP_ERROR("startup failed");
         app.shutdown();

@@ -54,8 +54,7 @@ struct LatticeCell {
     float tz;
 };
 
-LatticeCell lattice_cell(float x, float z) {
-    constexpr float s = kVertexSpacingMetres;
+LatticeCell lattice_cell_at(float x, float z, float s) {
     const float gx = std::floor(x / s);
     const float gz = std::floor(z / s);
     LatticeCell c;
@@ -64,6 +63,10 @@ LatticeCell lattice_cell(float x, float z) {
     c.tx = (x - c.x0) / s;
     c.tz = (z - c.z0) / s;
     return c;
+}
+
+LatticeCell lattice_cell(float x, float z) {
+    return lattice_cell_at(x, z, kVertexSpacingMetres);
 }
 
 // The chunk's perimeter vertex indices, as one closed ring.
@@ -319,6 +322,22 @@ float mesh_height_at(uint64_t seed, float x, float z) {
     constexpr float s = kVertexSpacingMetres;
     const LatticeCell c = lattice_cell(x, z);
 
+    const float h00 = height_at(seed, c.x0,     c.z0);
+    const float h10 = height_at(seed, c.x0 + s, c.z0);
+    const float h01 = height_at(seed, c.x0,     c.z0 + s);
+    const float h11 = height_at(seed, c.x0 + s, c.z0 + s);
+
+    return triangle_height(h00, h10, h01, h11, c.tx, c.tz);
+}
+
+float mesh_height_at_lod(uint64_t seed, float x, float z, int lod) {
+    const int l = lod < 0 ? 0 : (lod > kMaxChunkLod ? kMaxChunkLod : lod);
+    const float s = lod_spacing_metres(l);
+    const LatticeCell c = lattice_cell_at(x, z, s);
+
+    // The same quad split as the mesher, at the coarse stride. It has to be the
+    // same split: measuring the drawn surface against a different triangulation
+    // would report a disagreement that is the measurement's own fault.
     const float h00 = height_at(seed, c.x0,     c.z0);
     const float h10 = height_at(seed, c.x0 + s, c.z0);
     const float h01 = height_at(seed, c.x0,     c.z0 + s);

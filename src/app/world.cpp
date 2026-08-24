@@ -80,8 +80,36 @@ MeshData make_rock(uint8_t variant) {
 
 }  // namespace
 
+// How far out road ribbons are drawn, in metres.
+//
+// NOT A PERFORMANCE NUMBER. Ribbons are draped onto the LEVEL 0 drawn surface
+// by the baker, via mesh_height_at(). Past the level 0 and level 1 rings the
+// terrain beneath them is drawn coarser, and the ribbon and the ground it was
+// draped on stop being the same surface. Measured on this terrain by
+// tests/terrain_lod_tests.cpp:
+//
+//     level 1 (2 m)  mean 0.025 m  worst 1.221 m
+//     level 2 (4 m)  mean 0.092 m  worst 2.778 m
+//     level 3 (8 m)  mean 0.258 m  worst 6.130 m
+//
+// So this is the outer edge of the level 1 ring: 640 m, where a road is off its
+// ground by 2.5 cm typically. Beyond it a road visibly floats, and floating
+// geometry is a worse artefact than a road that is not drawn — the same rule as
+// "collision derives from the geometry that draws", with a second consumer.
+//
+// The proper fix is a terrain operator that carves the road corridor into the
+// height field itself, so every level agrees about where the road bed is. That
+// belongs to the map module and is not this ticket. Until then, this distance.
+constexpr float kRoadDrawDistanceMetres = 640.0f;
+
 bool World::init(Renderer& renderer, uint64_t seed, const StreamerConfig& cfg) {
     streamer_ = Streamer(seed, cfg);
+    seed_ = seed;
+
+    if (!roads_.init(renderer, seed)) {
+        AP_ERROR("world: road materials failed");
+        return false;
+    }
 
 
     // --- terrain material ----------------------------------------------------
@@ -219,6 +247,35 @@ void World::update(Scene& scene, Renderer& renderer, glm::vec3 focus,
     stats_.mesh_bytes = renderer.mesh_bytes();
 }
 
+bool World::set_roads(Renderer& renderer, Scene& scene,
+                      const std::vector<RoadSpine>& spines) {
+    roads_.detach(scene);
+    roads_.release(renderer);
+
+    if (spines.empty()) return true;  // nothing authored yet; not a failure
+
+    // The ground the ribbons drape onto is the MESHED surface, not the height
+    // field. TerrainGround binds the right one — road_graph.h makes that a
+    // parameter rather than a call precisely so it cannot be got wrong here,
+    // and the baker measured 0.000000000 m of error across 676 carriageway
+    // vertices against it.
+    const TerrainGround ground{seed_};
+
+    RoadGraph graph;
+    graph.build(spines, RoadGraphParams{}, ground.sampler());
+
+    const RibbonBake bake = bake_ribbons(graph, ground.sampler());
+    AP_INFO("roads: %zu spines -> %zu nodes, %zu edges, %zu junctions, "
+            "%zu plates, %zu crosswalks, %zu triangles",
+            spines.size(), graph.node_count(), graph.edge_count(),
+            graph.junctions().size(), bake.plates_baked, bake.crosswalks_baked,
+            bake.total_triangles());
+
+    if (!roads_.upload(renderer, bake)) return false;
+    roads_.attach(scene, kRoadDrawDistanceMetres);
+    return true;
+}
+
 int World::fill(Scene& scene, Renderer& renderer, glm::vec3 focus) {
     // A hard cap, and it is an assertion rather than a convenience. Fill mode
     // plans only prime_radius with no budget, so this converges in a handful of
@@ -249,6 +306,9 @@ void World::shutdown(Scene& scene, Renderer& renderer) {
     // runs next and destroys the whole table; what is drained here is only what
     // the streamer had already handed back and this frame had not collected, so
     // the two do not end the session disagreeing about who owns what.
+    roads_.detach(scene);
+    roads_.release(renderer);
+
     scene.clear();
     released_scratch_.clear();
     streamer_.take_released_meshes(released_scratch_);

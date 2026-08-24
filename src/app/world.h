@@ -4,6 +4,8 @@
 #include <vector>
 
 #include "gfx/renderer.h"
+#include "gfx/road_meshes.h"
+#include "road/road_graph.h"
 #include "scene/scene.h"
 #include "terrain/streamer.h"
 
@@ -69,7 +71,22 @@ public:
     // the fill is charged to the next frame as dropped sim time.
     int fill(Scene& scene, Renderer& renderer, glm::vec3 focus);
 
+    // Bake `spines` into ribbons, upload them and put them in the scene.
+    //
+    // NOTHING IN THE ENGINE SUPPLIES SPINES YET. src/road/road_graph.h says so
+    // itself: the spine tables belong to the map module (PENG-41) and this
+    // module takes them as a parameter, so wiring is one call the day they
+    // land. Until then App passes an empty list and no road draws. That is not
+    // a stub — the bake, the upload and the draw are all real and all run; they
+    // are simply run over nothing.
+    //
+    // An empty spine list is a success and produces no geometry. Returns false
+    // only if a bake that HAD geometry failed to reach the GPU.
+    bool set_roads(Renderer& renderer, Scene& scene,
+                   const std::vector<RoadSpine>& spines);
+
     const Streamer& streamer() const { return streamer_; }
+    const RoadMeshes& roads() const { return roads_; }
     const Stats& stats() const { return stats_; }
 
 private:
@@ -79,6 +96,8 @@ private:
     // instancing would quietly stop finding runs.
     Streamer streamer_{0};
     ScenePrototypes proto_;
+    RoadMeshes roads_;
+    uint64_t seed_ = 0;
 
     std::vector<MeshId> released_scratch_;
     Stats stats_;

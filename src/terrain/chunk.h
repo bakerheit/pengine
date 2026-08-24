@@ -280,6 +280,21 @@ ChunkCollision build_chunk_collision(const ChunkMesh& mesh);
 // Physics must never depend on streaming state.
 float mesh_height_at(uint64_t seed, float x, float z);
 
+// Height of the drawn triangle at a world XZ, AT A GIVEN LEVEL OF DETAIL.
+//
+// THIS IS A MEASURING INSTRUMENT AND NOT A GROUND QUERY. It exists so that
+// "how far does the drawn surface move when a chunk changes level" is a number
+// somebody can print, rather than a thing argued about — and that number is
+// what decides how far out anything draped on the terrain (a road ribbon, a
+// prop, a decal) can be drawn before it visibly floats.
+//
+// DO NOT FEED IT TO PHYSICS. Contact goes through mesh_height_at(), which is
+// this at level 0, because the streamer guarantees level 0 under the car and
+// collision must never come from a coarsened surface. A caller passing a
+// non-zero level here and using the answer for contact has re-created the
+// downsampled-collision bug by hand.
+float mesh_height_at_lod(uint64_t seed, float x, float z, int lod);
+
 // Face normal of the drawn triangle at a world XZ. Piecewise constant across
 // each triangle, which is exactly right for contact response — the smooth
 // normal_at() is a SHADING normal and using it for physics puts the contact

@@ -344,6 +344,61 @@ void the_level_costs_are_what_the_tiers_were_budgeted_against() {
     }
 }
 
+// --- 7. how far the drawn ground moves per level ----------------------------
+
+void the_drawn_surface_moves_by_this_much_per_level() {
+    // THE NUMBER ANYTHING DRAPED ON THE TERRAIN NEEDS.
+    //
+    // A road ribbon is baked onto the DRAWN surface via mesh_height_at(), which
+    // is level 0. If the terrain under it is drawn at level 2, the ribbon and
+    // the ground it was draped on are no longer the same surface, and the road
+    // floats or sinks by exactly the difference measured here. The same applies
+    // to any prop, decal or footprint placed on the ground.
+    //
+    // It is the same rule the engine already has -- what you touch is what
+    // draws -- with a second consumer, so it gets a measured bound rather than
+    // an assurance. There is no assertion on the magnitude on purpose: this is
+    // a measurement, and the right response to it is a draw distance, not a
+    // threshold somebody tunes until the test goes quiet.
+    constexpr int kSamples = 400;
+    const float span = kChunkMetres * 6.0f;
+
+    std::printf("    [drape] drawn-surface disagreement against level 0:\n");
+    for (int lod = 1; lod <= kMaxChunkLod; ++lod) {
+        float worst = 0.0f;
+        double total = 0.0;
+        int n = 0;
+        for (int j = 0; j < kSamples; ++j) {
+            for (int i = 0; i < kSamples; ++i) {
+                const float x = -span * 0.5f + span * static_cast<float>(i) /
+                                                   static_cast<float>(kSamples);
+                const float z = -span * 0.5f + span * static_cast<float>(j) /
+                                                   static_cast<float>(kSamples);
+                const float d = std::fabs(mesh_height_at_lod(kSeed, x, z, lod) -
+                                          mesh_height_at(kSeed, x, z));
+                worst = std::max(worst, d);
+                total += static_cast<double>(d);
+                ++n;
+            }
+        }
+        std::printf("      lod %d (%.0f m spacing): mean %.3f m, worst %.3f m\n",
+                    lod, static_cast<double>(lod_spacing_metres(lod)),
+                    total / n, static_cast<double>(worst));
+    }
+
+    // Level 0 against itself must be exactly nothing. If this ever drifts, the
+    // coarse path and the level 0 path have stopped being the same function and
+    // every number above is measuring the wrong thing.
+    for (int k = 0; k < 500; ++k) {
+        const float x = static_cast<float>(k) * 1.7f - 400.0f;
+        const float z = static_cast<float>(k) * -2.3f + 250.0f;
+        REQUIRE_MSG(mesh_height_at_lod(kSeed, x, z, 0) ==
+                        mesh_height_at(kSeed, x, z),
+                    "mesh_height_at_lod at level 0 is not mesh_height_at",
+                    "drape");
+    }
+}
+
 void an_out_of_range_level_is_clamped_not_undefined() {
     const ChunkMesh low = build_chunk(kSeed, ChunkCoord{1, 1}, -4);
     REQUIRE_MSG(low.lod == 0, "a negative level was not clamped to 0",
@@ -372,6 +427,8 @@ int main() {
     apricot_test::pass("collision at level zero holds only ground triangles");
     the_level_costs_are_what_the_tiers_were_budgeted_against();
     apricot_test::pass("the level costs are what the tiers were budgeted against");
+    the_drawn_surface_moves_by_this_much_per_level();
+    apricot_test::pass("the drawn surface moves by a measured amount per level");
     an_out_of_range_level_is_clamped_not_undefined();
     apricot_test::pass("an out of range level is clamped, not undefined");
     return apricot_test::done("terrain_lod_tests");
