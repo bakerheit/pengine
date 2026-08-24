@@ -57,7 +57,7 @@ struct WeatherState {
 
 // Per-kind tuning: the look each state targets at full intensity (Clear is fixed
 // identity and not listed), plus the scheduler cadence + transition speed. These
-// are the founder's live look-knobs on the F1 panel.
+// are the live look-knobs.
 struct WeatherTuning {
     // Base looks at intensity = 1.0 (scaled down by the running intensity).
     WeatherState overcast{0.35f, 0.45f, 0.55f, 0.15f};

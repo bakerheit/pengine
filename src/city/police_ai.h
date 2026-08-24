@@ -25,7 +25,7 @@ namespace apricot {
 
 // PCG-245 — dispatcher-level roadblock tactic knobs. Net-new, so these defaults
 // ARE the baseline. Embedded in PoliceTuning (and so in TrafficTuning) for the
-// F1 Dev-Tweaks pattern. All pure kernels below take this by const-ref.
+// live-tuning pattern. All pure kernels below take this by const-ref.
 struct RoadblockTuning {
     int   min_wanted   = 3;      // stage roadblocks only at wanted >= this
     float cooldown_s   = 25.f;   // s between roadblocks (spec: ~20-30 s)
@@ -64,7 +64,7 @@ struct RoadblockTuning {
 
 // Runtime-tunable knobs for the realism slice. Net-new this ticket, so these
 // defaults ARE the baseline (no shipped constexpr to reproduce). Embedded in
-// TrafficTuning so the F1 Dev-Tweaks panel can iterate without a recompile.
+// TrafficTuning so a live tuning panel can iterate without a recompile.
 struct PoliceTuning {
     // Fraction of civilian AI spawns that come up as a cruising patrol cop
     // (Driver::AI, police livery) blended into normal traffic. 0 = no ambient
@@ -114,10 +114,10 @@ struct PoliceTuning {
     // PCG-033 — lane-graph pursuit routing. A pursuer plans a lane route toward
     // the target (a lane-route planner, not in this tree yet) and follows it,
     // steering at a look-ahead waypoint on the route so it tracks the road,
-    // until it closes inside
-    // route_handoff_range — where control hands to the terminal ram/reverse/
-    // handbrake cmd (police_terminal_pursuit_cmd, PCG-011) aimed at the target
-    // itself. Routing layers ON TOP of that terminal phase; it never replaces it.
+    // until it closes inside route_handoff_range — where control hands to the
+    // terminal ram/reverse/handbrake cmd (police_terminal_pursuit_cmd) aimed at
+    // the target itself. Routing layers ON TOP of that terminal phase; it never
+    // replaces it.
     //   route_handoff_range — close-quarters radius where route-follow yields to
     //                         the terminal cmd (the unchanged PCG-011 end-game).
     //   route_lookahead     — how far ahead along the route to place the steer

@@ -126,7 +126,7 @@ bool traffic_profile_may_pass_jam(const DriverProfile& profile,
 //
 // PCG-165 reengineers the despawn into a LAST RESORT on top of that base:
 //   legacy_instant == true  — the shipped PCG-009 behaviour: base conditions
-//     alone flag the car (the F1 A/B toggle,
+//     alone flag the car (an A/B toggle,
 //     RecoveryTuning::legacy_instant_despawn — kept so the founder can
 //     compare old/new in one session).
 //   legacy_instant == false (the new default) — the base must ALSO hold:
@@ -162,7 +162,7 @@ bool traffic_should_despawn_jam(bool blocked, float blocked_seconds,
 // flag was armed: BUCKETS buckets of BUCKET_M metres, the LAST bucket also
 // absorbing everything beyond the range and samples with NO player reference
 // (dist < 0 — headless / menu). 8 x 25 m spans the 200 m AI despawn radius.
-// Displayed + reset by the F1 Dev-Tweaks "Traffic AI" panel.
+// Displayed + reset by a live tuning panel.
 struct RecoveryTelemetry {
     static constexpr int   BUCKETS  = 8;
     static constexpr float BUCKET_M = 25.f;
@@ -247,7 +247,7 @@ struct RecoveryView {
 // and the BOUNDED per-action time budgets — the §3.5 guardrail that recovery
 // can never become a car crawling/wiggling forever: every action ends, the
 // ladder is finite, and its far-from-player terminal is GiveUp. Embedded in
-// TrafficTuning for the F1 Dev-Tweaks path once wired.
+// TrafficTuning for the live-tuning path once wired.
 struct RecoveryTuning {
     // Eligibility clearances.
     float nudge_min_shoulder = 2.3f;  // m of free corridor beside the blocker:
@@ -274,7 +274,7 @@ struct RecoveryTuning {
     // as far. Nearer than this, an exhausted car RETRIES the ladder instead —
     // conditions change as traffic moves — or holds if nothing is eligible.
     float giveup_min_player_dist = 60.f;
-    // PCG-165 A/B toggle (F1): true == the shipped PCG-009 instant despawn
+    // PCG-165 A/B toggle: true == the shipped PCG-009 instant despawn
     // (timer + non-AI blocker only); false (the branch default) == the
     // last-resort gate — despawn additionally requires the recovery ladder
     // exhausted AND the car far from the player. Founder-directed, so old and
@@ -368,7 +368,7 @@ struct ManeuverCmd {
 };
 
 // Net-new knobs (defaults ARE the baseline), embedded in TrafficTuning for
-// the F1 Dev-Tweaks path once PCG-163 wires the panel.
+// the live-tuning path once PCG-163 wires the panel.
 struct ManeuverTuning {
     // Longitudinal governor.
     float crawl_speed     = 3.0f;   // m/s cap either direction (PCG-160 value)
@@ -556,7 +556,7 @@ bool turner_should_yield(const TurnYieldCandidate& o, float my_to_jn,
 // as a PRIORITISED off-corridor hazard (over and above the in-lane leader scan):
 // the proximity / lateral gate for "the player is in my path", and the
 // predicted-collision window for "the player is closing on a collision course".
-// Runtime-tunable so the F1 Dev-Tweaks panel can iterate on how twitchy / chill
+// Runtime-tunable so a live tuning panel can iterate on how twitchy / chill
 // traffic is around the player without a recompile. Embedded in TrafficTuning.
 struct PlayerHazardTuning {
     float range       = 18.f;   // m: ignore the player entirely beyond this distance
@@ -634,8 +634,8 @@ inline void recoil_step(float& pitch, float& pitch_vel, float decel,
 // the obstacle by pulling into the only "adjacent lane" a one-lane-per-direction
 // road offers — the ONCOMING lane — so a go-around is a real-world two-lane
 // overtake (pull out, pass, tuck back). These gate WHEN it triggers and WHETHER
-// the target lane is clear enough. Runtime-tunable (embedded in TrafficTuning →
-// F1 Dev-Tweaks) so the founder can dial impatience / caution without a recompile.
+// the target lane is clear enough. Runtime-tunable (embedded in TrafficTuning)
+// so impatience and caution can be dialled without a recompile.
 struct OvertakeTuning {
     // Hard clearances required in the target lane before pulling out.
     float min_front_gap = 16.f;   // m: clear distance required ahead in the target lane
@@ -735,7 +735,7 @@ bool overtake_gap_acceptable(const OvertakeLaneView& view, float pass_length,
 // a brief STARTLE (hard brake / jolt) escalating to a FLEE (speed up to escape +
 // a bounded curb-side pull-aside) for `duration`, then a deterministic decay back
 // to normal. These gate the trigger and shape the reaction. Runtime-tunable
-// (embedded in TrafficTuning → F1 Dev-Tweaks) so the founder can dial how twitchy
+// (embedded in TrafficTuning, live-tunable) so the founder can dial how twitchy
 // / dramatic the panic is without a recompile. Net-new this ticket, so these
 // defaults ARE the baseline (no shipped constexpr to reproduce).
 struct PanicTuning {
@@ -793,7 +793,7 @@ struct EmergencyResponderView {
 };
 
 // Net-new knobs (defaults ARE the baseline), embedded in TrafficTuning for
-// the F1 Dev-Tweaks path.
+// the live-tuning path.
 struct EmergencyYieldTuning {
     float detect_range        = 42.f;  // m: responders beyond this are ignored
     float lateral_gate        = 10.f;  // m off the ego heading line: a responder
@@ -849,9 +849,9 @@ EmergencyYield emergency_yield_tick(EmergencyYield& latched, float& resume_s,
 float emergency_yield_stagger(glm::vec2 pos, const EmergencyYieldTuning& t);
 
 // Global, runtime-tunable traffic-AI knobs (PCG-005). Promoted from the
-// compile-time constexprs in traffic_drive.cpp so Phases B-D — and the F1
-// Dev-Tweaks panel — can iterate on AI behaviour without a recompile. One
-// instance is held by TrafficSystem and shared by every AI car (no per-car
+// compile-time constexprs in the drive loop so later phases — and a live
+// tuning panel — can iterate on AI behaviour without a recompile. One
+// instance is held by the traffic system and shared by every AI car (no per-car
 // overrides). The defaults below REPRODUCE the shipped constexpr values
 // exactly: changing a default here is a deliberate behaviour change, guarded by
 // the PCG-004 characterization tests, not a refactor. Structural constants
@@ -908,7 +908,7 @@ struct TrafficTuning {
 
     // Player reactivity (PCG-006). See PlayerHazardTuning above. New in this
     // ticket, so there is no "shipped constexpr" to reproduce — these defaults
-    // ARE the baseline. (The F1 Dev-Tweaks panel exposes player_hazard.*.)
+    // ARE the baseline. (The a live tuning panel exposes player_hazard.*.)
     PlayerHazardTuning player_hazard{};
 
     // On-foot person reactivity (PCG-134; cone NARROWED in the PCG-143 line).
@@ -944,11 +944,11 @@ struct TrafficTuning {
     RecoilTuning      recoil{};
 
     // Go-around / overtaking (PCG-008). See OvertakeTuning above. Also net-new,
-    // so these defaults ARE the baseline. (F1 Dev-Tweaks exposes overtake.*.)
+    // so these defaults ARE the baseline. (live tuning exposes overtake.*.)
     OvertakeTuning overtake{};
 
     // Startle & flee (PCG-007). See PanicTuning above. Net-new, so these
-    // defaults ARE the baseline. (F1 Dev-Tweaks exposes panic.*.)
+    // defaults ARE the baseline. (live tuning exposes panic.*.)
     PanicTuning panic{};
 
     // Police realism (PCG-011). See PoliceTuning in police_ai.h. Net-new, so

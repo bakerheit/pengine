@@ -34,7 +34,7 @@
 
 namespace apricot {
 
-// Live F1-panel tuning for the lightning/thunder feel. Defaults reproduce the
+// Live tuning for the lightning/thunder feel. Defaults reproduce the
 // shipped feel; the dev panel's "Reset lightning defaults" restores them.
 struct LightningTuning {
     // Strike FREQUENCY. Mean strikes-per-second at FULL storm intensity; the
