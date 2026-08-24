@@ -192,12 +192,12 @@ void Streamer::plan(glm::vec3 camera_pos, StepMode mode) {
     // Collected with a squared-distance key so the budget spends itself on the
     // chunks the player is about to reach, not on whichever corner of the
     // square the loop happened to visit first.
-    struct Candidate {
-        ChunkCoord coord;
-        int lod;
-        int dist_sq;
-    };
-    std::vector<Candidate> wanted;
+    //
+    // The vector is a member reused across steps. At load_radius 36 this sweep
+    // visits 5329 cells and can want thousands of them, and a local vector
+    // would allocate and free that every step forever.
+    std::vector<Candidate>& wanted = wanted_scratch_;
+    wanted.clear();
 
     for (int dz = -load_r; dz <= load_r; ++dz) {
         for (int dx = -load_r; dx <= load_r; ++dx) {

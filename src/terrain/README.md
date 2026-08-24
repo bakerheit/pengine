@@ -33,8 +33,8 @@ keeps two chunks at the *same* level closing exactly, as they did before LOD
 existed, and it is what makes the crack between two *different* levels a bounded
 quantity rather than an open-ended one.
 
-Settled at spawn, the shipping rings hold 4053 chunks in **79.6 MB**. The same
-4053 chunks at full detail would be 1.30 GB.
+Settled at spawn, the shipping rings hold 4053 chunks in **79.6 MB** — 49 / 268
+/ 940 / 2796 by level. The same 4053 chunks at full detail would be 1.30 GB.
 
 ## Skirts, and why not a stitched row
 
@@ -58,7 +58,14 @@ so its skirt came out short — but what it has to hide is a level 3 neighbour's
 fixed it, and let the safety factor drop from 3.0 to 1.5 while coverage
 improved. `tests/terrain_lod_tests.cpp` prints the margin left at every pairing
 rather than asserting a skirt exists; worst crack 1.803 m against a thinnest
-margin of 1.247 m.
+margin of 0.489 m.
+
+The probe chunks sit on the map's **carve** operators on purpose. They were
+originally a scatter of coordinates over the noise, and when `src/city/`'s
+terrain operators landed underneath them every one came out on a flattened
+district plate — every skirt on its 0.50 m floor, the suite passing while
+measuring nothing. A seam test on flat ground is a seam test that has stopped
+working, and it does not announce it.
 
 ## A level change is a refit
 
@@ -111,11 +118,13 @@ Roads, props and decals are placed on the *level 0* drawn surface. Where the
 ground under them is drawn coarser they are no longer the same surface, by a
 measured amount over 160k samples:
 
+Over Marrow's quarry, 60 m cut into a 120 m hill:
+
 | Level | Mean | Worst |
 |---|---|---|
-| 1 (2 m) | 0.025 m | 1.221 m |
-| 2 (4 m) | 0.092 m | 2.778 m |
-| 3 (8 m) | 0.258 m | 6.130 m |
+| 1 (2 m) | 0.002 m | 0.324 m |
+| 2 (4 m) | 0.010 m | 0.677 m |
+| 3 (8 m) | 0.036 m | 1.020 m |
 
 `mesh_height_at_lod()` exists to produce that table and **is not a ground
 query** — passing it a non-zero level and using the answer for contact

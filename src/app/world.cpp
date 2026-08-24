@@ -88,12 +88,15 @@ MeshData make_rock(uint8_t variant) {
 // draped on stop being the same surface. Measured on this terrain by
 // tests/terrain_lod_tests.cpp:
 //
-//     level 1 (2 m)  mean 0.025 m  worst 1.221 m
-//     level 2 (4 m)  mean 0.092 m  worst 2.778 m
-//     level 3 (8 m)  mean 0.258 m  worst 6.130 m
+// over Marrow's quarry, which is 60 m cut into a 120 m hill and the steepest
+// ground anybody can drape a road across:
+//
+//     level 1 (2 m)  mean 0.002 m  worst 0.324 m
+//     level 2 (4 m)  mean 0.010 m  worst 0.677 m
+//     level 3 (8 m)  mean 0.036 m  worst 1.020 m
 //
 // So this is the outer edge of the level 1 ring: 640 m, where a road is off its
-// ground by 2.5 cm typically. Beyond it a road visibly floats, and floating
+// ground by millimetres typically and a third of a metre at the very worst. Beyond it a road visibly floats, and floating
 // geometry is a worse artefact than a road that is not drawn — the same rule as
 // "collision derives from the geometry that draws", with a second consumer.
 //

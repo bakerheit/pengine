@@ -204,9 +204,40 @@ bool App::init() {
     }
 
     // --- the streamed world --------------------------------------------------
-    if (!world_.init(renderer_, seed_, StreamerConfig{})) {
+    //
+    // city::kMapSeed, THE SAME ONE THE COLLIDER GOT, and it must stay that way.
+    //
+    // The streamer meshes chunks from this seed and physics reconstructs the
+    // lattice from the collider's. Hand them different seeds and the engine's
+    // oldest rule — the solid the car touches IS the surface the player sees —
+    // is broken in the most confusing way available: everything renders, the
+    // car drives, and it drives on a landscape that is not the one on screen.
+    //
+    // This very nearly shipped. The map ticket changed the collider to
+    // city::kMapSeed while this ticket was writing the streamer against seed_,
+    // and the two merged cleanly because neither line mentions the other.
+    if (!world_.init(renderer_, city::kMapSeed, StreamerConfig{})) {
         AP_ERROR("world init failed; cannot continue");
         return false;
+    }
+
+    // So it is checked rather than commented. The drawn surface under the spawn
+    // point, reconstructed from the streamer's seed, against the ground physics
+    // will actually put the car on. These are the same function of the same
+    // seed, so the only tolerance that means anything is zero.
+    {
+        const float drawn = mesh_height_at(world_.streamer().seed(), 0.0f, 0.0f);
+        const float driven = collider_.height(0.0f, 0.0f);
+        if (drawn != driven) {
+            AP_ERROR("the world drawn is not the world driven: terrain seed "
+                     "0x%016llX gives %.4f m at the origin, collider seed "
+                     "0x%016llX gives %.4f m. Refusing to start.",
+                     static_cast<unsigned long long>(world_.streamer().seed()),
+                     static_cast<double>(drawn),
+                     static_cast<unsigned long long>(collider_.seed()),
+                     static_cast<double>(driven));
+            return false;
+        }
     }
 
     // --- roads ---------------------------------------------------------------

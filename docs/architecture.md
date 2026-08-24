@@ -495,16 +495,27 @@ steps so its skirt came out short, but what it has to hide is a level 3
 neighbour's 8 m chord. The *fine* side is the side that cracks. Measuring
 relief over the coarsest neighbour's cell width fixed it and let the factor drop
 from 3.0 to 1.5 while coverage improved. `tests/terrain_lod_tests.cpp` prints
-the margin left at every level pairing over real terrain rather than asserting
-a skirt merely exists — worst crack 1.803 m against a thinnest margin of
-1.247 m.
+the margin left at every level pairing rather than asserting a skirt merely
+exists — worst crack 1.704 m against a thinnest margin of 0.489 m.
+
+**Its probe chunks sit on the map's carve operators on purpose**, and that too
+was learned rather than designed. The probes were originally a scatter of
+coordinates over the noise; when `src/city/`'s terrain operators landed
+underneath them, every one came out on a flattened district plate, every skirt
+sat on its 0.50 m floor, and the suite went on passing while measuring nothing.
+A `Carve` is a near-vertical wall and is the only shape that can plausibly
+defeat a skirt, because an 8 m lattice can step across a feature a 1 m lattice
+resolves in full. **A seam test on flat ground is a seam test that has stopped
+working**, and it does not announce it.
 
 **Anything else draped on the terrain now has a range.** Road ribbons, props and
 decals are placed on the *level 0* drawn surface via `mesh_height_at()`. Where
 the ground under them is drawn coarser they are no longer the same surface, by a
-measured amount: mean 0.025 m and worst 1.221 m at level 1, mean 0.258 m and
-worst 6.130 m at level 3. That is the same "what you touch is what draws" rule
-with a second consumer, and the answer is a draw distance, not a tolerance.
+measured amount. Over Marrow's quarry — 60 m cut into a 120 m hill, the steepest
+ground on the map: mean 0.002 m and worst 0.324 m at level 1, mean 0.036 m and
+worst 1.020 m at level 3. That is the same "what you touch is what draws" rule
+with a second consumer, and the answer is a **draw distance, not a tolerance** —
+road ribbons stop at 640 m, the outer edge of the level 1 ring.
 
 **Collision never comes from a coarsened mesh.** `build_chunk_collision()`
 refuses a `lod > 0` mesh outright and says so, and it reads only the ground

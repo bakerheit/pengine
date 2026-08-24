@@ -391,6 +391,18 @@ private:
     // Reused across steps so eviction does not allocate on the frame it is
     // most likely to be expensive.
     std::vector<NodeId> doomed_scratch_;
+
+    // Same reasoning, applied to the plan. At the shipping load radius of 36
+    // the candidate sweep visits a 73x73 grid, and on a cold neighbourhood
+    // several thousand of those are wanted — so a local vector here is a
+    // multi-kilobyte allocation and free on every single step, on the hot path,
+    // in the one module whose file already says not to do that.
+    struct Candidate {
+        ChunkCoord coord;
+        int lod;
+        int dist_sq;
+    };
+    std::vector<Candidate> wanted_scratch_;
 };
 
 }  // namespace apricot

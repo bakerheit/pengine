@@ -30,6 +30,7 @@
 #include <cstdio>
 #include <vector>
 
+#include "city/map.h"
 #include "terrain/chunk.h"
 #include "terrain/heightmap.h"
 #include "test_assert.h"
@@ -38,13 +39,37 @@ using namespace apricot;
 
 namespace {
 
-constexpr uint64_t kSeed = 0xA5EED0FFC0FFEE11ull;
+// THE MAP SEED, not an arbitrary one. This is the world that ships, and after
+// PENG-41 the height field is a function of the authored terrain operators as
+// well as the noise — so a seam suite on some other seed is measuring a
+// landscape nobody will ever drive on.
+constexpr uint64_t kSeed = city::kMapSeed;
 
-// Chunks chosen to sit on real relief rather than on the flat home basin: the
-// island's mountain backbone is out toward the mask edge, and a seam test run
-// entirely on a lagoon proves nothing.
+// Chunks chosen to sit on the STEEPEST ground the map has, not on convenient
+// ground.
+//
+// This list was generic at first — a scatter of coordinates over the noise —
+// and when the map landed underneath it, every probe came out on a district
+// plate or a gentle slope. The suite still passed, with every skirt sitting on
+// its 0.50 m floor, which is the signature of a test that has stopped
+// testing anything: the cracks it measured were small because the terrain it
+// measured was flat.
+//
+// A Carve is a near-vertical wall and it is the case that can actually defeat a
+// skirt, because a level 3 lattice samples every 8 m and can step across a
+// feature the level 0 lattice resolves in full. So the probes now sit on them
+// deliberately. Coordinates are src/city/terrain_ops.h centres divided by
+// kChunkMetres.
 const ChunkCoord kProbeChunks[] = {
-    {0, 0}, {3, 2}, {-5, 4}, {8, -7}, {-11, -9}, {14, 3}, {-2, 17},
+    {-24, 21},   // Marrow's quarry pit: 60 m into the side of a 120 m hill,
+                 // 180 m radius. The steepest authored feature on the map.
+    {-23, 20},   // its rim, where the wall meets undisturbed ground
+    {-25, -10},  // the Ostend harbour basin, carved for ship draught
+    {13, -23},   // Ferrone Hill: a Bench, so a stack of terrace risers
+    {19, 11},    // the stadium berm in Nickel Heights, a Mound
+    {2, 33},     // Camber Point, near the channel that severs the peninsula
+    {0, 0},      // and the spawn point, which had better also work
+    {-11, -9}, {14, 3},  // two off-plate noise chunks, for the ordinary case
 };
 
 // Vertices of a chunk edge, in the mesh's own row-major order.
@@ -170,7 +195,7 @@ void neighbours_at_the_same_level_still_close_exactly() {
 
 void every_skirt_face_points_out_of_the_chunk() {
     for (int lod = 0; lod <= kMaxChunkLod; ++lod) {
-        const ChunkMesh m = build_chunk(kSeed, ChunkCoord{3, 2}, lod);
+        const ChunkMesh m = build_chunk(kSeed, kProbeChunks[0], lod);
 
         const std::size_t first = m.surface_index_count / 3u;
         const std::size_t total = m.indices.size() / 3u;
@@ -285,7 +310,7 @@ void the_skirt_covers_every_crack_at_a_level_boundary() {
 
 void collision_refuses_a_coarse_mesh() {
     for (int lod = 1; lod <= kMaxChunkLod; ++lod) {
-        const ChunkMesh m = build_chunk(kSeed, ChunkCoord{3, 2}, lod);
+        const ChunkMesh m = build_chunk(kSeed, kProbeChunks[0], lod);
         const ChunkCollision col = build_chunk_collision(m);
         REQUIRE_MSG(col.triangles.empty(),
                     "collision was derived from a coarsened mesh, which is the "
@@ -295,7 +320,7 @@ void collision_refuses_a_coarse_mesh() {
 }
 
 void collision_at_level_zero_holds_only_ground_triangles() {
-    const ChunkMesh m = build_chunk(kSeed, ChunkCoord{3, 2}, 0);
+    const ChunkMesh m = build_chunk(kSeed, kProbeChunks[0], 0);
     const ChunkCollision col = build_chunk_collision(m);
 
     const std::size_t ground_tris =
@@ -327,7 +352,7 @@ void the_level_costs_are_what_the_tiers_were_budgeted_against() {
                     "streamer.h was sized against these",
                     "lod cost");
 
-        const ChunkMesh m = build_chunk(kSeed, ChunkCoord{3, 2}, lod);
+        const ChunkMesh m = build_chunk(kSeed, kProbeChunks[0], lod);
         const std::size_t grid =
             static_cast<std::size_t>(want_verts[lod] * want_verts[lod]);
         const std::size_t skirt =
@@ -363,17 +388,34 @@ void the_drawn_surface_moves_by_this_much_per_level() {
     constexpr int kSamples = 400;
     const float span = kChunkMetres * 6.0f;
 
-    std::printf("    [drape] drawn-surface disagreement against level 0:\n");
+    // CENTRED ON THE QUARRY, NOT ON THE ORIGIN, and that is not a detail.
+    //
+    // Sampling a square around (0, 0) reports mean 0.000 m and worst 0.002 m,
+    // and every one of those digits is honest and useless: the origin sits on
+    // Vellum Row's flattened district plate, where a coarse lattice and a fine
+    // one obviously agree because there is nothing between the samples. A
+    // drape budget derived from flat ground would then be applied to a
+    // hillside.
+    //
+    // Marrow's quarry is 60 m cut into the side of a 120 m hill, which is the
+    // steepest thing anybody can drape a road across.
+    const glm::vec2 centre{-1480.0f, 1300.0f};
+
+    std::printf("    [drape] drawn-surface disagreement against level 0, "
+                "over the quarry at (%.0f, %.0f):\n",
+                static_cast<double>(centre.x), static_cast<double>(centre.y));
     for (int lod = 1; lod <= kMaxChunkLod; ++lod) {
         float worst = 0.0f;
         double total = 0.0;
         int n = 0;
         for (int j = 0; j < kSamples; ++j) {
             for (int i = 0; i < kSamples; ++i) {
-                const float x = -span * 0.5f + span * static_cast<float>(i) /
-                                                   static_cast<float>(kSamples);
-                const float z = -span * 0.5f + span * static_cast<float>(j) /
-                                                   static_cast<float>(kSamples);
+                const float x = centre.x - span * 0.5f +
+                                span * static_cast<float>(i) /
+                                    static_cast<float>(kSamples);
+                const float z = centre.y - span * 0.5f +
+                                span * static_cast<float>(j) /
+                                    static_cast<float>(kSamples);
                 const float d = std::fabs(mesh_height_at_lod(kSeed, x, z, lod) -
                                           mesh_height_at(kSeed, x, z));
                 worst = std::max(worst, d);
@@ -390,8 +432,8 @@ void the_drawn_surface_moves_by_this_much_per_level() {
     // coarse path and the level 0 path have stopped being the same function and
     // every number above is measuring the wrong thing.
     for (int k = 0; k < 500; ++k) {
-        const float x = static_cast<float>(k) * 1.7f - 400.0f;
-        const float z = static_cast<float>(k) * -2.3f + 250.0f;
+        const float x = centre.x + static_cast<float>(k) * 1.7f - 400.0f;
+        const float z = centre.y + static_cast<float>(k) * -2.3f + 250.0f;
         REQUIRE_MSG(mesh_height_at_lod(kSeed, x, z, 0) ==
                         mesh_height_at(kSeed, x, z),
                     "mesh_height_at_lod at level 0 is not mesh_height_at",

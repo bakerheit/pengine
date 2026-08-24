@@ -96,26 +96,35 @@ it drew, which is how the numbers below were produced rather than remembered:
 ```
 $ ./build/bin/apricot --frames 1500
 GL 4.1 core (Apple M5), window 2560x1440 drawable
-world: seed 0xA5EED0FFC0FFEE11, rings 4/10/20/36 chunks
+world: seed 0x00000000DEADBEEF, rings 4/10/20/36 chunks
        (256/640/1280/2304 m), scatter to level 1
-cold fill: 2 steps, 68.5 ms, 29 chunks, 8.9 MB of terrain
-quit after 681 sim steps (5.67 s of sim time), 1500 frames
-last frame: 3118 visible nodes, 8 batches (7 instanced), 1124 draw calls,
-            3118 instances, longest run 474, 2244 binds skipped
+cold fill: 2 steps, 71.1 ms, 29 chunks, 8.9 MB of terrain
+map 0x00000000DEADBEEF, run seed 0xA5EED0FFC0FFEE11,
+    car spawned at 12.56 m (ground 12.00 m)
+quit after 711 sim steps (5.92 s of sim time), 1500 frames
+last frame: 4672 visible nodes, 8 batches (7 instanced), 1070 draw calls,
+            4672 instances, longest run 896, 2136 binds skipped
 terrain: 4053 chunks resident (lod 49 / 268 / 940 / 2796), 4061 meshes,
          79.6 MB of vertex data
-costs: cull 0.457 ms (peak 1.014), meshing 0.05 ms (peak 4.53),
-       last fill 68.5 ms in 2 steps
-streaming spikes over 4.0 ms: 1 of 1500 frames
+costs: cull 0.547 ms (peak 1.651), meshing 0.06 ms (peak 12.50),
+       last fill 71.1 ms in 2 steps
+streaming spikes over 4.0 ms: 2 of 1500 frames
 GL error queue clean for the whole session
 ```
 
+1500 frames in 6.28 s wall is **4.2 ms a frame** at 2560×1440 with vsync off.
+
 The 79.6 MB is the point of the LOD rings: those same 4053 chunks at full detail
-would be 1.30 GB. One run of 474 instances collapsing into a single draw is the
+would be 1.30 GB. One run of 896 instances collapsing into a single draw is the
 batching working on the scattered props; press `F7` (or pass `--no-instancing`)
-to watch that collapse to one draw per node. The terrain chunks each carry a
-unique mesh and so are one draw each by construction — that is what most of the
-1124 is.
+to watch that collapse to one draw per node — 4672 draws instead of 1070, and
+the frame time roughly doubles. Terrain chunks each carry a unique mesh and so
+are one draw each by construction, which is most of that 1070.
+
+The two spikes are both on the first budgeted frame after a fill and are the
+process committing pages as it grows from 8.9 MB toward 80 MB; removing the
+streamer's per-step allocation did not move them, so that attribution is a
+best explanation rather than an isolated cause. Steady-state meshing is 0.06 ms.
 
 `--warp-every N` teleports across the island on a timer, which is how the
 fill-before-resume path gets exercised without a human remembering to press

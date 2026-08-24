@@ -45,10 +45,11 @@ public:
     // ribbons are draped onto the LEVEL 0 drawn surface via mesh_height_at();
     // past the level 0/1 rings the terrain under them is drawn coarser and the
     // two stop being the same surface. Measured on this terrain
-    // (tests/terrain_lod_tests.cpp): level 1 disagrees with level 0 by 0.025 m
-    // on average and 1.22 m at worst, level 3 by 0.258 m and 6.13 m. So a road
-    // drawn out at the level 3 ring floats or sinks by metres. The caller
-    // passes the ring radius it is willing to stand behind.
+    // (tests/terrain_lod_tests.cpp, over the steepest carve on the map): level
+    // 1 disagrees with level 0 by 0.002 m on average and 0.324 m at worst,
+    // level 3 by 0.036 m and 1.020 m. So a road drawn out at the level 3 ring
+    // floats or sinks by up to a metre. The caller passes the ring radius it is
+    // willing to stand behind.
     void attach(Scene& scene, float draw_distance);
 
     // Remove the nodes. Does not free the meshes; call release() for that.
