@@ -5,13 +5,16 @@ A **C++17 / OpenGL 3.3** game engine, and the pilot game being built on it.
 **The pilot game is Pinatty** — a GTA-style open-world crime game, a rebuild of
 `probablecause`. The map design is [`docs/design/pinatty.md`](docs/design/pinatty.md).
 
-**Its MAP is written and nothing else is.** `src/city/` (PENG-41) holds the ten
-district polygons with their character parameters, the landmark table, and the
-five terrain operators that `height_at()` evaluates — all `constexpr` C++, not
-a data file, and the argument for that is in `src/city/map.h`. Roads, spines,
-traffic, police, missions and buildings do not exist. Do not describe any of
-*those* as working, and do not treat the design document as a description of
-the tree beyond the map.
+**Its MAP AND ITS ROADS are written; the rest is not.** `src/city/` holds the
+ten district polygons with their character parameters, the landmark table, the
+terrain operators that `height_at()` evaluates (PENG-41) and the road network —
+92 spines, 52.8 km of centreline, in `roads.h` — all `constexpr` C++, not a data
+file, and the argument for that is in `src/city/map.h`. `map_spines()` feeds
+`RoadGraph` → the ribbon bake → six uploaded layers, and the app draws them.
+Traffic, police, missions and buildings do not exist: the decision layers in
+`src/city/` (traffic_ai, police_ai, pedestrians) are a library nothing calls
+yet. Do not describe any of *those* as working, and do not treat the design
+document as a description of the tree beyond the map and the roads.
 
 There used to be a sample game, Apricot Rally — a time trial with a checkpoint
 route, lap timing and a ghost car. It was a placeholder and it was deleted in

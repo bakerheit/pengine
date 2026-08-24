@@ -13,10 +13,14 @@ you meant to write is worse than no doc.
 
 **The game on top is Pinatty**, a GTA-style open-world crime game rebuilding
 `probablecause`. Its design is [`docs/design/pinatty.md`](design/pinatty.md).
-**Its MAP is implemented and nothing else is**: `src/city/` holds the ten
-district polygons, their character parameters, the landmark table and the five
-terrain operators that `height_at()` evaluates (PENG-41). Roads, traffic,
-police, missions and buildings are still design only.
+**Its MAP and its ROADS are implemented; the rest is not.** `src/city/` holds
+the ten district polygons, their character parameters, the landmark table, the
+terrain operators that `height_at()` evaluates (PENG-41), and the authored road
+network. The roads and the terrain operators that shape the ground under them
+are ONE table: every `Grade` corridor is derived from `kRoads`, because a spine
+list and a hand-written corridor are two descriptions of one road and the only
+thing two descriptions of one thing ever do is disagree. Traffic, police,
+missions and buildings are still design only.
 Apricot Rally, the time trial that used to be the sample, was deleted in
 PENG-23; every rule below that used to be stated in terms of laps, gates or
 ghosts is now stated in terms of the engine, which is where it always belonged.

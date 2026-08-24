@@ -81,7 +81,10 @@ The chain runs all the way down. The ribbon drapes on `mesh_height_at()` — the
 **drawn** terrain triangle — and not on `height_at()`, the continuous field
 underneath it. Those differ by centimetres on a grade, and that is enough for a
 car to sink into a hill it is visibly resting on. Measured across 676
-carriageway vertices over real terrain, the drape error is `0.000000000 m`.
+carriageway vertices over real terrain, the drape error is `0.000000000 m`; the
+same check over all 65,514 draped vertices of the shipped map, in
+`tests/city_roads_tests.cpp`, holds to a millimetre and fails if one vertex
+does not.
 
 Kerb risers are excluded from collision **by layer, not by testing a normal**.
 They are vertical faces; nothing rests on them, and letting one into a set whose
@@ -182,17 +185,33 @@ persist one; persist `Lane::key`.
   deciding *which* movements conflict needs vehicle extents and reaction times,
   which is the traffic system's problem, not the geometry's.
 - **Terrain operators.** `RoadStructure::Cut` and `Fill` are carried through and
-  currently drape like `Ground`. Carving the corridor belongs to the map module;
-  when it lands, the drape lands on the carved ground for free. The ribbon must
-  never grow its own copy of the terrain.
+  drape like `Ground`. Carving the corridor belongs to the map module, and it
+  has landed: `src/city/roads.h` derives a `Grade` corridor from every road that
+  needs one, so the drape now lands on carved ground and this module did not
+  change a line to get it. The ribbon must never grow its own copy of the
+  terrain.
 - **Lane markings.** The carriageway is one material; painted lines are a
   texture question for the host layer.
 
 ## Where the spines come from
 
-Nowhere yet. `RoadGraph::build()` takes `std::vector<RoadSpine>` as a
-**parameter**, and the authored tables are `src/city/`'s job. Wiring is one
-call. `tests/road_fixture.h` holds a hand-made spine set containing one of each
-thing the graph has to notice — an unauthored crossing, two T junctions, a
-class change at a shared endpoint, a shape point that is not a node, and a
-bridge that must not drape.
+`city::map_spines()` — `src/city/roads.h` and `src/city/spines.cpp`. It is
+still a **parameter** to `RoadGraph::build()` and it must stay one: nothing in
+this module knows Pinatty exists, and that is what lets `tests/road_*.cpp` build
+the graph out of a fixture instead of out of a city.
+
+Measured on the real network, in `tests/city_roads_tests.cpp`:
+
+| | |
+|---|---|
+| spines in | 92 |
+| nodes / edges / junctions | 227 / 334 / 149 |
+| carriageway centreline | 52.8 km |
+| bake | 129,484 triangles, 168 plates, 544 crosswalks, 7.86 MB uploaded |
+
+`tests/road_fixture.h` is still a hand-made spine set and still should be. It
+contains one of each thing the graph has to notice — an unauthored crossing,
+two T junctions, a class change at a shared endpoint, a shape point that is not
+a node, and a bridge that must not drape — and the real map contains all of
+those buried in ninety-odd roads, which is a worse place to debug a weld
+tolerance from.

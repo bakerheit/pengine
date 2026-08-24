@@ -58,10 +58,6 @@ public:
     // remembers to press the key, which is to say the path that ships broken.
     void set_warp_interval(int frames) { warp_interval_ = frames; }
 
-    // Bake and draw a probe road network at the origin. Instrumentation, so the
-    // bake-upload-draw chain is exercised while the real spine tables (PENG-41)
-    // do not exist. See probe_spines() in app.cpp.
-
 private:
     void poll_events();
     void render();

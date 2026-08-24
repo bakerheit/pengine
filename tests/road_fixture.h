@@ -6,12 +6,16 @@
 
 // A hand-made spine set, standing in for the map tables.
 //
-// WHY IT IS HAND-MADE. The authored spines live in `src/city/` and that module
-// is being built in parallel (PENG-41); the road module takes spines as a
-// parameter precisely so it does not have to wait. Everything downstream of
-// the spines in these suites is the REAL producer — the real RoadGraph, the
-// real ribbon bake, the real lane graph, the real terrain — so the only
-// hand-built thing in the chain is the one input that does not exist yet.
+// WHY IT IS STILL HAND-MADE, now that `city::map_spines()` exists. The road
+// module takes spines as a parameter precisely so it never has to know a city
+// is there, and these suites test the GRAPH, not Pinatty. The layout below
+// contains one of each thing the graph has to notice, in eight roads you can
+// hold in your head; the real map contains all of them too, buried in ninety,
+// which is a far worse place to debug a weld tolerance from.
+//
+// The real network is exercised end to end in `tests/city_roads_tests.cpp`.
+// Everything downstream of the spines in BOTH suites is the REAL producer — the
+// real RoadGraph, the real ribbon bake, the real lane graph, the real terrain.
 //
 // The layout is chosen to contain one of each thing the graph has to notice:
 //
