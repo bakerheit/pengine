@@ -11,4 +11,6 @@
 target_sources(apricot_sim PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/police_ai.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/traffic_ai.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/weather.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/lightning.cpp
 )

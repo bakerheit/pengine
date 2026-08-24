@@ -35,6 +35,25 @@ inline constexpr uint32_t kChannelDriverProfile = 0x1000u;
 inline constexpr uint32_t kChannelPedNerve      = 0x1100u;
 inline constexpr uint32_t kChannelPedPreferred  = 0x1200u;
 inline constexpr uint32_t kChannelPedSpace      = 0x1300u;
+inline constexpr uint32_t kChannelWeather       = 0x1400u;
+inline constexpr uint32_t kChannelLightning     = 0x1500u;
+
+// THE ONE PLACE A STREAM IS STILL RIGHT, and the carve-out it lives under.
+//
+// core/rng.h permits Rng for "genuinely order-local work". The weather and
+// lightning schedulers are that: one instance, one consumer, advanced by one
+// update() per sim step. There is no approach order to lose, so a stream is not
+// only safe, it is the honest shape — "what is the weather doing next" genuinely
+// depends on what it did last.
+//
+// What they may NOT do is carry their own generator. probablecause gave each of
+// them a hand-rolled xorshift32, which meant two more algorithms in a library
+// whose entire determinism story rests on there being one. Both now take an
+// apricot Rng, seeded through hash_coord() off the run seed, on separate
+// channels so a change to one does not reshuffle the other.
+constexpr Rng city_system_rng(uint64_t seed, uint32_t channel) {
+    return rng_at(seed, 0, 0, channel);
+}
 
 // Entropy for one entity that lives at a world cell — a car about to be given
 // a driver, a pedestrian about to be given a nerve. `cell_x` / `cell_z` are the
