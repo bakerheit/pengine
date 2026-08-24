@@ -63,8 +63,16 @@ private:
     FixedStep clock_;
     Camera camera_;
 
-    // The run seed. Fixed for now so every launch is the same world, which is
-    // what you want while the renderer is being built.
+    // The RUN seed: session identity, not world identity.
+    //
+    // Since PENG-41 those are two different things. The terrain, and therefore
+    // Pinatty itself, is keyed on city::kMapSeed, which is pinned in the map
+    // tables — the city is an authored place and does not reroll. This seed
+    // carries what is ALLOWED to differ between sessions: weather, ambient
+    // variation, mission shuffles, and today the placeholder box field.
+    //
+    // Fixed for now so every launch is the same session, which is what you
+    // want while the renderer is being built.
     // TODO(session ticket): take it from the command line / save file. It must
     // never come from the clock — see core/rng.h.
     uint64_t seed_ = 0xA5EED0FFC0FFEE11ull;

@@ -5,9 +5,9 @@ add_subdirectory(core)
 add_subdirectory(scene)
 add_subdirectory(terrain)
 add_subdirectory(road)
+add_subdirectory(city)     # Pinatty: map tables + terrain ops, and the AI decision layers
 add_subdirectory(physics)
 add_subdirectory(game)
-add_subdirectory(city)      # Pinatty's decision layers (PENG-29)
 add_subdirectory(audio)     # split: synth -> sim, device -> host
 
 # Host-side modules (hardware lives here and only here):

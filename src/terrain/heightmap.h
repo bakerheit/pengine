@@ -11,8 +11,20 @@ namespace apricot {
 //
 // The contract that everything else depends on: height_at() is PURE. Same
 // (seed, x, z) gives the same metre value on every machine, every run, in any
-// order. Chunks are therefore regenerable rather than storable, a save file is
-// a seed, and physics can query the ground at a position no chunk has meshed.
+// order. Chunks are therefore regenerable rather than storable, and physics can
+// query the ground at a position no chunk has meshed.
+//
+// THE WORLD IS NOW A FUNCTION OF (MAP, SEED, COORD), NOT (SEED, COORD). The
+// field below is noise plus a radial falloff plus the AUTHORED terrain
+// operators in src/city/terrain_ops.h, which is what puts a flat downtown, a
+// harbour deep enough for a ship and a channel with a bridge over it where the
+// map says they are instead of where the noise felt like putting them. The map
+// is compiled constexpr data, so it is part of the binary and nothing about it
+// is loaded, parsed or serialised: a save file is a seed plus the build.
+//
+// The operators are pure by the same rules, and the dependency runs one way.
+// terrain includes city; city must never include terrain, or evaluating an
+// operator can reach back into the field it is modifying.
 //
 // Consequences, which are not negotiable:
 //   * No caching inside these functions. A cache with a stale entry turns a
@@ -41,11 +53,17 @@ namespace apricot {
 
 // Horizontal wavelength of the base hill octave, in metres. Larger = broader,
 // smoother landforms.
-inline constexpr float kFeatureMetres = 96.0f;
+//
+// 96 m hills are the right size to rally over and the wrong size to lay a
+// street on: a block is 92 x 62 m, so at 96 m every downtown block sat on its
+// own hill. Broader landforms give the long, drivable grades a city needs.
+inline constexpr float kFeatureMetres = 240.0f;
 
 // Peak-to-trough amplitude of the field, in metres. The full span from the
-// deepest sea floor to the highest ridge.
-inline constexpr float kHeightMetres = 150.0f;
+// deepest sea floor to the highest ridge. Buys a ~125 m summit on Ferrone Hill
+// while the shore band stays the same FRACTION of the range, so beaches do not
+// get wider when the mountain gets taller.
+inline constexpr float kHeightMetres = 190.0f;
 
 // Where sea level sits inside the normalised [0, 1] shape, before the span
 // above is applied. Everything below this is underwater; the fraction is
@@ -61,26 +79,47 @@ inline constexpr float kShoreLevel = 0.22f;
 // measured range of about [0.37, 0.86], so any threshold placed on it never
 // resolves and the mountains never switch on. Much shorter and the island
 // grows six separate highland lumps instead of a backbone.
-inline constexpr float kContinentMetres = 900.0f;
+//
+// Pinatty's island is 5.5 km across, so a third of that diameter is ~1850 m.
+// Leaving this at 900 against an island that size is the exact failure the
+// paragraph above warns about from the other direction: six separate highland
+// lumps instead of one backbone, and no massif to put Ferrone Hill on.
+inline constexpr float kContinentMetres = 1850.0f;
 
 // Wavelength of the ridged term that carves the mountain spines. Steepness is
 // amplitude over horizontal run, so this constant is the main lever on how
 // severe the faces are — shortening it makes the range more alpine.
-inline constexpr float kRidgeMetres = 260.0f;
+//
+// Longer run, gentler faces, one massif instead of an alpine range. At 260 m
+// against this island the measured 99th-percentile slope was over 50 degrees
+// and only 9% of the land was under 5 degrees; you cannot lay a city on that.
+inline constexpr float kRidgeMetres = 420.0f;
 
 // Distance from the origin, in metres, at which the island has fully given way
 // to open water. The playable area is bounded by SEA, not by an invisible
 // wall: drive far enough and you are simply swimming.
-inline constexpr float kIslandRadiusMetres = 1400.0f;
+//
+// 2750 m of radius is the ~16 km2 of land the pilot game asks for, inside a
+// 6144 m world box. Everything else in this table follows from this one
+// number: it is the island, and the rest is what keeps the island in scale.
+inline constexpr float kIslandRadiusMetres = 2750.0f;
 
 // Fraction of kIslandRadiusMetres at which the land starts falling away. Below
 // this the mask is a flat 1 and the terrain is whatever the noise says.
-inline constexpr float kShoreFalloffStart = 0.45f;
+//
+// More of the disc at full strength. This is the constant that turns a 39%
+// land fill into a 46% one, which is most of the difference between "an
+// island with a city on it" and "a city that keeps running out of island".
+inline constexpr float kShoreFalloffStart = 0.78f;
 
 // How far the coastline is allowed to wander in or out from a perfect circle,
 // in metres. Without this the island is a poker chip and every player notices
 // within ten seconds.
-inline constexpr float kCoastWarpMetres = 260.0f;
+//
+// At Pinatty's scale the coastline has to wander by HUNDREDS of metres, not
+// tens, or the harbour, the channel and the bay all have to be carved by hand
+// and the island between them is a poker chip with three bites out of it.
+inline constexpr float kCoastWarpMetres = 560.0f;
 
 // The island's base platform, in normalised shape units, applied before the
 // radial mask.
@@ -96,17 +135,30 @@ inline constexpr float kCoastWarpMetres = 260.0f;
 // Above, and the island becomes a solid disc with no inland water at all;
 // below by this much, and the flattest ground inside the mask comes out as a
 // shallow lagoon a metre or so deep while everything else is comfortably dry.
-inline constexpr float kIslandPlatform = 0.21f;
-
-// Radius, in metres, of the guaranteed-dry area around the world origin.
 //
-// The land shape is free to put a bay anywhere, which is most of what makes
-// the coastline interesting — but the origin is where the car spawns, and a
-// seed that drops the player into a lagoon is a broken game rather than an
-// interesting variation. Inside this radius the shape is lifted toward dry
-// land, weighted so that low ground is raised a lot and ground that is already
-// high is barely touched.
-inline constexpr float kHomeRadiusMetres = 380.0f;
+// THAT IS NOW REVERSED. It sits just ABOVE kShoreLevel now, because the
+// rally island's shallow inland lagoons were charming; in a city
+// they are potholes the size of a city block, and the districts are placed by
+// hand on ground that has to still be there.
+inline constexpr float kIslandPlatform = 0.235f;
+
+// THERE IS NO SPAWN-LIFT DOME, and its absence is load-bearing.
+//
+// kHomeRadiusMetres used to lift a 380 m dome of terrain at the world origin
+// so that a random seed could not drop the car into a lagoon. It was the right
+// answer for a rally island generated fresh per seed. It is the wrong answer
+// here for a specific reason: PINATTY'S ORIGIN IS DOWNTOWN. That dome would
+// not have been a safety net, it would have BEEN the terrain under the
+// financial district -- a 42%-of-headroom bulge in the middle of Vellum Row
+// that nobody authored and no district polygon knows about.
+//
+// An authored map does not need a spawn guarantee, because the spawn is
+// authored. The flat ground downtown now comes from a terrain operator in
+// src/city/terrain_ops.h, which puts it there ON PURPOSE, at a stated height,
+// with a feathered edge, in a table you can read.
+//
+// Deleting it moved every golden value in tests/terrain_determinism_tests.cpp,
+// and that is the cost being paid on purpose rather than discovered later.
 
 // Peak-to-trough relief of the sea floor, in metres, applied only where the
 // island mask has faded out. Stops the ocean bed being a suspiciously exact
@@ -134,7 +186,11 @@ inline constexpr float kSeaLevelMetres = 0.0f;
 // mountain spines, gated so the spines only bite where the continental term is
 // already high — a ridge that erupts out of a bay reads as a bug even to
 // someone who could not tell you why. The whole thing is then multiplied by a
-// radial falloff, which is what makes it an ISLAND and not an infinite plain.
+// radial falloff, which is what makes it an ISLAND and not an infinite plain,
+// mapped into metres, and finally passed through the authored terrain
+// operators. The operators go LAST, on metres, and the order matters: see the
+// note in heightmap.cpp, which explains why the design document's ordering
+// would have tilted every waterfront flat in the map.
 float height_at(uint64_t seed, float x, float z);
 
 // Surface normal at a world XZ position, by central difference on height_at().

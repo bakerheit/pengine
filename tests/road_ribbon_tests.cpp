@@ -247,6 +247,10 @@ void test_bake_is_deterministic() {
     pass("two bakes of one graph are bit-identical");
 }
 
+// Ferrone Hill, from docs/design/pinatty.md: the island's vertical district.
+constexpr float kHillShiftX = 1150.0f;
+constexpr float kHillShiftZ = -900.0f;
+
 void test_normals_follow_a_grade() {
     // On flat ground every normal is straight up; over real terrain they must
     // not be, or the road lights like a decal pasted on the hill.
@@ -254,8 +258,28 @@ void test_normals_follow_a_grade() {
     for (const TerrainVertex& v : flat.bake.layer(RoadLayer::Carriageway).vertices)
         REQUIRE_NEAR(v.normal.y, 1.0f, 1e-5f);
 
-    TerrainGround tg{0xDEADBEEFull};
-    const Baked hilly = bake_fixture(tg.sampler());
+    // Sampled through a shift onto sloping ground, and that shift is the whole
+    // point of this paragraph. The fixture sits at the origin, and since PENG-41
+    // the origin is Vellum Row — an authored FLAT plate, 99.8% under 5 degrees.
+    // A road draped there is legitimately dead level, so this control measured
+    // nothing and failed. Ferrone Hill is 45.6% flat over a 131 m range, so a
+    // road across it has to grade or the drape is broken.
+    //
+    // Four other suites hit this same trap when the map landed. An authored
+    // plate is flat and seed-independent BY DESIGN, which makes it the one place
+    // a terrain-sensitivity control cannot be run.
+    struct HillGround {
+        uint64_t seed = 0;
+        // mesh_height_at, not height_at: the drawn triangle is what a road must
+        // drape onto, same rule the baker follows.
+        static float sample(const void* ctx, float x, float z) {
+            const auto* self = static_cast<const HillGround*>(ctx);
+            return mesh_height_at(self->seed, x + kHillShiftX, z + kHillShiftZ);
+        }
+        GroundSampler sampler() const { return GroundSampler{&sample, this}; }
+    };
+    const HillGround hill{0xDEADBEEFull};
+    const Baked hilly = bake_fixture(hill.sampler());
     float most_tilted = 1.0f;
     for (const TerrainVertex& v : hilly.bake.layer(RoadLayer::Carriageway).vertices)
         most_tilted = std::min(most_tilted, v.normal.y);

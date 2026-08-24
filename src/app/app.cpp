@@ -10,6 +10,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "app/overlay.h"
+#include "city/map.h"
 #include "core/log.h"
 #include "gfx/gl_state.h"
 #include "gfx/sky_env.h"
@@ -86,7 +87,15 @@ bool App::init() {
     // bind cache believes is true any more.
     gl_state::invalidate_all();
 
-    collider_ = TerrainCollider(seed_);
+    // THE WORLD IS KEYED ON THE MAP SEED, NOT THE RUN SEED (PENG-41).
+    //
+    // docs/architecture.md's amendment made concrete: the world is a pure
+    // function of (map, seed, coord). city::kMapSeed is pinned in the map
+    // tables and selects the noise detail under the authored skeleton, so
+    // Pinatty is the same place in every session. seed_ below is the SESSION
+    // -- weather, ambient variation, the placeholder box field -- and it is
+    // the one that will eventually come from a save file.
+    collider_ = TerrainCollider(city::kMapSeed);
 
     // spawn_vehicle settles the car on its springs and aligns it to the slope
     // it is standing on. Assigning a position by hand instead drops it in with
@@ -131,7 +140,9 @@ bool App::init() {
     controls_.overcast = 0.30f;
     controls_.fog = 0.55f;
 
-    AP_INFO("seed 0x%016llX, car spawned at %.2f m (ground %.2f m)",
+    AP_INFO("map 0x%016llX, run seed 0x%016llX, car spawned at %.2f m "
+            "(ground %.2f m)",
+            static_cast<unsigned long long>(city::kMapSeed),
             static_cast<unsigned long long>(seed_),
             static_cast<double>(car_.position.y),
             static_cast<double>(collider_.height(0.0f, 0.0f)));

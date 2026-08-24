@@ -47,6 +47,16 @@ apricot_add_suite(math_tests)
 apricot_add_suite(input_latch_tests)
 apricot_add_suite(rng_distribution_tests)
 apricot_add_suite(terrain_determinism_tests)
+
+# city (PENG-41). Pinatty's map: district polygons, character parameters,
+# landmarks and the terrain operators height_at() evaluates. The structural
+# invariants are static_asserts in src/city/ -- that is the point of the map
+# being compiled data -- so this suite pins the things a compiler cannot see:
+# that the bucket index changes no answer, that the operators are pure, and
+# that the districts are measurably different places on the ground. It PRINTS
+# its measurements, because a map that passes every assertion can still be
+# boring and only the numbers will tell you.
+apricot_add_suite(city_map_tests)
 apricot_add_suite(terrain_mesh_tests)
 apricot_add_suite(scene_cull_tests)
 apricot_add_suite(streamer_tests)

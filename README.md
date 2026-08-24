@@ -11,8 +11,11 @@ keeps what those paid for and deliberately changes three things; see
 `probablecause` in an authored 16 km² island city. The map design is
 [`docs/design/pinatty.md`](docs/design/pinatty.md).
 
-> **Pinatty is design only. There is no code under `src/` for any of it.** Do
-> not read that document as a description of this tree. There was previously a
+> **Pinatty has started. `src/city/` is real: the map itself — ten district
+> polygons with their character parameters, thirty landmarks, and the terrain
+> operators the height field evaluates (PENG-41).** Everything that hangs off
+> the map — roads, traffic, police, missions, buildings — is still design only,
+> so keep reading that document as a plan for those. There was previously a
 > placeholder sample game, Apricot Rally, a time trial with checkpoints and lap
 > timing; it was deleted in PENG-23 because it was scaffolding that read as
 > design.
@@ -166,6 +169,13 @@ src/
                  emits PLAIN vertex arrays and owns no GPU resource, and the
                  lane graph traffic and police drive on.    -> apricot_sim
                  (see src/road/README.md)
+                 meshing, and the residency streamer. height_at() evaluates
+                 city/'s terrain operators as its last step.
+                                                            -> apricot_sim
+  city/          PINATTY'S MAP, as constexpr C++ tables: district polygons and
+                 character parameters, landmarks, and the five terrain
+                 operators (Flatten, Bench, Carve, Mound, Grade). Not a data
+                 file, on purpose — see src/city/map.h.     -> apricot_sim
   physics/       terrain collision and vehicle dynamics. Every step function
                  is pure in (state, input, collider, dt).   -> apricot_sim
   game/          the pilot game's sim-side rules. Currently ONE file:

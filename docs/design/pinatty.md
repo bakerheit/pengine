@@ -18,7 +18,17 @@ Everything below that carries a number is either measured — with the command
 that measured it — or explicitly flagged as an estimate. Where something is not
 knowable without building it, it says so instead of guessing.
 
-**Status: design only.** No code under `src/` exists for any of this yet.
+**Status: the MAP is built; everything downstream of it is still design.**
+PENG-41 landed `src/city/` — the district table, the landmarks and the five
+terrain operators — and retuned `height_at()` around them. Sections 1, 2, 4 and
+5 are now describing code; sections 3, 6 and 7 are still describing a plan.
+
+Where a number below disagrees with the code, the code is right and this
+document was written from outside it. The measured figures live in
+`tests/city_map_tests.cpp`, which prints them on every run. Three things in
+here turned out to be wrong when they were implemented, and each is corrected
+in place below: §1.3's operator ordering, §5.2's file layout, and §5.3's use of
+`Surface::Asphalt`.
 
 ---
 
@@ -115,6 +125,15 @@ land slope <5deg   73.1%   <10deg 87.7%   >25deg 3.2%
 | `kSpineStart` / `kSpineFull` | 0.35 / 0.72 | **0.55 / 0.85** | Gates the mountain harder, so it is genuinely absent from 90% of the map |
 | `kHomeRadiusMetres` | 380 | **delete it** | See below |
 
+> **SHIPPED, with one number changed (PENG-41).** Every row above landed as
+> written except `kShoreFalloffStart`, which is **0.78**, not 0.66. The reason
+> is the caveat in §10 come true: those figures were measured with no operators
+> and with the spawn dome still in place. With the operators in, the Kessel
+> Channel, the harbour basin and the Camber channel take about 1.5 km² of land
+> back out, and 0.66 landed 13.8 km² rather than 16. 0.78 pays for the carves
+> and measures 15.95 km² with 372 m of open water still inside the box on every
+> side.
+
 **`kHomeRadiusMetres` must go.** It lifts a 380 m dome of terrain at the world
 origin so a random seed cannot drop the car in a lagoon. Pinatty's origin is
 downtown, so that dome would not be a safety net — it would *be* the terrain
@@ -145,6 +164,23 @@ before the metre mapping.
 ```
 h = map_to_metres( apply_ops( noise_shape(x, z), x, z ) )
 ```
+
+> **CORRECTION, from building it (PENG-41).** That ordering is wrong and the
+> implementation does the opposite:
+>
+> ```
+> h = apply_ops( map_to_metres( noise_shape(x, z) ), x, z )
+> ```
+>
+> Two reasons, and the second decides it. Targets in normalised shape units are
+> unauthorable — a designer says "the dock apron is at 4.5 m", not "at 0.244 of
+> the island's vertical span" — and a `Carve` could not reach a stated depth
+> below sea level at all. But the real problem is that the island mask
+> MULTIPLIES the shape: an operator applied before the mask gets scaled down by
+> it and tilted by its gradient. Every flattened area in this map is near the
+> coast — the dock apron, the Strand promenade, the Camber airfield, the
+> causeway — so a flatten inside the mask comes out neither flat nor at the
+> height it was asked for, precisely where it matters most.
 
 Five kinds, and only five:
 
@@ -496,6 +532,27 @@ short enough that ninety of them fit on two screens.
 Terrain ops are the same shape — a polygon or a swept corridor, a kind, a target
 height, a feather distance.
 
+> **CORRECTION, from building it (PENG-41).** There is no polygon shape. A
+> feathered polygon edge needs a distance to the boundary, which is a loop over
+> edges with a `sqrt` in it, inside the innermost terrain loop. An axis-aligned
+> rectangle, a circle and a swept corridor covered every operator the map
+> actually needed — a two-point corridor IS an oriented rectangle — and the set
+> contains no trigonometry at all, which matters twice: `std::cos` and
+> `std::sin` carry no correct-rounding requirement, exactly like the
+> `std::pow` `heightmap.cpp` already refuses to call.
+>
+> Two other corrections to §5. The tables are HEADERS, not `.cpp` files:
+> `inline constexpr` data in a `.cpp` is invisible to every other translation
+> unit, so `height_at()` could not reach it and no `static_assert` outside that
+> file could check it — which is most of the argument for compiled data.
+> And §5.3's `.ground` block names `Surface::Asphalt` and `Surface::Concrete`,
+> which do not exist: `terrain::Surface` has four members, is append-only by
+> contract, and every one of them is wired to a tyre grip figure in
+> `physics/surface.h`. §9.3 flags adding members as a separate physics
+> conversation, so the district table carries a city-side `PavingKit` instead,
+> which is authored intent with no physics meaning until that conversation
+> happens.
+
 ---
 
 ## 6. What generation derives
@@ -751,11 +808,16 @@ contain.
 Things I could not settle from reading, and would rather leave written down than
 invent an answer to.
 
-1. **Which seed.** `0xDEADBEEF` measures best on the retuned constants (73% of
-   land under 5°, a clean NE massif, a broad western plain), but that is against
-   *candidate* constants measured on a scratch copy. The seed must be re-chosen
-   by measurement once the terrain ticket lands, and then pinned like a golden
-   value. Treat the candidate as a starting point, not a decision.
+1. **Which seed.** ~~`0xDEADBEEF` measures best...~~ **SETTLED (PENG-41), and
+   it re-measured as the right answer rather than being inherited.** Nineteen
+   candidates were measured over the 6144 m box at 12 m sampling, after the
+   retune and after the spawn dome was deleted. `0xDEADBEEF` has the most
+   buildable land (75.6% of it under 5°, against 31.7% for the worst of the
+   nineteen), puts its high ground in the north-east where Ferrone Hill wants
+   it (mean land height NE 25.9 m against NW 12.1 m), and leaves the west and
+   centre a broad low plain. It is pinned as `city::kMapSeed`, and moving it
+   now does not reroll the world — it moves the ground out from under ten
+   hand-placed district polygons and leaves the airfield in the sea.
 2. **Interiors.** Nothing above says whether buildings are enterable. If any are,
    lot generation has to reserve door positions on the street frontage, which is
    a constraint on step 5 that is much cheaper to add now than later.

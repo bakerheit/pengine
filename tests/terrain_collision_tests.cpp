@@ -160,12 +160,20 @@ void collider_normal_is_the_drawn_face() {
 
 // If the meshed surface and the smooth field agreed everywhere, the whole
 // triangulation exercise above would be testing nothing at all.
+//
+// THE SAMPLE LINE MOVED OFF THE ORIGIN IN PENG-41. It used to run through what
+// is now the middle of the financial district, and a Flatten operator at full
+// weight makes the ground DEAD level -- at which point the drawn triangle and
+// the smooth field agree to the bit, this check measured zero, and it failed,
+// correctly, saying the suite proved nothing. It was right: on a plate it
+// proves nothing. So the line now crosses ordinary countryside on the west
+// coast, measured to be untouched by any terrain operator.
 void the_mesh_and_the_field_genuinely_differ() {
     const TerrainCollider collider(kSeed);
     float worst = 0.0f;
     for (int i = 0; i < 400; ++i) {
-        const float x = -180.0f + static_cast<float>(i) * 0.7331f;
-        const float z = 91.0f + static_cast<float>(i) * 0.4177f;
+        const float x = -2020.0f + static_cast<float>(i) * 0.7331f;
+        const float z = 140.0f + static_cast<float>(i) * 0.4177f;
         worst = std::max(worst,
                          std::fabs(collider.height(x, z) - collider.field_height(x, z)));
     }
@@ -315,11 +323,17 @@ void raycast_finds_terrain_and_props() {
 void surfaces_vary_and_grip_follows_them() {
     TerrainCollider collider(kSeed);
 
+    // THE SPACING WIDENED IN PENG-41, from 9 m to 45 m, so this covers the
+    // whole island instead of a 1 km square around the origin. That square is
+    // now the financial district, the civic core and the old town -- three
+    // authored Flatten plates, dead level, and therefore all one material. The
+    // question "can grip be felt anywhere" is a question about the WORLD, and
+    // asking it of downtown got the answer downtown deserves.
     int seen[kSurfaceCount] = {0, 0, 0, 0};
     for (int i = -60; i <= 60; ++i) {
         for (int j = -60; j <= 60; ++j) {
-            const Surface m = collider.material(static_cast<float>(i) * 9.0f,
-                                                        static_cast<float>(j) * 9.0f);
+            const Surface m = collider.material(static_cast<float>(i) * 45.0f,
+                                                        static_cast<float>(j) * 45.0f);
             ++seen[static_cast<std::size_t>(m)];
         }
     }
