@@ -827,6 +827,40 @@ inline float apply_terrain_ops(float h, float x, float z) {
     return h;
 }
 
+// How much of a ROAD corridor covers this point, 0 outside and 1 on the
+// carriageway centreline. Non-zero means "a road shaped the ground here".
+//
+// This exists so scatter can stop planting trees in the carriageway. It
+// deliberately asks the SAME op_weight() that graded the ground rather than
+// re-deriving a corridor from the road table: a second opinion about where the
+// road is would drift from the first one, and the drift would look like trees
+// creeping onto the tarmac over several commits with nobody able to say when it
+// started. Collision derives from the geometry that draws; so does this.
+//
+// Road ops are the tail of the table — everything from kBaseOpCount up is
+// derived from kRoads, which is what makes the index test cheap and exact.
+//
+// The feathered margin is included on purpose. It is the shoulder, and a tree
+// hanging over the kerb is the same complaint as a tree in the road.
+inline float road_corridor_weight(float x, float z) {
+    const int bx = op_bucket_axis(x);
+    if (bx < 0) return 0.0f;
+    const int bz = op_bucket_axis(z);
+    if (bz < 0) return 0.0f;
+
+    const int b = bz * kOpBucketsPerSide + bx;
+    const int n = kOpIndex.count[b];
+    float most = 0.0f;
+    for (int k = 0; k < n; ++k) {
+        const int idx = kOpIndex.op[b][k];
+        if (idx < kBaseOpCount) continue;  // district plates, not roads
+        float unused_profile = 0.0f;
+        const float w = op_weight(kTerrainOps[idx], x, z, unused_profile);
+        if (w > most) most = w;
+    }
+    return most;
+}
+
 // ---------------------------------------------------------------------------
 //  Compile-time invariants
 // ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+#include "city/terrain_ops.h"
 #include "terrain/scatter.h"
 
 #include <cmath>
@@ -105,6 +106,17 @@ std::vector<ScatterProp> scatter_chunk(uint64_t seed, ChunkCoord coord) {
 
             if (s.height < kMinPropAltitudeMetres) continue;
             if (s.slope > kMaxPropSlope) continue;
+
+            // Nothing grows in the road. Asks the same operator weight that
+            // graded the road bed, so the mask cannot drift away from the
+            // asphalt it is masking — and the corridor's feathered margin is
+            // included, because a tree overhanging the kerb is the same
+            // complaint as a tree in the carriageway.
+            //
+            // Scatter is seed-keyed per candidate, so rejecting here removes a
+            // prop and moves none: the trees either side of a road sit exactly
+            // where they sat before the road existed.
+            if (city::road_corridor_weight(px, pz) > 0.0f) continue;
 
             // Density from the blend, not from the dominant material alone. A
             // point that is 51% gravel and 49% grass should be nearly as

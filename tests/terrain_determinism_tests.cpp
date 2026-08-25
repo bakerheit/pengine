@@ -25,6 +25,7 @@
 #include "physics/surface.h"
 #include "terrain/chunk.h"
 #include "terrain/heightmap.h"
+#include "city/terrain_ops.h"
 #include "terrain/scatter.h"
 #include "terrain/surface.h"
 #include "test_assert.h"
@@ -185,9 +186,14 @@ void golden_values() {
     REQUIRE(scatter_chunk(1ull, ChunkCoord{3, -2}).size() == 157u);
     require_first_prop(1ull, ChunkCoord{3, -2}, 0, 0, 0x434101E9u, 0x41400000u,
                        0xC2FEFB48u, 0x4016C910u, 0x3FB3311Eu);
-    REQUIRE(scatter_chunk(12648430ull, ChunkCoord{-5, 7}).size() == 157u);
-    require_first_prop(12648430ull, ChunkCoord{-5, 7}, 0, 2, 0xC39E5830u,
-                       0x4132EA90u, 0x43E16D8Au, 0x3F39F3A6u, 0x3FADCF45u);
+    // Moved from {-5, 7}, which now sits entirely inside a road corridor and
+    // scatters ZERO props. Re-pinning it at 0 would have kept a golden that
+    // measures nothing: any change to the noise, the density curve or the
+    // material blend would sail past an assertion whose answer is "the road is
+    // still there". {-7, 5} is the nearest chunk that still has scatter in it.
+    REQUIRE(scatter_chunk(12648430ull, ChunkCoord{-7, 5}).size() == 158u);
+    require_first_prop(12648430ull, ChunkCoord{-7, 5}, 0, 2, 0xC3DE775Fu,
+                       0x410AFEA6u, 0x43A08E16u, 0x3FBD63D8u, 0x3F9CBC0Cu);
     REQUIRE(scatter_chunk(0ull, ChunkCoord{-28, -28}).size() == 151u);
     require_first_prop(0ull, ChunkCoord{-28, -28}, 0, 0, 0xC4DEB4EAu,
                        0x4160B25Bu, 0xC4DFF36Au, 0x3FC1E4DFu, 0x3F3BC556u);
@@ -681,6 +687,43 @@ void scatter_never_exceeds_its_declared_cap() {
 
 }  // namespace
 
+// Nothing grows in the road.
+//
+// Reported from a real drive: "there are a ton of trees even in the road."
+// Scatter rejected on altitude, slope and a density roll and knew nothing about
+// roads at all, so 52.8 km of carriageway had a forest standing in it.
+//
+// The mask asks city::road_corridor_weight(), which is the SAME op_weight()
+// that graded the road bed -- not a second corridor derived from the road
+// table. A second opinion about where the road is would drift from the first,
+// and the drift would look like trees creeping onto the tarmac over several
+// commits with nobody able to say when it started.
+//
+// Measured when the mask landed: 18.64% of land sits inside a corridor once the
+// feathered shoulder is counted, and a tree overhanging the kerb is the same
+// complaint as a tree in the carriageway.
+void no_prop_stands_in_a_road() {
+    int checked = 0;
+    for (int cz = -24; cz <= 24; cz += 3) {
+        for (int cx = -24; cx <= 24; cx += 3) {
+            for (const ScatterProp& prop :
+                 scatter_chunk(city::kMapSeed, ChunkCoord{cx, cz})) {
+                REQUIRE_MSG(city::road_corridor_weight(prop.position.x,
+                                                       prop.position.z) == 0.0f,
+                            "a prop is standing in a road corridor",
+                            "nothing grows in the road");
+                ++checked;
+            }
+        }
+    }
+    // Anti-vacuity: a mask that rejected EVERYTHING would pass the loop above,
+    // and would do it silently.
+    REQUIRE_MSG(checked > 10000, "the sweep found almost no props at all",
+                "nothing grows in the road");
+    std::printf("      %d props checked, none in a road corridor\n", checked);
+    apricot_test::pass("nothing grows in the road");
+}
+
 int main() {
     std::printf("terrain_determinism_tests\n");
     golden_values();
@@ -697,5 +740,6 @@ int main() {
     props_belong_to_exactly_one_chunk_and_sit_on_the_ground();
     scatter_density_follows_the_material();
     scatter_never_exceeds_its_declared_cap();
+    no_prop_stands_in_a_road();
     return apricot_test::done("terrain_determinism_tests");
 }
