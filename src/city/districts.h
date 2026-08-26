@@ -66,7 +66,8 @@ inline constexpr District kDistricts[] = {
                 .verge = PavingKit::None,
                 .kerb_m = 0.12f},
 
-     .props = {.kit = PropKit::Downtown, .density = 1.0f},
+     .props = {.kit = PropKit::Downtown, .density = 1.0f,
+               .wild = 0.0f},  // solid city block to block
      .pop = {.traffic = 1.4f, .ped = 2.2f, .parked = 0.9f},
      .heat = {.patrol = 1.2f, .response_s = 6.0f}},
 
@@ -107,7 +108,8 @@ inline constexpr District kDistricts[] = {
                 .verge = PavingKit::Lawn,
                 .kerb_m = 0.14f},
 
-     .props = {.kit = PropKit::Civic, .density = 1.1f},
+     .props = {.kit = PropKit::Civic, .density = 1.1f,
+               .wild = 0.06f},  // a few planted squares
      .pop = {.traffic = 1.1f, .ped = 2.6f, .parked = 0.7f},
      .heat = {.patrol = 2.0f, .response_s = 3.0f}},
 
@@ -149,7 +151,8 @@ inline constexpr District kDistricts[] = {
                 .verge = PavingKit::None,
                 .kerb_m = 0.0f},  // no kerb at all: that is what makes it old
 
-     .props = {.kit = PropKit::OldTown, .density = 1.3f},
+     .props = {.kit = PropKit::OldTown, .density = 1.3f,
+               .wild = 0.04f},  // courtyard trees, nothing more
      .pop = {.traffic = 0.5f, .ped = 1.8f, .parked = 0.6f},
      .heat = {.patrol = 0.6f, .response_s = 11.0f}},
 
@@ -189,7 +192,8 @@ inline constexpr District kDistricts[] = {
                 .verge = PavingKit::Gravel,
                 .kerb_m = 0.06f},
 
-     .props = {.kit = PropKit::Docks, .density = 0.8f},
+     .props = {.kit = PropKit::Docks, .density = 0.8f,
+               .wild = 0.0f},  // concrete apron
      .pop = {.traffic = 0.6f, .ped = 0.3f, .parked = 0.4f},
      .heat = {.patrol = 0.5f, .response_s = 14.0f}},
 
@@ -229,7 +233,8 @@ inline constexpr District kDistricts[] = {
                 .verge = PavingKit::Dirt,
                 .kerb_m = 0.0f},
 
-     .props = {.kit = PropKit::Industrial, .density = 0.7f},
+     .props = {.kit = PropKit::Industrial, .density = 0.7f,
+               .wild = 0.05f},  // scrub on the rail margins
      .pop = {.traffic = 0.7f, .ped = 0.4f, .parked = 0.3f},
      .heat = {.patrol = 0.4f, .response_s = 15.0f}},
 
@@ -272,7 +277,8 @@ inline constexpr District kDistricts[] = {
                 .verge = PavingKit::Lawn,
                 .kerb_m = 0.15f},  // deep kerb: it is also a drainage channel
 
-     .props = {.kit = PropKit::Hillside, .density = 0.6f},
+     .props = {.kit = PropKit::Hillside, .density = 0.6f,
+               .wild = 0.85f},  // wooded switchbacks; the hill is the draw
      .pop = {.traffic = 0.3f, .ped = 0.4f, .parked = 0.5f},
      .heat = {.patrol = 0.9f, .response_s = 12.0f}},
 
@@ -313,7 +319,8 @@ inline constexpr District kDistricts[] = {
                 .verge = PavingKit::Lawn,
                 .kerb_m = 0.1f},
 
-     .props = {.kit = PropKit::Suburban, .density = 0.9f},
+     .props = {.kit = PropKit::Suburban, .density = 0.9f,
+               .wild = 0.35f},  // gardens and verges, not woodland
      .pop = {.traffic = 0.8f, .ped = 0.9f, .parked = 1.2f},
      .heat = {.patrol = 0.7f, .response_s = 10.0f}},
 
@@ -358,7 +365,8 @@ inline constexpr District kDistricts[] = {
                 .verge = PavingKit::Sand,
                 .kerb_m = 0.1f},
 
-     .props = {.kit = PropKit::Seafront, .density = 1.0f},
+     .props = {.kit = PropKit::Seafront, .density = 1.0f,
+               .wild = 0.12f},  // palms along the promenade
      .pop = {.traffic = 1.2f, .ped = 1.6f, .parked = 1.0f},
      .heat = {.patrol = 0.8f, .response_s = 9.0f}},
 
@@ -399,7 +407,8 @@ inline constexpr District kDistricts[] = {
                 .verge = PavingKit::Sand,
                 .kerb_m = 0.0f},
 
-     .props = {.kit = PropKit::Airfield, .density = 0.35f},
+     .props = {.kit = PropKit::Airfield, .density = 0.35f,
+               .wild = 0.02f},  // cleared for sightlines, by regulation
      .pop = {.traffic = 0.2f, .ped = 0.2f, .parked = 0.2f},
      .heat = {.patrol = 0.6f, .response_s = 16.0f}},
 
@@ -440,7 +449,8 @@ inline constexpr District kDistricts[] = {
                 .verge = PavingKit::Gravel,
                 .kerb_m = 0.0f},
 
-     .props = {.kit = PropKit::Rural, .density = 0.5f},
+     .props = {.kit = PropKit::Rural, .density = 0.5f,
+               .wild = 1.0f},  // open country: this is the baseline
      .pop = {.traffic = 0.15f, .ped = 0.05f, .parked = 0.05f},
      .heat = {.patrol = 0.2f, .response_s = 22.0f}},
 };

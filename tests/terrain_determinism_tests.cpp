@@ -180,18 +180,21 @@ void golden_values() {
     // terrain the props stand on, because a plate returns its target whatever
     // the noise does. It used to be {-20, 20}, which stopped qualifying the day
     // Marrow's spoil track was authored through it.
-    REQUIRE(scatter_chunk(0ull, ChunkCoord{0, 0}).size() == 166u);
-    require_first_prop(0ull, ChunkCoord{0, 0}, 0, 1, 0x40E5AB3Eu, 0x41400000u,
-                       0x3F3610F4u, 0x40C05075u, 0x3F848E6Cu);
-    REQUIRE(scatter_chunk(1ull, ChunkCoord{3, -2}).size() == 157u);
-    require_first_prop(1ull, ChunkCoord{3, -2}, 0, 0, 0x434101E9u, 0x41400000u,
-                       0xC2FEFB48u, 0x4016C910u, 0x3FB3311Eu);
+    // Moved off {0, 0}: that is Vellum Row, and a paved district scatters
+    // nothing now that scatter reads PropParams::wild. A golden pinned at zero
+    // measures "downtown is still paved", not the scatter system.
+    REQUIRE(scatter_chunk(0ull, ChunkCoord{5, 6}).size() == 162u);
+    require_first_prop(0ull, ChunkCoord{5, 6}, 0, 1, 0x43A43EE0u, 0x414AA947u,
+                       0x43C1AF94u, 0x4050E881u, 0x3FADDDF6u);
+    REQUIRE(scatter_chunk(1ull, ChunkCoord{5, 6}).size() == 173u);
+    require_first_prop(1ull, ChunkCoord{5, 6}, 0, 3, 0x43A6BEF5u, 0x4149C30Du,
+                       0x43C087F8u, 0x4087083Au, 0x3F7C6566u);
     // Moved from {-5, 7}, which now sits entirely inside a road corridor and
     // scatters ZERO props. Re-pinning it at 0 would have kept a golden that
     // measures nothing: any change to the noise, the density curve or the
     // material blend would sail past an assertion whose answer is "the road is
     // still there". {-7, 5} is the nearest chunk that still has scatter in it.
-    REQUIRE(scatter_chunk(12648430ull, ChunkCoord{-7, 5}).size() == 158u);
+    REQUIRE(scatter_chunk(12648430ull, ChunkCoord{-7, 5}).size() == 73u);
     require_first_prop(12648430ull, ChunkCoord{-7, 5}, 0, 2, 0xC3DE775Fu,
                        0x410AFEA6u, 0x43A08E16u, 0x3FBD63D8u, 0x3F9CBC0Cu);
     REQUIRE(scatter_chunk(0ull, ChunkCoord{-28, -28}).size() == 151u);

@@ -338,6 +338,20 @@ struct GroundParams {
 struct PropParams {
     PropKit kit = PropKit::Rural;
     float density = 1.0f;
+
+    // How WOODED the district is: a multiplier on terrain scatter, which is
+    // trees and rocks. Nothing to do with `kit` or `density` above, which are
+    // street furniture — lamp posts and bins.
+    //
+    // This exists because scatter did not know districts existed. It rejected
+    // on altitude, slope and a material roll, all of which a flattened downtown
+    // plate passes happily, so the financial district measured 31,143 trees —
+    // the most wooded place on the island. Reported from a drive as, simply,
+    // "still so many trees".
+    //
+    // Zero means a paved district: whatever stands there is furniture, and
+    // furniture is a system that does not exist yet. One is open country.
+    float wild = 1.0f;
 };
 
 // Traffic, pedestrian and parked-car density multipliers. First-pass feel
@@ -430,6 +444,15 @@ struct Landmark {
 // that is achievable; where two districts genuinely abut, table order is the
 // tie-break and it is authored.
 DistrictId district_at(float x, float z);
+
+// How wooded this point is: the district's PropParams::wild, or 1.0 outside
+// every district because open country is the baseline.
+//
+// Terrain scatter multiplies its density by this. It is a separate call rather
+// than something scatter derives itself, so that the answer to "how wooded is
+// here" has exactly one definition — the district table — and cannot drift the
+// way a re-derived road corridor would.
+float wild_scatter_at(float x, float z);
 
 // The entry for an id. Never null for a valid id.
 const District& district(DistrictId id);

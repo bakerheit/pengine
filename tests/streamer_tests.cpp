@@ -175,6 +175,14 @@ void the_load_radius_fills_and_settles() {
 }
 
 // --- the instance budget --------------------------------------------------------
+// Wooded ground, deliberately NOT the origin.
+//
+// The origin is Vellum Row, and since scatter learned to read
+// PropParams::wild a paved district scatters nothing at all. Both of the
+// anti-vacuity guards below sampled there and correctly reported that they
+// were measuring nothing — which is the guard doing its job, not a bug.
+constexpr ChunkCoord kWoodedChunk{5, 6};
+
 void activation_is_paced_by_instances_and_never_exceeds_the_budget() {
     StreamerConfig cfg;
     cfg.load_radius = 2;
@@ -188,7 +196,7 @@ void activation_is_paced_by_instances_and_never_exceeds_the_budget() {
     int carried_steps = 0;
     std::size_t previous_nodes = 0;
     while (steps < 4000) {
-        const StreamerStats st = h.tick(glm::vec3{0.0f});
+        const StreamerStats st = h.tick(centre_of(kWoodedChunk));
         ++steps;
 
         REQUIRE_MSG(st.instances_activated <= cfg.max_instances_per_step,
@@ -236,17 +244,20 @@ void a_half_activated_chunk_survives_into_the_next_step() {
     cfg.max_instances_per_step = 5;
 
     Host h(0x77ull, cfg);
-    const ChunkCoord target{0, 0};
+    // Wooded, not the origin — see kWoodedChunk. A paved district scatters
+    // nothing, so {0, 0} could not carry a half-activated chunk because there
+    // was nothing in it to carry.
+    const ChunkCoord target = kWoodedChunk;
     const std::size_t want = expected_nodes(h.seed, target);
     REQUIRE_MSG(want > 20u, "this chunk is too sparse to test the carry",
                 "carry");
 
-    h.tick(glm::vec3{0.0f});  // requests and delivers, activates nothing yet
+    h.tick(centre_of(target));  // requests and delivers, activates nothing yet
 
     std::size_t seen = 0;
     int steps = 0;
     while (!h.streamer.resident(target) && steps < 500) {
-        const StreamerStats st = h.tick(glm::vec3{0.0f});
+        const StreamerStats st = h.tick(centre_of(target));
         ++steps;
         seen += static_cast<std::size_t>(st.instances_activated);
 

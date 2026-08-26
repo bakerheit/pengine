@@ -1,3 +1,4 @@
+#include "city/map.h"
 #include "city/terrain_ops.h"
 #include "terrain/scatter.h"
 
@@ -135,6 +136,14 @@ std::vector<ScatterProp> scatter_chunk(uint64_t seed, ChunkCoord coord) {
                     case Surface::Sand:   tree_bias += w * kTreeBiasSand;   break;
                 }
             }
+
+            // A district says how wooded it is. Without this, scatter's only
+            // rejections were altitude, slope and a material roll — all of
+            // which a flattened downtown plate passes, so the financial
+            // district came out the most wooded place on the island at 31,143
+            // props. `PropKit`/`density` on a district are STREET FURNITURE and
+            // are a different system; `wild` is this one.
+            density *= city::wild_scatter_at(px, pz);
 
             if (accept_roll >= density * kBaseDensity) continue;
 

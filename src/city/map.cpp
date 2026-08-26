@@ -48,5 +48,11 @@ const char* district_name(DistrictId id) {
     return kDistricts[i].name;
 }
 
+float wild_scatter_at(float x, float z) {
+    const DistrictId d = district_at(x, z);
+    if (d == DistrictId::Count) return 1.0f;  // open country
+    return kDistricts[static_cast<int>(d)].props.wild;
+}
+
 }  // namespace city
 }  // namespace apricot
