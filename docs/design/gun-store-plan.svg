@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="790" viewBox="0 0 1200 790">
+<rect width="1200" height="790" fill="#161d20"/>
+<style>text{font-family:Arial,sans-serif;fill:#ede8dc}.title{font-size:34px;font-weight:bold}.sub{font-size:15px;fill:#b0bab8}.head{font-size:19px;font-weight:bold}.label{font-size:13px}.small{font-size:11px;fill:#c7cfcc}.dim{font-size:12px;fill:#d8b97a}.wall{stroke:#e0d7bf;stroke-width:7;fill:none}</style>
+<text x="48" y="58" class="title">BRASSLINE ARMS</text><text x="48" y="87" class="sub">Proposed neighborhood gun shop · planning draft · 04 September 2026</text>
+<rect x="48" y="118" width="510" height="593" rx="12" fill="#222d31"/>
+<rect x="582" y="118" width="570" height="593" rx="12" fill="#222d31"/>
+<text x="76" y="154" class="head">LOT / 32 × 34 m</text><text x="610" y="154" class="head">INTERIOR / 16 × 12 m</text>
+<text x="76" y="179" class="small">Across Sixth Street from the car wash</text><text x="610" y="179" class="small">Front at bottom · shell-local coordinates</text>
+<!-- Lot: 12 pixels/metre; local x=-16 at 110, z=-17 at 205. -->
+<rect x="110" y="205" width="384" height="408" fill="#343d3e" stroke="#a6b2ae" stroke-width="1.5"/>
+<text x="250" y="232" class="small">REAR YARD</text>
+<rect x="206" y="289" width="192" height="144" fill="#70413f" stroke="#d8cbb0" stroke-width="2"/>
+<text x="229" y="348" class="head">BRASSLINE</text><text x="269" y="372" class="head">ARMS</text><text x="260" y="402" class="small">16 × 12 m</text>
+<rect x="206" y="433" width="192" height="28.8" fill="#b0aa99"/>
+<rect x="110" y="461.8" width="384" height="72" fill="#465052"/>
+<text x="128" y="488" class="small">6 m MANEUVER AISLE</text>
+<rect x="422" y="433" width="72" height="180" fill="#465052"/>
+<text x="455" y="564" class="small" transform="rotate(-90 455 564)">DRIVEWAY</text>
+<g fill="#667977" stroke="#b7c6bd" stroke-width="1.4">
+<rect x="198.8" y="533.8" width="33.6" height="66"/><rect x="232.4" y="533.8" width="33.6" height="66"/>
+<rect x="338" y="533.8" width="33.6" height="66"/><rect x="371.6" y="533.8" width="33.6" height="66"/>
+</g>
+<rect x="287.6" y="433" width="28.8" height="180" fill="#d6bd83" opacity=".65"/>
+<path d="M289 469h26m-26 12h26m-26 12h26m-26 12h26m-26 12h26m-26 12h26" stroke="#efe8d7" stroke-width="4"/>
+<text x="76" y="642" class="dim">Four bays · central walk · east-side vehicle access</text>
+<path d="M302 614v20m156-20v20" stroke="#d8b97a" stroke-width="2" stroke-dasharray="3 3"/>
+<text x="133" y="677" class="label">SIXTH STREET — frontage connector required</text>
+<!-- Shell: 27 pixels/metre; x=-8 at 648, z=-6 at 252. -->
+<rect x="648" y="252" width="432" height="324" fill="#424b48"/>
+<path class="wall" d="M834.3 576H648V252H1080V576H893.7"/>
+<rect x="756" y="259.4" width="216" height="9.5" fill="#b4a17d"/>
+<text x="773" y="292" class="label">REAR WEAPON RACK</text>
+<circle cx="864" cy="306" r="10" fill="#d8b97a"/><text x="836" y="330" class="small">CLERK</text>
+<rect x="729" y="333" width="270" height="32.4" fill="#7b4541" stroke="#d3bfa4"/>
+<text x="801" y="354" class="label">SALES COUNTER</text>
+<rect x="1024.7" y="265.5" width="35.1" height="40.5" fill="#87908a"/>
+<text x="1027" y="291" class="small" style="fill:#172024">SAFE</text>
+<rect x="655.4" y="368.1" width="20.3" height="135" fill="#8f826b"/>
+<rect x="1052.3" y="368.1" width="20.3" height="135" fill="#8f826b"/>
+<text x="689" y="427" class="small" transform="rotate(90 689 427)">SHELVES</text>
+<text x="1037" y="488" class="small" transform="rotate(-90 1037 488)">SHELVES</text>
+<rect x="734.4" y="414" width="43.2" height="70.2" fill="#827258" stroke="#c0b090"/>
+<text x="723" y="504" class="small">LOW DISPLAY</text>
+<rect x="831.6" y="371" width="64.8" height="199" fill="#d6bd83" opacity=".17" stroke="#d6bd83" stroke-dasharray="5 5"/>
+<text x="851" y="485" class="dim" transform="rotate(-90 851 485)">2.4 m CLEAR AISLE</text>
+<text x="808" y="607" class="dim">2.2 m open entry</text>
+<text x="610" y="642" class="label">Pale masonry · oxblood sign · charcoal trim</text>
+<text x="610" y="667" class="small">4.6 m parapet · 4.1 m ceiling · 0.2 m floor top</text>
+<text x="48" y="746" class="sub">~111 m from Second Chance Pawn. Scenery and clerk first; purchases need wallet, ownership, and saves.</text>
+<text x="48" y="771" class="small">Schematic only. Local +Z points down. Road connection, circulation, lighting, and collision require runtime validation.</text>
+</svg>

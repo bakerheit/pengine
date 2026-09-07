@@ -7,6 +7,7 @@
 
 #include "gfx/camera.h"
 #include "gfx/instance.h"
+#include "gfx/lighting.h"
 #include "gfx/mesh.h"
 #include "gfx/shader.h"
 #include "gfx/sky_env.h"
@@ -66,12 +67,40 @@ public:
     // that does not occur.
     MeshId add_mesh(const MeshData& data);
 
+    // Validated cooked static mesh, read by core/emesh_reader before it reaches
+    // the resource table.
+    MeshId add_mesh(const StaticEmesh& data);
+
     // Terrain's own vertex arrays, uploaded without a copy into MeshData
     // first. ChunkMesh and MeshData are the same three members over the same
     // vertex type; Mesh already overloads on both.
     MeshId add_mesh(const ChunkMesh& data);
 
-    MaterialId add_material(Texture&& diffuse);
+    // Render-only depth offset for surfaces deliberately laid over another
+    // surface, such as a road draped over terrain. This changes raster depth,
+    // not the authored mesh or its collision height.
+    struct DepthBias {
+        float factor;
+        float units;
+
+        constexpr DepthBias(float slope_factor = 0.0f,
+                            float constant_units = 0.0f)
+            : factor(slope_factor), units(constant_units) {}
+
+        constexpr bool enabled() const {
+            return factor != 0.0f || units != 0.0f;
+        }
+    };
+
+    MaterialId add_material(Texture&& diffuse, bool alpha_blended = false,
+                            float specular_scale = 1.0f,
+                            DepthBias depth_bias = DepthBias(),
+                            bool receives_snow = true);
+    MaterialId add_glass_material();
+    // Draw after opaque characters, so glass also covers occupants correctly.
+    void render_glass(const Scene& scene, const std::vector<NodeId>& visible,
+                      const Camera& camera, const SkyEnv& env,
+                      const HeadlightRig& headlights, const CanopyLightRig& canopy_lights);
 
     // Free a mesh and let its slot be reissued under a new generation.
     //
@@ -119,6 +148,8 @@ public:
     // and quietly does no batching).
     const Stats& render(const Scene& scene, const std::vector<NodeId>& visible,
                         const Camera& camera, const SkyEnv& env,
+                        const HeadlightRig& headlights,
+                        const CanopyLightRig& canopy_lights,
                         const Options& options);
 
     const Stats& stats() const { return stats_; }
@@ -126,6 +157,11 @@ public:
 private:
     struct Material {
         Texture diffuse;
+        bool alpha_blended = false;
+        bool glass = false;
+        bool receives_snow = true;
+        float specular_scale = 1.0f;
+        DepthBias depth_bias;
     };
 
     // One slot of the mesh table. `generation` outlives the Mesh in it: that is
@@ -162,9 +198,12 @@ private:
     bool draw_run(const Scene& scene, const std::vector<NodeId>& visible,
                   std::size_t first, int count, uint64_t key);
 
-    void begin_frame(const Camera& camera, const SkyEnv& env);
+    void begin_frame(const Camera& camera, const SkyEnv& env,
+                     const HeadlightRig& headlights,
+                     const CanopyLightRig& canopy_lights);
 
     Shader lit_;
+    Texture vehicle_damage_atlas_;
     std::vector<MeshSlot> meshes_;
     std::vector<uint16_t> free_mesh_slots_;
     std::size_t live_meshes_ = 0;

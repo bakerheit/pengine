@@ -45,6 +45,17 @@ struct DrawBatch {
     uint64_t key = 0;           // batch key; meaningless when !instanced
 };
 
+struct SurfaceDrawPasses {
+    std::vector<NodeId> geometry;
+    std::vector<NodeId> overlays;
+};
+
+// Glow selectors reuse the body's mesh/material key, but need a separate
+// depth-equal pass AFTER opaque geometry. Stable partitioning keeps each
+// list batch-key sorted without putting per-instance UVs into the batch key.
+SurfaceDrawPasses partition_surface_draws(const Scene& scene,
+                                         const std::vector<NodeId>& visible);
+
 // Partition [0, visible.size()) into contiguous batches.
 //
 // Requires `visible` to be sorted by batch_key() — Scene::cull guarantees

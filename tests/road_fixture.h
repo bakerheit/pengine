@@ -8,7 +8,7 @@
 //
 // WHY IT IS STILL HAND-MADE, now that `city::map_spines()` exists. The road
 // module takes spines as a parameter precisely so it never has to know a city
-// is there, and these suites test the GRAPH, not Pinatty. The layout below
+// is there, and these suites test the GRAPH, not O'Haven. The layout below
 // contains one of each thing the graph has to notice, in eight roads you can
 // hold in your head; the real map contains all of them too, buried in ninety,
 // which is a far worse place to debug a weld tolerance from.

@@ -65,6 +65,8 @@ public:
     void set_vec2(const char* name, const glm::vec2& v) const;
     void set_vec3(const char* name, const glm::vec3& v) const;
     void set_vec4(const char* name, const glm::vec4& v) const;
+    void set_vec4_array(const char* name, const glm::vec4* values,
+                        int count) const;
     void set_mat3(const char* name, const glm::mat3& v) const;
     void set_mat4(const char* name, const glm::mat4& v) const;
 

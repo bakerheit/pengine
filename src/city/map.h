@@ -2,10 +2,12 @@
 
 #include <cstdint>
 
+#include "city/states.h"
+
 namespace apricot {
 namespace city {
 
-// PINATTY — the map, as compiled C++ data.
+// O'HAVEN — the original state map, as compiled C++ data.
 //
 // The city is a specific authored place you can learn by heart, and apricot
 // ships no asset files. Those only look like they contradict. The map is a
@@ -61,7 +63,7 @@ namespace city {
 // replay tape and save.
 //
 // It was CHOSEN, not inherited. Nineteen candidates were measured over the
-// 6144 m box at 12 m sampling after the retune and after the spawn dome was
+// original 6144 m box at 12 m sampling after the retune and after the spawn dome was
 // deleted; this one has the most buildable land (75.6% of it under 5 degrees,
 // against 31.7% for the worst), puts its high ground in the north-east where
 // Ferrone Hill wants it (mean land height NE 25.9 m against NW 12.1 m), and
@@ -72,31 +74,21 @@ inline constexpr uint64_t kMapSeed = 0xDEADBEEFull;
 //  The world box
 // ---------------------------------------------------------------------------
 
-// Half the world box, in metres. 6144 m across is 96 x 96 chunks exactly at
-// kChunkMetres = 64, which is why it is this number and not 6000.
+// Half the world box, in metres. 20480 m across is 320 x 320 chunks exactly at
+// kChunkMetres = 64 and 160 x 160 terrain-op buckets at 128 m. The symmetric
+// expansion leaves O'Haven at its old coordinates and makes room for the
+// enlarged Florangia landmass to its southeast.
 //
 // The brief asked for ~16 km2 of land on a 4 km island, and those cannot both
 // be true: a 4 x 4 km box IS 16 km2, so 16 km2 of land means no water and
-// therefore no island. 6144 m of box holding a ~5.5 km island measures 16.4
-// km2 of land after the terrain operators land — see tests/city_map_tests.cpp,
-// which prints the figure it measured rather than repeating this one.
-inline constexpr float kWorldHalfMetres = 3072.0f;
+// therefore no island. O'Haven's original 6144 m box holding a ~5.5 km island
+// measures 16.4 km2 of land after the terrain operators land; expanding the
+// world box does not retune or rescale that terrain.
+inline constexpr float kWorldHalfMetres = 10240.0f;
 
 // ---------------------------------------------------------------------------
 //  Small authoring types
 // ---------------------------------------------------------------------------
-
-// A point in the XZ plane, in world metres. +X is east, +Z is SOUTH, +Y is up.
-//
-// Deliberately not glm::vec2. This is authored data: it is designated-
-// initialised in tables, it is compared at compile time, and it wants to be a
-// literal aggregate with named members that read as coordinates. `{.x, .z}`
-// also stops the reader wondering whether `.y` meant height or northing —
-// which it did, in the reference implementation, in both directions.
-struct Vec2 {
-    float x = 0.0f;
-    float z = 0.0f;
-};
 
 // An inclusive authored range: heights, footprint sizes, anything a generator
 // samples between two ends. Spelled so `{24.0f, 88.0f}` initialises it.

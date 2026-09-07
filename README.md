@@ -7,18 +7,31 @@ apricot is the successor to `pengine`, the engine behind two shipped games. It
 keeps what those paid for and deliberately changes three things; see
 [What changed from pengine](#what-changed-from-pengine).
 
-**The pilot game is Pinatty** — a GTA-style open-world crime game, a rebuild of
-`probablecause` in an authored 16 km² island city. The map design is
-[`docs/design/pinatty.md`](docs/design/pinatty.md).
+**The pilot world has two states:** O'Haven, the GTA-style authored city rebuilt
+from `probablecause`, and Florangia, a low subtropical state southeast of it.
+O'Haven's city design remains in [`docs/design/pinatty.md`](docs/design/pinatty.md)
+under its legacy filename; Florangia's terrain pass is in
+[`docs/design/florangia.md`](docs/design/florangia.md).
 
-> **Pinatty has started, and it has roads.** `src/city/` is real: the map — ten
+> **O'Haven has roads and its first roadside block; Florangia has its first
+> land and biome pass.** `src/city/`
+> is real: the map — ten
 > district polygons with their character parameters, thirty landmarks, and the
 > terrain operators the height field evaluates (PENG-41) — and the road network,
-> 92 authored spines and 52.8 km of centreline that bake into 129,484 triangles
+> 99 authored spines and 53.6 km of centreline that bake into 310,160 triangles
 > and draw. You can drive from any district to any other; a headless suite does
-> exactly that with the real vehicle, five times, across the island. Traffic,
-> police, missions and buildings are still design only, so keep reading that
-> document as a plan for those. There was previously a placeholder sample game,
+> exactly that with the real vehicle, five times, across the island. The spawn
+> now has a solid gas station, a two-storey U-shaped motel, a three-storey
+> apartment block, and a small drive-through restaurant. Nearby traffic now
+> follows the real lane graph, makes deterministic right-of-way decisions,
+> obeys working traffic lights and stop signs, brakes for the player, and is
+> solid to the player. Play now starts on foot beside the car, with a third-person
+> character controller, enter/exit flow, and deterministic pedestrians drawn
+> from eight stable civilian looks. The pack rigs use the original Probable
+> Cause breathing, walking, and sprinting clips with continuous skeletal
+> interpolation.
+> Police, missions, and the wider building pass
+> are still design only, so keep reading that document as a plan for those. There was previously a placeholder sample game,
 > Apricot Rally, a time trial with checkpoints and lap timing; it was deleted in
 > PENG-23 because it was scaffolding that read as design.
 
@@ -68,6 +81,75 @@ cmake --build build -j     # build (-Werror is on for our targets)
 The first configure takes a few minutes because it clones SDL2. Subsequent ones
 are seconds.
 
+### Asset labs
+
+The **Marlin Sprint 22** is a fictional cream/seafoam speedboat moored at the
+Ostend small-craft landing, world `(-2046, 0, -603.4)`. Use F1 → Teleport →
+Ostend Boatworks, walk beside the cockpit and press E (controller A) to board.
+W/S or the driving triggers control forward/reverse; A/D or left stick steers.
+Space (handbrake binding) slows the boat; R recovers it to its home berth.
+Stop beside a clear dock or shore and press E to exit. Open-water exits are
+blocked until swimming exists. Handling uses fixed-step water drag, lateral
+slip, shallow-water/hull collision and restrained visual bobbing—not car physics.
+Boarding and exit take three seconds, with staggered steps over the gunwale;
+movement is locked until the animation finishes. The supplied player character
+stays visible in the helm seat, with fitted bent legs, wheel-reaching hands,
+small steering/idle motions and the same rocking transform as the boat.
+`apricot_boat_driver_lab --view cockpit --screenshot build/marlin-pilot.png`
+checks the production renderer; `--transition enter --sequence build/marlin-entry`
+captures the animation. `boat_driver_pose_tests` validates seat fit, preserved
+limb lengths, smooth transitions and hull-relative attachment.
+The parked boat stays in place. It is not a road-car menu entry.
+Its joined 912-triangle hull includes an open cockpit, seats, a split windshield
+and swim step, with one 256x256 RGBA pixel atlas. Regenerate with
+`python3 tools/make_marlin_sprint_assets.py` (`--blockout` for the shape review).
+The editable Blender source and cooked body stay under ignored
+`assets/models/vehicles/marlin_sprint/`; the UV guide, four-view preview and
+structural fit report are written to `build/marlin-sprint-*`.
+
+The **Ostend Boatworks dock** is authored in `src/city/marina.cpp`: a 32 m
+timber main pier, two berthing fingers, and a connected service deck with an
+open-front shed. Its 511 pieces include 133 deck boards, piled supports,
+cleats, rope coils, rubber fenders, ladders, life rings, power pedestals,
+workbenches, shelving, cargo crates, drums and four working warm downlights.
+The Marlin's original berth remains clear. `marina_tests` checks support and
+character clearance along the main pier, both fingers and the shed approach.
+Regenerate the four dock textures with `python3 tools/make_marina_textures.py`.
+For a shore-side view, run with `--start-at -2033 -600 --start-heading 100`;
+add `--night` to inspect the lights. `--boat-check --frames 300` exercises real
+boarding, dock exit, departure, steering, braking and unsafe-exit rejection.
+`boat_tests` covers deterministic handling and collision without a window.
+
+`apricot_asset_lab` previews cooked assets through the same `.emesh` reader,
+texture loader, shaders, scene culling, and renderer used by the game. Use it
+for static meshes and textures.
+
+```sh
+cmake --build build --target apricot_asset_lab apricot_character_lab -j
+
+# Play the production player rig, texture, shader, and walk clip.
+./build/bin/apricot_character_lab \
+  --asset-dir assets/models/characters/psx_pack/player_male_01 \
+  --clip walk --height 1.76
+
+# Repeatable renderer capture or bind-pose inspection.
+./build/bin/apricot_character_lab \
+  --asset-dir assets/models/characters/psx_pack/player_male_01 \
+  --clip walk --height 1.76 --frames 61 \
+  --screenshot build/character-lab-player-walk.png
+./build/bin/apricot_character_lab \
+  --asset-dir assets/models/characters/psx_pack/player_male_01 \
+  --clip walk --bind --frames 1
+
+# Texture-only inspection keeps the image's real aspect ratio.
+./build/bin/apricot_asset_lab --texture assets/textures/example.png
+```
+
+The character lab uses the production dual-quaternion skinning shader. Use A/D
+to rotate, Q/E to zoom, Space to pause, the arrow keys to scrub, and R to reset.
+The ground axes make facing explicit: red is +X, green is +Y, and blue is
+Apricot forward (-Z).
+
 ```
 apricot 0.1.0
 
@@ -76,23 +158,53 @@ apricot 0.1.0
   --frames N      render N frames, print a summary, then exit
   --no-instancing start on the naive per-node draw path
   --warp-every N  teleport across the island every N frames
+  --start-at X Z   start at a world position for visual QA
   --version       print the version and exit
   --help          this text
 ```
 
-**What you get today.** A window with a GL 3.3+ core context, the fixed-step loop
-at 120 Hz, a drivable car on **streamed procedural terrain with Pinatty's road
-network on it**, under a moving sky, and a debug overlay. The terrain loads and
+**What you get today.** A title/pause menu and full O'Haven city map, plus a
+drivable car on **streamed procedural terrain with O'Haven's road network on
+it**, under a moving sky and a debug overlay. The sim runs at a fixed 120 Hz. The terrain loads and
 unloads around the car in four level-of-detail rings out to 2.3 km, with props
 scattered on the near two. The roads are baked once at startup into six meshes
 by material: measured on an M5, 129,484 triangles for 7.86 MB of vertex data,
 and the whole thing runs at **3.80 ms a frame (263 FPS) over 1199 frames**.
 
-There is still no game on top of it, and two things are stand-in *models* rather
-than stand-in systems: the car is a red box and a tree is three boxes, because
-the engine has no model loader and no asset on disk. The car it steers like and
-the places the trees grow are both real. The 420 m disc and 1400 boxes that used
-to be here were deleted in PENG-27.
+The moving sun and moon light every authored model and terrain mesh. At dusk
+the player car adds two soft-edged headlights that follow its interpolated pose,
+light the road surface and fade out automatically under the visible daytime sky.
+
+There are no missions yet. The player car uses the wheel-less Car 5 body from
+the Probable Cause alpha plus four copies of its shared wheel model.
+Those wheels follow the real suspension, steer at the front and spin from the
+sim-owned wheel state. Active traffic uses the alpha's Car 5, Car 8, and
+ambulance bodies with the same independent wheel setup. It follows the authored
+lanes, reads driver-specific yellow lights and stop dwell times, yields to
+cross traffic, slows for turns, brakes for the player's predicted path, and
+collides with the player if avoidance fails. Those impacts now move both
+vehicles: traffic can be shoved and yawed off its lane, then settles back into
+flow by slowing and steering forward instead of sliding back to its old pose.
+Wall, player-versus-traffic, and traffic-versus-traffic impacts also accumulate
+in six persistent body regions. The shared vertex shader crushes the struck
+front corner, rear corner, or door area per car while the independently driven
+wheels keep their real suspension pose.
+AI traffic also has deterministic body-to-body collision now, and cars claim a
+signal box at a geometry-derived stop line so conflicting approaches cannot
+flood it. The line expands with the widest road through each junction, keeping
+the whole car outside even at the 22 m arterial intersections. Cars
+wait outside a junction until their destination lane has room for the whole
+vehicle, then try an open alternate turn after a driver-specific patience delay
+instead of feeding a permanent jam.
+Cars following the exact same movement use a conservative moving-leader
+projection, so a green queue can enter as a platoon instead of waiting one full
+signal cycle per car; stopped downstream traffic still blocks admission.
+Once admitted, traffic stays committed until its rear clears that same computed
+box: it ignores later signals while leaving, low-speed rubbing no longer re-arms
+the crash pause, merge conflicts are reserved one at a time, and a stalled car
+gets a GTA-style clearance throttle rather than parking in the intersection.
+Trees remain three-box stand-ins; where they grow is real. The 420 m disc and
+1400 boxes that used to be here were deleted in PENG-27.
 
 `--frames N` runs the whole thing with nobody at the keyboard and reports what
 it drew, which is how the numbers below were produced rather than remembered:
@@ -158,29 +270,60 @@ are here.
 
 | Input | Intent | Works today |
 |---|---|---|
-| `A` / `D` | steer left / right | **yes** — rate-limited steer angle, smoothed in the physics |
-| `W` | throttle | **yes** — engine torque curve through the gearbox to the driven wheels |
-| `S` | brake | **yes** |
+| `A` / `D` | strafe or steer left / right | **yes** — camera-relative movement on foot; progressive, rate-limited steering with Ackermann front-wheel angles in the car |
+| `W` | walk forward or throttle | **yes** — camera-relative movement on foot; engine torque through the gearbox in the car |
+| `S` | walk backward or brake / reverse | **yes** — camera-relative movement on foot; braking then reverse in the car |
 | `Space` | handbrake (analogue) | **yes** — shrinks rear grip, breaks the back loose |
-| `LShift` / `LCtrl` | shift up / down | **yes** — manual gearbox, with a shift cooldown |
+| `LShift` / `LCtrl` | sprint or shift up / down | **yes** — Shift sprints on foot; both keys operate the manual gearbox in the car |
+| `E` / controller `A` | enter / steal / exit road vehicle | **yes** — approach either front door of a stopped car; occupied traffic is taken over; moving or obstructed exits are blocked |
+| `F1` | developer menu | **yes** — pauses play and opens a GTA-style trainer menu; Classic GTA (VC / SA feel) is the default, Driving Mechanics can switch the player live between all nine handling styles, and Vehicle can repair the current car in place |
+| `F2` | report a bug to Codex | **yes** — type a report; Apricot attaches the game-window screenshot and exact world position |
+| `F3` | toggle debug stats | **yes** — the large profiling panel starts hidden and can be shown or hidden during a drive |
 | `F7` | toggle instancing | **yes** — the batching A/B, handled outside `InputFrame` on purpose |
 | `F8` | teleport across the island | **yes** — evicts the world, refills the near ring before resuming. Outside `InputFrame` for the same reason as `F7` |
-| `Esc`, `Ctrl+Q`, `Cmd+Q` | quit | **yes** |
-| `R` | respawn | mapped and latched into the tape; **nothing consumes it.** The rally's `step_rally` used to, and went with it |
-| `C` | cycle camera | mapped, not consumed. The camera is a fixed chase cam |
-| `P` | pause | mapped, not consumed |
-| `B` | look back | mapped, not consumed |
-| `Return` / `Backspace` | accept / back | mapped, not consumed — there is no menu |
-| Mouse | look | left-click captures the cursor and motion accumulates into `look_dx/dy`; the chase camera does not read it |
+| `Esc` / `B` | back / pause | **yes** — closes the map, resumes from pause, or opens pause while driving |
+| `Ctrl+Q`, `Cmd+Q` | quit | **yes** |
+| `R` | respawn | **yes on foot** — returns the player beside the car |
+| `C` | cycle camera / map layer | **yes** — cycles near, chase and far distances; in the map, cycles Explore, Roads and Places (controller Y) |
+| `P` / controller Start | pause | **yes** — freezes sim time and opens resume, map, restart, and title options |
+| `M` / controller Back | city map | **yes** — full-width atlas with smooth vector coastlines, terrain contours, cased roads, readable labels, building footprints, location icons, and live player heading. Wheel or `+/-` zooms; WASD/stick or mouse drag pans; Return/A recentres. See [map viewer notes](docs/map-viewer.md) |
+| `B` | look back | **yes** — instant rear view, clean return on release |
+| `Return` / `A`, `Backspace` / `B` | accept / back | **yes** — keyboard, gamepad, and mouse menu navigation |
+| Mouse | look | **yes** — left-click captures; free third-person look on foot and auto-centring orbit in the car |
+
+Road-vehicle entry is door-based, with a 1.65 m reach and a 1.5 m/s maximum
+entry/exit speed. Taking traffic keeps its model, paint and dent stamps and
+retires its exact AI identity. Previously driven cars remain parked, solid and
+re-enterable for the session; traffic brakes for them. This first pass uses
+instant transitions, without driver-pullout animations, theft-specific police
+responses, save persistence, or airplane boarding/flight. Bank interactions
+still take priority when standing at a bank interaction point.
+
+`build/bin/apricot --frames 2400 --vehicle-entry-check` exercises takeover of a
+real stopped traffic car, preserved paint/damage, parked-car re-entry and
+blocked/safe exits. It exits with failure if the flow never completes. The
+headless `vehicle_interaction_tests` and traffic runtime suite also cover door
+reach, speed/roof restrictions, collision activation and no AI respawn.
 
 Steering, throttle, brake, handbrake and both shift edges are pinned by
 `tests/vehicle_tests.cpp` against real terrain — the car settles on its springs,
-transfers load under braking and cornering, slides and can be caught, rights
-itself when flipped, and does not drive through a solid prop.
+transfers load under braking and cornering, keeps an ordinary powered turn
+under two degrees of measured body slip, recovers after a handbrake slide, rights
+itself when flipped, and takes deterministic health damage at the actual body
+region that struck a solid prop instead of driving through it. Front and rear
+anti-roll bars couple the independent struts without making landings harsher.
 
-The unconsumed rows are honest rather than aspirational: every one of them is
-recorded into the replay tape correctly, because the tape stores intent, not
-motion. Wiring them up is the pilot game's job.
+The chase camera keeps its focus on the centre of the chassis, pulls back and
+widens its FOV with speed, anticipates turning, supports held look-back, and raycasts against terrain and
+authored buildings so it pulls in before clipping through them. Damage is shown
+in the HUD and as persistent six-region dents on the Car 5 body, with an impact
+flash/camera kick and weaker headlights as health drops. AI sedans, trucks, and
+ambulances use the same per-car deformation state without cloning their shared
+meshes. The separately moving wheel models remain driven by their suspension,
+steering and spin state; body damage never deforms or scales the wheels.
+
+The remaining unconsumed row is honest rather than aspirational: it is recorded
+into the replay tape correctly, because the tape stores intent, not motion.
 
 ## Repo map
 
@@ -209,7 +352,7 @@ src/
                  meshing, and the residency streamer. height_at() evaluates
                  city/'s terrain operators as its last step.
                                                             -> apricot_sim
-  city/          PINATTY'S MAP AND ROADS, as constexpr C++ tables: district
+  city/          O'HAVEN'S MAP AND ROADS, as constexpr C++ tables: district
                  polygons and character parameters, landmarks, the five terrain
                  operators (Flatten, Bench, Carve, Mound, Grade), and the 92
                  authored road spines. Every road corridor operator is DERIVED
@@ -223,7 +366,7 @@ src/
                  is pure in (state, input, collider, dt).   -> apricot_sim
   game/          the pilot game's sim-side rules. Currently ONE file:
                  conditions.{h,cpp}, deterministic time-of-day and weather
-                 feeding VehicleTuning::grip_scale. Pinatty lands here.
+                 feeding VehicleTuning::grip_scale. O'Haven lands here.
                                                             -> apricot_sim
   audio/         SPLIT. mixer.h + synth.cpp are pure maths  -> apricot_sim
                  device.cpp + miniaudio_impl.c own hardware -> apricot_host
@@ -240,7 +383,7 @@ src/
                                                             -> apricot (exe)
   main.cpp       argument parsing and not much else.
 
-assets/shaders/          GLSL. The only shipped asset files in the tree.
+assets/                  GLSL plus cooked legacy vehicle bodies and paint.
 tools/
   ci.sh                  the gate: guard, configure, -Werror build, ctest
   guard_sim_purity.sh    the architecture, enforced. Runs first.
@@ -249,14 +392,16 @@ docs/architecture.md     the design rules, each with what it cost to learn
 docs/design/pinatty.md   the pilot game's map. Its section 3 road hierarchy is
                          implemented in src/road/ and authored in src/city/;
                          the map tables and the road network are written and
-                         wired. Traffic, police, missions and buildings are not.
+                         wired. Basic traffic and the opening buildings are
+                         live; police, missions, and the wider city build are not.
 ```
 
-`assets/` holds **nine GLSL files and nothing else**, which is the point rather
-than a gap: the terrain is a function, every texture is generated, every sound
-is synthesised, the glyph atlas is drawn in code and there is no mesh, no image
-and no audio file on disk. `core/asset_root.h` resolves a root for the shader
-source, which is the one thing that genuinely cannot be computed.
+`assets/` keeps runtime files grouped by kind: GLSL under `shaders/`, cooked
+vehicle geometry under `models/vehicles/`, and matching paint under
+`textures/vehicles/`. Terrain remains procedural while authored scenery uses
+project-local albedo maps, player acceleration uses recorded WAVs without a
+procedural vehicle bed, and the glyph atlas is still drawn in code. See
+[`assets/README.md`](assets/README.md) for layout and imported-asset provenance.
 
 ## What changed from pengine
 
@@ -266,7 +411,7 @@ with real gameplay. apricot keeps its rules — they are restated with their
 costs in [`docs/architecture.md`](docs/architecture.md) — and changes three
 things on purpose.
 
-(Pinatty is a rebuild of `probablecause`'s world, not a port. Its design and
+(O'Haven is a rebuild of `probablecause`'s world, not a port. Its design and
 algorithms are reference material; none of its code is coming across, and
 several of its systems — shared `mt19937` streams, a `std::time` seed, a
 wall-clock read below the frame loop — are things apricot bans outright.

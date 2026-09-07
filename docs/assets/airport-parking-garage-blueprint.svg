@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="640" viewBox="0 0 1400 640">
+<rect width="1400" height="640" fill="#f4f1e9"/>
+<g font-family="Arial,sans-serif" fill="#26333b"><text x="45" y="42" font-size="26" font-weight="bold">O'HAVEN AIRPORT · PUBLIC PARKING GARAGE</text><text x="45" y="72" font-size="17">Same lot across from drop-off · 3 parking levels · local airport coordinates</text>
+<g transform="translate(90,130) scale(3.5)">
+<rect x="0" y="0" width="330" height="12" fill="#8f979d"/><text x="84" y="8" font-size="4.3">TERMINAL DROP-OFF · EXISTING CROSSINGS RETAINED</text>
+<path d="M0,35 H330 V57 H280 V86 H50 V57 H0 Z" fill="#c9d1d2" stroke="#334951" stroke-width=".6"/>
+<path d="M30,96 V76 L40,66 L60,61 H270 L290,66 L300,76 V96" fill="none" stroke="#8f979d" stroke-width="8"/>
+<path d="M90,0 V86 M165,0 V86 M240,0 V86" stroke="#f9f4ca" stroke-width="5.2"/>
+<rect x="105" y="40" width="50" height="8" fill="#e2a658" stroke="#915a25" stroke-width=".5"/><path d="M111,44 H149 M145,42 L149,44 L145,46" fill="none" stroke="#6a411e" stroke-width=".8"/>
+<text x="105" y="38" font-size="3.8">STACKED TWO-WAY RAMPS · 50m RUN / 4m RISE</text>
+<rect x="80" y="38" width="4" height="13" fill="#77a6a8"/><text x="69" y="55" font-size="3.4">STAIRS</text>
+<g stroke="#ffffff" stroke-width=".3"><path d="M8,36 V41 M14,36 V41 M20,36 V41 M26,36 V41 M32,36 V41 M38,36 V41 M44,36 V41 M50,36 V41 M56,36 V41 M62,36 V41 M68,36 V41 M74,36 V41 M178,36 V41 M184,36 V41 M190,36 V41 M196,36 V41 M202,36 V41 M208,36 V41 M214,36 V41 M220,36 V41 M226,36 V41 M250,36 V41 M256,36 V41 M262,36 V41 M268,36 V41 M274,36 V41 M280,36 V41 M286,36 V41 M292,36 V41 M298,36 V41 M304,36 V41 M310,36 V41 M316,36 V41"/></g>
+<text x="64" y="72" font-size="4">13m CLEAR MAIN AISLE / BOTH EXISTING ENTRANCES</text>
+<text x="0" y="104" font-size="4">x -200</text><text x="308" y="104" font-size="4">x +130</text>
+</g>
+<text x="45" y="545" font-size="18">Decks: +0.13m / +4.13m / +8.13m above airport ground. 0.30m slabs leave 3.70m clear.</text>
+<text x="45" y="576" font-size="18">Ramp grade eases at each end; peak 9.09%. Clear ramp width 8m. Terminal walk axes: -110 / -35 / +40.</text>
+<text x="45" y="607" font-size="18">Upper slabs have real ramp/stair openings. Same surface triangles feed the renderer and suspension probes.</text></g></svg>

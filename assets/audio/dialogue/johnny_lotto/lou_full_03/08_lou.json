@@ -1,0 +1,39 @@
+{
+  "id": "08_lou",
+  "kind": "Cutscene dialogue",
+  "title": "Lou full performance - line 08",
+  "character": "Lou - Manager",
+  "voice": "ballad",
+  "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. Dry correction. Keep both short sentences connected and brisk.",
+  "text": "Didn't pick numbers. Picked a truck.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "08_lou.wav",
+  "transcript": "Didn't pick numbers. Picked a truck.",
+  "transcript_matches": true,
+  "duration_seconds": 3.3,
+  "peak_dbfs": -6.76,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 414,
+    "input_tokens": 256,
+    "output_tokens": 158,
+    "input_token_details": {
+      "text_tokens": 256,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 92,
+      "audio_tokens": 66,
+      "reasoning_tokens": 69
+    }
+  },
+  "response_id": "resp_EKRbeRnWykPY7WgKBrfE1"
+}

@@ -8,13 +8,14 @@
 #include <glm/glm.hpp>
 
 #include "gfx/camera.h"
+#include "gfx/lighting.h"
 #include "gfx/rain_field.h"
 #include "gfx/shader.h"
 #include "gfx/sky_env.h"
 
 namespace apricot {
 
-// Camera-locked rain.
+// Camera-locked rain, snow, or blizzard precipitation.
 //
 // A fixed set of drops in a box that follows the camera, wrapped rather than
 // respawned, drawn as camera-facing streak quads in ONE alpha-blended call. The
@@ -37,16 +38,30 @@ public:
 
     bool valid() const { return shader_.valid() && vao_ != 0; }
 
+    void set_type(PrecipitationType type);
+    PrecipitationType type() const { return type_; }
+
     // Advance the field. `dt` is sim time, handed down from App — nothing below
     // App reads a clock. Safe for any dt, including a lag spike.
     void update(const Camera& camera, float intensity, float dt);
+    void update(const Camera& camera, PrecipitationType type, float intensity,
+                float dt) {
+        set_type(type);
+        update(camera, intensity, dt);
+    }
 
     // Draw. Call AFTER opaque geometry (rain is translucent and must blend over
     // the world) and before the HUD.
-    void render(const Camera& camera, const SkyEnv& env);
+    void render(const Camera& camera, const SkyEnv& env,
+                const HeadlightRig& headlights,
+                const CanopyLightRig& canopy_lights);
 
     RainTuning& tuning() { return tuning_; }
     const RainTuning& tuning() const { return tuning_; }
+    SnowTuning& snow_tuning() { return snow_tuning_; }
+    const SnowTuning& snow_tuning() const { return snow_tuning_; }
+    SnowTuning& blizzard_tuning() { return blizzard_tuning_; }
+    const SnowTuning& blizzard_tuning() const { return blizzard_tuning_; }
 
     // Drops actually simulated last update, and quads actually drawn last
     // render. Surfaced in the debug overlay: a rain field that silently drew
@@ -67,12 +82,17 @@ private:
     std::size_t vbo_capacity_bytes_ = 0;
 
     RainTuning tuning_;
+    SnowTuning snow_tuning_ = default_snow_tuning(PrecipitationType::Snow);
+    SnowTuning blizzard_tuning_ = default_snow_tuning(PrecipitationType::Blizzard);
+    PrecipitationType type_ = PrecipitationType::Rain;
     uint64_t seed_ = 0;
 
     std::vector<glm::vec3> drops_;
     std::vector<float> drop_alpha_;
+    std::vector<float> particle_size_;
     std::vector<StreakVertex> verts_;
 
+    float elapsed_ = 0.0f;
     float intensity_ = 0.0f;
     int live_drops_ = 0;
     int drawn_quads_ = 0;

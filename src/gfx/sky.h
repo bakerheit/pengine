@@ -5,6 +5,7 @@
 #include <glm/glm.hpp>
 
 #include "gfx/camera.h"
+#include "gfx/lighting.h"
 #include "gfx/shader.h"
 #include "gfx/sky_env.h"
 
@@ -18,7 +19,9 @@ namespace apricot {
 // the value left over from the previous program's frame leaks into this one,
 // and that bug looks like the fog following you between passes.
 void apply_lighting(const Shader& shader, const SkyEnv& env,
-                    const glm::vec3& camera_position);
+                    const glm::vec3& camera_position,
+                    const HeadlightRig& headlights,
+                    const CanopyLightRig& canopy_lights);
 
 // The procedural sky pass. Owns its shader and an empty VAO — the geometry is
 // three vertices generated from gl_VertexID, so there is no vertex buffer to

@@ -1,0 +1,9 @@
+Use case: precise-object-edit
+Asset type: fixed UV texture atlas for a low-poly 1991 municipal police sedan
+Primary request: Paint surface character inside the exact receiver cells of Image 1. Turn the neutral component map into a black-and-white early-1990s patrol-car material atlas with hard-edged PSX / early-PS2 value clusters. Use chunky 4-12 pixel clusters at the 1024px working scale, restrained horizontal reflection bands, small chips, road film, and subtle fleet wear.
+Input images: Image 1 is the edit target and exact 4x final-mesh UV/component template.
+Style/medium: hand-painted low-resolution GTA Vice City / San Andreas era vehicle texture; crisp nearest-neighbor shapes; limited colors; no smooth photo gradients.
+Color palette: off-white door and roof paint; near-black lower body and fenders; dark smoke-blue glass; cool faceted metal; warm sealed-beam headlamps; red, amber, and clear lenses; saturated separate red and blue lightbar cells; charcoal rubber and cabin materials.
+Materials/textures: 1991 fleet enamel, brushed/chromed bumper highlights, rubber push-bar wear, ribbed lens clusters, vinyl seats and dashboard, restrained dirt at lower edges.
+Constraints: keep the canvas square; preserve every cell position, size, boundary, gutter, and UV triangle exactly; change only color/value texture inside the existing receivers; do not move, merge, split, crop, rotate, relabel, redraw, or add cells; leave a clean dark gutter between cells; remove the bright UV wire overlay from the painted interiors while respecting its mapped shapes. The final cook will add exact generic POLICE lettering and critical lamp/lightbar colors after reduction.
+Avoid: car render, vehicle silhouette, wheels, scenery, road, people, labels, badges, seals, crests, text, numbers, logos, branding, watermark, signature, extra objects, photorealism, blurry airbrush shading.

@@ -39,8 +39,22 @@ struct Renderable {
     // That is what collapses a hillside of differently-tinted rocks into one
     // draw. Anything added here that must differ per node has to be
     // per-instance too, or batching quietly stops working.
+    // Alpha above 1 is an emissive boost for opaque lamp geometry. Normal
+    // opaque nodes stay at 1; values below 1 keep the old output-alpha path.
     glm::vec4 tint{1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec2 uv_scale{1.0f, 1.0f};
+
+    // Vehicle-only regional dents. World props leave these zero and take the
+    // exact old shader path. body_damage0 carries twelve packed 8-bit damage
+    // areas and body_damage1.xy carries two packed impact stamps;
+    // body_damage1.zw is the source mesh XZ centre and
+    // deform_frame.xy holds reciprocal XZ half-extents; zw holds source-mesh
+    // Y centre and reciprocal half-height for glass/light damage masks.
+    // Keeping this per-instance preserves traffic batching: hundreds of cars
+    // can share one immutable body mesh and still carry different damage.
+    glm::vec4 body_damage0{0.0f};
+    glm::vec4 body_damage1{0.0f};
+    glm::vec4 deform_frame{0.0f};
 };
 
 struct SceneNode {

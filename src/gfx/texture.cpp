@@ -4,6 +4,9 @@
 #include <cmath>
 #include <utility>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #include "core/log.h"
 #include "core/rng.h"
 #include "gfx/gl_state.h"
@@ -97,6 +100,47 @@ void Texture::destroy() {
 }
 
 void Texture::bind(GLuint unit) const { gl_state::bind_texture(unit, tex_); }
+
+bool Texture::load_file(const std::string& path) {
+    stbi_set_flip_vertically_on_load(1);
+    int width = 0;
+    int height = 0;
+    int source_channels = 0;
+    stbi_uc* pixels = stbi_load(path.c_str(), &width, &height, &source_channels,
+                                STBI_rgb_alpha);
+    if (!pixels || width <= 0 || height <= 0) {
+        AP_ERROR("texture: cannot load '%s' (%s)", path.c_str(),
+                 stbi_failure_reason() ? stbi_failure_reason() : "unknown error");
+        if (pixels) stbi_image_free(pixels);
+        return false;
+    }
+
+    if (!tex_) glGenTextures(1, &tex_);
+    if (!tex_) {
+        AP_ERROR("texture: GL refused an object for '%s'", path.c_str());
+        stbi_image_free(pixels);
+        return false;
+    }
+
+    gl_state::bind_texture(kEditUnit, tex_);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, pixels);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    stbi_image_free(pixels);
+
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    width_ = width;
+    height_ = height;
+    AP_INFO("texture: loaded '%s' (%dx%d, source channels %d)", path.c_str(),
+            width, height, source_channels);
+    return true;
+}
 
 bool Texture::upload_rgb(int width, int height, const std::vector<uint8_t>& rgb) {
     const std::size_t expected =
@@ -197,6 +241,38 @@ bool Texture::make_noise(int size, int base_freq, int octaves, glm::vec3 low,
                              static_cast<std::size_t>(size) +
                          static_cast<std::size_t>(x),
                     glm::mix(low, high, n));
+        }
+    }
+    return upload_rgb(size, size, rgb);
+}
+
+bool Texture::make_asphalt(int size, uint64_t seed) {
+    if (!power_of_two(size)) {
+        AP_ERROR("texture: asphalt needs a power-of-two size (got %d)", size);
+        return false;
+    }
+
+    std::vector<uint8_t> rgb(static_cast<std::size_t>(size) *
+                             static_cast<std::size_t>(size) * 3u);
+    const float inv = 1.0f / static_cast<float>(size);
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            const float u = (static_cast<float>(x) + 0.5f) * inv;
+            const float v = (static_cast<float>(y) + 0.5f) * inv;
+            const float broad = value_noise(seed ^ 0xA5F1A17ull, u, v, 8);
+            Rng grain{hash_coord(seed, x, y)};
+            float shade = 0.17f + broad * 0.075f + grain.unit_float() * 0.028f;
+
+            // Sparse aggregate keeps the road from reading as smooth charcoal.
+            const float kind = grain.next_float();
+            if (kind < 0.018f) shade -= 0.07f;
+            else if (kind > 0.988f) shade += 0.08f;
+
+            const glm::vec3 asphalt{shade, shade, shade + 0.012f};
+            put_rgb(rgb, static_cast<std::size_t>(y) *
+                             static_cast<std::size_t>(size) +
+                         static_cast<std::size_t>(x),
+                    asphalt);
         }
     }
     return upload_rgb(size, size, rgb);

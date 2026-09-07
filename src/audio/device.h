@@ -38,7 +38,7 @@ public:
     // not an error: the object stays usable and silent, and the bank is left
     // empty so no time is spent generating PCM nothing will ever play. A false
     // return means "no audio this session"; carry on.
-    bool start();
+    bool start(const SfxOverridePaths& overrides = {});
 
     // Idempotent. Stops the device, cuts every voice, and leaves the bank
     // alone — the audio thread is gone before this returns, so the bank's
@@ -61,10 +61,10 @@ public:
     // functions is then null, which the mixer already treats as silence, so
     // callers do not need to check this.
     //
-    // Non-const so an optional on-disk clip can be dropped in over a
-    // synthesised one (see override_clip_from_wav). Do that BEFORE start(),
-    // or after stop(): the audio thread holds bare pointers into these clips
-    // while it is running.
+    // Non-const for inspection and tests. Runtime overrides are passed to
+    // start(), which applies them after synthesis and before the playback
+    // thread begins. Never mutate this bank while running: voices hold bare
+    // pointers into its clips.
     SfxBank& bank() { return bank_; }
     const SfxBank& bank() const { return bank_; }
 

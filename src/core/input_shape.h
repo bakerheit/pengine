@@ -45,12 +45,27 @@ inline constexpr float kTriggerSaturation = 0.97f;
 // straight to 1.0 gives the keyboard player instant full lock, which is not
 // "responsive", it is a different and worse car — it cannot be balanced
 // against a stick without making one of the two inputs pointless.
-inline constexpr float kSteerRiseSeconds = 0.22f;
-inline constexpr float kSteerFallSeconds = 0.12f;
+// Keyboard turn-in has to arrive before the corner does. 0.22 s made A/D
+// noticeably lag a stick: the key ramp had only reached 45% after 100 ms,
+// and the progressive rack softened that again. 0.16 s still preserves an
+// analogue build-up, but reaches a useful steering request in one short beat.
+// Return remains quicker so releasing a key gathers the car instead of
+// carrying lock into the next correction.
+inline constexpr float kSteerRiseSeconds = 0.16f;
+inline constexpr float kSteerFallSeconds = 0.10f;
 inline constexpr float kPedalRiseSeconds = 0.14f;
 inline constexpr float kPedalFallSeconds = 0.08f;
-inline constexpr float kHandbrakeRiseSeconds = 0.06f;
-inline constexpr float kHandbrakeFallSeconds = 0.06f;
+// The service brake is deliberately sharper than the throttle. Classic
+// arcade driving expects the brake to bite on the key-down, not ease in like a
+// carefully pressed road-car pedal.
+inline constexpr float kBrakeRiseSeconds = 0.06f;
+inline constexpr float kBrakeFallSeconds = 0.06f;
+// A handbrake button needs to feel like a short lever pull, not an on/off
+// traction switch. A quick tap now only brushes the rear brakes; holding it
+// still reaches full travel. Release stays quicker so the car gathers up as
+// soon as the player lets go.
+inline constexpr float kHandbrakeRiseSeconds = 0.18f;
+inline constexpr float kHandbrakeFallSeconds = 0.10f;
 
 // --- small helpers -----------------------------------------------------------
 // std::fabs and std::clamp are not constexpr in C++17, and these want to be

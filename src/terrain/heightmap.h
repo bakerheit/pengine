@@ -80,7 +80,7 @@ inline constexpr float kShoreLevel = 0.22f;
 // resolves and the mountains never switch on. Much shorter and the island
 // grows six separate highland lumps instead of a backbone.
 //
-// Pinatty's island is 5.5 km across, so a third of that diameter is ~1850 m.
+// O'Haven's island is 5.5 km across, so a third of that diameter is ~1850 m.
 // Leaving this at 900 against an island that size is the exact failure the
 // paragraph above warns about from the other direction: six separate highland
 // lumps instead of one backbone, and no massif to put Ferrone Hill on.
@@ -104,6 +104,22 @@ inline constexpr float kRidgeMetres = 420.0f;
 // number: it is the island, and the rest is what keeps the island in scale.
 inline constexpr float kIslandRadiusMetres = 2750.0f;
 
+// The original O'Haven terrain contract occupied this symmetric box. Florangia
+// has no mask contribution at or inside it, so every existing height, normal
+// and material sample keeps the exact arithmetic path it had before the world
+// expanded. Florangia also stays absent for the one-metre normal stencil just
+// beyond the south edge.
+inline constexpr float kOHavenLegacyWorldHalfMetres = 3072.0f;
+
+// Authored envelope for the 1.45x Florangia pass. The northwest end stays put
+// across the water from O'Haven while the panhandle and peninsula grow east
+// and south. Its warped zero-height contour sits roughly inside this box; the
+// mask has a submerged feather outside it.
+inline constexpr float kFlorangiaMinXMetres = 2000.0f;
+inline constexpr float kFlorangiaMaxXMetres = 8400.0f;
+inline constexpr float kFlorangiaMinZMetres = 3100.0f;
+inline constexpr float kFlorangiaMaxZMetres = 9500.0f;
+
 // Fraction of kIslandRadiusMetres at which the land starts falling away. Below
 // this the mask is a flat 1 and the terrain is whatever the noise says.
 //
@@ -116,7 +132,7 @@ inline constexpr float kShoreFalloffStart = 0.78f;
 // in metres. Without this the island is a poker chip and every player notices
 // within ten seconds.
 //
-// At Pinatty's scale the coastline has to wander by HUNDREDS of metres, not
+// At O'Haven's scale the coastline has to wander by HUNDREDS of metres, not
 // tens, or the harbour, the channel and the bay all have to be carved by hand
 // and the island between them is a poker chip with three bites out of it.
 inline constexpr float kCoastWarpMetres = 560.0f;
@@ -147,7 +163,7 @@ inline constexpr float kIslandPlatform = 0.235f;
 // kHomeRadiusMetres used to lift a 380 m dome of terrain at the world origin
 // so that a random seed could not drop the car into a lagoon. It was the right
 // answer for a rally island generated fresh per seed. It is the wrong answer
-// here for a specific reason: PINATTY'S ORIGIN IS DOWNTOWN. That dome would
+// here for a specific reason: O'HAVEN'S ORIGIN IS DOWNTOWN. That dome would
 // not have been a safety net, it would have BEEN the terrain under the
 // financial district -- a 42%-of-headroom bulge in the middle of Vellum Row
 // that nobody authored and no district polygon knows about.
@@ -199,9 +215,20 @@ float height_at(uint64_t seed, float x, float z);
 // a maths error, never a real feature.
 glm::vec3 normal_at(uint64_t seed, float x, float z);
 
-// The island falloff on its own, in [0, 1]. 1 well inside the coast, 0 out in
-// open water. Exposed because scatter and any "am I still on the island"
-// question want the mask itself, not a height they then have to guess about.
+// The BASE island falloff alone, in [0, 1], before authored operators.
+// This is NOT the final land/water boundary: it knows nothing about the
+// harbour, channels, reclaimed airport or causeway. The map's actual coast is
+// height_at(seed, x, z) == kSeaLevelMetres; the visible LOD-0 shoreline is that
+// same level intersected with build_chunk() triangles (mesh_height_at()).
+// Render the ocean at kSeaLevelMetres and let terrain depth occlude it. Do not
+// clip water to this mask or another radius: that would erase authored water
+// and make the map, visible ground and collider describe different islands.
 float island_mask(uint64_t seed, float x, float z);
+
+// Individual state masks. `ohaven_island_mask()` is the original radial mask,
+// exposed separately so regressions can prove it did not move. Florangia is an
+// authored smooth union of a panhandle and tapered, curving peninsula.
+float ohaven_island_mask(uint64_t seed, float x, float z);
+float florangia_mask(uint64_t seed, float x, float z);
 
 }  // namespace apricot

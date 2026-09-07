@@ -39,15 +39,17 @@ all three in the same commit:
 2. `Mesh::upload_instances()`'s attribute wiring in `mesh.cpp`
 3. `assets/shaders/lit_instanced.vert`'s `layout(location = ...)` inputs
 
-`tint` and `uv_scale` ride the instance rather than a per-draw uniform because
-`scene/draw_batch.h` deliberately keeps them out of the batch key, so nodes
-differing only in colour or tiling still collapse into one draw. Promote either
-to a uniform and batching degrades to one draw per object while continuing to
-look like it works.
+`tint`, `uv_scale`, and the six-region vehicle deformation payload ride the
+instance rather than a per-draw uniform because `scene/draw_batch.h`
+deliberately keeps them out of the batch key. Nodes differing only in colour,
+tiling, or crash damage still collapse into one draw. Promote any of them to a
+uniform and batching degrades to one draw per object while continuing to look
+like it works.
 
 Vertex attribute locations: `0` position, `1` normal, `2` uv, `3` reserved for a
-tangent, `4-12` the instance block. Location 3 stays empty so adding normal
-mapping later does not renumber every shader in the engine.
+tangent, `4-12` transform/colour/tiling, and `13-15` regional vehicle damage.
+Location 3 stays empty so adding normal mapping later does not renumber every
+shader in the engine.
 
 ## Shaders
 
@@ -67,10 +69,23 @@ previous working program intact.
 lit shader (via the shared `apply_lighting` GLSL include) and the rain all read.
 There is no second place to set a light direction.
 
-Weather and fog layer *onto* that env and are **exact no-ops at zero** — bit for
-bit, pinned by `tests/sky_env_tests.cpp`. Not "visually identical": if the clear
-day drifts by an ulp every time somebody tunes a storm, there is no frame anyone
-can point at where it broke.
+The same shared include also evaluates the player car's two headlight spots.
+`PlayerCarVisual` builds their world-space pose from the same interpolated
+chassis transform used for the model, and the renderer uploads the rig once per
+frame. An intensity of zero is the daylight off path; there is no second lit
+material variant to drift out of sync.
+
+Traffic headlights use CPU-built 64-pixel tiles with 24 depth bands and
+variable-length buffer-texture lists. All relevant cars can contribute; there
+is no four-car budget. The same lists light static geometry and skinned people
+without splitting draw batches. See `docs/traffic-headlights.md` for the
+shadowless-lighting limits and the frozen-scene GPU A/B benchmark.
+
+Weather layers *onto* that env and is an **exact no-op at zero** — bit for bit,
+pinned by `tests/sky_env_tests.cpp`. The app then adds draw-distance haze as a
+separate world-scale layer: clear weather keeps a long view, while weather pulls
+the fully opaque horizon inward. Keeping those jobs separate means storm tuning
+cannot quietly drift the clear-day lighting model.
 
 ## Headless-testable by design
 
@@ -82,9 +97,9 @@ it belongs in a `.cpp` next door.
 
 ## Status
 
-Implemented and exercised: `gl_state`, `Shader`, `Texture` (procedural only —
-there is no image loader and no image file on disk), `Mesh` including the
-instanced attribute stream, `Camera`, `Sky`, `Precipitation`, `Hud` and
+Implemented and exercised: `gl_state`, `Shader`, `Texture` (procedural plus PNG
+paint for authored models), `Mesh` including cooked static `.emesh` geometry and
+the instanced attribute stream, `Camera`, `Sky`, `Precipitation`, `Hud` and
 `Renderer`.
 
 Not done, deliberately:

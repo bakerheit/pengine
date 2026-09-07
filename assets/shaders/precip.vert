@@ -1,10 +1,10 @@
 #version 330 core
 
-// Rain streaks. Every quad is built in world space CPU-side (gfx/precip.cpp),
+// Rain streaks and snowflakes. Every quad is built in world space CPU-side,
 // so the vertex stage is a plain transform and the whole field is one draw.
 layout(location = 0) in vec3  a_pos;
-layout(location = 1) in vec2  a_uv;     // x: across the width [-1,1]; y: head 0 -> tail 1
-layout(location = 2) in float a_alpha;  // per-streak base alpha
+layout(location = 1) in vec2  a_uv;     // rain: width/head-tail; snow: square [-1,1]
+layout(location = 2) in float a_alpha;  // per-particle base alpha
 
 uniform mat4 u_view_proj;
 

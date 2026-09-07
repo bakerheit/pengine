@@ -53,15 +53,18 @@ struct RoadMesh {
 // on and the risers are a vertical face you do not, and the collision pass
 // below needs to tell them apart without guessing from a normal.
 enum class RoadLayer : uint8_t {
-    Carriageway = 0,  // paved, lane-marked asphalt
+    Carriageway = 0,  // paved asphalt base
     Unpaved = 1,      // packed earth, no markings
     Walk = 2,         // raised concrete sidewalk slabs
     Kerb = 3,         // the vertical faces closing those slabs
     Plate = 4,        // junction asphalt, no markings
     Crosswalk = 5,    // zebra bands across a junction approach
+    WhiteMarking = 6, // edge lines and same-direction lane dividers
+    YellowMarking = 7,// opposing-traffic centre lines
+    Structure = 8,   // bridge undersides, parapets and piers
 };
 
-inline constexpr std::size_t kRoadLayerCount = 6;
+inline constexpr std::size_t kRoadLayerCount = 9;
 
 inline constexpr std::size_t road_layer_index(RoadLayer l) {
     return static_cast<std::size_t>(l);
@@ -69,9 +72,16 @@ inline constexpr std::size_t road_layer_index(RoadLayer l) {
 
 const char* road_layer_name(RoadLayer l);
 
-// Everything one bake produced. Six meshes, because six materials; the host
+// Everything one bake produced. Eight meshes, because eight materials; the host
 // layer uploads each into its own Mesh and draws it with its own texture.
 struct RibbonBake {
+    struct Solid {
+        glm::vec3 centre{0.0f};
+        glm::vec3 half{0.0f};
+        float yaw = 0.0f;
+    };
+    // Drawn and collided from the same boxes: parapets and bridge piers.
+    std::vector<Solid> solids;
     RoadMesh layers[kRoadLayerCount];
 
     // Counts worth logging, and worth asserting on in a test.
@@ -114,6 +124,19 @@ struct RibbonParams {
     float slab_m = 1.0f;
     float crosswalk_tile_m = 4.0f;
 
+    // Road paint dimensions. Markings are separate curved ribbons instead of
+    // being baked into the asphalt texture, so they stay aligned on bends and
+    // custom-width roads. Dashes are measured in metres, not UV repeats.
+    float marking_width_m = 0.15f;
+    float marking_lift_m = 0.018f;
+    float dash_length_m = 3.0f;
+    float dash_gap_m = 6.0f;
+
+    // A lane-connected ramp's authored endpoint is its traffic seam, not a
+    // place where the visible asphalt should end. Carry the ribbon back into
+    // the auxiliary deck so its square cap is buried under the freeway.
+    float lane_connect_overlap_m = 40.0f;
+
     // Bottom of a kerb riser, relative to the terrain. Slightly NEGATIVE on
     // purpose: the foot sits a hair under the surface it meets so there is no
     // see-through seam at the kerb line.
@@ -141,6 +164,7 @@ struct RoadCollisionTri {
 
 struct RoadCollision {
     std::vector<RoadCollisionTri> triangles;
+    std::vector<RibbonBake::Solid> solids;
     AABB bounds;
 };
 
@@ -158,10 +182,9 @@ struct RoadCollision {
 // implementation of something that already existed. This signature is what
 // makes a third one impossible here rather than merely discouraged.
 //
-// The Kerb layer is excluded, and that exclusion is by LAYER and not by
-// testing a normal. Its faces are vertical, so they are not a surface anything
-// rests on, and including them would put horizontal-normal triangles into a
-// set whose whole contract is that a normal points up.
+// Kerbs and paint layers are excluded, and that exclusion is by LAYER and not
+// by testing a normal. Kerbs are vertical; paint is a visual skin slightly
+// above the real road and must not make a tyre climb at every lane line.
 RoadCollision build_road_collision(const RibbonBake& bake);
 
 }  // namespace apricot

@@ -1,0 +1,39 @@
+{
+  "id": "10_cutscene_last_drink",
+  "kind": "Cutscene",
+  "title": "Last drink",
+  "character": "Ruth \u2014 longtime neighborhood bartender",
+  "voice": "sage",
+  "direction": "Older American woman, warm worn-in lower register, gentle rasp and unhurried pace. Speaking privately while wiping down an empty bar. Affection under a hard-earned warning. Pause after 'Eyes on the door'. Finish simply, with concern, not melodrama.",
+  "text": "Your old man sat in that same chair the night he got his big idea. Same smile, too. Eyes on the door. Look, I won't tell you how to live. Just leave enough of yourself to come back through here when the money's gone.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "10_cutscene_last_drink.wav",
+  "transcript": "Your old man sat in that same chair the night he got his big idea. Same smile, too. Eyes on the door. Look, I won't tell you how to live. Just leave enough of yourself to come back through here when the money's gone.",
+  "transcript_matches": true,
+  "duration_seconds": 19.5,
+  "peak_dbfs": -13.84,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 735,
+    "input_tokens": 239,
+    "output_tokens": 496,
+    "input_token_details": {
+      "text_tokens": 239,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 106,
+      "audio_tokens": 390,
+      "reasoning_tokens": 26
+    }
+  },
+  "response_id": "resp_EKQEp7CowwekGkgV2hfAp"
+}

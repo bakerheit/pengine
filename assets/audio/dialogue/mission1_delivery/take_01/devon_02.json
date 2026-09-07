@@ -1,0 +1,39 @@
+{
+  "id": "devon_02",
+  "kind": "Cutscene",
+  "title": "Mission 1 package arrival",
+  "character": "Devon",
+  "voice": "verse",
+  "text": "Just checking. Tell Lou we're square.",
+  "direction": "Adult American man who runs a bait shop. Guarded and watchful, lightly rough everyday voice. The first question is quiet and serious; relax slightly once the package is in hand. Speaking to a young courier at arm length. Natural pace, no growl or drawl.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "devon_02.wav",
+  "transcript": "Just checking. Tell Lou we're square.",
+  "transcript_matches": true,
+  "duration_seconds": 4.3,
+  "peak_dbfs": -6.37,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 319,
+    "input_tokens": 194,
+    "output_tokens": 125,
+    "input_token_details": {
+      "text_tokens": 194,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 39,
+      "audio_tokens": 86,
+      "reasoning_tokens": 17
+    }
+  },
+  "response_id": "resp_EKbIO1BV89TGvXDRPnuEV"
+}

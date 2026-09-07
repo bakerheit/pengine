@@ -1,0 +1,39 @@
+{
+  "id": "05_cutscene_clean_job",
+  "kind": "Cutscene",
+  "title": "A clean job",
+  "character": "Mara \u2014 precise fixer",
+  "voice": "marin",
+  "direction": "American woman, forties, low and composed, clear consonants, small dry smile. Giving a job to someone you like but don't fully trust. Businesslike opening, a deliberate pause before the last sentence, then unmistakable quiet warning.",
+  "text": "There's an envelope behind the counter at Halloway Gas. Bring it to me sealed. Don't count it, don't smell it, and for God's sake, don't ask the cashier what's inside. Last fellow asked questions. Now I'm hiring you.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "05_cutscene_clean_job.wav",
+  "transcript": "There's an envelope behind the counter at Halloway Gas. Bring it to me sealed. Don't count it, don't smell it, and for God's sake, don't ask the cashier what's inside. Last fellow asked questions. Now I'm hiring you.",
+  "transcript_matches": true,
+  "duration_seconds": 14.55,
+  "peak_dbfs": -6.52,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 611,
+    "input_tokens": 229,
+    "output_tokens": 382,
+    "input_token_details": {
+      "text_tokens": 229,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 91,
+      "audio_tokens": 291,
+      "reasoning_tokens": 19
+    }
+  },
+  "response_id": "resp_EKQEQEMWbjYEvIk5cPlIx"
+}

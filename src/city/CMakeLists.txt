@@ -1,4 +1,4 @@
-# city -> apricot_sim. Pinatty: the map, and the decision layers that run on it.
+# city -> apricot_sim. O'Haven: the map, and the decision layers that run on it.
 #
 # Two things landed here from different directions and they belong together.
 #
@@ -30,6 +30,8 @@
 #
 # Several files here are header-only and deliberately have no entry below.
 target_sources(apricot_sim PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/building_creator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/marina.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/map.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/police_ai.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/traffic_ai.cpp

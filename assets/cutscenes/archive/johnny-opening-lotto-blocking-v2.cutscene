@@ -1,0 +1,28 @@
+APRICOT_CUTSCENE 1
+"Johnny Mercer - The lotto" 0.460000008
+7 2 16
+"01 - At the counter" 9 1 22.2065487 13.8500004 -23.3223209 18.6422501 13.3500004 -21.9373035 58 22.2065487 13.8500004 -23.3223209 18.6422501 13.3500004 -21.9373035 58
+"02 - Lou hit it once" 10 1 20.2545414 13.75 -21.0137138 18.7729111 13.5799999 -23.1804562 49 20.2545414 13.75 -21.0137138 18.7729111 13.5799999 -23.1804562 49
+"03 - Picking numbers" 5 1 20.2909756 13.7200003 -22.3170471 18.5168152 13.5699997 -20.7438774 49 20.2909756 13.7200003 -22.3170471 18.5168152 13.5699997 -20.7438774 49
+"04 - The bank's truck" 10 1 20.2545414 13.75 -21.0137138 18.7729111 13.5799999 -23.1804562 49 20.2545414 13.75 -21.0137138 18.7729111 13.5799999 -23.1804562 49
+"05 - Changing the subject" 7 1 22.2065487 13.8500004 -23.3223209 18.6422501 13.3500004 -21.9373035 58 22.2065487 13.8500004 -23.3223209 18.6422501 13.3500004 -21.9373035 58
+"06 - Let me do it" 11 1 20.2909756 13.7200003 -22.3170471 18.5168152 13.5699997 -20.7438774 49 20.2909756 13.7200003 -22.3170471 18.5168152 13.5699997 -20.7438774 49
+"07 - They..." 10 1 20.2545414 13.75 -21.0137138 18.7729111 13.5799999 -23.1804562 49 20.2545414 13.75 -21.0137138 18.7729111 13.5799999 -23.1804562 49
+"Johnny Mercer" "models/characters/psx_pack/player_male_01/skin.emesh" "models/characters/psx_pack/player_male_01/body.png" "models/characters/psx_pack/animations/idle.eanim" 18.5168152 12.1499996 -20.7438774 18.5168152 12.1499996 -20.7438774 174 174 1.75999999 0 62
+"Lou - Manager" "models/characters/psx_pack/civilian_male_05/skin.emesh" "models/characters/psx_pack/civilian_male_05/body.png" "models/characters/psx_pack/animations/idle.eanim" 18.7729111 12.1499996 -23.1804562 18.7729111 12.1499996 -23.1804562 -6 -6 1.79999995 0 62
+"Johnny" "Lotto's up to twelve million." "" 1 3
+"Lou" "Don't waste your money." "" 4.30000019 2.20000005
+"Johnny" "Somebody's gotta win." "" 6.80000019 2.20000005
+"Lou" "I hit it once. Never played again." "" 9.60000038 4
+"Johnny" "You? How much?" "" 14 2
+"Lou" "Enough to buy this place." "" 16.5 2.5
+"Johnny" "No shit. What'd you do, pick birthdays?" "" 19.5 4
+"Lou" "Didn't pick numbers. Picked a truck." "" 24 3.5
+"Johnny" "A truck?" "" 28 1.5
+"Lou" "Had the bank's name on the side." "" 30 3.29999995
+"Johnny" "Right." "" 34.5 1
+"Lou" "Anyway. I gotta go make a delivery." "" 37 4
+"Johnny" "Let me do it." "" 41.5 1.70000005
+"Lou" "You?" "" 43.5999985 1
+"Johnny" "Yeah. I've been in here all day. Let me get out of the store for a bit." "" 45.2999992 5.80000019
+"Lou" "Ya, actually, they... that might not be a bad idea." "" 53 6.30000019

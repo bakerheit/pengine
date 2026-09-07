@@ -43,6 +43,8 @@ inline constexpr uint32_t kChannelCoast     = 0x0400u;
 inline constexpr uint32_t kChannelSeaFloor  = 0x0500u;
 inline constexpr uint32_t kChannelSurface   = 0x0600u;
 inline constexpr uint32_t kChannelScatter   = 0x0700u;
+inline constexpr uint32_t kChannelFlorangiaCoast  = 0x0800u;
+inline constexpr uint32_t kChannelFlorangiaRelief = 0x0900u;
 
 // Standard fBm shape. Lacunarity 2 and gain 0.5 give the 1/f spectrum real
 // landscapes have; they are not arbitrary and are not worth "tuning".

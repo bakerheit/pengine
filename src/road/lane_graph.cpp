@@ -33,40 +33,84 @@ const char* junction_control_name(JunctionControl c) {
 namespace {
 
 constexpr glm::vec3 kUp{0.0f, 1.0f, 0.0f};
+// The road collider is made from small draped triangles. Between vertices its
+// planar top can sit a couple of centimetres above a direct terrain sample,
+// so ground lanes need this clearance to keep traffic tyres on the same solid
+// asphalt the player's car touches. Decks are already exactly planar.
+constexpr float kGroundLaneClearanceM = 0.03f;
 
 glm::vec2 safe_normalize(glm::vec2 v, glm::vec2 fallback = {1.0f, 0.0f}) {
     const float l = glm::length(v);
     return l > 1e-6f ? v / l : fallback;
 }
 
-// The lane's right vector, in XZ. This is cross(up, tangent) with the Y
+// The lane's right vector, in XZ. This is cross(tangent, up) with the Y
 // component dropped, and it is written out rather than called through glm so
 // that pose(), project_onto() and the lane offsets provably share ONE sign
 // convention. When they do not, "lateral" means one thing to the follower and
 // the opposite to the overtake logic, and cars steer into oncoming to avoid
 // oncoming.
 glm::vec2 lane_right(glm::vec2 tangent) {
-    return glm::vec2{tangent.y, -tangent.x};
+    return glm::vec2{-tangent.y, tangent.x};
 }
 
 // Per-vertex right-offset of an XZ polyline, lifted onto the drawn road
 // surface. Interior tangents use a central difference so the offset line does
 // not kink at every shape point.
 std::vector<glm::vec3> offset_polyline(const std::vector<glm::vec2>& pts,
-                                       float offset, const RoadSurface& surf) {
+                                       float offset_start, float offset_end,
+                                       const RoadSurface& surf) {
     std::vector<glm::vec3> out;
-    out.reserve(pts.size());
     const std::size_t n = pts.size();
+    std::vector<glm::vec2> offset_points;
+    offset_points.reserve(n);
+    std::vector<float> along(n, 0.0f);
+    for (std::size_t i = 1; i < n; ++i)
+        along[i] = along[i - 1] + glm::length(pts[i] - pts[i - 1]);
+    const float total = std::max(along.back(), 1e-6f);
     for (std::size_t i = 0; i < n; ++i) {
-        glm::vec2 t;
-        if (i == 0) t = pts[1] - pts[0];
-        else if (i + 1 == n) t = pts[n - 1] - pts[n - 2];
-        else t = pts[i + 1] - pts[i - 1];
-        const glm::vec2 p = pts[i] + lane_right(safe_normalize(t)) * offset;
-        // + kDrapeEpsM: the lane rides the CARRIAGEWAY, which is drawn that
-        // far above the terrain. A lane on bare terrain puts every car 6 cm
-        // inside the road it is driving on.
-        out.push_back(glm::vec3{p.x, surf.at(p) + kDrapeEpsM, p.y});
+        glm::vec2 tangent;
+        if (i == 0) tangent = pts[1] - pts[0];
+        else if (i + 1 == n) tangent = pts[n - 1] - pts[n - 2];
+        else tangent = pts[i + 1] - pts[i - 1];
+        const float offset = glm::mix(offset_start, offset_end, along[i] / total);
+        offset_points.push_back(pts[i] +
+                                lane_right(safe_normalize(tangent)) * offset);
+    }
+    constexpr float kLaneDrapeStepM = 4.0f;
+    for (std::size_t segment = 0; segment + 1 < n; ++segment) {
+        const glm::vec2 a = offset_points[segment];
+        const glm::vec2 delta = offset_points[segment + 1] - a;
+        const float length = glm::length(delta);
+        if (length < 1e-4f) continue;
+        const float y0 = surf.at(a);
+        const float y1 = surf.at(a + delta);
+        float chord_error = 0.0f;
+        for (int sample = 1; sample < 10; ++sample) {
+            const float probe = static_cast<float>(sample) / 10.0f;
+            const glm::vec2 p = a + delta * probe;
+            chord_error = std::max(
+                chord_error, std::fabs(surf.at(p) - glm::mix(y0, y1, probe)));
+        }
+        // Preserve the original sparse path on genuinely planar streets.
+        // Dense points exist to follow shaped grades, where endpoint-only
+        // interpolation was visibly wrong, and should not perturb traffic
+        // timing across the rest of the network for no geometric benefit.
+        const int steps = chord_error > 0.05f
+            ? std::max(1, static_cast<int>(std::ceil(length / kLaneDrapeStepM)))
+            : 1;
+        const int first = segment == 0 ? 0 : 1;
+        for (int step = first; step <= steps; ++step) {
+            const float u = static_cast<float>(step) / static_cast<float>(steps);
+            const glm::vec2 p = a + delta * u;
+            // + kDrapeEpsM: the lane rides the carriageway at the same 4 m
+            // sampling scale as the ribbon. Interpolating height only between
+            // authored shape points can put an AI car 40 cm under a grade.
+            const float collision_clearance =
+                surf.decked ? 0.0f : kGroundLaneClearanceM;
+            out.push_back(glm::vec3{
+                p.x, surf.at(p) + kDrapeEpsM + collision_clearance, p.y});
+        }
     }
     return out;
 }
@@ -87,16 +131,16 @@ glm::vec2 lane_end_dir(const Lane& l) {
 // Heading-based turn classification, XZ only.
 //
 // The handedness is pinned by lane_right(): for a heading of +X the right
-// vector is -Z, so a turn from +X to -Z is a RIGHT turn, and the 2D cross
-// product of those two is negative. Hence cross > 0 is Left. Get this backwards
-// and every junction politely gives way to the wrong side of the road.
+// vector is +Z, so a turn from +X to +Z is a RIGHT turn, and the 2D cross
+// product of those two is positive. Get this backwards and every junction
+// politely gives way to the wrong side of the road.
 TurnKind classify_turn(glm::vec2 in_dir, glm::vec2 out_dir) {
     const glm::vec2 a = safe_normalize(in_dir);
     const glm::vec2 b = safe_normalize(out_dir);
     const float d = glm::dot(a, b);
     if (d < -0.5f) return TurnKind::UTurn;
     if (d > 0.5f) return TurnKind::Straight;
-    return (a.x * b.y - a.y * b.x) > 0.0f ? TurnKind::Left : TurnKind::Right;
+    return (a.x * b.y - a.y * b.x) > 0.0f ? TurnKind::Right : TurnKind::Left;
 }
 
 float turn_weight(TurnKind k) {
@@ -117,28 +161,35 @@ JunctionControl control_for(const RoadGraph& g, uint32_t n) {
     if (nd.edges.size() < 3) return JunctionControl::None;
 
     bool any_freeway = false;
+    bool any_arterial = false;
     bool any_unpaved = false;
     bool any_major = false;
+    bool any_alley = false;
     bool all_alley = true;
     for (uint32_t ei : nd.edges) {
         const RoadClass c = g.edge(ei).cls;
         if (road_is_grade_separated(c)) any_freeway = true;
+        if (c == RoadClass::Arterial) any_arterial = true;
         if (road_uses_stop_signs(c)) any_unpaved = true;
         if (road_is_major(c)) any_major = true;
+        if (c == RoadClass::Alley) any_alley = true;
         if (c != RoadClass::Alley) all_alley = false;
     }
 
     // Order matters, and each step is a rule from pinatty.md §3:
-    //  * a freeway meets other roads at RAMPS. There is no at-grade freeway
-    //    crossing in the design, so there is no light for one here either.
+    //  * freeway ramp merges are uncontrolled. The authored Rimway terminal
+    //    at Apron Spine is the one freeway/arterial surface junction and must
+    //    be signalled or the six motorway lanes cross dock traffic at speed.
     //  * dirt takes stop signs, never lights, and the stop wins even against
     //    an arterial.
     //  * alleys are uncontrolled at any degree.
     //  * an arterial or better in the mix makes it a signalled crossing.
     //  * a four-way of plain streets is signalled; a T of plain streets is not.
-    if (any_freeway) return JunctionControl::None;
+    if (any_freeway) return any_arterial ? JunctionControl::Signal
+                                        : JunctionControl::None;
     if (any_unpaved) return JunctionControl::Stop;
     if (all_alley) return JunctionControl::None;
+    if (any_alley && nd.edges.size() == 3) return JunctionControl::None;
     if (any_major) return JunctionControl::Signal;
     if (nd.edges.size() >= 4) return JunctionControl::Signal;
     return JunctionControl::None;
@@ -190,24 +241,52 @@ void LaneGraph::build(const RoadGraph& graph, const GroundSampler& ground,
     for (uint32_t ei = 0; ei < graph.edge_count(); ++ei) {
         const RoadEdge& e = graph.edge(ei);
         const RoadClassDef& def = road_class_def(e.cls);
-        const int per_dir = std::max(1, def.lanes_per_dir);
+        const int start_lanes = e.one_way ? 1 : std::max<int>(1, e.lanes_start_per_dir);
+        const int end_lanes = e.one_way ? 1 : std::max<int>(1, e.lanes_end_per_dir);
+        const int per_dir = std::max(start_lanes, end_lanes);
+        // When the lane count stays fixed, extra profiled width is shoulder
+        // and gore space. Keep the live lane centres based on the narrower
+        // end instead of fanning traffic sideways across that empty asphalt.
+        // Count-changing tapers still use each endpoint width so their born or
+        // dying lane opens in the authored outer strip.
+        const float fixed_lane_width = std::min(e.width_start_m, e.width_end_m);
         const RoadSurface surf = RoadSurface::of(e, ground);
 
         edge_lanes_[ei].base = static_cast<uint32_t>(lanes_.size());
         edge_lanes_[ei].per_dir = static_cast<uint8_t>(per_dir);
+        edge_lanes_[ei].one_way = e.one_way;
 
         std::vector<glm::vec2> reversed(e.points.rbegin(), e.points.rend());
 
         // Forward lanes first, then the returning ones. opposing() and
         // neighbour() index off this layout, so it is a contract: base + i is
         // forward lane i, base + per_dir + i is its mirror.
-        for (int pass = 0; pass < 2; ++pass) {
+        for (int pass = 0; pass < (e.one_way ? 1 : 2); ++pass) {
             const bool forward = pass == 0;
             for (int i = 0; i < per_dir; ++i) {
-                const float off = sign * lane_centre_offset_m(e.width_m, per_dir, i);
+                auto endpoint_offset = [&](float width, int count) {
+                    if (e.one_way) return 0.0f;
+                    if (start_lanes == end_lanes) width = fixed_lane_width;
+                    return sign * (i < count
+                        ? lane_centre_offset_m(width, count, i)
+                        // A born/dying auxiliary lane shares the old outer
+                        // lane centre at the narrow end. Sending it to the
+                        // shoulder edge makes the car hit the parapet instead
+                        // of merging into the pre-existing lane.
+                        : lane_centre_offset_m(width, count, count - 1));
+                };
+                float off_start = endpoint_offset(e.width_start_m, start_lanes);
+                float off_end = endpoint_offset(e.width_end_m, end_lanes);
+                uint8_t lanes_at_start = static_cast<uint8_t>(start_lanes);
+                uint8_t lanes_at_end = static_cast<uint8_t>(end_lanes);
+                if (!forward) {
+                    std::swap(off_start, off_end);
+                    std::swap(lanes_at_start, lanes_at_end);
+                }
                 Lane l;
                 l.centreline =
-                    offset_polyline(forward ? e.points : reversed, off, surf);
+                    offset_polyline(forward ? e.points : reversed,
+                                    off_start, off_end, surf);
                 l.junction_from = forward ? e.node_a : e.node_b;
                 l.junction_to = forward ? e.node_b : e.node_a;
                 l.edge = ei;
@@ -220,9 +299,13 @@ void LaneGraph::build(const RoadGraph& graph, const GroundSampler& ground,
                 l.cls = e.cls;
                 l.index = static_cast<uint8_t>(i);
                 l.forward = forward;
-                l.lateral_offset_m = off;
+                l.lateral_offset_m = 0.5f * (off_start + off_end);
+                l.lateral_offset_start_m = off_start;
+                l.lateral_offset_end_m = off_end;
+                l.lanes_at_start = lanes_at_start;
+                l.lanes_at_end = lanes_at_end;
                 l.width_m = e.width_m;
-                l.speed_limit_mps = def.speed_limit_mps;
+                l.speed_limit_mps = e.one_way ? 13.9f : def.speed_limit_mps;
                 l.traffic_density = e.traffic_density;
                 l.ped_density = e.ped_density;
                 l.block_quality = e.block_quality;
@@ -260,15 +343,26 @@ void LaneGraph::link_junctions(const RoadGraph& graph, bool drive_on_right) {
         for (LaneRef in_r : jn.incoming) {
             const Lane& in_l = lanes_[in_r];
             const glm::vec2 in_dir = lane_end_dir(in_l);
-            const int in_n = std::max<int>(1, edge_lanes_[in_l.edge].per_dir);
+            const int in_n = std::max<int>(1, in_l.lanes_at_end);
 
             cand.clear();
             for (LaneRef out_r : jn.outgoing) {
                 if (out_r == in_r) continue;
                 const Lane& out_l = lanes_[out_r];
-                const int out_n = std::max<int>(1, edge_lanes_[out_l.edge].per_dir);
+                const int out_n = std::max<int>(1, out_l.lanes_at_start);
+                const int out_capacity = std::max<int>(
+                    out_n, edge_lanes_[out_l.edge].per_dir);
                 const TurnKind kind =
                     classify_turn(in_dir, lane_start_dir(out_l));
+
+                // A ramp may merge only with the matching motorway direction,
+                // and only its outer lane. No left turn across opposing lanes.
+                const bool ramp_merge =
+                    (graph.edge(in_l.edge).one_way && out_l.cls == RoadClass::Freeway) ||
+                    (in_l.cls == RoadClass::Freeway && graph.edge(out_l.edge).one_way);
+                if (ramp_merge && (kind != TurnKind::Straight ||
+                    (in_l.cls == RoadClass::Freeway && in_l.index != in_n - 1) ||
+                    (out_l.cls == RoadClass::Freeway && out_l.index != out_n - 1))) continue;
 
                 // Lane discipline: a through movement stays in its own lane, a
                 // kerbside turn is made from the kerbside lane, and a crossing
@@ -276,9 +370,15 @@ void LaneGraph::link_junctions(const RoadGraph& graph, bool drive_on_right) {
                 // this, a multi-lane junction offers every lane to every lane
                 // and cars change lanes diagonally across the middle of it.
                 bool preferred;
-                if (kind == TurnKind::Straight) {
-                    preferred = out_l.index ==
-                                std::min<int>(in_l.index, out_n - 1);
+                if (ramp_merge) {
+                    preferred = true;
+                } else if (kind == TurnKind::Straight) {
+                    preferred = out_l.index == std::min<int>(in_l.index, out_n - 1);
+                    // At a 3->4 taper, the old outer through lane continues
+                    // straight while also feeding the newly born auxiliary
+                    // lane. The first three lane centres do not move.
+                    if (out_capacity > in_n && in_l.index == in_n - 1 &&
+                        out_l.index == out_capacity - 1) preferred = true;
                 } else if (kind == kerbside) {
                     preferred = in_l.index == in_n - 1 && out_l.index == out_n - 1;
                 } else {
@@ -320,6 +420,65 @@ void LaneGraph::link_junctions(const RoadGraph& graph, bool drive_on_right) {
                     }
             if (!any)
                 for (const Cand& c : cand) emit(c);
+        }
+    }
+
+    // Ramps at Halloway meet the actual outer auxiliary lane, away from the
+    // road-centre node. Weld only coincident, aligned lane endpoints. An exit
+    // consumes that auxiliary lane; an entry feeds it. This keeps the through
+    // lanes straight and avoids the old diagonal crossing over three lanes.
+    constexpr float kVirtualJoinM = 0.75f;
+    constexpr float kVirtualJoinM2 = kVirtualJoinM * kVirtualJoinM;
+    for (LaneRef ramp_r = 0; ramp_r < lanes_.size(); ++ramp_r) {
+        const Lane& ramp = lanes_[ramp_r];
+        const RoadEdge& re = graph.edge(ramp.edge);
+        if (!re.one_way) continue;
+
+        if (re.lane_connect_start) {
+            const glm::vec2 target{ramp.centreline.front().x,
+                                   ramp.centreline.front().z};
+            const glm::vec2 ramp_dir = safe_normalize(lane_start_dir(ramp));
+            for (LaneRef freeway_r = 0; freeway_r < lanes_.size(); ++freeway_r) {
+                if (freeway_r == ramp_r) continue;
+                const Lane& freeway = lanes_[freeway_r];
+                if (freeway.cls != RoadClass::Freeway) continue;
+                const glm::vec2 p{freeway.centreline.back().x,
+                                  freeway.centreline.back().z};
+                if (glm::dot(p - target, p - target) > kVirtualJoinM2) continue;
+                if (glm::dot(safe_normalize(lane_end_dir(freeway)), ramp_dir) < 0.8f)
+                    continue;
+                out_links_[freeway_r].clear();
+                out_links_[freeway_r].push_back(TurnLink{
+                    freeway_r, ramp_r, freeway.junction_to, TurnKind::Straight,
+                    TurnPriority::Normal, turn_weight(TurnKind::Straight)});
+            }
+        }
+        if (re.lane_connect_end) {
+            const glm::vec2 target{ramp.centreline.back().x,
+                                   ramp.centreline.back().z};
+            const glm::vec2 ramp_dir = safe_normalize(lane_end_dir(ramp));
+            for (LaneRef freeway_r = 0; freeway_r < lanes_.size(); ++freeway_r) {
+                if (freeway_r == ramp_r) continue;
+                const Lane& freeway = lanes_[freeway_r];
+                if (freeway.cls != RoadClass::Freeway) continue;
+                const glm::vec2 p{freeway.centreline.front().x,
+                                  freeway.centreline.front().z};
+                if (glm::dot(p - target, p - target) > kVirtualJoinM2) continue;
+                if (glm::dot(ramp_dir, safe_normalize(lane_start_dir(freeway))) < 0.8f)
+                    continue;
+                // The ramp owns the newborn auxiliary lane at this merge.
+                // Leaving the ordinary 3->4 junction link in place sends a
+                // through car and a ramp car into the same strip at once.
+                for (std::vector<TurnLink>& links : out_links_) {
+                    links.erase(std::remove_if(links.begin(), links.end(),
+                        [&](const TurnLink& link) {
+                            return link.to == freeway_r;
+                        }), links.end());
+                }
+                out_links_[ramp_r].push_back(TurnLink{
+                    ramp_r, freeway_r, freeway.junction_from, TurnKind::Straight,
+                    TurnPriority::Minor, turn_weight(TurnKind::Straight)});
+            }
         }
     }
 }
@@ -400,9 +559,9 @@ LanePose LaneGraph::pose(LaneRef r, float d, float lateral_m) const {
     const glm::vec3 tangent = b - a;
     const float tl = glm::length(tangent);
     out.tangent = tl > 1e-6f ? tangent / tl : glm::vec3{1.0f, 0.0f, 0.0f};
-    const glm::vec3 right = glm::cross(kUp, out.tangent);
+    const glm::vec3 right = glm::cross(out.tangent, kUp);
     const float rl = glm::length(right);
-    out.right = rl > 1e-6f ? right / rl : glm::vec3{0.0f, 0.0f, -1.0f};
+    out.right = rl > 1e-6f ? right / rl : glm::vec3{0.0f, 0.0f, 1.0f};
     out.position = a + (b - a) * u + out.right * lateral_m;
     return out;
 }
@@ -584,7 +743,7 @@ LaneRef LaneGraph::opposing(LaneRef r) const {
     if (r >= lanes_.size()) return kInvalidLane;
     const Lane& l = lanes_[r];
     const EdgeLanes& el = edge_lanes_[l.edge];
-    if (el.per_dir == 0) return kInvalidLane;
+    if (el.per_dir == 0 || el.one_way) return kInvalidLane;
     const uint32_t per = el.per_dir;
     return el.base + (l.forward ? per + l.index : uint32_t{l.index});
 }
@@ -604,7 +763,7 @@ std::vector<LaneRef> LaneGraph::lanes_of_edge(uint32_t edge) const {
     std::vector<LaneRef> out;
     if (edge >= edge_lanes_.size()) return out;
     const EdgeLanes& el = edge_lanes_[edge];
-    const uint32_t n = static_cast<uint32_t>(el.per_dir) * 2u;
+    const uint32_t n = static_cast<uint32_t>(el.per_dir) * (el.one_way ? 1u : 2u);
     out.reserve(n);
     for (uint32_t i = 0; i < n; ++i) out.push_back(el.base + i);
     return out;

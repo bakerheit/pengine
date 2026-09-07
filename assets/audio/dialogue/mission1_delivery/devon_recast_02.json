@@ -1,0 +1,20 @@
+[
+  {
+    "id": "devon_01",
+    "kind": "Cutscene",
+    "title": "Mission 1 package arrival",
+    "character": "Devon",
+    "voice": "ash",
+    "text": "did anyone follow you?",
+    "direction": "Adult American man speaking to a courier right in front of him. Ask a real question because you need the answer. Plain everyday voice, normal speaking volume and pace. Underplay it."
+  },
+  {
+    "id": "devon_02",
+    "kind": "Cutscene",
+    "title": "Mission 1 package arrival",
+    "character": "Devon",
+    "voice": "ash",
+    "text": "Just checking. Tell Lou we're square.",
+    "direction": "Adult American man speaking to a courier right in front of him. The answer reassured you. Brush off his question, then give him a simple message for Lou. Plain everyday voice at a normal pace. Underplay it."
+  }
+]

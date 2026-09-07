@@ -263,7 +263,7 @@ void test_ground_reaches_the_nodes() {
 
 void test_scale() {
     // Not a performance assertion — a measurement, printed. A 40 x 40 street
-    // grid is 80 spines and 1600 crossings, which is roughly a Pinatty
+    // grid is 80 spines and 1600 crossings, which is roughly a O'Haven
     // district and well past anything the authored spine table will hold.
     const int n = 40;
     const std::vector<RoadSpine> s = make_grid_spines(n, 92.0f);

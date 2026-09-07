@@ -66,6 +66,21 @@ bool Mesh::upload(const MeshData& src) {
     return upload_geometry(src.vertices, src.indices, src.bounds);
 }
 
+bool Mesh::upload(const StaticEmesh& src) {
+    std::vector<MeshVertex> vertices;
+    vertices.reserve(src.vertices.size());
+    constexpr glm::vec4 kSolidMaterial{1.0f, 0.0f, 0.0f, 0.0f};
+    for (const EmeshVertex& raw : src.vertices) {
+        MeshVertex v;
+        v.position = {raw.px, raw.py, raw.pz};
+        v.normal = {raw.nx, raw.ny, raw.nz};
+        v.uv = {raw.u, raw.v};
+        v.material_weights = kSolidMaterial;
+        vertices.push_back(v);
+    }
+    return upload_geometry(vertices, src.indices, src.bounds);
+}
+
 bool Mesh::upload_geometry(const std::vector<MeshVertex>& vertices,
                            const std::vector<uint32_t>& indices,
                            const AABB& bounds) {
@@ -116,9 +131,9 @@ bool Mesh::upload_geometry(const std::vector<MeshVertex>& vertices,
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride,
                           attrib_offset(offsetof(MeshVertex, uv)));
-    // Location 3 is reserved for a tangent and deliberately left disabled; the
-    // instance block starts at 4 so adding normal mapping later does not
-    // renumber every shader in the engine.
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3,4,GL_FLOAT,GL_FALSE,stride,
+                          attrib_offset(offsetof(MeshVertex,material_weights)));
 
     gl_state::bind_vertex_array(0);
 
@@ -173,6 +188,9 @@ bool Mesh::upload_instances(const InstanceData* data, GLsizei count) {
         wire(10, 4, offsetof(InstanceData, normal_c2));
         wire(11, 4, offsetof(InstanceData, tint));
         wire(12, 2, offsetof(InstanceData, uv_scale));
+        wire(13, 4, offsetof(InstanceData, body_damage0));
+        wire(14, 4, offsetof(InstanceData, body_damage1));
+        wire(15, 4, offsetof(InstanceData, deform_frame));
     }
 
     const GLsizeiptr bytes =

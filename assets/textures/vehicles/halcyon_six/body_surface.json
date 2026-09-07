@@ -1,0 +1,26 @@
+{
+  "model": "halcyon_six",
+  "original_triangles": 658,
+  "triangles": 644,
+  "removed_components": [
+    9,
+    10,
+    14,
+    15,
+    16,
+    17,
+    29
+  ],
+  "removed_triangles": 14,
+  "painted_source_triangles": 14,
+  "charts": 154,
+  "texels_per_source_unit": 12.877129554748535,
+  "unpainted_components": [],
+  "source_mesh_sha256": "8f094e0d531757f0bb6e4865b26de9673d21968ecd368931326254514ee4198e",
+  "source_texture_sha256": "b33aa368da29cd9d92374260698d882649e7ae4b632140c6f227e690ed91a710",
+  "atlas": [
+    256,
+    256,
+    "RGBA"
+  ]
+}

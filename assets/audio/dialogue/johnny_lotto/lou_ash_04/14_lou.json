@@ -1,0 +1,39 @@
+{
+  "id": "14_lou",
+  "kind": "Cutscene dialogue",
+  "title": "Lou recast \u2014 Ash \u2014 line 14",
+  "character": "Lou - Manager",
+  "voice": "ash",
+  "direction": "Lou is a middle-aged American gas station manager, an ex-crook who has settled into ordinary work. His voice has a light natural rasp and a rough working-class edge, but his manner is relaxed, warm and dryly amused. Speak plainly to Johnny, a coworker standing nearby. Easy everyday rhythm, clear words, small natural pauses. The texture is in the voice, not in exaggerated growling. Play the conversation casually and sincerely. A short, mildly surprised question.",
+  "text": "You?",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "14_lou.wav",
+  "transcript": "You?",
+  "transcript_matches": true,
+  "duration_seconds": 0.85,
+  "peak_dbfs": -11.6,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 290,
+    "input_tokens": 230,
+    "output_tokens": 60,
+    "input_token_details": {
+      "text_tokens": 230,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 43,
+      "audio_tokens": 17,
+      "reasoning_tokens": 33
+    }
+  },
+  "response_id": "resp_EKRm1Hxjv6Bqej1bttuvK"
+}

@@ -415,7 +415,81 @@ void a_key_ramp_is_not_instant() {
     REQUIRE_MSG(after_one_frame > 0.0f, "the key produced nothing at all",
                 "comparable to a stick");
 
+    // The other side of that balance: a keyboard driver must have a useful
+    // steering request by the time a normal turn-in becomes visible. This
+    // catches a slow ramp that is technically analogue but feels like input
+    // lag once the vehicle's own rate-limited rack is added after it.
+    float after_short_hold = 0.0f;
+    for (int i = 0; i < 12; ++i) {
+        after_short_hold = ramp_toward(after_short_hold, 1.0f, dt,
+                                       kSteerRiseSeconds, kSteerFallSeconds);
+    }
+    REQUIRE_MSG(after_short_hold >= 0.60f && after_short_hold < 1.0f,
+                "A/D was still mushy after a short deliberate hold",
+                "keyboard turn-in is prompt but progressive");
+
     apricot_test::pass("one frame of a held key is not full lock");
+}
+
+void a_handbrake_tap_is_a_partial_pull() {
+    constexpr float dt = 1.0f / 120.0f;
+    float pull = 0.0f;
+
+    // A 75 ms tap is long enough to be intentional but should not slam a
+    // digital handbrake straight to full travel.
+    for (int i = 0; i < 9; ++i) {
+        pull = ramp_toward(pull, 1.0f, dt, kHandbrakeRiseSeconds,
+                           kHandbrakeFallSeconds);
+    }
+    const float tapped = pull;
+    REQUIRE_MSG(tapped > 0.25f && tapped < 0.55f,
+                "a short handbrake tap was ignored or nearly full travel",
+                "tap is a partial pull");
+
+    // Releasing must still get the lever home promptly.
+    for (int i = 0; i < 15; ++i) {
+        pull = ramp_toward(pull, 0.0f, dt, kHandbrakeRiseSeconds,
+                           kHandbrakeFallSeconds);
+    }
+    REQUIRE_MSG(pull == 0.0f, "the handbrake stayed partly applied after release",
+                "release is prompt");
+
+    // A deliberate hold must retain the full handbrake for tight turns.
+    for (int i = 0; i < 30; ++i) {
+        pull = ramp_toward(pull, 1.0f, dt, kHandbrakeRiseSeconds,
+                           kHandbrakeFallSeconds);
+    }
+    REQUIRE_MSG(pull == 1.0f, "holding the handbrake never reached full pull",
+                "hold is still full pull");
+
+    std::printf("      (75 ms tap reaches %.0f%%; hold reaches %.0f%%)\n",
+                static_cast<double>(tapped * 100.0f),
+                static_cast<double>(pull * 100.0f));
+    apricot_test::pass("a handbrake tap is partial while a hold reaches full pull");
+}
+
+void the_brake_bites_faster_than_the_throttle() {
+    constexpr float dt = 1.0f / 120.0f;
+    float throttle = 0.0f;
+    float brake = 0.0f;
+    for (int i = 0; i < 6; ++i) {  // 50 ms of key-down
+        throttle = ramp_toward(throttle, 1.0f, dt, kPedalRiseSeconds,
+                               kPedalFallSeconds);
+        brake = ramp_toward(brake, 1.0f, dt, kBrakeRiseSeconds,
+                            kBrakeFallSeconds);
+    }
+
+    REQUIRE_MSG(brake > throttle * 2.0f,
+                "the keyboard brake eased in like the throttle",
+                "arcade brake bites quickly");
+    REQUIRE_MSG(brake > 0.80f && brake < 1.0f,
+                "50 ms of brake was either weak or already clamped",
+                "fast but progressive");
+
+    std::printf("      (after 50 ms: throttle %.0f%%, brake %.0f%%)\n",
+                static_cast<double>(throttle * 100.0f),
+                static_cast<double>(brake * 100.0f));
+    apricot_test::pass("the service brake bites faster than the throttle");
 }
 
 }  // namespace
@@ -434,5 +508,7 @@ int main() {
     ramp_is_frame_rate_independent();
     ramp_falls_faster_than_it_rises_and_handles_junk();
     a_key_ramp_is_not_instant();
+    a_handbrake_tap_is_a_partial_pull();
+    the_brake_bites_faster_than_the_throttle();
     return apricot_test::done("input_latch_tests");
 }

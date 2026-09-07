@@ -1,0 +1,8 @@
+{
+  "gain_db": 4.456564912784516,
+  "processing": "Constant gain only; original pitch and playback rate unchanged.",
+  "overrides": {
+    "17_lou": "audio/dialogue/johnny_lotto/delivery_02/balanced/17_lou.wav",
+    "19_lou": "audio/dialogue/johnny_lotto/delivery_02/balanced/19_lou.wav"
+  }
+}

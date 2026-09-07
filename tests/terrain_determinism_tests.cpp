@@ -85,7 +85,7 @@ void require_first_prop(uint64_t seed, ChunkCoord c, int kind, int variant,
 // different world three tickets later.
 //
 // EVERY NUMBER IN THIS FUNCTION MOVED IN PENG-41, deliberately and all at once.
-// The terrain was retuned from a rally island a fifth of Pinatty's size (see
+// The terrain was retuned from a rally island a fifth of O'Haven's size (see
 // the constant table in terrain/heightmap.h), the spawn-lift dome was deleted,
 // and src/city/'s terrain operators now run at the end of height_at(). Any one
 // of those three would have invalidated every tape and save seed; they were
@@ -183,10 +183,12 @@ void golden_values() {
     // Moved off {0, 0}: that is Vellum Row, and a paved district scatters
     // nothing now that scatter reads PropParams::wild. A golden pinned at zero
     // measures "downtown is still paved", not the scatter system.
-    REQUIRE(scatter_chunk(0ull, ChunkCoord{5, 6}).size() == 162u);
+    // Cinder Underpass extends the road exclusion into this chunk. The RNG
+    // and first surviving prop are unchanged; the authored map loses 84/95 props.
+    REQUIRE(scatter_chunk(0ull, ChunkCoord{5, 6}).size() == 78u);
     require_first_prop(0ull, ChunkCoord{5, 6}, 0, 1, 0x43A43EE0u, 0x414AA947u,
                        0x43C1AF94u, 0x4050E881u, 0x3FADDDF6u);
-    REQUIRE(scatter_chunk(1ull, ChunkCoord{5, 6}).size() == 173u);
+    REQUIRE(scatter_chunk(1ull, ChunkCoord{5, 6}).size() == 78u);
     require_first_prop(1ull, ChunkCoord{5, 6}, 0, 3, 0x43A6BEF5u, 0x4149C30Du,
                        0x43C087F8u, 0x4087083Au, 0x3F7C6566u);
     // Moved from {-5, 7}, which now sits entirely inside a road corridor and
@@ -344,7 +346,7 @@ void seeds_are_separated() {
 
     // THE OTHER HALF OF THE CONTRACT. The world is a pure function of
     // (map, seed, coord), and the map's contribution must NOT move with the
-    // seed: an authored plate is the same plate in every session, or Pinatty is
+    // seed: an authored plate is the same plate in every session, or O'Haven is
     // not a place a player can learn. Twenty-five points across the Vellum Row
     // plate, four wildly different seeds, one height.
     for (int32_t z = -2; z <= 2; ++z) {
@@ -419,7 +421,7 @@ void the_world_is_an_island() {
 //
 // This test used to prove that a 380 m dome of lifted terrain at the world
 // origin kept every seed's spawn point out of the water. That dome
-// (kHomeRadiusMetres) is gone: Pinatty's origin is downtown, so the dome would
+// (kHomeRadiusMetres) is gone: O'Haven's origin is downtown, so the dome would
 // not have been a safety net, it would have BEEN the ground under the financial
 // district.
 //

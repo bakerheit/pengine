@@ -1,0 +1,37 @@
+{
+  "model": "firetruck",
+  "original_triangles": 524,
+  "triangles": 308,
+  "removed_components": [
+    5,
+    6,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23
+  ],
+  "removed_triangles": 216,
+  "painted_source_triangles": 137,
+  "charts": 95,
+  "texels_per_source_unit": 11.239803314208984,
+  "unpainted_components": [],
+  "source_mesh_sha256": "f77d36396f9c5e82c6f302b60473e376257e6861e761c1bc662eca8cf6193157",
+  "source_texture_sha256": "6a00a67ef9e3b03adb808b488c279293561eab21f34179544a00ea768f73e6e2",
+  "atlas": [
+    256,
+    256,
+    "RGBA"
+  ]
+}

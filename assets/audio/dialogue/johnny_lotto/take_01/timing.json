@@ -1,0 +1,167 @@
+{
+  "model": "gpt-realtime-2.1",
+  "duration_seconds": 53.76,
+  "processing": "Original WAVs retained; balanced copies use one constant gain per speaker with -3 dBFS peak ceiling. No trimming or compression.",
+  "cues": [
+    {
+      "id": "01_johnny",
+      "speaker": "Johnny",
+      "text": "Lotto's up to twelve million.",
+      "start_seconds": 1.0,
+      "audio_seconds": 2.9,
+      "subtitle_seconds": 2.98,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/01_johnny.wav",
+      "gain_db": -0.37
+    },
+    {
+      "id": "02_lou",
+      "speaker": "Lou",
+      "text": "Don't waste your money.",
+      "start_seconds": 4.18,
+      "audio_seconds": 1.95,
+      "subtitle_seconds": 2.03,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/02_lou.wav",
+      "gain_db": 7.309
+    },
+    {
+      "id": "03_johnny",
+      "speaker": "Johnny",
+      "text": "Somebody's gotta win.",
+      "start_seconds": 6.41,
+      "audio_seconds": 1.75,
+      "subtitle_seconds": 1.83,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/03_johnny.wav",
+      "gain_db": -0.37
+    },
+    {
+      "id": "04_lou",
+      "speaker": "Lou",
+      "text": "I hit it once. Never played again.",
+      "start_seconds": 8.44,
+      "audio_seconds": 3.3,
+      "subtitle_seconds": 3.38,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/04_lou.wav",
+      "gain_db": 7.309
+    },
+    {
+      "id": "05_johnny",
+      "speaker": "Johnny",
+      "text": "You? How much?",
+      "start_seconds": 12.02,
+      "audio_seconds": 2.65,
+      "subtitle_seconds": 2.73,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/05_johnny.wav",
+      "gain_db": -0.37
+    },
+    {
+      "id": "06_lou",
+      "speaker": "Lou",
+      "text": "Enough to buy this place.",
+      "start_seconds": 14.95,
+      "audio_seconds": 3.1,
+      "subtitle_seconds": 3.18,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/06_lou.wav",
+      "gain_db": 7.309
+    },
+    {
+      "id": "07_johnny",
+      "speaker": "Johnny",
+      "text": "No shit. What'd you do, pick birthdays?",
+      "start_seconds": 18.33,
+      "audio_seconds": 3.7,
+      "subtitle_seconds": 3.7800000000000002,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/07_johnny.wav",
+      "gain_db": -0.37
+    },
+    {
+      "id": "08_lou",
+      "speaker": "Lou",
+      "text": "Didn't pick numbers. Picked a truck.",
+      "start_seconds": 22.31,
+      "audio_seconds": 3.65,
+      "subtitle_seconds": 3.73,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/08_lou.wav",
+      "gain_db": 7.309
+    },
+    {
+      "id": "09_johnny",
+      "speaker": "Johnny",
+      "text": "A truck?",
+      "start_seconds": 26.24,
+      "audio_seconds": 0.95,
+      "subtitle_seconds": 1.03,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/09_johnny.wav",
+      "gain_db": -0.37
+    },
+    {
+      "id": "10_lou",
+      "speaker": "Lou",
+      "text": "Had the bank's name on the side.",
+      "start_seconds": 27.47,
+      "audio_seconds": 3.15,
+      "subtitle_seconds": 3.23,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/10_lou.wav",
+      "gain_db": 7.309
+    },
+    {
+      "id": "11_johnny",
+      "speaker": "Johnny",
+      "text": "Right.",
+      "start_seconds": 31.27,
+      "audio_seconds": 0.65,
+      "subtitle_seconds": 0.73,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/11_johnny.wav",
+      "gain_db": -0.37
+    },
+    {
+      "id": "12_lou",
+      "speaker": "Lou",
+      "text": "Anyway. I gotta go make a delivery.",
+      "start_seconds": 32.67,
+      "audio_seconds": 3.55,
+      "subtitle_seconds": 3.63,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/12_lou.wav",
+      "gain_db": 7.309
+    },
+    {
+      "id": "13_johnny",
+      "speaker": "Johnny",
+      "text": "Let me do it.",
+      "start_seconds": 36.5,
+      "audio_seconds": 1.25,
+      "subtitle_seconds": 1.33,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/13_johnny.wav",
+      "gain_db": -0.37
+    },
+    {
+      "id": "14_lou",
+      "speaker": "Lou",
+      "text": "You?",
+      "start_seconds": 38.03,
+      "audio_seconds": 0.9,
+      "subtitle_seconds": 0.98,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/14_lou.wav",
+      "gain_db": 7.309
+    },
+    {
+      "id": "15_johnny",
+      "speaker": "Johnny",
+      "text": "Yeah. I've been in here all day. Let me get out of the store for a bit.",
+      "start_seconds": 39.21,
+      "audio_seconds": 5.1,
+      "subtitle_seconds": 5.18,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/15_johnny.wav",
+      "gain_db": -0.37
+    },
+    {
+      "id": "16_lou",
+      "speaker": "Lou",
+      "text": "Ya, actually, they... that might not be a bad idea.",
+      "start_seconds": 44.76,
+      "audio_seconds": 7.0,
+      "subtitle_seconds": 7.08,
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/16_lou.wav",
+      "gain_db": 7.309
+    }
+  ]
+}

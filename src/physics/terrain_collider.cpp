@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
+#include "road/ribbon.h"
 #include "terrain/heightmap.h"
 #include "terrain/surface.h"  // surface_kind_at
 
@@ -19,6 +21,12 @@ namespace {
 // probe_down() is exact — so this only has to be right, not fast.
 constexpr float kMarchStep = 0.25f;
 constexpr int kBisectIterations = 24;
+
+float with_ground_snow(float base_height, float snow_depth) {
+    // Keep the zero-depth path bit-identical to the old collider, including
+    // unusual signed-zero terrain samples.
+    return snow_depth > 0.0f ? base_height + snow_depth : base_height;
+}
 
 bool ray_vs_box(const AABB& b, glm::vec3 origin, glm::vec3 dir, float max_t,
                 float& out_t, glm::vec3& out_normal) {
@@ -72,6 +80,26 @@ bool ray_vs_box(const AABB& b, glm::vec3 origin, glm::vec3 dir, float max_t,
     return true;
 }
 
+bool make_oriented_box(glm::vec3 centre, glm::vec3 half, float yaw,
+                       Surface material, StaticBox& out) {
+    if (!std::isfinite(yaw)) return false;
+    for (int i = 0; i < 3; ++i) {
+        if (!std::isfinite(centre[i]) || !std::isfinite(half[i]) || half[i] <= 0.0f)
+            return false;
+    }
+    const float c = std::cos(yaw), s = std::sin(yaw);
+    const glm::vec3 broad_half{std::fabs(c)*half.x + std::fabs(s)*half.z,
+                               half.y, std::fabs(s)*half.x + std::fabs(c)*half.z};
+    out.bounds = {centre - broad_half, centre + broad_half};
+    out.material = material;
+    out.oriented = true;
+    out.local_bounds = {-half, half};
+    out.centre = centre;
+    out.axis_x = {c, -s};
+    out.axis_z = {s, c};
+    return true;
+}
+
 }  // namespace
 
 // --- the smooth field --------------------------------------------------------
@@ -93,7 +121,8 @@ float TerrainCollider::height(float x, float z) const {
     // this engine's collision rule forbids. The two agreed to 15 microns, so it
     // was not wrong; it was a copy waiting to drift the first time the mesher
     // changed its triangulation.
-    return mesh_height_at(seed_, x, z);
+    return with_ground_snow(mesh_height_at(seed_, x, z),
+                            snow_collision_depth_metres_);
 }
 
 glm::vec3 TerrainCollider::normal(float x, float z) const {
@@ -113,6 +142,11 @@ glm::vec3 TerrainCollider::normal(float x, float z) const {
     return n / len;
 }
 
+void TerrainCollider::set_snow_collision_depth(float depth_metres) {
+    snow_collision_depth_metres_ =
+        std::isfinite(depth_metres) ? std::max(depth_metres, 0.0f) : 0.0f;
+}
+
 // --- props -------------------------------------------------------------------
 
 void TerrainCollider::add_static_box(const AABB& bounds, Surface material) {
@@ -122,7 +156,202 @@ void TerrainCollider::add_static_box(const AABB& bounds, Surface material) {
     boxes_.push_back(StaticBox{bounds, material});
 }
 
-void TerrainCollider::clear_static_boxes() { boxes_.clear(); }
+void TerrainCollider::clear_static_boxes() {
+    boxes_.clear();
+    kinematic_boxes_.clear();
+    road_solid_slots_.clear();
+}
+
+void TerrainCollider::add_static_oriented_box(glm::vec3 centre, glm::vec3 half,
+                                              float yaw, Surface material) {
+    StaticBox box;
+    if (make_oriented_box(centre, half, yaw, material, box)) boxes_.push_back(box);
+}
+
+std::size_t TerrainCollider::add_kinematic_box(const AABB& bounds) {
+    if (!bounds.valid()) return static_cast<std::size_t>(-1);
+    const std::size_t id = boxes_.size();
+    add_static_box(bounds, Surface::Rock);
+    kinematic_boxes_.push_back(id);
+    return id;
+}
+
+bool TerrainCollider::set_kinematic_enabled(std::size_t id, bool enabled) {
+    if (id>=boxes_.size() || std::find(kinematic_boxes_.begin(),kinematic_boxes_.end(),id)==kinematic_boxes_.end()) return false;
+    boxes_[id].enabled=enabled;
+    return true;
+}
+
+bool TerrainCollider::set_kinematic_vehicle(std::size_t id, bool is_vehicle) {
+    if (id>=boxes_.size() || std::find(kinematic_boxes_.begin(),kinematic_boxes_.end(),id)==kinematic_boxes_.end()) return false;
+    boxes_[id].is_vehicle=is_vehicle;
+    return true;
+}
+
+bool TerrainCollider::set_kinematic_breakaway(std::size_t id, uint32_t owner_id,
+                                             float speed) {
+    if (id >= boxes_.size() || !std::isfinite(speed) || speed <= 0.0f ||
+        std::find(kinematic_boxes_.begin(), kinematic_boxes_.end(), id) ==
+            kinematic_boxes_.end()) return false;
+    boxes_[id].breakaway_id = owner_id;
+    boxes_[id].breakaway_speed = speed;
+    return true;
+}
+
+bool TerrainCollider::set_kinematic_box(std::size_t id, const AABB& bounds) {
+    if (!bounds.valid() || id >= boxes_.size() ||
+        std::find(kinematic_boxes_.begin(), kinematic_boxes_.end(), id) ==
+            kinematic_boxes_.end()) return false;
+    const bool is_vehicle=boxes_[id].is_vehicle;
+    const float breakaway_speed=boxes_[id].breakaway_speed;
+    const uint32_t breakaway_id=boxes_[id].breakaway_id;
+    boxes_[id] = StaticBox{bounds, boxes_[id].material};
+    boxes_[id].is_vehicle=is_vehicle;
+    boxes_[id].breakaway_speed=breakaway_speed;
+    boxes_[id].breakaway_id=breakaway_id;
+    return true;
+}
+
+std::size_t TerrainCollider::add_kinematic_oriented_box(glm::vec3 centre,
+                                                       glm::vec3 half, float yaw) {
+    StaticBox box;
+    if (!make_oriented_box(centre, half, yaw, Surface::Rock, box))
+        return static_cast<std::size_t>(-1);
+    const std::size_t id = add_kinematic_box(box.bounds);
+    boxes_[id] = box;
+    return id;
+}
+
+bool TerrainCollider::set_kinematic_oriented_box(std::size_t id, glm::vec3 centre,
+                                                 glm::vec3 half, float yaw) {
+    if (id >= boxes_.size() ||
+        std::find(kinematic_boxes_.begin(), kinematic_boxes_.end(), id) ==
+            kinematic_boxes_.end()) return false;
+    StaticBox box;
+    if (!make_oriented_box(centre, half, yaw, boxes_[id].material, box)) return false;
+    // Pose updates keep the actor's collision/audio classification.
+    box.is_vehicle = boxes_[id].is_vehicle;
+    box.breakaway_speed = boxes_[id].breakaway_speed;
+    box.breakaway_id = boxes_[id].breakaway_id;
+    boxes_[id] = box;
+    return true;
+}
+
+void TerrainCollider::add_static_ground_rect(glm::vec2 centre, float height,
+                                             glm::vec2 half_extents,
+                                             float yaw_radians,
+                                             Surface material) {
+    if (!std::isfinite(centre.x) || !std::isfinite(centre.y) ||
+        !std::isfinite(height) || !std::isfinite(half_extents.x) ||
+        !std::isfinite(half_extents.y) || !std::isfinite(yaw_radians) ||
+        !(half_extents.x > 0.0f) || !(half_extents.y > 0.0f)) {
+        return;
+    }
+
+    const float c = std::cos(yaw_radians);
+    const float s = std::sin(yaw_radians);
+    ground_rects_.push_back(StaticGroundRect{
+        centre, {c, -s}, {s, c}, half_extents, height, material});
+}
+
+void TerrainCollider::clear_static_ground_rects() { ground_rects_.clear(); }
+
+// --- baked road surfaces ----------------------------------------------------
+
+void TerrainCollider::set_road_collision(const RoadCollision& road) {
+    clear_road_collision();
+    for (std::size_t i = 0; i < road.solids.size(); ++i) {
+        const auto& solid = road.solids[i];
+        if (i >= road_solid_slots_.size())
+            road_solid_slots_.push_back(add_kinematic_oriented_box(solid.centre,solid.half,solid.yaw));
+        else
+            set_kinematic_oriented_box(road_solid_slots_[i],solid.centre,solid.half,solid.yaw);
+        set_kinematic_enabled(road_solid_slots_[i],true);
+    }
+    road_surfaces_.reserve(road.triangles.size());
+
+    for (const RoadCollisionTri& source : road.triangles) {
+        if (road_surfaces_.size() >=
+            static_cast<std::size_t>(std::numeric_limits<uint32_t>::max())) {
+            break;
+        }
+        const uint32_t index = static_cast<uint32_t>(road_surfaces_.size());
+        road_surfaces_.push_back(RoadSurface{source.geom, source.material});
+
+        const float min_x = std::min({source.geom.a.x, source.geom.b.x,
+                                      source.geom.c.x});
+        const float max_x = std::max({source.geom.a.x, source.geom.b.x,
+                                      source.geom.c.x});
+        const float min_z = std::min({source.geom.a.z, source.geom.b.z,
+                                      source.geom.c.z});
+        const float max_z = std::max({source.geom.a.z, source.geom.b.z,
+                                      source.geom.c.z});
+        const ChunkCoord lo = chunk_at(min_x, min_z);
+        const ChunkCoord hi = chunk_at(max_x, max_z);
+        for (int32_t cz = lo.z; cz <= hi.z; ++cz) {
+            for (int32_t cx = lo.x; cx <= hi.x; ++cx) {
+                road_cells_[ChunkCoord{cx, cz}].push_back(index);
+            }
+        }
+    }
+}
+
+void TerrainCollider::clear_road_collision() {
+    for (std::size_t slot : road_solid_slots_) set_kinematic_enabled(slot,false);
+    road_surfaces_.clear();
+    road_cells_.clear();
+}
+
+bool TerrainCollider::road_surface_at(float x, float z, float origin_y,
+                                      float max_distance, float& out_y,
+                                      glm::vec3& out_normal,
+                                      Surface& out_material) const {
+    const auto bucket = road_cells_.find(chunk_at(x, z));
+    if (bucket == road_cells_.end()) return false;
+
+    bool found = false;
+    float highest = -std::numeric_limits<float>::infinity();
+    // Lets a suspension already a few centimetres into a kerb recover onto the
+    // slab, while a car underneath a bridge cannot probe upward through its deck.
+    constexpr float kPenetrationAllowance = 0.35f;
+    constexpr float kEdgeTolerance = -1e-4f;
+
+    for (const uint32_t index : bucket->second) {
+        if (static_cast<std::size_t>(index) >= road_surfaces_.size()) continue;
+        const RoadSurface& surface = road_surfaces_[index];
+        const glm::vec3& a = surface.geom.a;
+        const glm::vec3& b = surface.geom.b;
+        const glm::vec3& c = surface.geom.c;
+
+        const float denominator =
+            (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+        if (std::fabs(denominator) < 1e-9f) continue;
+        const float w0 =
+            ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) /
+            denominator;
+        const float w1 =
+            ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) /
+            denominator;
+        const float w2 = 1.0f - w0 - w1;
+        if (w0 < kEdgeTolerance || w1 < kEdgeTolerance ||
+            w2 < kEdgeTolerance) {
+            continue;
+        }
+
+        const float y = with_ground_snow(
+            w0 * a.y + w1 * b.y + w2 * c.y,
+            snow_collision_depth_metres_);
+        const float gap = origin_y - y;
+        if (gap < -kPenetrationAllowance || gap > max_distance) continue;
+        if (found && y <= highest) continue;
+        found = true;
+        highest = y;
+        out_y = y;
+        out_normal = surface.geom.normal;
+        out_material = surface.material;
+    }
+    return found;
+}
 
 // --- materials ---------------------------------------------------------------
 
@@ -172,10 +401,61 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
     glm::vec3 surface_n = normal(origin.x, origin.z);
     Surface mat = material(origin.x, origin.z);
     bool prop = false;
+    bool road = false;
+
+    float road_y = 0.0f;
+    glm::vec3 road_n{0.0f, 1.0f, 0.0f};
+    Surface road_mat = Surface::Rock;
+    if (road_surface_at(origin.x, origin.z, origin.y, max_distance, road_y,
+                        road_n, road_mat) &&
+        road_y > surface_y) {
+        surface_y = road_y;
+        surface_n = road_n;
+        mat = road_mat;
+        road = true;
+    }
+
+    // Authored plot paving is top-only like a road slab, but keeps its exact
+    // rotated footprint. A small recovery allowance fixes feet that begin in
+    // the visible slab without pulling somebody under an elevated platform up
+    // through it.
+    constexpr float kGroundRectPenetrationAllowance = 0.35f;
+    constexpr float kGroundRectEdgeTolerance = 1e-4f;
+    const glm::vec2 p{origin.x, origin.z};
+    for (const StaticGroundRect& ground : ground_rects_) {
+        const glm::vec2 delta = p - ground.centre;
+        const float local_x = glm::dot(delta, ground.axis_x);
+        const float local_z = glm::dot(delta, ground.axis_z);
+        if (std::fabs(local_x) >
+                ground.half_extents.x + kGroundRectEdgeTolerance ||
+            std::fabs(local_z) >
+                ground.half_extents.y + kGroundRectEdgeTolerance) {
+            continue;
+        }
+        const float ground_y = with_ground_snow(
+            ground.height, snow_collision_depth_metres_);
+        const float gap = origin.y - ground_y;
+        if (gap < -kGroundRectPenetrationAllowance || gap > max_distance) {
+            continue;
+        }
+        if (ground_y <= surface_y) continue;
+
+        surface_y = ground_y;
+        surface_n = glm::vec3{0.0f, 1.0f, 0.0f};
+        mat = ground.material;
+        prop = false;
+        road = false;
+    }
 
     for (const StaticBox& b : boxes_) {
+        if (!b.enabled) continue;
         if (origin.x < b.bounds.min.x || origin.x > b.bounds.max.x) continue;
         if (origin.z < b.bounds.min.z || origin.z > b.bounds.max.z) continue;
+        if (b.oriented) {
+            const glm::vec3 local_origin = b.local_point(origin);
+            if (local_origin.x < b.local_bounds.min.x || local_origin.x > b.local_bounds.max.x ||
+                local_origin.z < b.local_bounds.min.z || local_origin.z > b.local_bounds.max.z) continue;
+        }
         // Started underneath the box: its top is not what we are standing on.
         if (origin.y < b.bounds.min.y) continue;
         // Buried in the hillside, or lower than what we already found.
@@ -185,6 +465,7 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
         surface_n = glm::vec3{0.0f, 1.0f, 0.0f};
         mat = b.material;
         prop = true;
+        road = false;
     }
 
     GroundHit out;
@@ -198,6 +479,7 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
     out.material = mat;
     out.grip = surface_grip(mat, wetness_);
     out.prop = prop;
+    out.road = road;
     return out;
 }
 
@@ -261,15 +543,17 @@ TerrainCollider::GroundHit TerrainCollider::raycast(glm::vec3 origin,
 
     // --- props: exact, and they can only shorten the answer -----------------
     for (const StaticBox& b : boxes_) {
+        if (!b.enabled) continue;
         float t = 0.0f;
         glm::vec3 n{0.0f};
-        if (!ray_vs_box(b.bounds, origin, d, found ? best_t : max_distance, t,
+        if (!ray_vs_box(b.collision_bounds(), b.local_point(origin),
+                        b.local_direction(d), found ? best_t : max_distance, t,
                         n)) {
             continue;
         }
         if (found && t >= best_t) continue;
         best_t = t;
-        best_n = n;
+        best_n = b.world_direction(n);
         best_mat = b.material;
         best_is_prop = true;
         found = true;

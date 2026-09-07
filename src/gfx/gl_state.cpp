@@ -18,6 +18,7 @@ constexpr std::size_t kBufferSlots = 2;
 
 struct Cache {
     std::array<GLuint, kMaxTextureUnits> textures{};
+    std::array<GLuint, kMaxTextureUnits> buffer_textures{};
     std::array<GLuint, kBufferSlots> buffers{};
     GLuint active_unit = 0xFFFFFFFFu;
     GLuint program = 0;
@@ -40,7 +41,11 @@ bool buffer_slot(GLenum target, std::size_t& out) {
 
 }  // namespace
 
-void bind_texture(GLuint unit, GLuint texture) {
+void bind_texture(GLuint unit, GLuint texture, GLenum target) {
+    if(target!=GL_TEXTURE_2D && target!=GL_TEXTURE_BUFFER) {
+        AP_ERROR("gl_state: unsupported texture target %u",target);
+        return;
+    }
     if (unit >= kMaxTextureUnits) {
         // Loud, not silent. Returning quietly here leaves the sampler pointing
         // at whatever was on that unit before, which renders as "the wrong
@@ -51,6 +56,7 @@ void bind_texture(GLuint unit, GLuint texture) {
         return;
     }
     Cache& c = cache();
+    auto& bindings = target == GL_TEXTURE_BUFFER ? c.buffer_textures : c.textures;
 
     // The active_unit half of this test is NOT redundant and is not a missed
     // optimisation. It buys a guarantee callers depend on: when this function
@@ -58,7 +64,7 @@ void bind_texture(GLuint unit, GLuint texture) {
     // so an immediately following glTexImage2D / glTexParameteri lands on the
     // intended object. Drop it and Texture::upload starts writing pixels into
     // whatever texture happened to be active.
-    if (c.textures[unit] == texture && c.active_unit == unit) {
+    if (bindings[unit] == texture && c.active_unit == unit) {
         ++c.skipped;
         return;
     }
@@ -66,8 +72,8 @@ void bind_texture(GLuint unit, GLuint texture) {
         glActiveTexture(GL_TEXTURE0 + unit);
         c.active_unit = unit;
     }
-    glBindTexture(GL_TEXTURE_2D, texture);
-    c.textures[unit] = texture;
+    glBindTexture(target, texture);
+    bindings[unit] = texture;
 }
 
 void use_program(GLuint program) {
@@ -115,6 +121,9 @@ void on_texture_deleted(GLuint texture) {
     for (GLuint& t : c.textures) {
         if (t == texture) t = 0xFFFFFFFFu;
     }
+    for (GLuint& t : c.buffer_textures) {
+        if (t == texture) t = 0xFFFFFFFFu;
+    }
 }
 
 void on_program_deleted(GLuint program) {
@@ -137,6 +146,7 @@ void on_buffer_deleted(GLuint buffer) {
 void invalidate_all() {
     Cache& c = cache();
     c.textures.fill(0xFFFFFFFFu);
+    c.buffer_textures.fill(0xFFFFFFFFu);
     c.buffers.fill(0xFFFFFFFFu);
     c.active_unit = 0xFFFFFFFFu;
     c.program = 0xFFFFFFFFu;

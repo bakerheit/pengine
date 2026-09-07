@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="880" viewBox="0 0 1500 880"><rect width="1500" height="880" fill="#f5f1e7"/><style>text{font-family:Arial,sans-serif;fill:#233038}.label{font-size:15px}.small{font-size:12px}.wall{fill:none;stroke:#29343b;stroke-width:6}</style><text x="40" y="44" font-size="28" font-weight="bold">SYCAMORE LOOP · NICKEL HEIGHTS</text><text x="40" y="72" font-size="17">Six modest homes with lawns, driveways and a furnished target house</text>
+<polyline points="112.5,227.5 427.5,182.5 630.0,362.5 495.0,587.5 180.0,565.0 112.5,227.5" fill="none" stroke="#c9c7bf" stroke-width="45" stroke-linejoin="round"/><polyline points="112.5,227.5 427.5,182.5 630.0,362.5 495.0,587.5 180.0,565.0 112.5,227.5" fill="none" stroke="#737c81" stroke-width="31.5" stroke-linejoin="round"/>
+<polygon points="252.5,309.8 181.2,320.0 170.4,244.2 241.6,234.1" fill="#cbd7b2" stroke="#708b5a" stroke-width="1"/>
+<polygon points="194.2,293.1 183.5,294.6 175.8,241.2 186.5,239.7" fill="#c6bda9" stroke="none" stroke-width="1"/>
+<polygon points="211.7,264.5 207.7,265.0 203.5,236.1 207.5,235.5" fill="#e3d9c5" stroke="none" stroke-width="1"/>
+<polygon points="228.9,288.1 197.7,292.6 193.9,265.9 225.1,261.4" fill="#86929c" stroke="#34444c" stroke-width="1"/>
+<text x="211.4" y="282.0" text-anchor="middle" fill="white" font-size="14">101</text>
+<polygon points="342.5,296.9 271.2,307.1 260.4,231.4 331.6,221.2" fill="#cbd7b2" stroke="#708b5a" stroke-width="1"/>
+<polygon points="284.2,280.3 273.5,281.8 265.8,228.3 276.5,226.8" fill="#c6bda9" stroke="none" stroke-width="1"/>
+<polygon points="301.7,251.6 297.7,252.2 293.5,223.2 297.5,222.7" fill="#e3d9c5" stroke="none" stroke-width="1"/>
+<polygon points="318.9,275.3 287.7,279.7 283.9,253.0 315.1,248.6" fill="#a65d47" stroke="#34444c" stroke-width="1"/>
+<text x="301.4" y="269.2" text-anchor="middle" fill="white" font-size="14">102</text>
+<polygon points="508.6,390.1 454.8,342.3 505.7,285.1 559.5,332.9" fill="#cbd7b2" stroke="#708b5a" stroke-width="1"/>
+<polygon points="483.7,334.8 475.6,327.6 511.5,287.3 519.6,294.5" fill="#c6bda9" stroke="none" stroke-width="1"/>
+<polygon points="516.9,329.7 513.9,327.0 533.3,305.1 536.3,307.8" fill="#e3d9c5" stroke="none" stroke-width="1"/>
+<polygon points="509.9,358.1 486.4,337.2 504.3,317.0 527.9,338.0" fill="#86929c" stroke="#34444c" stroke-width="1"/>
+<text x="507.1" y="342.6" text-anchor="middle" fill="white" font-size="14">103</text>
+<polygon points="218.8,466.3 290.6,471.4 285.2,547.7 213.4,542.6" fill="#cbd7b2" stroke="#708b5a" stroke-width="1"/>
+<polygon points="272.3,494.9 283.0,495.7 279.2,549.5 268.4,548.8" fill="#c6bda9" stroke="none" stroke-width="1"/>
+<polygon points="249.1,519.2 253.1,519.5 251.0,548.6 247.0,548.4" fill="#e3d9c5" stroke="none" stroke-width="1"/>
+<polygon points="237.2,492.4 268.7,494.6 266.7,521.6 235.3,519.3" fill="#86929c" stroke="#34444c" stroke-width="1"/>
+<text x="252.0" y="512.0" text-anchor="middle" fill="white" font-size="14">104</text>
+<polygon points="308.8,472.7 380.6,477.8 375.2,554.1 303.4,549.0" fill="#cbd7b2" stroke="#708b5a" stroke-width="1"/>
+<polygon points="362.3,501.3 373.0,502.1 369.2,556.0 358.4,555.2" fill="#c6bda9" stroke="none" stroke-width="1"/>
+<polygon points="339.1,525.6 343.1,525.9 341.0,555.1 337.0,554.8" fill="#e3d9c5" stroke="none" stroke-width="1"/>
+<polygon points="327.2,498.8 358.7,501.1 356.7,528.0 325.3,525.8" fill="#86929c" stroke="#34444c" stroke-width="1"/>
+<text x="342.0" y="518.4" text-anchor="middle" fill="white" font-size="14">105</text>
+<polygon points="398.8,479.1 470.6,484.3 465.2,560.6 393.4,555.4" fill="#cbd7b2" stroke="#708b5a" stroke-width="1"/>
+<polygon points="452.3,507.8 463.0,508.5 459.2,562.4 448.4,561.6" fill="#c6bda9" stroke="none" stroke-width="1"/>
+<polygon points="429.1,532.0 433.1,532.3 431.0,561.5 427.0,561.2" fill="#e3d9c5" stroke="none" stroke-width="1"/>
+<polygon points="417.2,505.3 448.7,507.5 446.7,534.4 415.3,532.2" fill="#86929c" stroke="#34444c" stroke-width="1"/>
+<text x="432.0" y="524.8" text-anchor="middle" fill="white" font-size="14">106</text>
+<circle cx="562.5" cy="452.5" r="17" fill="#b8c4cb" stroke="#526a78"/><text x="531.5" y="486.5" class="small">Water tower</text>
+<text x="42" y="646" class="label">32 × 34 m parcels · 14 × 12 m typical house</text>
+<text x="42" y="670" class="label">6–11 m front yards · 8+ m side gaps · shared green center</text>
+<text x="42" y="706" class="label">Existing connection: Sycamore Loop → the Spine → city roads</text>
+<text x="42" y="730" class="label">Target → Halloway Gas: 1.69 km by road</text>
+<text x="42" y="754" class="label">Target → Second Chance Pawn: 1.84 km by road</text>
+<text x="42" y="790" class="small">No road relocation. Footpaths and driveway aprons meet the existing sidewalk.</text>
+<text x="42" y="810" class="small">Gentle slopes stay in the lawns; foundations and paving follow measured terrain.</text>
+<text x="795" y="125" font-size="22" font-weight="bold">102 SYCAMORE · ENTERABLE HOUSE</text>
+<rect x="857.0" y="196.0" width="406" height="348" fill="#eadfc9"/>
+<rect x="857.0" y="196.0" width="174" height="145" fill="#d2dbcf"/>
+<rect x="1089.0" y="196.0" width="174" height="145" fill="#d4dce0"/>
+<rect x="1025.2" y="196.0" width="69.6" height="145" fill="#dfdcca"/>
+<path d="M857 196L1263 196" class="wall"/>
+<path d="M857 196L857 341" class="wall"/>
+<path d="M857 399L857 544" class="wall"/>
+<path d="M1263 196L1263 544" class="wall"/>
+<path d="M857 544L1036.8 544" class="wall"/>
+<path d="M1083.2 544L1263 544" class="wall"/>
+<path d="M1025.2 196L1025.2 341" class="wall"/>
+<path d="M1094.8 196L1094.8 341" class="wall"/>
+<path d="M857 341L949.8 341" class="wall"/>
+<path d="M996.2 341L1039.7 341" class="wall"/>
+<path d="M1080.3 341L1123.8 341" class="wall"/>
+<path d="M1170.2 341L1263 341" class="wall"/>
+<text x="944" y="254" text-anchor="middle" class="small">STUDY</text>
+<text x="1176" y="254" text-anchor="middle" class="small">BEDROOM</text>
+<text x="1060" y="283" text-anchor="middle" class="small">BATH</text>
+<text x="949.8" y="457" text-anchor="middle" class="small">LIVING</text>
+<text x="1176" y="457" text-anchor="middle" class="small">KITCHEN / DINING</text>
+<rect x="881.65" y="239.5" width="66.69999999999999" height="29" fill="#86694e"/>
+<rect x="1147.0" y="243.85000000000002" width="58" height="78.30000000000001" fill="#8997a1"/>
+<rect x="1207.9" y="355.5" width="46.400000000000006" height="87" fill="#a9987d"/>
+<rect x="900.5" y="488.175" width="87" height="24.65" fill="#9f7f68"/>
+<rect x="1132.5" y="457.0" width="52.2" height="46.400000000000006" fill="#b6a28b"/>
+<text x="980" y="587" class="label">Front porch / open doorway</text>
+<text x="787" y="617" class="label">Side/back-yard door opens from living room.</text>
+<text x="787" y="641" class="label">Study, bedroom and bathroom have clear interior doors.</text>
+<text x="787" y="678" class="label">Target coordinates: (1033.96, 216.29)</text>
+<text x="787" y="702" class="label">House 102: brick base, cream walls, teal trim.</text>
+<text x="787" y="738" class="small">Environment only. No theft rules, loot or mission scripts in this build.</text>
+<text x="787" y="762" class="small">Floor plan is local to the house; front faces northwest toward the loop.</text>
+</svg>

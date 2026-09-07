@@ -1,0 +1,40 @@
+{
+  "id": "10_cutscene_last_drink_r2",
+  "kind": "Cutscene",
+  "title": "Last drink",
+  "character": "Ruth \u2014 longtime neighborhood bartender",
+  "voice": "marin",
+  "direction": "American woman in her sixties. A low, roughened chest voice, husky and a little gravelly, with a working-class northeastern accent. You have shouted over bar crowds for forty years. Speak across an empty bar to a grown kid you have known since childhood. The first sentence is blunt and matter-of-fact, almost accusing; the memory catches you briefly on 'Same smile, too'. 'Eyes on the door' is quiet observation with a full beat after it. 'Look' pulls you back into your practical tough exterior. You refuse to get sentimental, but your care slips through on 'come back through here'. End on 'when the money's gone' with weary certainty, not a mournful whisper. Textured, grounded, medium pace, irregular real conversational stresses. Avoid a pristine youthful voice, bedtime-story rhythm, therapeutic warmth, and breathy narration.",
+  "text": "Your old man sat in that same chair the night he got his big idea. Same smile, too. Eyes on the door. Look, I won't tell you how to live. Just leave enough of yourself to come back through here when the money's gone.",
+  "source_take_id": "10_cutscene_last_drink",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "10_cutscene_last_drink_r2.wav",
+  "transcript": "Your old man sat in that same chair the night he got his big idea. Same smile, too. Eyes on the door. Look, I won't tell you how to live. Just leave enough of yourself to come back through here when the money's gone.",
+  "transcript_matches": true,
+  "duration_seconds": 15.0,
+  "peak_dbfs": -8.04,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 792,
+    "input_tokens": 363,
+    "output_tokens": 429,
+    "input_token_details": {
+      "text_tokens": 363,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 129,
+      "audio_tokens": 300,
+      "reasoning_tokens": 53
+    }
+  },
+  "response_id": "resp_EKQMc8W8OAFlHanINzH8B"
+}

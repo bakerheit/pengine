@@ -21,6 +21,7 @@ namespace apricot {
 //   8-10   normal_c0..2  columns of the world normal matrix (xyz used, w pad)
 //   11     tint          vec4, RGB multiplied into albedo, A into output alpha
 //   12     uv_scale      vec2, tiles the diffuse texture
+//   13-15  vehicle regional damage and source-mesh deformation frame
 //
 // tint and uv_scale ride HERE rather than in a per-draw uniform for one reason:
 // scene/draw_batch.h deliberately keeps them out of the batch key, so two nodes
@@ -34,20 +35,28 @@ struct InstanceData {
     glm::vec4 normal_c2;
     glm::vec4 tint;
     glm::vec2 uv_scale;
+    glm::vec2 pad{0.0f};
+    glm::vec4 body_damage0;
+    glm::vec4 body_damage1;
+    glm::vec4 deform_frame;
 };
 
 // The stride the attribute wiring uses. glm's default vec4 is 4-byte aligned
 // (only the explicitly aligned_* types are over-aligned), so this packs with no
-// padding at all: 64 + 16 + 16 + 16 + 16 + 8 = 136. If this assert ever fires,
+// padding at all through uv_scale, then an explicit vec2 aligns the three
+// trailing vec4s: 64 + 16 + 16 + 16 + 16 + 8 + 8 + 48 = 192.
 // somebody either added a field or switched glm to the aligned types — either
 // way the attribute wiring in mesh.cpp needs revisiting, which is the point.
-static_assert(sizeof(InstanceData) == 136, "instance stride contract");
+static_assert(sizeof(InstanceData) == 192, "instance stride contract");
 static_assert(offsetof(InstanceData, model) == 0, "instance attrib offset");
 static_assert(offsetof(InstanceData, normal_c0) == 64, "instance attrib offset");
 static_assert(offsetof(InstanceData, normal_c1) == 80, "instance attrib offset");
 static_assert(offsetof(InstanceData, normal_c2) == 96, "instance attrib offset");
 static_assert(offsetof(InstanceData, tint) == 112, "instance attrib offset");
 static_assert(offsetof(InstanceData, uv_scale) == 128, "instance attrib offset");
+static_assert(offsetof(InstanceData, body_damage0) == 144, "instance attrib offset");
+static_assert(offsetof(InstanceData, body_damage1) == 160, "instance attrib offset");
+static_assert(offsetof(InstanceData, deform_frame) == 176, "instance attrib offset");
 
 // Build one instance record from a world matrix.
 //
@@ -56,7 +65,10 @@ static_assert(offsetof(InstanceData, uv_scale) == 128, "instance attrib offset")
 // axis lights as though its faces were sloped, and the error is subtle enough
 // to read as "the lighting looks a bit off" rather than as a bug.
 inline InstanceData make_instance(const glm::mat4& model, const glm::vec4& tint,
-                                  const glm::vec2& uv_scale) {
+                                  const glm::vec2& uv_scale,
+                                  const glm::vec4& body_damage0 = glm::vec4{0.0f},
+                                  const glm::vec4& body_damage1 = glm::vec4{0.0f},
+                                  const glm::vec4& deform_frame = glm::vec4{0.0f}) {
     const glm::mat3 n = glm::inverseTranspose(glm::mat3(model));
     InstanceData d;
     d.model = model;
@@ -65,6 +77,9 @@ inline InstanceData make_instance(const glm::mat4& model, const glm::vec4& tint,
     d.normal_c2 = glm::vec4(n[2], 0.0f);
     d.tint = tint;
     d.uv_scale = uv_scale;
+    d.body_damage0 = body_damage0;
+    d.body_damage1 = body_damage1;
+    d.deform_frame = deform_frame;
     return d;
 }
 

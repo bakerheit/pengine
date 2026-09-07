@@ -1,0 +1,39 @@
+{
+  "id": "04_cutscene_last_chance",
+  "kind": "Cutscene",
+  "title": "Last chance",
+  "character": "Eddie \u2014 hungry getaway driver",
+  "voice": "cedar",
+  "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Alone with your closest friend in a parked car. Begin quiet and honest, pause after 'Same rent', then let stubborn hope turn into resolve. Underplay it; no trailer narration.",
+  "text": "I been parking rich men's cars since I was sixteen. Same corner. Same rent. Tonight, I pull up to that hotel, and somebody else takes my keys. Just keep the engine running. Let me have this one.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "04_cutscene_last_chance.wav",
+  "transcript": "I been parking rich men's cars since I was sixteen. Same corner. Same rent. Tonight, I pull up to that hotel, and somebody else takes my keys. Just keep the engine running. Let me have this one.",
+  "transcript_matches": true,
+  "duration_seconds": 15.85,
+  "peak_dbfs": -4.54,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 683,
+    "input_tokens": 233,
+    "output_tokens": 450,
+    "input_token_details": {
+      "text_tokens": 233,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 133,
+      "audio_tokens": 317,
+      "reasoning_tokens": 64
+    }
+  },
+  "response_id": "resp_EKQELGIBR2pcuYvvUt3hE"
+}

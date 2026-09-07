@@ -1,0 +1,39 @@
+{
+  "id": "devon_01",
+  "kind": "Cutscene",
+  "title": "Mission 1 package arrival",
+  "character": "Devon",
+  "voice": "verse",
+  "text": "did anyone follow you?",
+  "direction": "Adult American man who runs a bait shop. Guarded and watchful, lightly rough everyday voice. The first question is quiet and serious; relax slightly once the package is in hand. Speaking to a young courier at arm length. Natural pace, no growl or drawl.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "devon_01.wav",
+  "transcript": "did anyone follow you?",
+  "transcript_matches": true,
+  "duration_seconds": 2.05,
+  "peak_dbfs": -12.55,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 280,
+    "input_tokens": 191,
+    "output_tokens": 89,
+    "input_token_details": {
+      "text_tokens": 191,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 48,
+      "audio_tokens": 41,
+      "reasoning_tokens": 33
+    }
+  },
+  "response_id": "resp_EKbIKs9J3VLXk8jqF0Um8"
+}

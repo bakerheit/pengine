@@ -24,7 +24,8 @@ bool exactly_equal(const SkyEnv& a, const SkyEnv& b) {
     return a.time_of_day == b.time_of_day && a.sun_dir == b.sun_dir &&
            a.moon_dir == b.moon_dir && a.light_dir == b.light_dir &&
            a.light_color == b.light_color && a.ambient == b.ambient &&
-           a.specular_strength == b.specular_strength && a.sky_top == b.sky_top &&
+           a.specular_strength == b.specular_strength &&
+           a.snow_cover == b.snow_cover && a.sky_top == b.sky_top &&
            a.sky_bottom == b.sky_bottom && a.sun_color == b.sun_color &&
            a.cloud_color == b.cloud_color &&
            a.star_intensity == b.star_intensity &&
@@ -131,6 +132,8 @@ void zero_weather_changes_absolutely_nothing() {
         // slider that momentarily reads -0.0001 must not nudge the look.
         WeatherParams negative;
         negative.rain = -0.5f;
+        negative.snow = -0.5f;
+        negative.snow_cover = -0.5f;
         negative.overcast = -1.0f;
         negative.fog = -2.0f;
         SkyEnv from_negative = baseline;
@@ -144,6 +147,56 @@ void zero_weather_changes_absolutely_nothing() {
                     "convenience");
     }
     apricot_test::pass("zero weather is an EXACT no-op at every hour");
+}
+
+float luminance(const glm::vec3& color) {
+    return glm::dot(color, glm::vec3{0.2126f, 0.7152f, 0.0722f});
+}
+
+float chroma(const glm::vec3& color) {
+    return std::max(color.r, std::max(color.g, color.b)) -
+           std::min(color.r, std::min(color.g, color.b));
+}
+
+void a_blizzard_is_dark_and_grey_instead_of_bright_blue() {
+    const SkyEnv clear = compute_sky_env(0.5f);
+    WeatherParams weather;
+    weather.snow = 1.0f;
+    weather.snow_cover = 1.0f;
+    weather.overcast = 1.0f;
+    weather.fog = 1.0f;
+    const SkyEnv blizzard = compute_sky_env(0.5f, weather);
+
+    REQUIRE(luminance(blizzard.light_color + blizzard.ambient) <
+            luminance(clear.light_color + clear.ambient) * 0.40f);
+    REQUIRE(luminance(blizzard.sky_top + blizzard.sky_bottom) <
+            luminance(clear.sky_top + clear.sky_bottom) * 0.35f);
+    REQUIRE(chroma(blizzard.light_color) < chroma(clear.light_color) * 0.25f);
+    REQUIRE(chroma(blizzard.sky_bottom) < chroma(clear.sky_bottom) * 0.25f);
+    REQUIRE(blizzard.snow_cover == 1.0f);
+    apricot_test::pass("blizzard lighting is substantially darker and greyer");
+}
+
+void snow_cover_only_collects_on_upward_surfaces() {
+    REQUIRE(snow_accumulation(0.0f, 1.0f) == 0.0f);
+    REQUIRE(snow_accumulation(-1.0f, 1.0f) == 0.0f);
+    REQUIRE(snow_accumulation(1.0f, -1.0f) == 0.0f);
+    REQUIRE(snow_accumulation(1.0f, 0.0f) == 0.0f);
+    REQUIRE(snow_accumulation(1.0f, 0.40f) < 0.05f);
+    REQUIRE(snow_accumulation(1.0f, 0.60f) > 0.40f);
+    REQUIRE(snow_accumulation(1.0f, 0.60f) < 0.60f);
+    REQUIRE(snow_accumulation(1.0f, 1.0f) == 1.0f);
+    REQUIRE(snow_accumulation(2.0f, 1.0f) == 1.0f);
+
+    WeatherParams cover_only;
+    cover_only.snow_cover = 0.65f;
+    const SkyEnv clear = compute_sky_env(0.5f);
+    const SkyEnv covered = compute_sky_env(0.5f, cover_only);
+    REQUIRE_NEAR(static_cast<double>(covered.snow_cover), 0.65, 1e-6);
+    SkyEnv without_cover = covered;
+    without_cover.snow_cover = clear.snow_cover;
+    REQUIRE(exactly_equal(clear, without_cover));
+    apricot_test::pass("snow cover is slope-aware and independent of snowfall");
 }
 
 void fog_is_off_until_it_is_asked_for() {
@@ -163,6 +216,43 @@ void fog_is_off_until_it_is_asked_for() {
     REQUIRE_NEAR(static_cast<double>(hazy.fog_start), 100.0, 1e-4);
     REQUIRE_NEAR(static_cast<double>(hazy.fog_end), 800.0, 1e-4);
     apricot_test::pass("fog is disabled by default and enabled only on request");
+}
+
+void distance_haze_hides_the_world_edge_and_weather_pulls_it_in() {
+    const SkyEnv untouched = compute_sky_env(0.5f);
+
+    SkyEnv clear = untouched;
+    apply_distance_haze(clear, DistanceHazeParams{});
+    REQUIRE_NEAR(static_cast<double>(clear.fog_start), 550.0, 1e-4);
+    REQUIRE_NEAR(static_cast<double>(clear.fog_end), 1000.0, 1e-4);
+    REQUIRE(clear.fog_density == 1.0f);
+    REQUIRE(clear.fog_color != untouched.fog_color);
+
+    DistanceHazeParams normal;
+    normal.weather_fog = normal.normal_weather_fog;
+    SkyEnv default_view = untouched;
+    apply_distance_haze(default_view, normal);
+    REQUIRE_NEAR(static_cast<double>(default_view.fog_start), 100.0, 1e-4);
+    REQUIRE_NEAR(static_cast<double>(default_view.fog_end), 300.0, 1e-4);
+
+    DistanceHazeParams heavy;
+    heavy.weather_fog = 1.0f;
+    SkyEnv foggy = compute_sky_env(0.5f);
+    WeatherParams weather;
+    weather.fog = 1.0f;
+    apply_weather(foggy, weather);
+    apply_distance_haze(foggy, heavy);
+    REQUIRE_NEAR(static_cast<double>(foggy.fog_start), 95.0, 1e-4);
+    REQUIRE_NEAR(static_cast<double>(foggy.fog_end), 455.0, 1e-4);
+    REQUIRE(foggy.fog_start < clear.fog_start);
+    REQUIRE(foggy.fog_end < clear.fog_end);
+    REQUIRE(foggy.fog_density == 1.0f);
+
+    // It is a separate layer: adding world haze must not weaken the exact
+    // zero-weather guarantee above or mutate a fresh environment by surprise.
+    REQUIRE(exactly_equal(untouched, compute_sky_env(0.5f)));
+    apricot_test::pass(
+        "distance haze fully hides the world edge and closes in with weather");
 }
 
 void weather_moves_the_look_in_the_direction_it_claims() {
@@ -189,6 +279,13 @@ void weather_moves_the_look_in_the_direction_it_claims() {
     rain_only.rain = 1.0f;
     REQUIRE(compute_sky_env(0.5f, rain_only).cloud_cover > clear.cloud_cover);
 
+    WeatherParams snow_only;
+    snow_only.snow = 1.0f;
+    const SkyEnv snowy = compute_sky_env(0.5f, snow_only);
+    REQUIRE(snowy.cloud_cover > clear.cloud_cover);
+    REQUIRE(snowy.light_color != clear.light_color);
+    REQUIRE(snowy.fog_color != clear.fog_color);
+
     // Cloud must put the stars out, at night, where there were stars to put out.
     const SkyEnv night = compute_sky_env(0.0f);
     const SkyEnv night_storm = compute_sky_env(0.0f, storm);
@@ -206,6 +303,9 @@ int main() {
     the_same_time_gives_the_same_environment();
     zero_weather_changes_absolutely_nothing();
     fog_is_off_until_it_is_asked_for();
+    distance_haze_hides_the_world_edge_and_weather_pulls_it_in();
     weather_moves_the_look_in_the_direction_it_claims();
+    a_blizzard_is_dark_and_grey_instead_of_bright_blue();
+    snow_cover_only_collects_on_upward_surfaces();
     return apricot_test::done("sky_env_tests");
 }

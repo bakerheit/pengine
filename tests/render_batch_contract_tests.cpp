@@ -239,6 +239,42 @@ void batching_is_worth_having() {
     apricot_test::pass("batching collapses the draw count by a wide margin");
 }
 
+void body_surface_glow_is_separated_without_losing_batches() {
+    Scene scene;
+    std::vector<NodeId> visible;
+    std::vector<NodeId> expected_geometry, expected_overlays;
+    const AABB bounds{glm::vec3{-1.0f}, glm::vec3{1.0f}};
+    // Body and lamps deliberately have identical keys, interleaved in the
+    // visible list. A batch must never send them through the same depth pass.
+    for (int car = 0; car < 6; ++car) {
+        Renderable body;
+        body.mesh = 1;
+        body.material = 2;
+        const NodeId id = scene.create(body, Transform{}, bounds);
+        expected_geometry.push_back(id);
+        visible.push_back(id);
+        for (int lamp = 0; lamp < 6; ++lamp) {
+            Renderable glow = body;
+            glow.uv_scale = {-2.0f - static_cast<float>(lamp), 1.0f};
+            const NodeId glow_id = scene.create(glow, Transform{}, bounds);
+            expected_overlays.push_back(glow_id);
+            visible.push_back(glow_id);
+        }
+    }
+    const auto passes = partition_surface_draws(scene, visible);
+    REQUIRE(passes.geometry == expected_geometry);
+    REQUIRE(passes.overlays == expected_overlays);
+    REQUIRE(passes.geometry.size() + passes.overlays.size() == visible.size());
+    for (const auto* nodes : {&passes.geometry, &passes.overlays}) {
+        const auto plan = plan_draw_batches(scene, *nodes);
+        REQUIRE(plan.size() == 1u);
+        REQUIRE(plan.front().instanced);
+        REQUIRE(static_cast<std::size_t>(plan.front().count) == nodes->size());
+    }
+    REQUIRE(partition_surface_draws(scene, {}).overlays.empty());
+    apricot_test::pass("body and glow use separate depth passes while retaining instancing");
+}
+
 }  // namespace
 
 int main() {
@@ -246,5 +282,6 @@ int main() {
     every_instanced_run_really_does_share_one_key();
     walking_the_plan_draws_each_node_exactly_once();
     batching_is_worth_having();
+    body_surface_glow_is_separated_without_losing_batches();
     return apricot_test::done("render_batch_contract_tests");
 }

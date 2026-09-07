@@ -1,4 +1,4 @@
-// Pinatty — the map, and whether it is a real place.
+// O'Haven — the map, and whether it is a real place.
 //
 // Two jobs, and they are different jobs.
 //
@@ -70,7 +70,7 @@ void golden_operator_values() {
     REQUIRE(bits(apply_terrain_ops(18.0f, 640.0f, -30.0f)) == 0x4136F25Cu);
     REQUIRE(bits(apply_terrain_ops(96.0f, 900.0f, -1450.0f)) == 0x42BC999Au);
     REQUIRE(bits(apply_terrain_ops(20.0f, -2250.0f, -580.0f)) == 0xC1300000u);
-    REQUIRE(bits(apply_terrain_ops(12.0f, 190.0f, 1900.0f)) == 0x40DD7CC9u);
+    REQUIRE(bits(apply_terrain_ops(12.0f, 190.0f, 1900.0f)) == 0x40DA4925u);
     REQUIRE(bits(apply_terrain_ops(30.0f, 1450.0f, 700.0f)) == 0x41A0EE0Au);
     REQUIRE(bits(apply_terrain_ops(14.0f, -1000.0f, 1180.0f)) == 0x41FCCCCDu);
 
@@ -231,11 +231,17 @@ void every_operator_does_something() {
 // test in Boundary::contains() has to hand the shared edge to exactly one of
 // them: a pedestrian standing on a boundary needs one police response time.
 void districts_do_not_overlap() {
+    // Districts are currently authored only in O'Haven. Survey its legacy
+    // state box at the original density so adding a much larger ocean atlas
+    // does not make unchanged district coverage look artificially sparse.
+    constexpr float kOHavenSurveyHalfMetres = 3072.0f;
     long claimed = 0;
     for (int j = 0; j <= 400; ++j) {
         for (int i = 0; i <= 400; ++i) {
-            const float x = (static_cast<float>(i) / 200.0f - 1.0f) * kWorldHalfMetres;
-            const float z = (static_cast<float>(j) / 200.0f - 1.0f) * kWorldHalfMetres;
+            const float x = (static_cast<float>(i) / 200.0f - 1.0f) *
+                            kOHavenSurveyHalfMetres;
+            const float z = (static_cast<float>(j) / 200.0f - 1.0f) *
+                            kOHavenSurveyHalfMetres;
             int hits = 0;
             for (int d = 0; d < kDistrictCount; ++d) {
                 if (kDistricts[d].boundary.contains(x, z)) ++hits;
@@ -430,11 +436,10 @@ void the_districts_are_distinct_on_the_ground() {
     apricot_test::pass("the districts are measurably different places");
 }
 
-// The island, re-measured WITH the operators in, because they change it. The
-// design document measured 15.30 km2 before any operator existed; the carves
-// take land away and the flattens give some back, and the only honest number
-// is the one taken afterwards.
-void the_island_is_the_right_size() {
+// Both states, re-measured WITH the O'Haven operators in, because those change
+// its coast. The old state remains roughly 16 km2 and first-pass Florangia adds
+// roughly 5 km2; the only honest total is the one taken afterwards.
+void the_states_are_the_right_size() {
     constexpr float kStep = 8.0f;
     long land = 0;
     double area = 0.0;
@@ -454,7 +459,7 @@ void the_island_is_the_right_size() {
         }
     }
     const double km2 = area / 1.0e6;
-    std::printf("  island: %.2f km2 of land in a %.0f m box (%.1f%% fill)\n", km2,
+    std::printf("  states: %.2f km2 of land in a %.0f m box (%.1f%% fill)\n", km2,
                 2.0 * kWorldHalfMetres,
                 100.0 * km2 / (2.0 * kWorldHalfMetres * 2.0 * kWorldHalfMetres / 1.0e6));
     std::printf("          peak %.1f m at (%.0f, %.0f);  %.1f%% of land under 5 "
@@ -464,8 +469,9 @@ void the_island_is_the_right_size() {
                 100.0 * static_cast<double>(flat) / static_cast<double>(land),
                 100.0 * static_cast<double>(drivable) / static_cast<double>(land));
 
-    REQUIRE_MSG(km2 > 15.0 && km2 < 17.5,
-                "the island is not about 16 km2 of land any more", "land area");
+    REQUIRE_MSG(km2 > 25.0 && km2 < 28.0,
+                "the scaled two-state atlas is not about 26.5 km2 of land",
+                "land area");
     REQUIRE_MSG(peak > 110.0f, "there is no commanding high ground", "peak");
 
     // Bounded by sea, not by a wall: the outermost 200 m of the box on every
@@ -474,15 +480,16 @@ void the_island_is_the_right_size() {
         const float t = (static_cast<float>(i) / 200.0f - 1.0f) * kWorldHalfMetres;
         const float edge = kWorldHalfMetres - 100.0f;
         REQUIRE_MSG(height_at(kMapSeed, t, -edge) < kSeaLevelMetres,
-                    "land at the north edge of the world box", "island");
+                    "land at the north edge of the world box", "states");
         REQUIRE_MSG(height_at(kMapSeed, t, edge) < kSeaLevelMetres,
-                    "land at the south edge of the world box", "island");
+                    "land at the south edge of the world box", "states");
         REQUIRE_MSG(height_at(kMapSeed, -edge, t) < kSeaLevelMetres,
-                    "land at the west edge of the world box", "island");
+                    "land at the west edge of the world box", "states");
         REQUIRE_MSG(height_at(kMapSeed, edge, t) < kSeaLevelMetres,
-                    "land at the east edge of the world box", "island");
+                    "land at the east edge of the world box", "states");
     }
-    apricot_test::pass("the island is about 16 km2, bounded by water");
+    apricot_test::pass(
+        "both states total about 26.5 km2 and are bounded by water");
 }
 
 // --- landmarks ----------------------------------------------------------------
@@ -578,50 +585,136 @@ void landmarks_stand_where_the_map_says() {
 // require it to be narrow. This is the test that would fail the day somebody
 // "simplified" the table by sorting it.
 void the_causeway_is_the_only_way_onto_camber_point() {
-    // A column is dry if EVERY sample down it is above water.
-    auto column_is_dry = [](float x) {
-        for (float z = 1600.0f; z <= 2050.0f; z += 5.0f) {
-            if (height_at(kMapSeed, x, z) <= kSeaLevelMetres) return false;
+    // The old causeway was dead straight, so this test only checked for a dry
+    // X column. The real airport approach now bends around the runway. Count
+    // connected dry components across the whole channel instead; that proves
+    // the same chokepoint without requiring the road to drive through airside.
+    constexpr float kStep = 5.0f;
+    constexpr float kMinX = -1100.0f;
+    constexpr float kMaxX = 1300.0f;
+    constexpr float kMinZ = 1600.0f;
+    constexpr float kMaxZ = 2050.0f;
+    constexpr int kCols =
+        static_cast<int>((kMaxX - kMinX) / kStep) + 1;
+    constexpr int kRows =
+        static_cast<int>((kMaxZ - kMinZ) / kStep) + 1;
+    const auto cell = [](int x, int z) { return z * kCols + x; };
+
+    std::vector<uint8_t> dry(static_cast<std::size_t>(kCols * kRows), 0u);
+    std::vector<uint8_t> seen(dry.size(), 0u);
+    for (int z = 0; z < kRows; ++z) {
+        for (int x = 0; x < kCols; ++x) {
+            dry[static_cast<std::size_t>(cell(x, z))] =
+                height_at(kMapSeed, kMinX + x * kStep,
+                          kMinZ + z * kStep) > kSeaLevelMetres;
         }
-        return true;
-    };
+    }
 
     int bridges = 0;
-    float bridge_lo = 0.0f, bridge_hi = 0.0f;
-    bool prev = false;
-    for (float x = -1100.0f; x <= 1300.0f; x += 5.0f) {
-        const bool dry = column_is_dry(x);
-        if (dry && !prev) {
-            ++bridges;
-            bridge_lo = x;
+    std::vector<int> queue;
+    std::vector<int> component;
+    queue.reserve(dry.size());
+    component.reserve(dry.size());
+    for (int seed = 0; seed < kCols * kRows; ++seed) {
+        if (!dry[static_cast<std::size_t>(seed)] ||
+            seen[static_cast<std::size_t>(seed)]) {
+            continue;
         }
-        if (!dry && prev) bridge_hi = x;
-        prev = dry;
+        queue.clear();
+        component.clear();
+        queue.push_back(seed);
+        seen[static_cast<std::size_t>(seed)] = 1u;
+        bool touches_north = false;
+        bool touches_south = false;
+        for (std::size_t head = 0; head < queue.size(); ++head) {
+            const int here = queue[head];
+            component.push_back(here);
+            const int x = here % kCols;
+            const int z = here / kCols;
+            touches_north |= z == 0;
+            touches_south |= z == kRows - 1;
+            const int nx[] = {x - 1, x + 1, x, x};
+            const int nz[] = {z, z, z - 1, z + 1};
+            for (int d = 0; d < 4; ++d) {
+                if (nx[d] < 0 || nx[d] >= kCols ||
+                    nz[d] < 0 || nz[d] >= kRows) {
+                    continue;
+                }
+                const int next = cell(nx[d], nz[d]);
+                if (dry[static_cast<std::size_t>(next)] &&
+                    !seen[static_cast<std::size_t>(next)]) {
+                    seen[static_cast<std::size_t>(next)] = 1u;
+                    queue.push_back(next);
+                }
+            }
+        }
+        if (!touches_north || !touches_south) continue;
+        ++bridges;
     }
-    REQUIRE_MSG(!prev, "the channel does not reach open water at its east end",
-                "causeway");
 
-    std::printf("\n  Camber channel: %d land bridge(s) across it; the causeway "
-                "is %.0f m wide at x = %.0f..%.0f\n",
-                bridges, static_cast<double>(bridge_hi - bridge_lo),
-                static_cast<double>(bridge_lo), static_cast<double>(bridge_hi));
+    // Measure the narrow bridge deck itself, before the parkway begins to
+    // flare and turn. Counting every dry cell in the connected landmass would
+    // measure the airport peninsula, not the roadblock chokepoint.
+    const Road* causeway = nullptr;
+    for (int road_i = 0; road_i < kRoadCount; ++road_i) {
+        if (kRoads[road_i].id == 10u) causeway = &kRoads[road_i];
+    }
+    REQUIRE_MSG(causeway != nullptr, "causeway road is missing", "causeway");
+    int bottleneck_cells = kCols;
+    for (float z = 1600.0f; z <= 1850.0f; z += kStep) {
+        float road_x = causeway->path[0].x;
+        for (int seg = 0; seg + 1 < causeway->count; ++seg) {
+            const RoadPoint a = causeway->path[seg];
+            const RoadPoint b = causeway->path[seg + 1];
+            if (z < a.z || z > b.z) continue;
+            const float t = (z - a.z) / (b.z - a.z);
+            road_x = a.x + (b.x - a.x) * t;
+        }
+        int x = static_cast<int>(std::round((road_x - kMinX) / kStep));
+        const int row = static_cast<int>(std::round((z - kMinZ) / kStep));
+        REQUIRE_MSG(dry[static_cast<std::size_t>(cell(x, row))],
+                    "causeway centre is under water", "causeway");
+        int lo = x;
+        int hi = x;
+        while (lo > 0 && dry[static_cast<std::size_t>(cell(lo - 1, row))]) --lo;
+        while (hi + 1 < kCols &&
+               dry[static_cast<std::size_t>(cell(hi + 1, row))]) {
+            ++hi;
+        }
+        bottleneck_cells = std::min(bottleneck_cells, hi - lo + 1);
+    }
+    const float bridge_width = bottleneck_cells * kStep;
+
+    std::printf("\n  Camber channel: %d connected land bridge(s); narrowest "
+                "cross-section %.0f m\n",
+                bridges, static_cast<double>(bridge_width));
 
     REQUIRE_MSG(bridges == 1,
                 "the Camber channel has more than one crossing, so the "
                 "causeway is not a chokepoint",
                 "causeway");
-    REQUIRE_MSG(bridge_hi - bridge_lo < 90.0f,
+    REQUIRE_MSG(bridge_width < 90.0f,
                 "the causeway is wide enough to drive around a roadblock on",
                 "causeway");
-    REQUIRE_MSG(bridge_hi - bridge_lo > 15.0f,
+    REQUIRE_MSG(bridge_width > 15.0f,
                 "the causeway is too narrow to be a two-lane road", "causeway");
 
-    // And the deck is above water along its whole authored length, which is
-    // the part a Grade with the wrong profile would quietly get wrong.
-    for (float z = 1450.0f; z <= 2100.0f; z += 10.0f) {
-        const float x = 0.5f * (bridge_lo + bridge_hi);
-        REQUIRE_MSG(height_at(kMapSeed, x, z) > kSeaLevelMetres,
-                    "the causeway deck dips below sea level", "causeway");
+    // And the actual bent centreline is above water. Sampling the old fixed X
+    // would now prove a route the player cannot drive.
+    for (int road_i = 0; road_i < kRoadCount; ++road_i) {
+        const Road& road = kRoads[road_i];
+        if (road.id != 10u && road.id != 157u) continue;
+        for (int seg = 0; seg + 1 < road.count; ++seg) {
+            for (int i = 0; i <= 32; ++i) {
+                const float t = static_cast<float>(i) / 32.0f;
+                const float x = road.path[seg].x +
+                    (road.path[seg + 1].x - road.path[seg].x) * t;
+                const float z = road.path[seg].z +
+                    (road.path[seg + 1].z - road.path[seg].z) * t;
+                REQUIRE_MSG(height_at(kMapSeed, x, z) > kSeaLevelMetres,
+                            "airport approach dips below sea level", road.name);
+            }
+        }
     }
     apricot_test::pass("the causeway is the only way onto Camber Point");
 }
@@ -676,7 +769,7 @@ int main() {
     districts_do_not_overlap();
     measure_and_print_every_district();
     the_districts_are_distinct_on_the_ground();
-    the_island_is_the_right_size();
+    the_states_are_the_right_size();
     landmarks_stand_where_the_map_says();
     the_causeway_is_the_only_way_onto_camber_point();
     report_the_op_index();

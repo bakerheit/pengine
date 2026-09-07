@@ -1,0 +1,39 @@
+{
+  "id": "16_lou",
+  "kind": "Cutscene dialogue",
+  "title": "Lou recast \u2014 Ash \u2014 line 16",
+  "character": "Lou - Manager",
+  "voice": "ash",
+  "direction": "Lou is a middle-aged American gas station manager, an ex-crook who has settled into ordinary work. His voice has a light natural rasp and a rough working-class edge, but his manner is relaxed, warm and dryly amused. Speak plainly to Johnny, a coworker standing nearby. Easy everyday rhythm, clear words, small natural pauses. The texture is in the voice, not in exaggerated growling. Play the conversation casually and sincerely. Start to mention they, catch yourself with one brief hesitation, then recover casually. Keep the unfinished word they audible.",
+  "text": "Ya, actually, they... that might not be a bad idea.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "16_lou.wav",
+  "transcript": "Ya, actually, they... that might not be a bad idea.",
+  "transcript_matches": true,
+  "duration_seconds": 4.1,
+  "peak_dbfs": -7.88,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 446,
+    "input_tokens": 258,
+    "output_tokens": 188,
+    "input_token_details": {
+      "text_tokens": 258,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 106,
+      "audio_tokens": 82,
+      "reasoning_tokens": 78
+    }
+  },
+  "response_id": "resp_EKRm3x05tod6lISwS3yJW"
+}

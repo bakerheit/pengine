@@ -8,6 +8,26 @@
 
 namespace apricot {
 
+float RoadSurface::at(glm::vec2 p) const {
+    if (!decked) return ground ? ground->at(p.x, p.y) : 0.0f;
+    if (!points || !heights || heights->size() != points->size()) return deck_y_m;
+    float best = 1e30f;
+    float y = deck_y_m;
+    for (std::size_t i = 1; i < points->size(); ++i) {
+        const glm::vec2 a = (*points)[i - 1], d = (*points)[i] - a;
+        const float l2 = glm::dot(d, d);
+        if (l2 < 1e-6f) continue;
+        const float t = std::clamp(glm::dot(p - a, d) / l2, 0.0f, 1.0f);
+        const glm::vec2 delta = p - (a + d * t);
+        const float distance = glm::dot(delta, delta);
+        if (distance < best) {
+            best = distance;
+            y = glm::mix((*heights)[i - 1], (*heights)[i], t);
+        }
+    }
+    return y;
+}
+
 float TerrainGround::sample(const void* ctx, float x, float z) {
     // mesh_height_at, NOT height_at. The first is the height of the DRAWN
     // triangle; the second is the continuous field underneath it, and they
@@ -45,7 +65,7 @@ public:
     explicit WeldGrid(float tolerance_m)
         : tol_(tolerance_m), tol2_(tolerance_m * tolerance_m) {}
 
-    uint32_t weld(glm::vec2 p) {
+    uint32_t weld(glm::vec2 p, float y) {
         const int32_t cx = floor_div(p.x, tol_);
         const int32_t cz = floor_div(p.y, tol_);
         for (int32_t dz = -1; dz <= 1; ++dz) {
@@ -54,12 +74,14 @@ public:
                 if (it == buckets_.end()) continue;
                 for (uint32_t id : it->second) {
                     const glm::vec2 d = pos_[id] - p;
-                    if (glm::dot(d, d) <= tol2_) return id;
+                    if (glm::dot(d, d) <= tol2_ && std::fabs(heights_[id] - y) <= 0.75f)
+                        return id;
                 }
             }
         }
         const uint32_t id = static_cast<uint32_t>(pos_.size());
         pos_.push_back(p);
+        heights_.push_back(y);
         buckets_[cell_key(cx, cz)].push_back(id);
         return id;
     }
@@ -71,6 +93,7 @@ private:
     float tol_;
     float tol2_;
     std::vector<glm::vec2> pos_;
+    std::vector<float> heights_;
     std::map<int64_t, std::vector<uint32_t>> buckets_;
 };
 
@@ -93,7 +116,13 @@ struct Seg {
 constexpr float kBroadphaseCellM = 64.0f;
 
 void collect_crossings(const std::vector<Seg>& segs, float tol,
+                       const std::vector<RoadSpine>& spines, const GroundSampler& ground,
                        std::vector<std::vector<float>>& splits) {
+    auto height = [&](const Seg& s, glm::vec2 p) {
+        const auto& sp = spines[s.spine];
+        return RoadSurface{&ground, road_structure_is_decked(sp.structure),
+                           sp.deck_y_m, &sp.points, &sp.deck_heights}.at(p);
+    };
     std::map<int64_t, std::vector<uint32_t>> grid;
     for (uint32_t i = 0; i < segs.size(); ++i) {
         const Seg& s = segs[i];
@@ -156,6 +185,8 @@ void collect_crossings(const std::vector<Seg>& segs, float tol,
                 const float t = cross2(qp, s) / denom;
                 const float u = cross2(qp, r) / denom;
                 if (t >= 0.0f && t <= 1.0f && u >= 0.0f && u <= 1.0f) {
+                    const glm::vec2 p = si.a + r * t;
+                    if (std::fabs(height(si, p) - height(sj, p)) > 0.75f) continue;
                     record(i, t);
                     record(j, u);
                     continue;
@@ -167,18 +198,19 @@ void collect_crossings(const std::vector<Seg>& segs, float tol,
             // segment — a street running into an arterial. Without this a T
             // junction is two roads that overlap without connecting, and
             // traffic drives through itself at full speed.
-            auto foot = [&](glm::vec2 p, const Seg& on, uint32_t on_idx) {
+            auto foot = [&](glm::vec2 p, const Seg& from, const Seg& on, uint32_t on_idx) {
                 const glm::vec2 d = on.b - on.a;
                 const float l2 = glm::dot(d, d);
                 if (l2 < kDegenerateSegM) return;
                 const float t = std::clamp(glm::dot(p - on.a, d) / l2, 0.0f, 1.0f);
                 const glm::vec2 c = on.a + d * t;
-                if (glm::length(c - p) <= tol) record(on_idx, t);
+                if (glm::length(c - p) <= tol &&
+                    std::fabs(height(from, p) - height(on, c)) <= 0.75f) record(on_idx, t);
             };
-            foot(si.a, sj, j);
-            foot(si.b, sj, j);
-            foot(sj.a, si, i);
-            foot(sj.b, si, i);
+            foot(si.a, si, sj, j);
+            foot(si.b, si, sj, j);
+            foot(sj.a, sj, si, i);
+            foot(sj.b, sj, si, i);
         }
     }
 }
@@ -215,7 +247,7 @@ void RoadGraph::build(const std::vector<RoadSpine>& spines,
 
     // --- 2. where do spines meet? ------------------------------------------
     std::vector<std::vector<float>> splits(segs.size());
-    if (params.split_crossings) collect_crossings(segs, tol, splits);
+    if (params.split_crossings) collect_crossings(segs, tol, spines, ground, splits);
     for (auto& v : splits) {
         std::sort(v.begin(), v.end());
         v.erase(std::unique(v.begin(), v.end(),
@@ -229,20 +261,23 @@ void RoadGraph::build(const std::vector<RoadSpine>& spines,
     std::vector<std::vector<glm::vec2>> vpos(spines.size());
     for (uint32_t s = 0; s < spines.size(); ++s) {
         if (spine_segs[s].empty()) continue;
+        const auto& sp = spines[s];
+        const RoadSurface surface{&ground, road_structure_is_decked(sp.structure),
+                                  sp.deck_y_m, &sp.points, &sp.deck_heights};
         bool first = true;
         for (uint32_t si : spine_segs[s]) {
             const Seg& sg = segs[si];
             if (first) {
-                vert[s].push_back(weld.weld(sg.a));
+                vert[s].push_back(weld.weld(sg.a, surface.at(sg.a)));
                 vpos[s].push_back(sg.a);
                 first = false;
             }
             for (float t : splits[si]) {
                 const glm::vec2 p = sg.a + (sg.b - sg.a) * t;
-                vert[s].push_back(weld.weld(p));
+                vert[s].push_back(weld.weld(p, surface.at(p)));
                 vpos[s].push_back(p);
             }
-            vert[s].push_back(weld.weld(sg.b));
+            vert[s].push_back(weld.weld(sg.b, surface.at(sg.b)));
             vpos[s].push_back(sg.b);
         }
         // A split that welded straight back onto its neighbour contributes
@@ -307,6 +342,16 @@ void RoadGraph::build(const std::vector<RoadSpine>& spines,
         const float width = sp.width_m > 0.0f
                                 ? sp.width_m
                                 : road_class_def(sp.cls).carriageway_width_m;
+        const float spine_width_start = sp.width_start_m > 0.0f
+                                            ? sp.width_start_m : width;
+        const float spine_width_end = sp.width_end_m > 0.0f
+                                          ? sp.width_end_m : width;
+        const uint8_t class_lanes = static_cast<uint8_t>(
+            sp.one_way ? 1 : std::max(1, road_class_def(sp.cls).lanes_per_dir));
+        const uint8_t spine_lanes_start = sp.lanes_start_per_dir > 0
+                                              ? sp.lanes_start_per_dir : class_lanes;
+        const uint8_t spine_lanes_end = sp.lanes_end_per_dir > 0
+                                            ? sp.lanes_end_per_dir : class_lanes;
         uint32_t run = 0;
         std::size_t start = 0;
         for (std::size_t k = 1; k < n; ++k) {
@@ -318,7 +363,23 @@ void RoadGraph::build(const std::vector<RoadSpine>& spines,
             e.cls = sp.cls;
             e.structure = sp.structure;
             e.deck_y_m = sp.deck_y_m;
-            e.width_m = width;
+            e.one_way = sp.one_way;
+            e.lane_connect_start = sp.lane_connect_start && start == 0;
+            e.lane_connect_end = sp.lane_connect_end && k + 1 == n;
+            e.bridge_detail_style = sp.bridge_detail_style;
+            e.curb_cut_tee = sp.curb_cut_tee;
+            const float denom = static_cast<float>(n - 1);
+            const float start_t = static_cast<float>(start) / denom;
+            const float end_t = static_cast<float>(k) / denom;
+            e.width_start_m = glm::mix(spine_width_start, spine_width_end, start_t);
+            e.width_end_m = glm::mix(spine_width_start, spine_width_end, end_t);
+            e.width_m = std::max(e.width_start_m, e.width_end_m);
+            e.lanes_start_per_dir = static_cast<uint8_t>(std::lround(glm::mix(
+                static_cast<float>(spine_lanes_start),
+                static_cast<float>(spine_lanes_end), start_t)));
+            e.lanes_end_per_dir = static_cast<uint8_t>(std::lround(glm::mix(
+                static_cast<float>(spine_lanes_start),
+                static_cast<float>(spine_lanes_end), end_t)));
             e.block_quality = sp.block_quality;
             e.traffic_density = sp.traffic_density;
             e.ped_density = sp.ped_density;
@@ -333,6 +394,11 @@ void RoadGraph::build(const std::vector<RoadSpine>& spines,
             // seam and the lane graph's turn links start from the wrong place.
             e.points.front() = nodes_[e.node_a].pos;
             e.points.back() = nodes_[e.node_b].pos;
+            if (!sp.deck_heights.empty()) {
+                const RoadSurface profile{&ground, true, sp.deck_y_m,
+                                          &sp.points, &sp.deck_heights};
+                for (glm::vec2 p : e.points) e.deck_heights.push_back(profile.at(p));
+            }
             for (std::size_t q = 1; q < e.points.size(); ++q)
                 e.length_m += glm::length(e.points[q] - e.points[q - 1]);
 
@@ -365,7 +431,7 @@ void RoadGraph::build(const std::vector<RoadSpine>& spines,
                 all_decked = false;
                 break;
             }
-            deck = edges_[ei].deck_y_m;
+            deck = RoadSurface::of(edges_[ei], ground).at(n.pos);
         }
         n.y_m = all_decked ? deck : ground.at(n.pos.x, n.pos.y);
 
@@ -373,9 +439,8 @@ void RoadGraph::build(const std::vector<RoadSpine>& spines,
     }
 
     for (const RoadEdge& e : edges_) {
-        const bool decked = road_structure_is_decked(e.structure);
         for (glm::vec2 p : e.points) {
-            const float y = decked ? e.deck_y_m : ground.at(p.x, p.y);
+            const float y = RoadSurface::of(e, ground).at(p);
             bounds_.expand(glm::vec3{p.x, y, p.y});
         }
     }

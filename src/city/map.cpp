@@ -1,8 +1,13 @@
 #include "city/map.h"
 
+#include "city/airport.h"
+#include "city/florangia_airport.h"
 #include "city/districts.h"
 #include "city/landmarks.h"
+#include "city/luxury_neighborhood.h"
+#include "city/miandi_layout.h"
 #include "city/terrain_ops.h"
+#include "city/tidewater_farm.h"
 
 namespace apricot {
 namespace city {
@@ -49,6 +54,16 @@ const char* district_name(DistrictId id) {
 }
 
 float wild_scatter_at(float x, float z) {
+    // The airfield is authored open ground. Random trees in front of the
+    // terminal or beside a runway are not variety; they are a layout bug.
+    if (airport_lot_contains(x, z, 8.0f)) return 0.0f;
+    if (florangia_airport_lot_contains(x, z, 8.0f)) return 0.0f;
+    if (miandi_city_contains(x, z, 12.0f)) return 0.0f;
+    // Crops, the house yard, and barn circulation are authored open ground.
+    if (tidewater_farm_lot_contains(x, z, 7.0f)) return 0.0f;
+    // Westmere supplies its own mature trees; random forest would block
+    // drives, pools and the sightline through the gate.
+    if (luxury_neighborhood_contains(x, z, 8.0f)) return 0.0f;
     const DistrictId d = district_at(x, z);
     if (d == DistrictId::Count) return 1.0f;  // open country
     return kDistricts[static_cast<int>(d)].props.wild;

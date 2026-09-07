@@ -117,6 +117,42 @@ void fold_loop_tail(std::vector<float>& raw, std::size_t n, std::size_t fade) {
     raw.resize(n);
 }
 
+// Same fold for a file clip that already contains its tail inside the source
+// buffer. The overlap is removed from the final loop, so the last source frame
+// continues through the crossfaded head instead of jumping back to it.
+void fold_file_loop_tail(PcmClip& clip, float fade_seconds) {
+    const std::size_t frames = clip.frame_count();
+    const std::size_t channels = clip.channels;
+    if (frames < 8 || channels == 0 || !(fade_seconds > 0.0f)) return;
+    const std::size_t wanted = static_cast<std::size_t>(
+        fade_seconds * static_cast<float>(clip.sample_rate));
+    const std::size_t fade = std::clamp<std::size_t>(wanted, 1u, frames / 4u);
+    const std::size_t kept = frames - fade;
+    for (std::size_t i = 0; i < fade; ++i) {
+        const float u = (static_cast<float>(i) + 0.5f) /
+                        static_cast<float>(fade);
+        for (std::size_t c = 0; c < channels; ++c) {
+            const std::size_t head = i * channels + c;
+            const std::size_t tail = (kept + i) * channels + c;
+            clip.samples[head] =
+                clip.samples[head] * u + clip.samples[tail] * (1.0f - u);
+        }
+    }
+    clip.samples.resize(kept * channels);
+}
+
+void retune_file_loop(PcmClip& clip, float anchor_rpm, float source_rpm) {
+    if (!(anchor_rpm > 0.0f) || !(source_rpm > 0.0f) ||
+        clip.sample_rate == 0) {
+        return;
+    }
+    const double tuned = static_cast<double>(clip.sample_rate) *
+                         static_cast<double>(anchor_rpm) /
+                         static_cast<double>(source_rpm);
+    clip.sample_rate = static_cast<uint32_t>(
+        std::clamp(tuned, 8000.0, 384000.0) + 0.5);
+}
+
 // Ramp the head and tail of a ONE-SHOT to zero. Loops must never see this.
 void fade_ends(std::vector<float>& s, std::size_t head, std::size_t tail) {
     const std::size_t n = s.size();
@@ -490,7 +526,7 @@ PcmClip synth_tyre_scrub(float seconds, uint32_t sample_rate) {
     return clip;
 }
 
-PcmClip synth_surface_roll(Surface surface, float seconds,
+PcmClip synth_surface_roll(AudioSurface surface, float seconds,
                            uint32_t sample_rate) {
     PcmClip clip;
     clip.sample_rate = sample_rate;
@@ -514,24 +550,24 @@ PcmClip synth_surface_roll(Surface surface, float seconds,
     };
     Profile p{};
     switch (surface) {
-        case Surface::Tarmac:
+        case AudioSurface::Rock:
             // Coarse chip seal: a thin, even hiss and essentially no debris.
             p = Profile{2600.0, 0.10, 6.0, 3200.0, 900.0};
             break;
-        case Surface::Gravel:
+        case AudioSurface::Gravel:
             // The loud one. Loose stone under the arches at a rate you can
             // almost count, which is the entire identity of a rally stage.
             p = Profile{900.0, 0.95, 90.0, 2100.0, 520.0};
             break;
-        case Surface::Dirt:
+        case AudioSurface::Grass:
             // Packed earth: gravel's body without gravel's stones.
             p = Profile{620.0, 0.45, 26.0, 1400.0, 420.0};
             break;
-        case Surface::Snow:
-            // Almost nothing above 400 Hz, plus the compression squeak.
+        case AudioSurface::Sand:
+            // Almost nothing above 400 Hz, plus the compression scrub.
             p = Profile{330.0, 0.20, 14.0, 900.0, 300.0};
             break;
-        case Surface::kCount:
+        case AudioSurface::kCount:
             return clip;
     }
 
@@ -864,9 +900,9 @@ SfxBank synth_bank(uint32_t sample_rate) {
     }
 
     bank.tyre_scrub = synth_tyre_scrub(2.0f, sample_rate);
-    for (std::size_t i = 0; i < kSurfaceCount; ++i) {
+    for (std::size_t i = 0; i < kAudioSurfaceCount; ++i) {
         bank.surface_roll[i] =
-            synth_surface_roll(static_cast<Surface>(i), 2.0f, sample_rate);
+            synth_surface_roll(static_cast<AudioSurface>(i), 2.0f, sample_rate);
     }
 
     for (std::size_t i = 0; i < SfxBank::kThumpCount; ++i) {
@@ -974,10 +1010,10 @@ VoiceMix tyre_scrub_mix(const SfxBank& bank, float lateral_slip,
 }
 
 VoiceMix surface_roll_mix(const SfxBank& bank, float speed_mps,
-                          Surface surface) {
+                          AudioSurface surface) {
     VoiceMix v;
     const std::size_t i = static_cast<std::size_t>(surface);
-    if (i >= kSurfaceCount || bank.surface_roll[i].empty()) return v;
+    if (i >= kAudioSurfaceCount || bank.surface_roll[i].empty()) return v;
 
     // 35 m/s is 126 km/h — flat out on a stage. Everything scales to that.
     const float s01 = std::clamp(speed_mps / 35.0f, 0.0f, 1.0f);
@@ -985,11 +1021,11 @@ VoiceMix surface_roll_mix(const SfxBank& bank, float speed_mps,
     struct Trim { float level; float base_hz; float span_hz; };
     Trim trim{};
     switch (surface) {
-        case Surface::Tarmac: trim = Trim{0.42f, 1500.0f, 6000.0f}; break;
-        case Surface::Gravel: trim = Trim{0.80f,  700.0f, 4400.0f}; break;
-        case Surface::Dirt:   trim = Trim{0.62f,  520.0f, 3000.0f}; break;
-        case Surface::Snow:   trim = Trim{0.38f,  300.0f, 1500.0f}; break;
-        case Surface::kCount: return v;
+        case AudioSurface::Rock:   trim = Trim{0.42f, 1500.0f, 6000.0f}; break;
+        case AudioSurface::Gravel: trim = Trim{0.80f,  700.0f, 4400.0f}; break;
+        case AudioSurface::Grass:  trim = Trim{0.62f,  520.0f, 3000.0f}; break;
+        case AudioSurface::Sand:   trim = Trim{0.38f,  300.0f, 1500.0f}; break;
+        case AudioSurface::kCount: return v;
     }
 
     v.clip = &bank.surface_roll[i];
@@ -1188,15 +1224,104 @@ bool override_clip_from_wav(PcmClip& clip, const std::string& path) {
     PcmClip loaded;
     if (load_wav_clip(path, loaded)) {
         clip = std::move(loaded);
-        AP_INFO("audio: %s overrides the synthesised clip (%zu frames)",
+        AP_INFO("audio: loaded %s (%zu frames)",
                 path.c_str(), clip.frame_count());
         return true;
     }
     if (first_warning_for(path)) {
         AP_WARN("audio: optional clip %s missing or unreadable; "
-                "keeping the synthesised one", path.c_str());
+                "keeping the current clip", path.c_str());
     }
     return false;
+}
+
+std::size_t override_bank_from_wavs(SfxBank& bank,
+                                    const SfxOverridePaths& paths) {
+    std::size_t loaded = 0;
+    for (std::size_t i = 0; i < kEngineLayerCount; ++i) {
+        if (!paths.engine_power[i].empty() &&
+            override_clip_from_wav(bank.engine_power[i],
+                                   paths.engine_power[i])) {
+            fold_file_loop_tail(bank.engine_power[i], 0.045f);
+            retune_file_loop(bank.engine_power[i], bank.engine_rpm[i],
+                             paths.engine_power_source_rpm[i]);
+            ++loaded;
+        }
+        if (!paths.engine_overrun[i].empty() &&
+            override_clip_from_wav(bank.engine_overrun[i],
+                                   paths.engine_overrun[i])) {
+            fold_file_loop_tail(bank.engine_overrun[i], 0.045f);
+            retune_file_loop(bank.engine_overrun[i], bank.engine_rpm[i],
+                             paths.engine_overrun_source_rpm[i]);
+            ++loaded;
+        }
+    }
+    for (std::size_t use = 0; use < kCarSoundUseCount; ++use) {
+        for (int variant = 0; variant < kCarSoundVariantCount; ++variant) {
+            const std::string& path =
+                paths.car_sound_audition[use]
+                                         [static_cast<std::size_t>(variant)];
+            if (!path.empty() &&
+                override_clip_from_wav(
+                    bank.car_sound_audition[use]
+                                             [static_cast<std::size_t>(variant)],
+                    path)) {
+                ++loaded;
+            }
+        }
+    }
+    if (!paths.player_throttle_attack.empty() &&
+        override_clip_from_wav(bank.player_throttle_attack,
+                               paths.player_throttle_attack)) {
+        ++loaded;
+    }
+    if (!paths.player_throttle_hold.empty() &&
+        override_clip_from_wav(bank.player_throttle_hold,
+                               paths.player_throttle_hold)) {
+        if (!paths.player_throttle_hold_is_loop_ready) {
+            fold_file_loop_tail(bank.player_throttle_hold, 0.080f);
+        }
+        ++loaded;
+    }
+    if (!paths.player_throttle_release.empty() &&
+        override_clip_from_wav(bank.player_throttle_release,
+                               paths.player_throttle_release)) {
+        ++loaded;
+    }
+    if (!paths.player_car_collision.empty() &&
+        override_clip_from_wav(bank.player_car_collision,
+                               paths.player_car_collision)) {
+        ++loaded;
+    }
+    if (!paths.player_drift_tyres.empty() &&
+        override_clip_from_wav(bank.player_drift_tyres,
+                               paths.player_drift_tyres)) {
+        fold_file_loop_tail(bank.player_drift_tyres, 0.160f);
+        ++loaded;
+    }
+    if (!paths.player_burnout.empty() &&
+        override_clip_from_wav(bank.player_burnout, paths.player_burnout)) {
+        fold_file_loop_tail(bank.player_burnout, 0.040f);
+        ++loaded;
+    }
+    if (!paths.engine_start.empty() &&
+        override_clip_from_wav(bank.engine_start, paths.engine_start)) ++loaded;
+    // The offline extractor already made this loop phase-continuous.
+    if (!paths.engine_idle.empty() &&
+        override_clip_from_wav(bank.engine_idle, paths.engine_idle)) ++loaded;
+    if (!paths.city_ambience.empty() &&
+        override_clip_from_wav(bank.city_ambience, paths.city_ambience)) {
+        ++loaded;
+    }
+    if (!paths.rain.empty() && override_clip_from_wav(bank.rain, paths.rain)) {
+        ++loaded;
+    }
+    if (!paths.mission_success.empty() &&
+        override_clip_from_wav(bank.mission_success,
+                               paths.mission_success)) {
+        ++loaded;
+    }
+    return loaded;
 }
 
 }  // namespace apricot

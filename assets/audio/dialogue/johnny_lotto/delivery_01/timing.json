@@ -1,0 +1,151 @@
+{
+  "duration_seconds": 69.41,
+  "action_time_shift": -6.189999999999998,
+  "walk": [
+    47.510000000000005,
+    53.660000000000004
+  ],
+  "pickup": [
+    53.86,
+    54.96
+  ],
+  "handoff": [
+    55.86,
+    58.56
+  ],
+  "cues": [
+    {
+      "speaker": "Johnny",
+      "text": "Lotto's up to twelve million.",
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/01_johnny.wav",
+      "start": 1.0,
+      "duration": 2.98
+    },
+    {
+      "speaker": "Lou",
+      "text": "Don't waste your money.",
+      "audio": "audio/dialogue/johnny_lotto/lou_ash_04/balanced/02_lou.wav",
+      "start": 4.18,
+      "duration": 1.8800000000000001
+    },
+    {
+      "speaker": "Johnny",
+      "text": "Somebody's gotta win.",
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/03_johnny.wav",
+      "start": 6.26,
+      "duration": 1.83
+    },
+    {
+      "speaker": "Lou",
+      "text": "I hit it once. Never played again.",
+      "audio": "audio/dialogue/johnny_lotto/lou_ash_04/balanced/04_lou.wav",
+      "start": 8.29,
+      "duration": 3.2800000000000002
+    },
+    {
+      "speaker": "Johnny",
+      "text": "You? How much?",
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/05_johnny.wav",
+      "start": 11.77,
+      "duration": 2.73
+    },
+    {
+      "speaker": "Lou",
+      "text": "Enough to buy this place.",
+      "audio": "audio/dialogue/johnny_lotto/lou_ash_04/balanced/06_lou.wav",
+      "start": 14.7,
+      "duration": 2.5300000000000002
+    },
+    {
+      "speaker": "Johnny",
+      "text": "No shit. What'd you do, pick birthdays?",
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/07_johnny.wav",
+      "start": 17.43,
+      "duration": 3.78
+    },
+    {
+      "speaker": "Lou",
+      "text": "Didn't pick numbers. Picked a truck.",
+      "audio": "audio/dialogue/johnny_lotto/lou_ash_04/balanced/08_lou.wav",
+      "start": 21.41,
+      "duration": 3.38
+    },
+    {
+      "speaker": "Johnny",
+      "text": "A truck?",
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/09_johnny.wav",
+      "start": 24.99,
+      "duration": 1.03
+    },
+    {
+      "speaker": "Lou",
+      "text": "Had the bank's name on the side.",
+      "audio": "audio/dialogue/johnny_lotto/lou_ash_04/balanced/10_lou.wav",
+      "start": 26.22,
+      "duration": 2.83
+    },
+    {
+      "speaker": "Johnny",
+      "text": "Right.",
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/11_johnny.wav",
+      "start": 29.62,
+      "duration": 0.73
+    },
+    {
+      "speaker": "Lou",
+      "text": "Anyway. I gotta go make a delivery.",
+      "audio": "audio/dialogue/johnny_lotto/lou_ash_04/balanced/12_lou.wav",
+      "start": 31.02,
+      "duration": 3.0300000000000002
+    },
+    {
+      "speaker": "Johnny",
+      "text": "Let me do it.",
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/13_johnny.wav",
+      "start": 34.25,
+      "duration": 1.33
+    },
+    {
+      "speaker": "Lou",
+      "text": "You?",
+      "audio": "audio/dialogue/johnny_lotto/lou_ash_04/balanced/14_lou.wav",
+      "start": 35.78,
+      "duration": 0.9299999999999999
+    },
+    {
+      "speaker": "Johnny",
+      "text": "Yeah. I've been in here all day. Let me get out of the store for a bit.",
+      "audio": "audio/dialogue/johnny_lotto/take_01/balanced/15_johnny.wav",
+      "start": 36.91,
+      "duration": 5.18
+    },
+    {
+      "speaker": "Lou",
+      "text": "Ya, actually, they... that might not be a bad idea.",
+      "audio": "audio/dialogue/johnny_lotto/lou_ash_04/balanced/16_lou.wav",
+      "start": 42.46,
+      "duration": 4.18
+    },
+    {
+      "speaker": "Lou",
+      "text": "You just need to take this to the Ostend docks up north west a bit.",
+      "audio": "audio/dialogue/johnny_lotto/lou_ash_04/balanced/17_lou.wav",
+      "start": 47.51,
+      "duration": 5.23
+    },
+    {
+      "speaker": "Johnny",
+      "text": "Okay I think I know where that is.",
+      "audio": "audio/dialogue/johnny_lotto/delivery_01/balanced/18_johnny.wav",
+      "start": 58.91,
+      "duration": 2.58
+    },
+    {
+      "speaker": "Lou",
+      "text": "Devon will be working in the bait and tackle shop, just let him know I sent you.",
+      "audio": "audio/dialogue/johnny_lotto/lou_ash_04/balanced/19_lou.wav",
+      "start": 61.81,
+      "duration": 4.88
+    }
+  ]
+}

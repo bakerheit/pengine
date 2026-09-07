@@ -1,0 +1,38 @@
+[
+  {
+    "id": "johnny_01",
+    "kind": "Cutscene",
+    "title": "Mission 1 package arrival",
+    "character": "Johnny",
+    "voice": "cedar",
+    "text": "Devon? Lou sent me. Got your package.",
+    "direction": "Young adult American man, light East Coast edge, casual and dry. Speaking to Devon at arm length in a bait shop. Natural pace, no theatrical pauses."
+  },
+  {
+    "id": "devon_01",
+    "kind": "Cutscene",
+    "title": "Mission 1 package arrival",
+    "character": "Devon",
+    "voice": "verse",
+    "text": "did anyone follow you?",
+    "direction": "Adult American man who runs a bait shop. Guarded and watchful, lightly rough everyday voice. The first question is quiet and serious; relax slightly once the package is in hand. Speaking to a young courier at arm length. Natural pace, no growl or drawl."
+  },
+  {
+    "id": "johnny_02",
+    "kind": "Cutscene",
+    "title": "Mission 1 package arrival",
+    "character": "Johnny",
+    "voice": "cedar",
+    "text": "No. Why?",
+    "direction": "Young adult American man, light East Coast edge, casual and dry. Speaking to Devon at arm length in a bait shop. Natural pace, no theatrical pauses."
+  },
+  {
+    "id": "devon_02",
+    "kind": "Cutscene",
+    "title": "Mission 1 package arrival",
+    "character": "Devon",
+    "voice": "verse",
+    "text": "Just checking. Tell Lou we're square.",
+    "direction": "Adult American man who runs a bait shop. Guarded and watchful, lightly rough everyday voice. The first question is quiet and serious; relax slightly once the package is in hand. Speaking to a young courier at arm length. Natural pace, no growl or drawl."
+  }
+]

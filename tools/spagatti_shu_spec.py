@@ -1,0 +1,84 @@
+"""Spagatti Shū: original rounded PSX hypercar shape and UV contract."""
+
+ATLAS_SIZE = 256
+
+# Large receivers keep the proportions of the final model projections. Image
+# coordinates start at the top-left; every rectangle includes a two-pixel
+# gutter before the cooked UVs begin.
+REGIONS = {
+    "BODY_SIDE": (4, 4, 252, 64),
+    "BODY_TOP": (4, 68, 76, 228),
+    "BODY_FRONT": (80, 68, 164, 112),
+    "BODY_REAR": (168, 68, 252, 112),
+    "GLASS_SIDE": (80, 116, 252, 152),
+    "GLASS_FRONT": (80, 156, 164, 196),
+    "GLASS_REAR": (168, 156, 252, 196),
+    "CLADDING": (80, 200, 122, 224),
+    "BODY_SHADOW": (126, 200, 168, 224),
+    "SEAM": (172, 200, 204, 224),
+    "METAL": (208, 200, 252, 224),
+    "BLACK": (80, 228, 122, 252),
+    "HEADLIGHT": (126, 228, 168, 252),
+    "TAIL_RED": (172, 228, 214, 252),
+    "EXHAUST": (218, 228, 252, 252),
+    "LENS_DARK": (4, 232, 76, 252),
+}
+
+# Exact source-coordinate projections used by both Blender and the texture
+# painter. Axes are Blender X/right, Y/forward, Z/up. This is the important
+# model-first contract: body art can be placed in metres and lands on the
+# intended receiver surface.
+UV_PROJECTIONS = {
+    "BODY_SIDE": ((1, 2), ((-2.42, 2.42), (.16, 1.225))),
+    "BODY_TOP": ((0, 1), ((-1.086, 1.086), (-2.42, 2.42))),
+    "BODY_FRONT": ((0, 2), ((-1.086, 1.086), (.16, 1.225))),
+    "BODY_REAR": ((0, 2), ((-1.086, 1.086), (.16, 1.225))),
+    "GLASS_SIDE": ((1, 2), ((-1.06, .86), (.74, 1.225))),
+    "GLASS_FRONT": ((0, 2), ((-.69, .69), (.82, 1.225))),
+    "GLASS_REAR": ((0, 2), ((-.69, .69), (.82, 1.225))),
+}
+
+# Cooked X/right, Y/up, Z/forward coordinates. These regions select painted
+# pixels on the curved BODY_FRONT/BODY_REAR triangles; they are not cards.
+LAMPS = {
+    "headlights": {
+        "x": ((-.92, -.49), (.49, .92)), "y": (.47, .63),
+        "z": (1.90, 2.405),
+    },
+    "brakelights": {
+        "x": ((-.965, -.755), (-.705, -.495),
+              (.495, .705), (.755, .965)),
+        "y": (.455, .665), "z": (-2.405, -2.14),
+    },
+}
+
+WHEEL_ANCHORS = {
+    "front_z": 1.45,
+    "rear_z": -1.35,
+    "x": 0.94,
+    "arch_y": 0.43,
+    "radius": 0.43,
+}
+
+SHAPE = {
+    "name": "Spagatti Shū",
+    "length": 4.84,
+    "width": 2.172,
+    "height": 1.075,
+    "wheelbase": 2.80,
+    "track": 1.88,
+    "body_bottom": 0.16,
+    "beltline": 0.78,
+    "roof_height": 1.22,
+    "rear_deck": 0.88,
+    "cabin": (-1.10, 0.86),
+    "triangle_budget": (650, 1300),
+    "atlas": (256, 256, "RGBA"),
+    "traits": [
+        "short rounded nose with a deep horseshoe-shaped centre mouth",
+        "single arched teardrop greenhouse instead of a targa roof",
+        "wide rear haunches flowing into a compact fastback tail",
+        "deep Italian red body with restrained warm-metal cabin trim",
+        "four round rear lamps and paired central exhausts",
+    ],
+}

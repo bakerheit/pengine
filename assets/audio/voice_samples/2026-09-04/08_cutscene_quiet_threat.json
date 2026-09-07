@@ -1,0 +1,39 @@
+{
+  "id": "08_cutscene_quiet_threat",
+  "kind": "Cutscene",
+  "title": "The quiet threat",
+  "character": "Mr. Vale \u2014 courteous crime boss",
+  "voice": "ballad",
+  "direction": "Older adult man, resonant low voice, restrained cultivated American accent. Impeccably polite, dangerous without raising your voice. First sentence genuinely hospitable. A small pause after 'Good'. Let the last two sentences turn cold. Not a caricature or an imitation of any actor.",
+  "text": "My wife picked out those curtains. Awful things, aren't they? You can say it. Good. Now we know you're capable of telling the truth. Let's try again. Where is my money, and why did your friend leave town without you?",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "08_cutscene_quiet_threat.wav",
+  "transcript": "My wife picked out those curtains. Awful things, aren't they? You can say it. Good. Now we know you're capable of telling the truth. Let's try again. Where is my money, and why did your friend leave town without you?",
+  "transcript_matches": true,
+  "duration_seconds": 19.7,
+  "peak_dbfs": -6.91,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 869,
+    "input_tokens": 244,
+    "output_tokens": 625,
+    "input_token_details": {
+      "text_tokens": 244,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 231,
+      "audio_tokens": 394,
+      "reasoning_tokens": 153
+    }
+  },
+  "response_id": "resp_EKQEe6E2ecKbhnlnKeqoF"
+}

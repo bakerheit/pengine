@@ -2,8 +2,11 @@
 
 A **C++17 / OpenGL 3.3** game engine, and the pilot game being built on it.
 
-**The pilot game is Pinatty** — a GTA-style open-world crime game, a rebuild of
-`probablecause`. The map design is [`docs/design/pinatty.md`](docs/design/pinatty.md).
+**The pilot world has two states:** O'Haven, the GTA-style authored city rebuilt
+from `probablecause`, and Florangia, its low subtropical neighbor to the
+southeast. O'Haven's city design remains at the legacy path
+[`docs/design/pinatty.md`](docs/design/pinatty.md); Florangia's terrain brief is
+[`docs/design/florangia.md`](docs/design/florangia.md).
 
 **Its MAP AND ITS ROADS are written; the rest is not.** `src/city/` holds the
 ten district polygons with their character parameters, the landmark table, the
@@ -78,7 +81,7 @@ Three targets. Dependencies flow **sim → host → exe**, never back.
 | `apricot` (exe) | `apricot_host` | `app` + `main.cpp` |
 
 `src/game/` currently holds one thing — `conditions.{h,cpp}`, the deterministic
-weather that feeds `VehicleTuning::grip_scale`. Pinatty's rules land there.
+weather that feeds `VehicleTuning::grip_scale`. O'Haven's rules land there.
 
 **Each module owns its own `CMakeLists.txt`** and attaches its files with
 `target_sources()`. The root `CMakeLists.txt` declares three source-less

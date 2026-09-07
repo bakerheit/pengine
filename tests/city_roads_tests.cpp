@@ -1,4 +1,4 @@
-// Pinatty's roads — is the network a place you can drive, and does it sit on
+// O'Haven's roads — is the network a place you can drive, and does it sit on
 // the ground?
 //
 // Two jobs, and like city_map_tests.cpp they are different jobs.
@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <initializer_list>
 #include <queue>
 #include <vector>
 
@@ -123,10 +124,15 @@ bool layer_lift(RoadLayer l, float& lift) {
             // they are painted on (ribbon.cpp).
             lift = kDrapeEpsM + 0.03f;
             return true;
+        case RoadLayer::WhiteMarking:
+        case RoadLayer::YellowMarking:
+            lift = kDrapeEpsM + RibbonParams{}.marking_lift_m;
+            return true;
         case RoadLayer::Walk:
             lift = kDrapeEpsM + kKerbHeightM;
             return true;
         case RoadLayer::Kerb:
+        case RoadLayer::Structure:
             return false;
     }
     return false;
@@ -184,6 +190,80 @@ void the_network_is_the_size_the_table_says() {
     REQUIRE_MSG(centreline > 40000.0,
                 "the island lost most of its road network", "network");
     apricot_test::pass("the network builds, and it is the size the table says");
+}
+
+void rimway_creek_bridge_uses_its_own_municipal_profile() {
+    const Road* rimway = nullptr;
+    const Road* kessel = nullptr;
+    int municipal = 0;
+    for (const Road& road : kRoads) {
+        if (road.bridge_detail_style == city::BridgeDetailStyle::Municipal)
+            ++municipal;
+        if (road.id == 5) rimway = &road;
+        if (road.id == 2) kessel = &road;
+    }
+    REQUIRE(rimway != nullptr);
+    REQUIRE(kessel != nullptr);
+    REQUIRE(rimway->structure == city::RoadStructure::Bridge);
+    REQUIRE(rimway->bridge_detail_style == city::BridgeDetailStyle::Municipal);
+    REQUIRE(rimway->count == 2);
+    REQUIRE_NEAR(rimway->deck_y_m, 6.0f, 1e-6f);
+    REQUIRE_NEAR(rimway->width_m, 0.0f, 1e-6f);  // retain class width
+    REQUIRE(kessel->bridge_detail_style == city::BridgeDetailStyle::None);
+    REQUIRE(municipal == 1);
+
+    const Built& b = built();
+    bool mapped = false;
+    RoadSpine target_spine;
+    for (const RoadSpine& spine : b.spines) {
+        if (spine.id != 5) continue;
+        mapped = true;
+        target_spine = spine;
+        REQUIRE(spine.bridge_detail_style == BridgeDetailStyle::Municipal);
+        REQUIRE(spine.structure == RoadStructure::Bridge);
+        REQUIRE(spine.points.size() == 2);
+    }
+    REQUIRE(mapped);
+
+    RoadGraph target_graph;
+    target_graph.build({target_spine}, RoadGraphParams{}, b.ground.sampler());
+    const RibbonBake target_bake =
+        bake_ribbons(target_graph, b.ground.sampler());
+    const RoadCollision target_collision = build_road_collision(target_bake);
+    REQUIRE(!target_bake.layer(RoadLayer::Structure).empty());
+    REQUIRE(target_bake.solids.size() > 100);
+    REQUIRE(target_collision.solids.size() == target_bake.solids.size());
+
+    const glm::vec2 tangent = glm::normalize(target_spine.points.back() -
+                                             target_spine.points.front());
+    const glm::vec2 side{-tangent.y, tangent.x};
+    int pier_columns = 0;
+    for (std::size_t i = 0; i < target_bake.solids.size(); ++i) {
+        const auto& solid = target_bake.solids[i];
+        const auto& collider = target_collision.solids[i];
+        REQUIRE_NEAR(glm::length(solid.centre - collider.centre), 0.0f, 1e-6f);
+        REQUIRE_NEAR(glm::length(solid.half - collider.half), 0.0f, 1e-6f);
+        if (std::fabs(solid.half.x - 1.05f) < 0.01f &&
+            std::fabs(solid.half.z - 1.45f) < 0.01f)
+            ++pier_columns;
+
+        if (solid.centre.y + solid.half.y >
+            rimway->deck_y_m + kDrapeEpsM + 0.01f) {
+            const glm::vec2 from_start{solid.centre.x - target_spine.points[0].x,
+                                       solid.centre.z - target_spine.points[0].y};
+            const float lateral = std::fabs(glm::dot(from_start, side));
+            REQUIRE_MSG(lateral - solid.half.x >= 15.0f - 0.001f,
+                        "bridge furniture intrudes into the freeway surface",
+                        "Rimway Creek Bridge");
+        }
+    }
+    REQUIRE_MSG(pier_columns >= 2,
+                "the municipal bridge has no visible pier support",
+                "Rimway Creek Bridge");
+    for (const TerrainVertex& v :
+         target_bake.layer(RoadLayer::Carriageway).vertices)
+        REQUIRE_NEAR(v.position.y, rimway->deck_y_m + kDrapeEpsM, 1e-5f);
+    apricot_test::pass("Rimway Creek alone opts into the municipal bridge kit");
 }
 
 // ---------------------------------------------------------------------------
@@ -480,18 +560,59 @@ void you_can_drive_from_any_district_to_any_other() {
                     city::district_name(static_cast<city::DistrictId>(d)));
     }
 
-    // And the whole network is one piece, not two islands that each happen to
-    // touch five districts.
+    // O'Haven is one connected road component. Florangia is a separate state
+    // across open water, so its first highway is deliberately a second
+    // component until a ferry or bridge is actually authored.
     std::size_t reached = 0;
+    std::size_t florangia_nodes = 0;
+    uint32_t florangia_start =
+        static_cast<uint32_t>(b.graph.node_count());
     for (const float v : dist) {
         if (v >= 0.0f) ++reached;
     }
-    std::printf("    %zu of %zu nodes reachable\n", reached, nodes);
-    REQUIRE_MSG(reached == nodes,
-                "part of the road network is not connected to the rest",
-                "connectivity");
+    for (uint32_t node = 0; node < b.graph.node_count(); ++node) {
+        if (dist[node] >= 0.0f) continue;
+        bool belongs_to_florangia = true;
+        for (const uint32_t edge : b.graph.node(node).edges) {
+            const uint32_t id = b.graph.edge(edge).spine_id;
+            belongs_to_florangia = belongs_to_florangia && id >= 220u &&
+                                   id <= 234u;
+        }
+        REQUIRE_MSG(belongs_to_florangia,
+                    "an O'Haven road fell out of its connected component",
+                    "connectivity");
+        if (florangia_start == static_cast<uint32_t>(b.graph.node_count()))
+            florangia_start = node;
+        ++florangia_nodes;
+    }
 
-    apricot_test::pass("you can drive from any district to any other");
+    std::vector<bool> in_florangia_component(nodes, false);
+    std::queue<uint32_t> fq;
+    REQUIRE(florangia_start < b.graph.node_count());
+    in_florangia_component[florangia_start] = true;
+    fq.push(florangia_start);
+    while (!fq.empty()) {
+        const uint32_t n = fq.front();
+        fq.pop();
+        for (const uint32_t ei : b.graph.node(n).edges) {
+            const RoadEdge& e = b.graph.edge(ei);
+            const uint32_t other = (e.node_a == n) ? e.node_b : e.node_a;
+            if (in_florangia_component[other]) continue;
+            in_florangia_component[other] = true;
+            fq.push(other);
+        }
+    }
+    for (uint32_t node = 0; node < b.graph.node_count(); ++node) {
+        if (dist[node] < 0.0f)
+            REQUIRE_MSG(in_florangia_component[node],
+                        "Florangia split into multiple road components",
+                        "connectivity");
+    }
+    std::printf("    %zu of %zu nodes reachable\n", reached, nodes);
+    REQUIRE(florangia_nodes >= 16);
+    REQUIRE(reached + florangia_nodes == nodes);
+
+    apricot_test::pass("O'Haven stays connected and Florangia forms one road component");
 }
 
 // ---------------------------------------------------------------------------
@@ -513,15 +634,117 @@ void vellum_row_is_a_grid_of_four_way_junctions() {
     std::printf("\n  Vellum Row: %d four-way junctions, %d three-way\n",
                 four_way, lesser);
 
-    // NINETY-NINE CROSSINGS, EVERY ONE OF THEM FOUR CHOICES. That is the whole
-    // district: you escape by reading the pursuit, not by out-driving it. Nine
-    // streets crossing eleven is 99, and none of those crossings is authored —
-    // the graph finds every one of them itself.
-    REQUIRE_MSG(four_way >= 90,
-                "Vellum Row is not a grid any more: fewer than ninety of its "
-                "junctions offer four choices",
+    // The regional-hospital superblock deliberately removes fourteen internal
+    // crossings. The surrounding district remains a dense choice-heavy grid.
+    REQUIRE_MSG(four_way >= 80,
+                "Vellum Row lost too much of its surrounding street grid",
                 "vellum grid");
-    apricot_test::pass("Vellum Row is a grid, and every crossing is four choices");
+    apricot_test::pass("Vellum Row stays a dense grid around the hospital superblock");
+}
+
+void vellum_north_extension_has_two_connected_streets() {
+    const Built& b = built();
+    const auto road_with_id = [](uint32_t id) -> const Road* {
+        for (const auto& road : kRoads) {
+            if (road.id == id) return &road;
+        }
+        return nullptr;
+    };
+    const std::array<uint32_t, 2> extension_ids{{205u, 206u}};
+    const std::array<float, 2> extension_south{{-372.0f, -434.0f}};
+    const std::array<float, 4> north_south_east{{
+        92.0f, 184.0f, 276.0f, 368.0f,
+    }};
+    for (std::size_t row = 0; row < extension_ids.size(); ++row) {
+        const Road* road = road_with_id(extension_ids[row]);
+        REQUIRE(road != nullptr);
+        REQUIRE(road->count == 2);
+        const auto west = city::vellum_road_point(92.0f, extension_south[row]);
+        const auto east = city::vellum_road_point(368.0f, extension_south[row]);
+        REQUIRE_NEAR(road->path[0].x, west.x, 0.01f);
+        REQUIRE_NEAR(road->path[0].z, west.z, 0.01f);
+        REQUIRE_NEAR(road->path[1].x, east.x, 0.01f);
+        REQUIRE_NEAR(road->path[1].z, east.z, 0.01f);
+        for (const float local_east : north_south_east) {
+            const auto point = city::vellum_road_point(local_east,
+                                                        extension_south[row]);
+            const std::size_t expected_edges =
+                row == 0 ? (local_east == 92.0f || local_east == 368.0f ? 3u : 4u)
+                         : (local_east == 92.0f || local_east == 368.0f ? 2u : 3u);
+            bool connected = false;
+            for (uint32_t node_index = 0; node_index < b.graph.node_count();
+                 ++node_index) {
+                const RoadNode& node = b.graph.node(node_index);
+                if (glm::length(node.pos - glm::vec2{point.x, point.z}) < 0.25f &&
+                    node.edges.size() >= expected_edges) {
+                    connected = true;
+                    break;
+                }
+            }
+            REQUIRE_MSG(connected, "north Vellum cross street did not connect",
+                        road->name);
+        }
+    }
+    apricot_test::pass("Eleventh and Twelfth form a compact east-side Vellum extension");
+}
+
+void vellum_connectors_reach_the_requested_arterials() {
+    const Built& b = built();
+    const auto road_with_id = [](uint32_t id) -> const Road* {
+        for (const auto& road : kRoads)
+            if (road.id == id) return &road;
+        return nullptr;
+    };
+    const Road* rook = road_with_id(23u);
+    const Road* vellum = road_with_id(24u);
+    const Road* halloway = road_with_id(35u);
+    const Road* north_arm = road_with_id(50u);
+    const Road* nickel = road_with_id(182u);
+    REQUIRE(rook != nullptr && vellum != nullptr && halloway != nullptr);
+    REQUIRE(north_arm != nullptr && nickel != nullptr);
+
+    const auto halloway_end = halloway->path[halloway->count - 1];
+    REQUIRE_NEAR(nickel->path[0].x, halloway_end.x, 0.001f);
+    REQUIRE_NEAR(nickel->path[0].z, halloway_end.z, 0.001f);
+    REQUIRE(std::fabs(nickel->path[0].z - 65.6f) > 40.0f);
+
+    const auto north_end = north_arm->path[north_arm->count - 1];
+    const auto vellum_end = vellum->path[vellum->count - 1];
+    const auto rook_end = rook->path[rook->count - 1];
+    const glm::vec2 north_point{north_end.x, north_end.z};
+    REQUIRE_NEAR(north_end.x, vellum_end.x, 0.001f);
+    REQUIRE_NEAR(north_end.z, vellum_end.z, 0.001f);
+    REQUIRE_NEAR(north_end.y, vellum_end.y, 0.001f);
+    REQUIRE(glm::length(north_point - glm::vec2{rook_end.x, rook_end.z}) >
+            80.0f);
+
+    const auto node_has_roads = [&](glm::vec2 point,
+                                    std::initializer_list<uint32_t> ids,
+                                    std::size_t minimum_degree) {
+        for (uint32_t node_index = 0; node_index < b.graph.node_count();
+             ++node_index) {
+            const RoadNode& node = b.graph.node(node_index);
+            if (glm::length(node.pos - point) > 0.25f) continue;
+            bool all_present = true;
+            for (uint32_t id : ids) {
+                bool present = false;
+                for (uint32_t edge_index : node.edges)
+                    present = present ||
+                        b.graph.edge(edge_index).spine_id == id;
+                all_present = all_present && present;
+            }
+            return all_present && node.edges.size() >= minimum_degree;
+        }
+        return false;
+    };
+    REQUIRE_MSG(node_has_roads({halloway_end.x, halloway_end.z},
+                               {35u, 182u}, 2u),
+                "Nickel Road did not join Halloway Street", "road graph");
+    REQUIRE_MSG(node_has_roads(north_point, {24u, 50u}, 2u),
+                "North Arm did not join Vellum Row", "road graph");
+    REQUIRE_MSG(!node_has_roads({rook_end.x, rook_end.z}, {23u, 50u}, 2u),
+                "North Arm still joins Rook Lane", "road graph");
+    apricot_test::pass("Nickel Road joins Halloway Street and North Arm joins Vellum Row");
 }
 
 void the_strand_has_no_turnoffs() {
@@ -782,9 +1005,221 @@ void nothing_climbs_faster_than_a_car_can() {
     apricot_test::pass("every authored grade is one a car can climb");
 }
 
+LaneRef authored_lane(const Built& b, const LaneGraph& lanes, uint32_t spine_id,
+                      bool forward, uint8_t index, bool at_profiled_end = false) {
+    for (LaneRef r = 0; r < lanes.lane_count(); ++r) {
+        const Lane& l = lanes.lane(r);
+        const RoadEdge& e = b.graph.edge(l.edge);
+        if (e.spine_id == spine_id && l.forward == forward && l.index == index &&
+            (!at_profiled_end || e.lane_connect_start || e.lane_connect_end))
+            return r;
+    }
+    return kInvalidLane;
+}
+
+bool links_to(const LaneGraph& lanes, LaneRef from, LaneRef to) {
+    if (!lanes.valid(from) || !lanes.valid(to)) return false;
+    for (const TurnLink& link : lanes.outgoing(from))
+        if (link.to == to) return true;
+    return false;
+}
+
+bool planar_boxes_overlap(glm::vec2 a_centre, glm::vec2 a_forward,
+                          float a_half_width, float a_half_length,
+                          glm::vec2 b_centre, glm::vec2 b_forward,
+                          float b_half_width, float b_half_length) {
+    a_forward = glm::normalize(a_forward);
+    b_forward = glm::normalize(b_forward);
+    const glm::vec2 a_right{-a_forward.y, a_forward.x};
+    const glm::vec2 b_right{-b_forward.y, b_forward.x};
+    const glm::vec2 delta = b_centre - a_centre;
+    for (const glm::vec2 axis : {a_forward, a_right, b_forward, b_right}) {
+        const float a_radius =
+            a_half_width * std::fabs(glm::dot(a_right, axis)) +
+            a_half_length * std::fabs(glm::dot(a_forward, axis));
+        const float b_radius =
+            b_half_width * std::fabs(glm::dot(b_right, axis)) +
+            b_half_length * std::fabs(glm::dot(b_forward, axis));
+        if (std::fabs(glm::dot(delta, axis)) > a_radius + b_radius)
+            return false;
+    }
+    return true;
+}
+
+void halloway_auxiliary_lanes_match_the_four_ramps() {
+    const Built& b = built();
+    LaneGraph lanes;
+    lanes.build(b.graph, b.ground.sampler(), LaneBuildParams{});
+
+    const RoadEdge* west_taper = nullptr;
+    const RoadEdge* west_gore = nullptr;
+    const RoadEdge* east_gore = nullptr;
+    for (const RoadEdge& e : b.graph.edges())
+        if (e.spine_id == 18) west_taper = &e;
+        else if (e.spine_id == 45) west_gore = &e;
+        else if (e.spine_id == 46) east_gore = &e;
+    REQUIRE_MSG(west_taper != nullptr, "west auxiliary taper is missing", "Halloway ramps");
+    REQUIRE(std::fabs(west_taper->width_start_m - 30.0f) < 0.01f);
+    REQUIRE(std::fabs(west_taper->width_end_m - 40.0f) < 0.01f);
+    REQUIRE(west_taper->lanes_start_per_dir == 3);
+    REQUIRE(west_taper->lanes_end_per_dir == 4);
+    REQUIRE_MSG(west_gore != nullptr, "west ramp gore taper is missing", "Halloway ramps");
+    REQUIRE_MSG(east_gore != nullptr, "east ramp gore taper is missing", "Halloway ramps");
+    REQUIRE_NEAR(west_gore->width_start_m, 40.0f, 0.01f);
+    REQUIRE_NEAR(west_gore->width_end_m, 30.0f, 0.01f);
+    REQUIRE(west_gore->lanes_start_per_dir == 3);
+    REQUIRE(west_gore->lanes_end_per_dir == 3);
+    REQUIRE_NEAR(east_gore->width_start_m, 30.0f, 0.01f);
+    REQUIRE_NEAR(east_gore->width_end_m, 40.0f, 0.01f);
+    REQUIRE(east_gore->lanes_start_per_dir == 3);
+    REQUIRE(east_gore->lanes_end_per_dir == 3);
+
+    // The taper is surface, shoulder and paint. It must not fan live traffic
+    // across the gore or spawn a phantom fourth lane beside either ramp.
+    for (uint32_t spine_id : {45u, 46u}) {
+        for (uint8_t i = 0; i < 3; ++i) {
+            const Lane& lane = lanes.lane(authored_lane(b, lanes, spine_id, true, i));
+            REQUIRE_NEAR(lane.lateral_offset_start_m,
+                         lane.lateral_offset_end_m, 0.01f);
+        }
+    }
+
+    // The three original through lane centres do not wander when the shoulder
+    // opens. The fourth lane begins at the old shoulder and reaches full lane
+    // width at the end of the taper.
+    for (uint8_t i = 0; i < 3; ++i) {
+        const LaneRef r = authored_lane(b, lanes, 18, true, i);
+        REQUIRE(lanes.valid(r));
+        const Lane& l = lanes.lane(r);
+        REQUIRE(std::fabs(l.lateral_offset_start_m - l.lateral_offset_end_m) < 0.01f);
+    }
+    const Lane& born = lanes.lane(authored_lane(b, lanes, 18, true, 3));
+    REQUIRE(std::fabs(born.lateral_offset_start_m - 12.5f) < 0.01f);
+    REQUIRE(std::fabs(born.lateral_offset_end_m - 17.5f) < 0.01f);
+
+    const LaneRef wb_on = authored_lane(b, lanes, 13, true, 0, true);
+    const LaneRef wb_aux = authored_lane(b, lanes, 29, false, 3);
+    const LaneRef wb_exit = authored_lane(b, lanes, 14, true, 0, true);
+    const LaneRef wb_exit_lane = authored_lane(b, lanes, 43, false, 3);
+    const LaneRef eb_on = authored_lane(b, lanes, 15, true, 0, true);
+    const LaneRef eb_aux = authored_lane(b, lanes, 43, true, 3);
+    const LaneRef eb_exit = authored_lane(b, lanes, 16, true, 0, true);
+    const LaneRef eb_exit_lane = authored_lane(b, lanes, 29, true, 3);
+    REQUIRE(links_to(lanes, wb_on, wb_aux));
+    REQUIRE(links_to(lanes, wb_exit_lane, wb_exit));
+    REQUIRE(links_to(lanes, eb_on, eb_aux));
+    REQUIRE(links_to(lanes, eb_exit_lane, eb_exit));
+    REQUIRE(lanes.outgoing(wb_exit_lane).size() == 1);
+    REQUIRE(lanes.outgoing(eb_exit_lane).size() == 1);
+
+    const auto seam = [&](LaneRef from, LaneRef to) {
+        const glm::vec3 a = lanes.lane(from).centreline.back();
+        const glm::vec3 c = lanes.lane(to).centreline.front();
+        return glm::length(glm::vec2{a.x - c.x, a.z - c.z});
+    };
+    REQUIRE(seam(wb_on, wb_aux) < 0.01f);
+    REQUIRE(seam(wb_exit_lane, wb_exit) < 0.01f);
+    REQUIRE(seam(eb_on, eb_aux) < 0.01f);
+    REQUIRE(seam(eb_exit_lane, eb_exit) < 0.01f);
+
+    // An exit lane starts one lane-width outside the original outer through
+    // lane and must peel farther away. The old second control point bent both
+    // exits back onto that live lane, so ramp and through traffic occupied the
+    // same asphalt for roughly 50 m.
+    const LaneRef wb_through = authored_lane(b, lanes, 11, false, 2);
+    const LaneRef eb_through = authored_lane(b, lanes, 11, true, 2);
+    const auto exit_clearance = [&](LaneRef ramp, LaneRef through) {
+        float closest = 1.0e9f;
+        const float run = std::min(80.0f, lanes.length(ramp));
+        for (float d = 0.0f; d <= run; d += 0.5f) {
+            const LanePose p = lanes.pose(ramp, d);
+            closest = std::min(closest, std::sqrt(
+                lanes.project_onto(through, {p.position.x, p.position.z}).dist2));
+        }
+        return closest;
+    };
+    REQUIRE(exit_clearance(wb_exit, wb_through) >= 4.5f);
+    REQUIRE(exit_clearance(eb_exit, eb_through) >= 4.5f);
+
+    // Use the largest traffic shell plus 15 cm of breathing room against the
+    // actual baked/collided viaduct parapet boxes. This is the physical check
+    // the lane-only traffic sim cannot make.
+    const auto is_halloway = [](uint32_t id) {
+        for (const uint32_t wanted :
+             {11u, 13u, 14u, 15u, 16u, 18u, 19u, 29u, 43u, 44u, 45u, 46u})
+            if (id == wanted) return true;
+        return false;
+    };
+    float sampled_lane_m = 0.0f;
+    for (LaneRef lane_ref = 0; lane_ref < lanes.lane_count(); ++lane_ref) {
+        const Lane& lane = lanes.lane(lane_ref);
+        const RoadEdge& edge = b.graph.edge(lane.edge);
+        if (!is_halloway(edge.spine_id)) continue;
+        for (float d = 0.0f; d <= lane.length_m; d += 1.0f) {
+            const LanePose pose = lanes.pose(lane_ref, d);
+            ++sampled_lane_m;
+            for (const RibbonBake::Solid& solid : b.bake.solids) {
+                // Halloway's heavy viaduct parapets are the 0.35 x 0.55 m
+                // boxes. Deck slabs and piers sit below traffic and are not
+                // roadside obstacles.
+                if (std::fabs(solid.half.x - 0.35f) > 0.01f ||
+                    std::fabs(solid.half.y - 0.55f) > 0.01f)
+                    continue;
+                if (pose.position.y < solid.centre.y - solid.half.y - 0.1f ||
+                    pose.position.y > solid.centre.y + solid.half.y + 0.1f)
+                    continue;
+                const glm::vec2 solid_forward{
+                    std::sin(solid.yaw), std::cos(solid.yaw)};
+                const bool overlap = planar_boxes_overlap(
+                    {pose.position.x, pose.position.z},
+                    {pose.tangent.x, pose.tangent.z}, 1.30f, 2.50f,
+                    {solid.centre.x, solid.centre.z}, solid_forward,
+                    solid.half.x, solid.half.z);
+                if (overlap) {
+                    std::printf("    Halloway barrier overlap: spine %u lane %u at %.1f m, solid %.1f %.1f\n",
+                                edge.spine_id, lane.index, d,
+                                solid.centre.x, solid.centre.z);
+                }
+                REQUIRE(!overlap);
+            }
+        }
+    }
+
+    std::printf("  Halloway: 3->4 lanes over %.0f m; four seams under 1 cm; %.0f lane-metres clear of parapets\n",
+                west_taper->length_m, sampled_lane_m);
+    apricot_test::pass("all four Halloway ramps use the right-side auxiliary lanes");
+}
+
 // road/road_class.h says an at-grade freeway crossing is an AUTHORING ERROR and
 // that rejecting it is the MAP VALIDATOR'S job, not the road module's. This is
 // the map validator.
+void west_ramp_has_no_raised_asphalt_across_route_one() {
+    const Built& b = built();
+    TerrainCollider collider{kMapSeed};
+    collider.set_road_collision(build_road_collision(b.bake));
+    float worst_lift = 0.0f;
+    // Both traffic directions and the full carriageway around the reported
+    // crossing. The old distant junction miter stood 85 cm above this road.
+    const glm::vec2 tangent = glm::normalize(glm::vec2{340.0f, 20.0f});
+    const glm::vec2 side{-tangent.y, tangent.x};
+    for (float x = -200.0f; x <= -165.0f; x += 0.5f) {
+        const glm::vec2 centre{x, 470.0f + (x + 380.0f) * 20.0f / 340.0f};
+        for (float offset = -12.0f; offset <= 12.0f; offset += 0.5f) {
+            const glm::vec2 p = centre + side * offset;
+            const float ground = collider.height(p.x, p.y);
+            const auto hit = collider.probe_down({p.x, ground + 3.0f, p.y}, 5.0f);
+            REQUIRE(hit.hit);
+            const float lift = hit.point.y - ground;
+            worst_lift = std::max(worst_lift, lift);
+            REQUIRE_MSG(lift < 0.11f,
+                        "a remote road plate lies above Route One traffic lanes",
+                        "West Ramp");
+        }
+    }
+    std::printf("  West Ramp highway: largest road lift %.3f m\n", worst_lift);
+    apricot_test::pass("Route One at the West Ramp has no raised collision wedge");
+}
+
 void no_freeway_crosses_anything_at_grade() {
     const Built& b = built();
     int ramps = 0;
@@ -986,7 +1421,12 @@ Journey drive(const std::vector<glm::vec3>& line, glm::vec2 destination,
     Journey j;
     if (line.size() < 2) return j;
 
-    const VehicleTuning tuning;
+    VehicleTuning tuning;
+    // This harness measures whether the authored roads are physically
+    // driveable, so keep it on a normal friction circle. The player profiles'
+    // longitudinal-only arcade brake boost intentionally trades cornering
+    // authority for shorter panic stops and is tested with those profiles.
+    tuning.service_brake_grip_boost = 1.0f;
     const glm::vec2 d0 =
         glm::normalize(glm::vec2{line[1].x - line[0].x, line[1].z - line[0].z});
     // forward = orientation * (0,0,-1) and yaw turns about +Y, so a heading of
@@ -1058,9 +1498,76 @@ Journey drive(const std::vector<glm::vec3>& line, glm::vec2 destination,
     return j;
 }
 
+void a_real_car_drives_every_halloway_ramp() {
+    const Built& b = built();
+    LaneGraph lanes;
+    lanes.build(b.graph, b.ground.sampler(), LaneBuildParams{});
+    TerrainCollider collider{kMapSeed};
+    collider.set_road_collision(build_road_collision(b.bake));
+
+    struct RampDrive {
+        const char* name;
+        std::vector<LaneRef> route;
+    };
+    const auto lane = [&](uint32_t id, bool forward, uint8_t index,
+                          bool connector = false) {
+        const LaneRef r = authored_lane(b, lanes, id, forward, index, connector);
+        REQUIRE_MSG(lanes.valid(r), "authored ramp drive lane is missing", "Halloway drive");
+        return r;
+    };
+    const auto linked = [&](LaneRef from, uint32_t id, uint8_t index) {
+        for (const TurnLink& turn : lanes.outgoing(from)) {
+            const Lane& candidate = lanes.lane(turn.to);
+            if (b.graph.edge(candidate.edge).spine_id == id &&
+                candidate.index == index) return turn.to;
+        }
+        return kInvalidLane;
+    };
+    const LaneRef wb_taper = lane(18,false,3);
+    const LaneRef eb_taper = lane(44,true,3);
+    const LaneRef wb_after_merge = linked(wb_taper, 6, 2);
+    const LaneRef eb_after_merge = linked(eb_taper, 12, 2);
+    REQUIRE(lanes.valid(wb_after_merge));
+    REQUIRE(lanes.valid(eb_after_merge));
+    const std::vector<RampDrive> drives{
+        {"westbound on-ramp", {lane(13,true,0,true), lane(29,false,3),
+            lane(19,false,3), wb_taper, wb_after_merge}},
+        {"westbound off-ramp", {lane(44,false,3), lane(43,false,3),
+            lane(14,true,0,true)}},
+        {"eastbound on-ramp", {lane(15,true,0,true), lane(43,true,3),
+            eb_taper, eb_after_merge}},
+        {"eastbound off-ramp", {lane(18,true,3), lane(19,true,3),
+            lane(29,true,3), lane(16,true,0,true)}},
+    };
+
+    for (const RampDrive& ramp : drives) {
+        for (std::size_t i = 0; i + 1 < ramp.route.size(); ++i)
+            if (!links_to(lanes, ramp.route[i], ramp.route[i + 1])) {
+                std::printf("      broken %u:%u -> %u:%u\n",
+                    b.graph.edge(lanes.lane(ramp.route[i]).edge).spine_id,
+                    lanes.lane(ramp.route[i]).index,
+                    b.graph.edge(lanes.lane(ramp.route[i + 1]).edge).spine_id,
+                    lanes.lane(ramp.route[i + 1]).index);
+                REQUIRE_MSG(false, "ramp route has a lane-graph break", ramp.name);
+            }
+        const std::vector<glm::vec3> line = route_line(lanes, ramp.route);
+        const glm::vec2 destination{line.back().x, line.back().z};
+        const Journey result = drive(line, destination, collider, 12.0f, 18000);
+        std::printf("    %-24s %s, drove %.0f m, worst %.1f m off lane, sank %.2f m\n",
+                    ramp.name, result.arrived ? "ARRIVED" : "FAILED",
+                    result.driven_m, result.worst_off_route_m,
+                    result.worst_below_ground_m);
+        REQUIRE_MSG(result.arrived, "production vehicle did not clear ramp", ramp.name);
+        REQUIRE_MSG(result.worst_below_ground_m < 0.08f,
+                    "vehicle fell through ramp collision", ramp.name);
+    }
+    apricot_test::pass("a real production vehicle drives all four Halloway ramps");
+}
+
 void run_journey(const LaneGraph& lanes, const TerrainCollider& collider,
                  const char* what, glm::vec2 from, glm::vec2 to,
-                 float speed_mps, int max_steps) {
+                 float speed_mps, int max_steps,
+                 std::initializer_list<uint32_t> required_spines = {}) {
     // Start on a lane already pointing the right way. Without the heading the
     // nearest lane is whichever side of the street is a millimetre closer, and
     // half the time that is the one going the other way.
@@ -1073,6 +1580,13 @@ void run_journey(const LaneGraph& lanes, const TerrainCollider& collider,
     const std::vector<LaneRef> route = lanes.plan_route(a.lane, b.lane);
     REQUIRE_MSG(!route.empty(), "the lane graph could not plan this journey",
                 what);
+    for (uint32_t required : required_spines) {
+        bool present = false;
+        for (LaneRef lane : route)
+            present = present ||
+                built().graph.edge(lanes.lane(lane).edge).spine_id == required;
+        REQUIRE_MSG(present, "journey bypassed its required authored road", what);
+    }
 
     const std::vector<glm::vec3> line = route_line(lanes, route);
     float plan_m = 0.0f;
@@ -1109,17 +1623,25 @@ void a_real_car_drives_from_district_to_district() {
     REQUIRE_MSG(lanes.lane_count() > 100, "the lane graph is nearly empty",
                 "drive");
 
-    const TerrainCollider collider{kMapSeed};
+    TerrainCollider collider{kMapSeed};
+    collider.set_road_collision(build_road_collision(b.bake));
     std::printf("\n  DRIVING IT, real vehicle, real terrain, %d Hz: %zu lanes "
                 "over %zu junctions\n",
                 static_cast<int>(kSimHz), lanes.lane_count(),
                 lanes.junction_count());
 
-    // Downtown to the airfield: out of Vellum Row's grid, onto Route 1, along
-    // the Camber Reach and over the causeway — the one land bridge in 2.5 km of
-    // water.
+    run_journey(lanes, collider, "Nickel Road -> Halloway Street",
+                glm::vec2{650.0f, 61.0f}, glm::vec2{350.0f, -10.5f},
+                12.0f, 30000, {182u, 35u});
+    run_journey(lanes, collider, "North Arm -> Vellum Row",
+                glm::vec2{-50.0f, 450.0f}, glm::vec2{60.0f, 100.0f},
+                12.0f, 30000, {50u, 24u});
+
+    // Downtown to the airport's public frontage: out of Vellum Row's grid,
+    // onto Route 1, along the Camber Reach, over the one land bridge in 2.5 km
+    // of water, then around runway 09-27 on the airport parkway.
     run_journey(lanes, collider, "Vellum Row -> Camber Point",
-                glm::vec2{70.0f, -40.0f}, glm::vec2{170.0f, 2130.0f}, 17.0f,
+                glm::vec2{70.0f, -40.0f}, glm::vec2{600.0f, 2410.0f}, 17.0f,
                 180000);
 
     // Downtown to the top of the hill: the Shoulder's switchbacks at 9.5 per
@@ -1151,6 +1673,7 @@ void a_real_car_drives_from_district_to_district() {
 int main() {
     std::printf("city_roads_tests\n");
     the_network_is_the_size_the_table_says();
+    rimway_creek_bridge_uses_its_own_municipal_profile();
     // The per-road diagnostic runs BEFORE the assertion it diagnoses. A suite
     // that asserts first and explains second tells you the number is wrong and
     // then exits without telling you which road it was.
@@ -1158,6 +1681,8 @@ int main() {
     the_road_sits_on_the_ground_at_every_level();
     you_can_drive_from_any_district_to_any_other();
     vellum_row_is_a_grid_of_four_way_junctions();
+    vellum_north_extension_has_two_connected_streets();
+    vellum_connectors_reach_the_requested_arterials();
     the_strand_has_no_turnoffs();
     there_is_one_paved_way_up_ferrone_hill();
     the_kessel_bridge_is_the_only_crossing();
@@ -1165,8 +1690,11 @@ int main() {
     no_road_runs_through_the_sea();
     authored_heights_match_the_ground_they_claim();
     nothing_climbs_faster_than_a_car_can();
+    halloway_auxiliary_lanes_match_the_four_ramps();
+    west_ramp_has_no_raised_asphalt_across_route_one();
     no_freeway_crosses_anything_at_grade();
     the_operator_table_is_still_cheap();
+    a_real_car_drives_every_halloway_ramp();
     a_real_car_drives_from_district_to_district();
     return apricot_test::done("city_roads_tests");
 }

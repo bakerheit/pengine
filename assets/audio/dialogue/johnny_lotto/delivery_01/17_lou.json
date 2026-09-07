@@ -1,0 +1,39 @@
+{
+  "id": "17_lou",
+  "kind": "Cutscene dialogue",
+  "title": "The lotto - delivery 17",
+  "character": "Lou - Manager",
+  "voice": "ballad",
+  "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: You are walking behind the counter to fetch a box. Give simple, familiar directions, easy conversational pace; Ostend is pronounced OSS-tend.",
+  "text": "You just need to take this to the Ostend docks up north west a bit.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "17_lou.wav",
+  "transcript": "You just need to take this to the Ostend docks up north west a bit.",
+  "transcript_matches": true,
+  "duration_seconds": 5.95,
+  "peak_dbfs": -13.16,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 456,
+    "input_tokens": 269,
+    "output_tokens": 187,
+    "input_token_details": {
+      "text_tokens": 269,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 68,
+      "audio_tokens": 119,
+      "reasoning_tokens": 35
+    }
+  },
+  "response_id": "resp_EKR8HQ4oH6jIy24zY5rbx"
+}

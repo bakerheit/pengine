@@ -39,8 +39,13 @@ SIM_DIRS=(
 # device.{h,cpp} and miniaudio_impl.c build into apricot_host and are exempt.
 SIM_FILES=(
     src/audio/mixer.h
+    src/audio/player_car_assets.h
+    src/audio/player_car_assets.cpp
     src/audio/synth.h
     src/audio/synth.cpp
+    src/audio/vehicle_audio.h
+    src/audio/vehicle_audio.cpp
+    src/audio/traffic_idle_audio.h
 )
 
 BANNED='glad|SDL|<GL/|miniaudio|imgui'

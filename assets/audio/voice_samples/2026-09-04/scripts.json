@@ -1,0 +1,92 @@
+[
+  {
+    "id": "01_npc_watch_out",
+    "kind": "NPC",
+    "title": "Watch out",
+    "character": "Startled pedestrian",
+    "voice": "cedar",
+    "direction": "Adult male, rough everyday American voice. A car nearly clips you. One sudden, sharp warning, startled then annoyed. Project across a street; do not scream into the mic.",
+    "text": "Hey watch out!"
+  },
+  {
+    "id": "02_npc_that_smell",
+    "kind": "NPC",
+    "title": "That smell",
+    "character": "Disgusted passerby",
+    "voice": "coral",
+    "direction": "Adult woman, dry urban American delivery. You just walked into a truly foul smell. Start with disbelief, wrinkle your nose, put disgust into 'hell' and 'smell'. Comic irritation, fully natural.",
+    "text": "What the hell is that smell??"
+  },
+  {
+    "id": "03_npc_swimming_in_money",
+    "kind": "NPC",
+    "title": "Swimming in money",
+    "character": "Cocky small-time crook",
+    "voice": "verse",
+    "direction": "Young adult American man with a light East Coast edge. A private, delighted boast to yourself. You're broke but convinced your big break is coming. Grin on 'swimming in the money'; cocky and a little ridiculous.",
+    "text": "Wait til they see me swimming in the money."
+  },
+  {
+    "id": "04_cutscene_last_chance",
+    "kind": "Cutscene",
+    "title": "Last chance",
+    "character": "Eddie \u2014 hungry getaway driver",
+    "voice": "cedar",
+    "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Alone with your closest friend in a parked car. Begin quiet and honest, pause after 'Same rent', then let stubborn hope turn into resolve. Underplay it; no trailer narration.",
+    "text": "I been parking rich men's cars since I was sixteen. Same corner. Same rent. Tonight, I pull up to that hotel, and somebody else takes my keys. Just keep the engine running. Let me have this one."
+  },
+  {
+    "id": "05_cutscene_clean_job",
+    "kind": "Cutscene",
+    "title": "A clean job",
+    "character": "Mara \u2014 precise fixer",
+    "voice": "marin",
+    "direction": "American woman, forties, low and composed, clear consonants, small dry smile. Giving a job to someone you like but don't fully trust. Businesslike opening, a deliberate pause before the last sentence, then unmistakable quiet warning.",
+    "text": "There's an envelope behind the counter at Halloway Gas. Bring it to me sealed. Don't count it, don't smell it, and for God's sake, don't ask the cashier what's inside. Last fellow asked questions. Now I'm hiring you."
+  },
+  {
+    "id": "06_cutscene_probable_cause",
+    "kind": "Cutscene",
+    "title": "Probable cause",
+    "character": "Detective Rusk \u2014 exhausted investigator",
+    "voice": "ash",
+    "direction": "Middle-aged American man, gravelly and sleep-deprived, understated urban accent. You're sitting across a table from a suspect you almost respect. Wry opening, patient interrogation rather than shouting, weariness peeking through at the end.",
+    "text": "Funny thing about your alibi. Everybody remembers you, but nobody remembers when. That's either a very friendly neighborhood or a very expensive one. Sit down. I've got cold coffee and nothing to lose until morning."
+  },
+  {
+    "id": "07_cutscene_wrong_car",
+    "kind": "Cutscene",
+    "title": "The wrong car",
+    "character": "Nina \u2014 furious wheelwoman",
+    "voice": "coral",
+    "direction": "American woman, early thirties, energetic, brisk and slightly breathless after a botched escape. Anger is covering panic. Bite off the short words. Take one calming breath before 'All right', then snap into practical focus. Dark comedy played straight.",
+    "text": "I said the blue sedan. That is a hearse. You stole a hearse, and you left the flowers in it. All right. Fine. Get in. If anybody asks, we're late for a funeral, and you're doing a wonderful job looking dead."
+  },
+  {
+    "id": "08_cutscene_quiet_threat",
+    "kind": "Cutscene",
+    "title": "The quiet threat",
+    "character": "Mr. Vale \u2014 courteous crime boss",
+    "voice": "ballad",
+    "direction": "Older adult man, resonant low voice, restrained cultivated American accent. Impeccably polite, dangerous without raising your voice. First sentence genuinely hospitable. A small pause after 'Good'. Let the last two sentences turn cold. Not a caricature or an imitation of any actor.",
+    "text": "My wife picked out those curtains. Awful things, aren't they? You can say it. Good. Now we know you're capable of telling the truth. Let's try again. Where is my money, and why did your friend leave town without you?"
+  },
+  {
+    "id": "09_cutscene_bad_numbers",
+    "kind": "Cutscene",
+    "title": "Bad numbers",
+    "character": "Leon \u2014 panicked bookkeeper",
+    "voice": "echo",
+    "direction": "Adult American man, thin slightly nasal voice, quick precise speech. Trying to stay professional while frightened. Rush the opening explanation, catch your breath before 'Everybody', lower your voice for the final realization. No added stuttering words.",
+    "text": "I checked the books three times. The money didn't disappear. Somebody moved it into our account. Our account! Do you understand? Everybody who got robbed is about to think we're the clever ones. I have never wanted to look stupid so badly in my life."
+  },
+  {
+    "id": "10_cutscene_last_drink",
+    "kind": "Cutscene",
+    "title": "Last drink",
+    "character": "Ruth \u2014 longtime neighborhood bartender",
+    "voice": "sage",
+    "direction": "Older American woman, warm worn-in lower register, gentle rasp and unhurried pace. Speaking privately while wiping down an empty bar. Affection under a hard-earned warning. Pause after 'Eyes on the door'. Finish simply, with concern, not melodrama.",
+    "text": "Your old man sat in that same chair the night he got his big idea. Same smile, too. Eyes on the door. Look, I won't tell you how to live. Just leave enough of yourself to come back through here when the money's gone."
+  }
+]

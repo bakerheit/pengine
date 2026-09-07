@@ -1,0 +1,32 @@
+{
+  "model": "montrose_regent_eight",
+  "original_triangles": 850,
+  "triangles": 784,
+  "removed_components": [
+    9,
+    10,
+    11,
+    15,
+    16,
+    17,
+    18,
+    19,
+    21,
+    20,
+    22,
+    34,
+    35
+  ],
+  "removed_triangles": 66,
+  "painted_source_triangles": 61,
+  "charts": 185,
+  "texels_per_source_unit": 9.321121215820312,
+  "unpainted_components": [],
+  "source_mesh_sha256": "51c8716e8ff5dea18166697a992e6b107d059e4d16a63426d519431ac2a820a3",
+  "source_texture_sha256": "05bcc176f727d0331e0a41ddc2fd40bec18281c51de7ee661fc645323b192fcc",
+  "atlas": [
+    256,
+    256,
+    "RGBA"
+  ]
+}

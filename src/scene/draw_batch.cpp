@@ -2,6 +2,20 @@
 
 namespace apricot {
 
+SurfaceDrawPasses partition_surface_draws(const Scene& scene,
+                                         const std::vector<NodeId>& visible) {
+    SurfaceDrawPasses out;
+    out.geometry.reserve(visible.size());
+    for (NodeId id : visible) {
+        const SceneNode* node = scene.get(id);
+        if (!node || !batchable(node->renderable)) continue;
+        auto& pass = node->renderable.uv_scale.x <= -2.0f
+            ? out.overlays : out.geometry;
+        pass.push_back(id);
+    }
+    return out;
+}
+
 std::vector<DrawBatch> plan_draw_batches(const Scene& scene,
                                          const std::vector<NodeId>& visible,
                                          int min_run) {

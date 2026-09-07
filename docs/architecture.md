@@ -11,8 +11,10 @@ below do not. Where a rule is enforced by code that is currently a stub, that
 is called out explicitly rather than glossed — a doc that describes the engine
 you meant to write is worse than no doc.
 
-**The game on top is Pinatty**, a GTA-style open-world crime game rebuilding
-`probablecause`. Its design is [`docs/design/pinatty.md`](design/pinatty.md).
+**The game world has two states.** O'Haven is the GTA-style authored city
+rebuilding `probablecause`; Florangia is its low subtropical neighbor to the
+southeast. Their briefs are [`docs/design/pinatty.md`](design/pinatty.md) (the
+legacy O'Haven filename) and [`docs/design/florangia.md`](design/florangia.md).
 **Its MAP and its ROADS are implemented; the rest is not.** `src/city/` holds
 the ten district polygons, their character parameters, the landmark table, the
 terrain operators that `height_at()` evaluates (PENG-41), and the authored road
@@ -432,13 +434,13 @@ far side of the island passes either way.
 cached file on disk silently outranks a code change. Caching generated cells to
 disk once flooded pengine's working tree with hundreds of phantom files.
 
-**The seed is the world identity — and from Pinatty onward, so is the map.**
+**The seed is the world identity — and from O'Haven onward, so is the map.**
 This rule has been amended, deliberately, the amendment is narrow, and as of
 PENG-41 it is implemented: `city::kMapSeed` is pinned in the map tables and
 `App` builds its `TerrainCollider` from it, while `App::seed_` carries the
 session.
 
-Pinatty is an *authored* city: a specific place with named districts that a
+O'Haven is an *authored* city: a specific place with named districts that a
 player learns, not a fresh draw per seed. So the world is now a pure function
 of `(map, seed, coord)` rather than `(seed, coord)`, where `map` is a compact,
 human-editable, diffable definition in the repo — district polygons, road
@@ -600,11 +602,11 @@ the backing scale factor, and using logical size for the GL viewport renders
 the frame into the bottom-left quarter of the window.
 
 *Status in apricot:* **there is a render pass, and this note used to say there
-was not.** `gl_state`, `Shader`, `Texture` (procedural only), `Mesh` including
-the instanced attribute stream, `Camera`, `Sky`, `Precipitation`, `Hud` and
-`Renderer` are all implemented — see `src/gfx/README.md` for what is still
-deliberately absent (no transparency pass, no shadows, no hot-reload, and the
-renderer's resource tables never free).
+was not.** `gl_state`, `Shader`, `Texture` (procedural plus authored PNG paint),
+`Mesh` including cooked static `.emesh` geometry and the instanced attribute
+stream, `Camera`, `Sky`, `Precipitation`, `Hud` and `Renderer` are all
+implemented — see `src/gfx/README.md` for what is still deliberately absent
+(no transparency pass, no shadows, and no hot-reload).
 
 Measured on this machine, `./build/bin/apricot --frames 1200`: four shader
 programs linked, 364 visible nodes drawn in 5 batches (3 instanced) in **5 draw
@@ -688,12 +690,28 @@ and again to an engine that does not know what it is driving on.
 
 *Status in apricot:* `step_vehicle()` is real. Suspension, a tyre model with a
 friction circle, an engine torque curve, a gearbox with an RPM readout, load
-transfer, handbrake and rollover recovery are all implemented and pinned by
+transfer, progressive Ackermann steering, axle anti-roll bars, handbrake and
+rollover recovery are all implemented and pinned by
 `tests/vehicle_tests.cpp` — throttle drives the car, brake stops it, the
-handbrake breaks the rear loose and a slide can be caught. Static prop boxes are
-solid.
+handbrake breaks the rear loose, normal grip brings it back into line, and a
+powered turn stays planted. Static prop boxes are solid.
+The player collider also installs the road collision built from the exact baked
+ribbon: carriageways, junction plates, crosswalks and raised sidewalk slabs all
+feed suspension probes through a chunk-keyed spatial index. Kerb risers remain
+visual vertical faces, while the slab top is the surface the wheel rests on.
 
-`height_at()` has been retuned for Pinatty and now ends by applying the
+The opening block's buildings are no longer authored as giant solid boxes with
+flat door and window stickers. `src/city/building_creator.{h,cpp}` is the
+renderer-free core of a Sims-style authoring path, adapted from the alpha
+Probable Cause workshop: wall runs, stacked levels, true door/window cuts,
+window mullion styles, flat or gable roofs, placed fixtures, and exterior stair
+runs. `src/city/start_area.h` feeds each complete Halloway Gas and Causeway Court
+Motel document through that one bake; `World` no longer bolts on a second table
+of loose boxes afterward. The emitted solid walls, columns, signs and stair
+steps are also the vehicle collision pieces, so an architectural edit cannot
+leave old invisible collision behind.
+
+`height_at()` has been retuned for O'Haven and now ends by applying the
 authored terrain operators in `src/city/terrain_ops.h` (PENG-41). The island is
 15.95 km² of land in a 6144 m box, 74.1% of it under 5°, peaking at 129.8 m on
 Ferrone Hill — measured and printed by `tests/city_map_tests.cpp` on every run,
@@ -709,7 +727,7 @@ targets would have to be authored in normalised shape units rather than metres,
 and a Carve could not reach a stated depth below sea level at all — but worse,
 the island mask MULTIPLIES the shape, so an operator applied before it gets
 scaled down by the mask and TILTED by the mask's gradient. Every flattened area
-in Pinatty is near the coast: the dock apron, the Strand promenade, the airfield
+in O'Haven is near the coast: the dock apron, the Strand promenade, the airfield
 on its spit, the causeway. A flatten inside the mask comes out neither flat nor
 at the height it was asked for, exactly where it matters most.
 

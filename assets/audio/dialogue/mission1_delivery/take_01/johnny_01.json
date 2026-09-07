@@ -1,0 +1,39 @@
+{
+  "id": "johnny_01",
+  "kind": "Cutscene",
+  "title": "Mission 1 package arrival",
+  "character": "Johnny",
+  "voice": "cedar",
+  "text": "Devon? Lou sent me. Got your package.",
+  "direction": "Young adult American man, light East Coast edge, casual and dry. Speaking to Devon at arm length in a bait shop. Natural pace, no theatrical pauses.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "johnny_01.wav",
+  "transcript": "Devon? Lou sent me. Got your package.",
+  "transcript_matches": true,
+  "duration_seconds": 4.05,
+  "peak_dbfs": -2.79,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 331,
+    "input_tokens": 173,
+    "output_tokens": 158,
+    "input_token_details": {
+      "text_tokens": 173,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 77,
+      "audio_tokens": 81,
+      "reasoning_tokens": 52
+    }
+  },
+  "response_id": "resp_EKbIIQlLoldvuQWMZwNOb"
+}

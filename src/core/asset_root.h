@@ -7,9 +7,9 @@ namespace apricot {
 
 // Root directory for on-disk assets, resolved once on first call and cached.
 //
-// apricot generates its world procedurally, so this tree holds only the things
-// that genuinely cannot be computed: shader source, and fonts for the debug
-// overlay. There is no asset cooker and there is no mesh on disk.
+// apricot generates its world procedurally, but authored game models are real
+// runtime assets. The tree currently holds shader source, cooked static vehicle
+// meshes and their PNG paint. See assets/README.md for the layout.
 //
 // RESOLUTION ORDER, first hit wins. Every one of these is a layout the engine
 // is genuinely launched from, and the resolver logs which one it took at INFO
@@ -28,10 +28,9 @@ namespace apricot {
 // build stays relocatable. Baking an absolute path into the binary works right
 // up until someone else extracts the package.
 //
-// A MISSING ASSETS TREE IS NOT FATAL. If nothing resolves, this warns once and
-// returns the compile-time fallback anyway. The engine's world is procedural;
-// it can run without a font. Aborting here would mean a missing debug overlay
-// takes the whole game down, which is exactly backwards.
+// THE RESOLVER does not decide whether a missing tree is fatal. It warns once
+// and returns the compile-time fallback; required loaders (shaders and the
+// player model) refuse startup, while optional consumers may degrade.
 //
 // Do NOT call this from a namespace-scope initialiser: that runs before the
 // working directory is anchored and caches the wrong root for the process

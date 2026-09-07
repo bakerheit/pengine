@@ -1,0 +1,39 @@
+{
+  "id": "19_lou",
+  "kind": "Cutscene dialogue",
+  "title": "The lotto - delivery 19",
+  "character": "Lou - Manager",
+  "voice": "ballad",
+  "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Explain who to ask for, calmly and clearly, as Johnny holds the box. Devon is pronounced DEV-un. No sinister emphasis.",
+  "text": "Devon will be working in the bait and tackle shop, just let him know I sent you.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "19_lou.wav",
+  "transcript": "Devon will be working in the bait and tackle shop, just let him know I sent you.",
+  "transcript_matches": true,
+  "duration_seconds": 5.6,
+  "peak_dbfs": -10.55,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 446,
+    "input_tokens": 269,
+    "output_tokens": 177,
+    "input_token_details": {
+      "text_tokens": 269,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 65,
+      "audio_tokens": 112,
+      "reasoning_tokens": 29
+    }
+  },
+  "response_id": "resp_EKR8Lk94qY0zpmiP8ahs7"
+}

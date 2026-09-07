@@ -1,0 +1,39 @@
+{
+  "id": "17_lou",
+  "kind": "Cutscene dialogue",
+  "title": "Lou recast \u2014 Ash \u2014 line 17",
+  "character": "Lou - Manager",
+  "voice": "ash",
+  "direction": "Lou is a middle-aged American gas station manager, an ex-crook who has settled into ordinary work. His voice has a light natural rasp and a rough working-class edge, but his manner is relaxed, warm and dryly amused. Speak plainly to Johnny, a coworker standing nearby. Easy everyday rhythm, clear words, small natural pauses. The texture is in the voice, not in exaggerated growling. Play the conversation casually and sincerely. Give Johnny familiar directions while walking to the counter. Ostend is pronounced OSS-tend. Say north west as a single direction.",
+  "text": "You just need to take this to the Ostend docks up north west a bit.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "17_lou.wav",
+  "transcript": "You just need to take this to the Ostend docks up north west a bit.",
+  "transcript_matches": true,
+  "duration_seconds": 5.15,
+  "peak_dbfs": -7.17,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 445,
+    "input_tokens": 264,
+    "output_tokens": 181,
+    "input_token_details": {
+      "text_tokens": 264,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 78,
+      "audio_tokens": 103,
+      "reasoning_tokens": 45
+    }
+  },
+  "response_id": "resp_EKRm5Kuw2PxSlOPKK6SBU"
+}

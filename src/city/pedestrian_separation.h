@@ -40,7 +40,7 @@ struct PedSeparation {
 };
 
 // `self` and `neighbours` are planar XZ positions; `fwd` is the unit lane-
-// forward (XZ). The lane right vector is cross(up, fwd) = {fwd.y, -fwd.x} — the
+// forward (XZ). The lane right vector is cross(fwd, up) = {-fwd.y, fwd.x} — the
 // same axis LaneGraph::pose() offsets along, so a positive target moves the ped
 // the way the separation push points. `neighbours` must EXCLUDE self.
 // `preferred_offset` is this ped's baseline position in the strip; `space_scale`
@@ -57,7 +57,7 @@ inline PedSeparation ped_separation(glm::vec2 self, glm::vec2 fwd,
     constexpr float TIE_BREAK  = 0.5f;   // head-on with no lateral → pass on right
     constexpr float R          = PED_SEPARATION_RADIUS;
     constexpr float MAX_OFF    = PED_SEPARATION_MAX_OFFSET;
-    const glm::vec2 right{fwd.y, -fwd.x};
+    const glm::vec2 right{-fwd.y, fwd.x};
 
     glm::vec2 push{0.f};
     bool      blocked = false;

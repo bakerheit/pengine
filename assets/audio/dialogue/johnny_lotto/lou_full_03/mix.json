@@ -1,0 +1,153 @@
+{
+  "processing": "Fresh recordings. Constant per-take gain and shortening of long quiet gaps only. Spoken audio has unchanged pitch and sample rate. Originals retained.",
+  "takes": [
+    {
+      "id": "02_lou",
+      "raw_seconds": 1.8,
+      "seconds": 1.54,
+      "gain_db": 0.41360433130988206,
+      "removed_quiet_intervals_seconds": [
+        [
+          1.54,
+          1.8
+        ]
+      ]
+    },
+    {
+      "id": "04_lou",
+      "raw_seconds": 4.15,
+      "seconds": 3.01,
+      "gain_db": 3.592220369911024,
+      "removed_quiet_intervals_seconds": [
+        [
+          1.375,
+          2.105
+        ],
+        [
+          3.74,
+          4.15
+        ]
+      ]
+    },
+    {
+      "id": "06_lou",
+      "raw_seconds": 2.9,
+      "seconds": 2.59,
+      "gain_db": 4.901634197409127,
+      "removed_quiet_intervals_seconds": [
+        [
+          2.59,
+          2.9
+        ]
+      ]
+    },
+    {
+      "id": "08_lou",
+      "raw_seconds": 3.3,
+      "seconds": 2.69,
+      "gain_db": 1.3571249192626733,
+      "removed_quiet_intervals_seconds": [
+        [
+          1.575,
+          1.875
+        ],
+        [
+          2.99,
+          3.3
+        ]
+      ]
+    },
+    {
+      "id": "10_lou",
+      "raw_seconds": 3.1,
+      "seconds": 2.76,
+      "gain_db": 5.8691973238530935,
+      "removed_quiet_intervals_seconds": [
+        [
+          2.76,
+          3.1
+        ]
+      ]
+    },
+    {
+      "id": "12_lou",
+      "raw_seconds": 3.1,
+      "seconds": 2.01,
+      "gain_db": -2.6319095434771063,
+      "removed_quiet_intervals_seconds": [
+        [
+          0.535,
+          1.195
+        ],
+        [
+          2.67,
+          3.1
+        ]
+      ]
+    },
+    {
+      "id": "14_lou",
+      "raw_seconds": 0.8,
+      "seconds": 0.55,
+      "gain_db": 1.7610123028239997,
+      "removed_quiet_intervals_seconds": [
+        [
+          0.55,
+          0.8
+        ]
+      ]
+    },
+    {
+      "id": "16_lou",
+      "raw_seconds": 5.5,
+      "seconds": 4.17,
+      "gain_db": 5.780786856992881,
+      "removed_quiet_intervals_seconds": [
+        [
+          0.585,
+          0.815
+        ],
+        [
+          1.745,
+          2.105
+        ],
+        [
+          2.775,
+          3.185
+        ],
+        [
+          5.17,
+          5.5
+        ]
+      ]
+    },
+    {
+      "id": "17_lou",
+      "raw_seconds": 5.4,
+      "seconds": 5.05,
+      "gain_db": 5.439716354591993,
+      "removed_quiet_intervals_seconds": [
+        [
+          5.05,
+          5.4
+        ]
+      ]
+    },
+    {
+      "id": "19_lou",
+      "raw_seconds": 5.45,
+      "seconds": 4.73,
+      "gain_db": 1.92557279924704,
+      "removed_quiet_intervals_seconds": [
+        [
+          3.085,
+          3.525
+        ],
+        [
+          5.17,
+          5.45
+        ]
+      ]
+    }
+  ]
+}

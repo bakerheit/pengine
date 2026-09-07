@@ -1,0 +1,39 @@
+{
+  "id": "devon_02",
+  "kind": "Cutscene",
+  "title": "Mission 1 package arrival",
+  "character": "Devon",
+  "voice": "ash",
+  "text": "Just checking. Tell Lou we're square.",
+  "direction": "Adult American man speaking to a courier right in front of him. The answer reassured you. Brush off his question, then give him a simple message for Lou. Plain everyday voice at a normal pace. Underplay it.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "devon_02.wav",
+  "transcript": "Just checking. Tell Lou we're square.",
+  "transcript_matches": true,
+  "duration_seconds": 3.25,
+  "peak_dbfs": -7.83,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 350,
+    "input_tokens": 183,
+    "output_tokens": 167,
+    "input_token_details": {
+      "text_tokens": 183,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 102,
+      "audio_tokens": 65,
+      "reasoning_tokens": 80
+    }
+  },
+  "response_id": "resp_EKbdgXpJlTGpzi2fftZ2E"
+}

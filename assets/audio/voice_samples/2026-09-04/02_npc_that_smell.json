@@ -1,0 +1,39 @@
+{
+  "id": "02_npc_that_smell",
+  "kind": "NPC",
+  "title": "That smell",
+  "character": "Disgusted passerby",
+  "voice": "coral",
+  "direction": "Adult woman, dry urban American delivery. You just walked into a truly foul smell. Start with disbelief, wrinkle your nose, put disgust into 'hell' and 'smell'. Comic irritation, fully natural.",
+  "text": "What the hell is that smell??",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "02_npc_that_smell.wav",
+  "transcript": "What the hell is that smell??",
+  "transcript_matches": true,
+  "duration_seconds": 2.5,
+  "peak_dbfs": -6.97,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 334,
+    "input_tokens": 183,
+    "output_tokens": 151,
+    "input_token_details": {
+      "text_tokens": 183,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 101,
+      "audio_tokens": 50,
+      "reasoning_tokens": 82
+    }
+  },
+  "response_id": "resp_EKQEGnuLj5dZ110KxznmJ"
+}

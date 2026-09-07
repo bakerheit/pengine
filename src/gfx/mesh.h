@@ -6,6 +6,7 @@
 #include <glad/gl.h>
 
 #include "core/aabb.h"
+#include "core/emesh_reader.h"
 #include "gfx/instance.h"
 #include "gfx/primitives.h"  // MeshVertex, MeshData
 #include "terrain/chunk.h"
@@ -32,6 +33,10 @@ public:
 
     // Upload procedurally generated geometry (gfx/primitives.h).
     bool upload(const MeshData& src);
+
+    // Upload validated cooked static geometry. File parsing stays in core and
+    // this overload is the one-way seam where it becomes a GPU resource.
+    bool upload(const StaticEmesh& src);
 
     void destroy();
     void draw() const;

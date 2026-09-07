@@ -7,7 +7,7 @@
 namespace apricot {
 namespace city {
 
-// PINATTY'S ROAD SPINES, as src/road/ wants them.
+// O'HAVEN'S ROAD SPINES, as src/road/ wants them.
 //
 // This is the seam road/road_graph.h names in its own header:
 //

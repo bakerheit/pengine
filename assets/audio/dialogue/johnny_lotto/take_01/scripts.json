@@ -1,0 +1,146 @@
+[
+  {
+    "id": "01_johnny",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 01",
+    "character": "Johnny Mercer",
+    "voice": "cedar",
+    "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Scrappy, cocky working-class gas station clerk Johnny Mercer; same casting as the cedar getaway-driver audition. Relaxed conversational indoor volume, talking to your older manager across the checkout. Natural and understated, no narration. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Bored, reading the jackpot and daydreaming.",
+    "text": "Lotto's up to twelve million."
+  },
+  {
+    "id": "02_lou",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 02",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Dismiss it without looking up. Familiar advice.",
+    "text": "Don't waste your money."
+  },
+  {
+    "id": "03_johnny",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 03",
+    "character": "Johnny Mercer",
+    "voice": "cedar",
+    "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Scrappy, cocky working-class gas station clerk Johnny Mercer; same casting as the cedar getaway-driver audition. Relaxed conversational indoor volume, talking to your older manager across the checkout. Natural and understated, no narration. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Light pushback; somebody does win.",
+    "text": "Somebody's gotta win."
+  },
+  {
+    "id": "04_lou",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 04",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Casual recollection. A small beat after once. You are secretly referring to a robbery.",
+    "text": "I hit it once. Never played again."
+  },
+  {
+    "id": "05_johnny",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 05",
+    "character": "Johnny Mercer",
+    "voice": "cedar",
+    "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Scrappy, cocky working-class gas station clerk Johnny Mercer; same casting as the cedar getaway-driver audition. Relaxed conversational indoor volume, talking to your older manager across the checkout. Natural and understated, no narration. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Suddenly interested. You are surprised he won.",
+    "text": "You? How much?"
+  },
+  {
+    "id": "06_lou",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 06",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: An ordinary fact, not a boast.",
+    "text": "Enough to buy this place."
+  },
+  {
+    "id": "07_johnny",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 07",
+    "character": "Johnny Mercer",
+    "voice": "cedar",
+    "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Scrappy, cocky working-class gas station clerk Johnny Mercer; same casting as the cedar getaway-driver audition. Relaxed conversational indoor volume, talking to your older manager across the checkout. Natural and understated, no narration. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Genuinely impressed, curious with a small amused smile.",
+    "text": "No shit. What'd you do, pick birthdays?"
+  },
+  {
+    "id": "08_lou",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 08",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Dry correction. A slight beat before Picked a truck, no dramatic reveal.",
+    "text": "Didn't pick numbers. Picked a truck."
+  },
+  {
+    "id": "09_johnny",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 09",
+    "character": "Johnny Mercer",
+    "voice": "cedar",
+    "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Scrappy, cocky working-class gas station clerk Johnny Mercer; same casting as the cedar getaway-driver audition. Relaxed conversational indoor volume, talking to your older manager across the checkout. Natural and understated, no narration. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: You do not understand yet; small puzzled question.",
+    "text": "A truck?"
+  },
+  {
+    "id": "10_lou",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 10",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Matter-of-fact clarification. Let Johnny join the dots himself.",
+    "text": "Had the bank's name on the side."
+  },
+  {
+    "id": "11_johnny",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 11",
+    "character": "Johnny Mercer",
+    "voice": "cedar",
+    "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Scrappy, cocky working-class gas station clerk Johnny Mercer; same casting as the cedar getaway-driver audition. Relaxed conversational indoor volume, talking to your older manager across the checkout. Natural and understated, no narration. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: You have just realized he means a robbery. A quiet, slightly awkward acknowledgment.",
+    "text": "Right."
+  },
+  {
+    "id": "12_lou",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 12",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Move on briskly to an everyday errand.",
+    "text": "Anyway. I gotta go make a delivery."
+  },
+  {
+    "id": "13_johnny",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 13",
+    "character": "Johnny Mercer",
+    "voice": "cedar",
+    "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Scrappy, cocky working-class gas station clerk Johnny Mercer; same casting as the cedar getaway-driver audition. Relaxed conversational indoor volume, talking to your older manager across the checkout. Natural and understated, no narration. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Volunteer promptly, eager to get outside.",
+    "text": "Let me do it."
+  },
+  {
+    "id": "14_lou",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 14",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Mild surprise at the offer, not hostile.",
+    "text": "You?"
+  },
+  {
+    "id": "15_johnny",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 15",
+    "character": "Johnny Mercer",
+    "voice": "cedar",
+    "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Scrappy, cocky working-class gas station clerk Johnny Mercer; same casting as the cedar getaway-driver audition. Relaxed conversational indoor volume, talking to your older manager across the checkout. Natural and understated, no narration. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Restless but familiar and conversational. You have been stuck working indoors all day.",
+    "text": "Yeah. I've been in here all day. Let me get out of the store for a bit."
+  },
+  {
+    "id": "16_lou",
+    "kind": "Cutscene dialogue",
+    "title": "The lotto - line 16",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Start agreeing, then distinctly say they, hesitate and stop that thought for about half a second, then recover casually with that might not be a bad idea. Keep Ya as the natural spoken yeah. Do not complete the unfinished thought or add any words.",
+    "text": "Ya, actually, they... that might not be a bad idea."
+  }
+]

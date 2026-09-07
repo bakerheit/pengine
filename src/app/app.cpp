@@ -1,18 +1,61 @@
 #include "app/app.h"
+#include "app/vehicle_model_tuning.h"
+#include "app/weapon_wheel.h"
+#include "game/intro_layout.h"
+#include "game/delivery_mission.h"
+#include "game/repair_shop.h"
+#include "game/weather_hazards.h"
+#include "city/neighborhood_bar.h"
+#include "city/pawn_shop.h"
+#include "city/gun_store.h"
+#include "city/hospital_exterior.h"
+#include "city/miandi_night_lighting.h"
+#include "city/tacomaco.h"
+#include "core/asset_root.h"
+#include "core/rng.h"
 
 #include <SDL.h>
 #include <glad/gl.h>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
 
 #include <chrono>
+#include <array>
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string_view>
+#include <thread>
+#include <vector>
+
+#if defined(__APPLE__) || defined(__linux__)
+#include <fcntl.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+extern char** environ;
+#endif
 
 #include <glm/gtc/matrix_transform.hpp>
 
 #include "app/overlay.h"
+#include "app/emergency_lighting.h"
+#include "audio/player_car_assets.h"
 #include "city/map.h"
+#include "city/marina.h"
+#include "city/airport.h"
+#include "city/airport_aircraft.h"
+#include "city/bank_vault_layout.h"
 #include "city/spines.h"
 #include "core/log.h"
+#include "core/units.h"
+#include "game/ui_canvas.h"
+#include "game/vehicle_interaction.h"
+#include "game/drunk.h"
 #include "gfx/gl_state.h"
 #include "gfx/sky_env.h"
 #include "terrain/heightmap.h"
@@ -21,9 +64,107 @@ namespace apricot {
 namespace {
 
 using WallClock = std::chrono::steady_clock;
+namespace fs = std::filesystem;
 
-// How far the renderer draws. The fog band is set just inside it so the
-// distance cull's cutoff hides behind atmosphere instead of popping.
+fs::path find_checkout_root() {
+    std::error_code ec;
+    std::array<fs::path, 2> starts{
+        fs::absolute(fs::path(asset_root()), ec).parent_path(),
+        fs::current_path(ec),
+    };
+    for (fs::path start : starts) {
+        for (int i = 0; i < 8 && !start.empty(); ++i) {
+            if (fs::exists(start / ".git", ec) &&
+                fs::exists(start / "CMakeLists.txt", ec)) {
+                return fs::weakly_canonical(start, ec);
+            }
+            if (start == start.parent_path()) break;
+            start = start.parent_path();
+        }
+    }
+    return {};
+}
+
+fs::path unique_bug_report_directory(const fs::path& checkout) {
+    const auto now = std::chrono::system_clock::now();
+    const std::time_t time = std::chrono::system_clock::to_time_t(now);
+    std::tm local{};
+#if defined(_WIN32)
+    localtime_s(&local, &time);
+#else
+    localtime_r(&time, &local);
+#endif
+    char stamp[32];
+    std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
+    const fs::path parent = checkout / "build" / "bug-reports";
+    std::error_code ec;
+    fs::create_directories(parent, ec);
+    if (ec) return {};
+    fs::path candidate = parent / stamp;
+    for (int suffix = 2; fs::exists(candidate, ec); ++suffix) {
+        candidate = parent / (std::string(stamp) + "-" +
+                              std::to_string(suffix));
+    }
+    fs::create_directories(candidate, ec);
+    return ec ? fs::path{} : candidate;
+}
+
+bool launch_codex_report(const fs::path& checkout, const fs::path& screenshot,
+                         const fs::path& report_path, const fs::path& log_path,
+                         const std::string& report_text) {
+#if defined(__APPLE__) || defined(__linux__)
+    fs::path codex = "/Applications/ChatGPT.app/Contents/Resources/codex";
+    std::error_code ec;
+    if (!fs::exists(codex, ec)) codex = "codex";
+
+    std::string prompt =
+        "This bug was submitted from the running Apricot game. Investigate "
+        "and fix it in this checkout. The attached framebuffer screenshot and "
+        "captured world coordinates are authoritative. Preserve all unrelated "
+        "dirty work. Reproduce or diagnose first, then make a scoped fix and "
+        "validate it with focused tests plus the relevant runtime evidence. "
+        "The saved report is at " + report_path.string() + ".\n\n" + report_text;
+
+    std::vector<std::string> args{
+        codex.string(), "exec", "-C", checkout.string(), "-i",
+        screenshot.string(), "--sandbox", "workspace-write",
+        "--approve-for-me", "--color", "never", prompt,
+    };
+    std::vector<char*> argv;
+    argv.reserve(args.size() + 1);
+    for (std::string& arg : args) argv.push_back(arg.data());
+    argv.push_back(nullptr);
+
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0) return false;
+    const int open_flags = O_WRONLY | O_CREAT | O_TRUNC;
+    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO,
+                                     log_path.c_str(), open_flags, 0644);
+    posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
+    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null",
+                                     O_RDONLY, 0);
+
+    pid_t pid = 0;
+    const int result = codex.is_absolute()
+        ? posix_spawn(&pid, codex.c_str(), &actions, nullptr, argv.data(), environ)
+        : posix_spawnp(&pid, codex.c_str(), &actions, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    if (result != 0) return false;
+    std::thread([pid] {
+        int status = 0;
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+    }).detach();
+    return true;
+#else
+    (void)checkout; (void)screenshot; (void)report_path; (void)log_path;
+    (void)report_text;
+    return false;
+#endif
+}
+
+// Hard upper bound for rendering. Distance haze normally hides and culls the
+// scene well inside this cap; the extra range still supports unusually clear
+// debug weather and prevents the projection from clipping a fogged skyline.
 //
 // 2400 m, up from the 700 m the placeholder scene used, because the whole point
 // of terrain LOD is that the far ring is affordable and there is no point
@@ -54,13 +195,216 @@ constexpr int kMaxSpikeLogs = 3;
 // used to declare its own 240 s day; when the conditions system landed the two
 // collided at the merge, which is the cheap way to find out.
 //
-// The demo wants a faster sun than a real session does, so `sky_speed` carries
-// that instead. See its default in `overlay.h`.
+// Debug time acceleration lives in `sky_speed`; normal play leaves it at 1 so
+// the visible sky and HUD clock use the session day length exactly.
 
-// Chase camera placement, in the car's own frame.
-constexpr float kCamBack = 9.0f;
-constexpr float kCamUp = 3.6f;
-constexpr float kCamLookAhead = 6.0f;
+void apply_dev_weather(DevWeatherPreset preset, overlay::Controls& controls) {
+    switch (preset) {
+        case DevWeatherPreset::Clear:
+            controls.rain = 0.0f;
+            controls.overcast = 0.0f;
+            controls.fog = 0.0f;
+            break;
+        case DevWeatherPreset::Overcast:
+            controls.rain = 0.0f;
+            controls.overcast = 0.75f;
+            controls.fog = 0.25f;
+            break;
+        case DevWeatherPreset::Rain:
+            controls.rain = 0.35f;
+            controls.overcast = 0.30f;
+            controls.fog = 0.55f;
+            break;
+        case DevWeatherPreset::Storm:
+            controls.rain = 1.0f;
+            controls.overcast = 1.0f;
+            controls.fog = 0.85f;
+            break;
+        case DevWeatherPreset::Thunderstorm:
+            controls.rain = 1.0f;
+            controls.overcast = 1.0f;
+            controls.fog = 0.72f;
+            break;
+        case DevWeatherPreset::Snow:
+            controls.rain = 0.0f;
+            controls.overcast = 0.86f;
+            controls.fog = 0.38f;
+            break;
+        case DevWeatherPreset::Blizzard:
+            controls.rain = 0.0f;
+            controls.overcast = 1.0f;
+            controls.fog = 1.0f;
+            break;
+        case DevWeatherPreset::Tornado:
+            controls.rain = 0.62f;
+            controls.overcast = 1.0f;
+            controls.fog = 0.72f;
+            break;
+        case DevWeatherPreset::Flood:
+            controls.rain = 0.90f;
+            controls.overcast = 1.0f;
+            controls.fog = 0.78f;
+            break;
+        case DevWeatherPreset::Hail:
+            controls.rain = 0.48f;
+            controls.overcast = 0.96f;
+            controls.fog = 0.48f;
+            break;
+        case DevWeatherPreset::Heatwave:
+            controls.rain = 0.0f;
+            controls.overcast = 0.04f;
+            controls.fog = 0.16f;
+            break;
+        case DevWeatherPreset::Dynamic:
+        case DevWeatherPreset::kCount: break;
+    }
+}
+
+void override_conditions_for_dev(DevWeatherPreset preset,
+                                 overlay::Controls& controls,
+                                 Conditions& conditions) {
+    if (preset == DevWeatherPreset::Dynamic ||
+        preset == DevWeatherPreset::kCount) return;
+
+    conditions.rain = controls.rain;
+    conditions.snow = 0.0f;
+    conditions.snow_depth_m = 0.0f;
+    conditions.snow_cover = 0.0f;
+    conditions.flood = 0.0f;
+    conditions.hail = 0.0f;
+    conditions.heatwave = 0.0f;
+    conditions.lightning = 0.0f;
+    conditions.tornado_intensity = 0.0f;
+    conditions.overcast = controls.overcast;
+    conditions.fog = controls.fog;
+    conditions.wind_mps = {1.0f, 0.3f};
+    conditions.atmosphere = AtmosphericWeather::Clear;
+
+    switch (preset) {
+        case DevWeatherPreset::Clear: break;
+        case DevWeatherPreset::Overcast:
+            conditions.atmosphere = AtmosphericWeather::Overcast;
+            break;
+        case DevWeatherPreset::Rain:
+            conditions.atmosphere = AtmosphericWeather::Rain;
+            conditions.wind_mps = {4.0f, 1.0f};
+            break;
+        case DevWeatherPreset::Storm:
+            conditions.atmosphere = AtmosphericWeather::Storm;
+            conditions.wind_mps = {10.0f, 3.0f};
+            break;
+        case DevWeatherPreset::Thunderstorm:
+            conditions.atmosphere = AtmosphericWeather::Thunderstorm;
+            conditions.lightning = 1.0f;
+            conditions.wind_mps = {12.0f, 4.0f};
+            break;
+        case DevWeatherPreset::Snow:
+            conditions.atmosphere = AtmosphericWeather::Snow;
+            conditions.snow = 0.72f;
+            conditions.wind_mps = {3.0f, 1.0f};
+            break;
+        case DevWeatherPreset::Blizzard:
+            conditions.atmosphere = AtmosphericWeather::Blizzard;
+            conditions.snow = 1.0f;
+            conditions.wind_mps = {18.0f, 7.0f};
+            break;
+        case DevWeatherPreset::Tornado:
+            conditions.atmosphere = AtmosphericWeather::Tornado;
+            conditions.tornado_intensity = 1.0f;
+            conditions.tornado_center_m = {0.0f, 0.0f};
+            conditions.lightning = 0.55f;
+            conditions.wind_mps = {18.0f, 8.0f};
+            break;
+        case DevWeatherPreset::Flood:
+            conditions.atmosphere = AtmosphericWeather::Flood;
+            conditions.flood = 1.0f;
+            conditions.wind_mps = {7.0f, 2.0f};
+            break;
+        case DevWeatherPreset::Hail:
+            conditions.atmosphere = AtmosphericWeather::Hail;
+            conditions.hail = 1.0f;
+            conditions.lightning = 0.35f;
+            conditions.wind_mps = {10.0f, 5.0f};
+            break;
+        case DevWeatherPreset::Heatwave:
+            conditions.atmosphere = AtmosphericWeather::Heatwave;
+            conditions.heatwave = 1.0f;
+            conditions.wind_mps = {0.8f, 0.2f};
+            break;
+        case DevWeatherPreset::Dynamic:
+        case DevWeatherPreset::kCount: break;
+    }
+
+    conditions.wetness = std::clamp(
+        std::max(conditions.rain, conditions.flood), 0.0f, 1.0f);
+    conditions.weather = conditions.wetness >= 0.40f ? Weather::Wet :
+        (conditions.wetness >= 0.05f ? Weather::Damp : Weather::Dry);
+    conditions.headlight_level = automatic_headlight_level(
+        conditions.sun_elevation, conditions.atmosphere);
+    const float night =
+        std::clamp(-conditions.sun_elevation * 2.0f, 0.0f, 1.0f);
+    const float loss = kWetGripLoss * conditions.wetness +
+        kRainGripLoss * conditions.rain +
+        kSnowGripLoss * conditions.snow_cover +
+        kFloodGripLoss * conditions.flood + kHailGripLoss * conditions.hail +
+        kNightGripLoss * night;
+    conditions.grip = std::clamp(1.0f - loss, kMinGrip, 1.0f);
+}
+
+TornadoParams tornado_params(const Conditions& conditions) {
+    TornadoParams params;
+    params.center_xz = conditions.tornado_center_m;
+    params.core_radius_m = 14.0f;
+    params.outer_radius_m = 185.0f;
+    params.max_horizontal_force_n *= conditions.tornado_intensity;
+    params.max_lift_force_n *= conditions.tornado_intensity;
+    return params;
+}
+
+FloodParams flood_params() {
+    FloodParams params;
+    params.water_elevation_m = 11.5f;
+    // The low city floor sits around 12 m. A full event should put water over
+    // streets and wheels, not lift the ocean above the player's camera.
+    params.max_event_rise_m = 0.90f;
+    params.max_depth_m = 5.0f;
+    params.full_severity_depth_m = 1.15f;
+    return params;
+}
+
+HazardExposure hazard_exposure_at(const Conditions& conditions,
+                                  glm::vec3 position,
+                                  float terrain_elevation_m) {
+    HazardExposure exposure;
+    const TornadoForce tornado = apricot::tornado_force_at(
+        {position.x, position.z}, tornado_params(conditions));
+    exposure.tornado = tornado.exposure * conditions.tornado_intensity;
+    exposure.snow_ice = conditions.snow_cover;
+    exposure.flood =
+        flood_at(terrain_elevation_m, conditions.flood, flood_params()).severity;
+    exposure.hail = conditions.hail;
+    exposure.heatwave = conditions.heatwave;
+    return exposure;
+}
+
+float hazard_severity(const HazardExposure& exposure, GameplayHazard hazard) {
+    switch (hazard) {
+        case GameplayHazard::Tornado: return exposure.tornado;
+        case GameplayHazard::SnowIce: return exposure.snow_ice;
+        case GameplayHazard::Flood: return exposure.flood;
+        case GameplayHazard::Hail: return exposure.hail;
+        case GameplayHazard::Heatwave: return exposure.heatwave;
+        case GameplayHazard::None: return 0.0f;
+    }
+    return 0.0f;
+}
+
+float flood_water_level(float intensity) {
+    if (!(intensity > 0.0f)) return kSeaLevelMetres;
+    const FloodParams params = flood_params();
+    return params.water_elevation_m +
+        std::clamp(intensity, 0.0f, 1.0f) * params.max_event_rise_m;
+}
 
 const char* gl_error_name(GLenum e) {
     switch (e) {
@@ -74,13 +418,22 @@ const char* gl_error_name(GLenum e) {
     }
 }
 
+float wanted_heat_for_level(int level) {
+    static constexpr float kHeat[] = {0.0f, 1.0f, 3.0f, 6.0f, 9.0f, 12.0f};
+    return kHeat[static_cast<std::size_t>(std::clamp(level, 0, 5))];
+}
+
 }  // namespace
 
 bool App::init() {
+    if (clear_weather_) {
+        dev_menu_.set_weather(DevWeatherPreset::Clear);
+        apply_dev_weather(DevWeatherPreset::Clear,controls_);
+    }
     AP_INFO("apricot %s starting", APRICOT_VERSION);
 
     WindowConfig cfg;
-    cfg.title = std::string("apricot ") + APRICOT_VERSION;
+    cfg.title = std::string("Probable Cause ") + APRICOT_VERSION;
     cfg.width = 1280;
     cfg.height = 720;
     // --frames is the headless path: exercise the renderer with nobody at the
@@ -105,27 +458,109 @@ bool App::init() {
     // bind cache believes is true any more.
     gl_state::invalidate_all();
 
+    // Present the layered intro before the cold world fill. Interactive
+    // launches keep this frame on screen while the authored city, traffic and
+    // terrain finish loading; bounded renderer smoke skips the human-facing
+    // present so --frames remains a direct world/render test.
+    const bool show_loading_screen = frame_limit_ <= 0;
+    WallClock::time_point loading_screen_started;
+    if (!loading_screen_.init(
+            "textures/ui/probable-cause-intro-plate-v2.png")) {
+        AP_ERROR("loading screen init failed; cannot continue");
+        return false;
+    }
+    if (!hud_.init()) {
+        AP_ERROR("hud init failed; cannot continue");
+        return false;
+    }
+    const auto present_loading = [&](const char* stage) {
+        if (!show_loading_screen) return;
+        poll_events();
+        if (window_.minimised()) return;
+        loading_screen_.render(window_.width(), window_.height());
+        const glm::vec2 vp = UiCanvas::from_drawable(
+            {window_.width(), window_.height()}).size;
+        hud_.begin(vp);
+        const float left = vp.x * 0.06f;
+        const float y = vp.y * 0.91f;
+        const float alpha = std::clamp(loading_screen_.elapsed(), 0.0f, 1.0f);
+        if (stage) {
+            // Indeterminate activity, not a percentage or an invented work bar.
+            const float phase = loading_screen_.elapsed() * 2.0f;
+            for (int i = 0; i < 3; ++i) {
+                const float strength = 0.35f + 0.65f *
+                    (0.5f + 0.5f * std::sin(phase - static_cast<float>(i)));
+                hud_.rect({left + i * 12.0f, y + 11}, {left + i * 12.0f + 5, y + 16},
+                          {0.86f, 0.20f, 0.14f, alpha * strength});
+            }
+            hud_.text(stage, {left + 52, y}, 19, {0.75f, 0.74f, 0.69f, alpha});
+        }
+        hud_.end();
+        window_.swap();
+    };
+    if (show_loading_screen) {
+        loading_screen_started = WallClock::now();
+        present_loading("INITIALIZING");
+    }
+
     // THE WORLD IS KEYED ON THE MAP SEED, NOT THE RUN SEED (PENG-41).
     //
     // docs/architecture.md's amendment made concrete: the world is a pure
     // function of (map, seed, coord). city::kMapSeed is pinned in the map
     // tables and selects the noise detail under the authored skeleton, so
-    // Pinatty is the same place in every session. seed_ below is the SESSION
+    // O'Haven is the same place in every session. seed_ below is the SESSION
     // -- weather, ambient variation, the placeholder box field -- and it is
     // the one that will eventually come from a save file.
     collider_ = TerrainCollider(city::kMapSeed);
+    if (controls_.snow_depth_override_m >= 0.0f) {
+        snowpack_.set_depth_m(controls_.snow_depth_override_m);
+    } else if (dev_menu_.weather() == DevWeatherPreset::Dynamic) {
+        snowpack_.set_depth_m(conditions_at(seed_, step_index_).snow_depth_m);
+    } else {
+        snowpack_ = {};
+    }
+    const SnowpackCollision opening_snow_collision =
+        snowpack_collision_from_depth(snowpack_.depth_m());
+    collider_.set_snow_collision_depth(opening_snow_collision.active
+        ? static_cast<float>(opening_snow_collision.depth_m) : 0.0f);
 
     // spawn_vehicle settles the car on its springs and aligns it to the slope
     // it is standing on. Assigning a position by hand instead drops it in with
     // its struts at free length and the first step launches it, which looks
     // like a physics bug and is not one.
-    car_ = spawn_vehicle(tuning_, collider_, 0.0f, 0.0f, 0.0f);
+    // The player uses GTA-style two-pedal direction control: S brakes first,
+    // then becomes reverse once the car is stopped. Traffic keeps the pure
+    // brake/explicit-gear contract through VehicleTuning's opt-in flag.
+    set_driving_mechanics(DrivingMechanicsStyle::ClassicGta);
+    tuning_=player_model_tuning(driving_mechanics_style_,start_car_);
+    car_ = spawn_vehicle(tuning_, collider_, start_position_.x,
+                         start_position_.y, start_heading_radians_);
+    car_.mechanical_key=splitmix64_mix(car_.mechanical_key ^ seed_);
     prev_car_ = car_;
+
+    // Audio is non-fatal by contract. Normal vehicle playback uses only the
+    // selected recordings; procedural placeholders stay out of the live mix.
+    present_loading("LOADING AUDIO");
+    audio_device_.start(player_car_audio_overrides());
+    if (audio_device_.running()) {
+        if (!intro_audio_.load(asset_path("audio/intro/probable-cause-title-score-v1.wav"),
+                               audio_device_.bank().rain)) {
+            AP_WARN("title audio unavailable; continuing with city ambience");
+        }
+        intro_audio_.update(audio_device_.mixer(), show_loading_screen, 1.0f);
+    }
+    city_audio_.start(audio_device_.mixer(), audio_device_.bank());
+    vehicle_audio_.start(audio_device_.mixer(), audio_device_.bank());
+    (void)vehicle_leak_ding();
+    traffic_idle_audio_.start(audio_device_.mixer(), audio_device_.bank());
+    police_siren_.start(audio_device_.mixer());
+    apply_ui_settings();
 
     // --- renderer and its passes -------------------------------------------
     // Every one of these is fatal if it fails. A renderer that starts with a
     // broken shader draws black, and black is the hardest possible symptom to
     // work backwards from; better to refuse to start and say which stage died.
+    present_loading("PREPARING RENDERER");
     if (!renderer_.init()) {
         AP_ERROR("renderer init failed; cannot continue");
         return false;
@@ -134,36 +569,41 @@ bool App::init() {
         AP_ERROR("sky init failed; cannot continue");
         return false;
     }
+    if (!ocean_.init()) return false;
     if (!rain_.init(seed_)) {
         AP_ERROR("precipitation init failed; cannot continue");
         return false;
     }
-    if (!hud_.init()) {
-        AP_ERROR("hud init failed; cannot continue");
+    if (!tire_tracks_.init()) {
+        AP_ERROR("tire-track renderer init failed; cannot continue");
         return false;
     }
+    if (!tornado_.init()) {
+        AP_ERROR("tornado renderer init failed; cannot continue");
+        return false;
+    }
+    present_loading("BUILDING CITY MAP");
+    game_ui_.build_map();
+    const std::vector<RoadSpine> authored_roads = city::map_spines();
+    AP_INFO("city map built from %zu vector land patches, %zu roads and %d districts",
+            game_ui_.land_cell_count(), authored_roads.size(),
+            city::kDistrictCount);
 
-    // --- the car's box -------------------------------------------------------
-    {
-        Texture car_tex;
-        if (!car_tex.make_checker(64, 2, glm::vec3{0.85f, 0.16f, 0.12f},
-                                  glm::vec3{0.95f, 0.90f, 0.85f})) {
-            AP_ERROR("car texture generation failed; cannot continue");
-            return false;
-        }
-        car_material_ = renderer_.add_material(std::move(car_tex));
-        car_mesh_ = renderer_.add_mesh(make_box(glm::vec3{0.5f}));
-        if (car_mesh_ == kInvalidId) {
-            AP_ERROR("car mesh upload failed; cannot continue");
-            return false;
-        }
-
-        Renderable r;
-        r.mesh = car_mesh_;
-        r.material = car_material_;
-        Transform t;
-        t.scale = car_half_ * 2.0f;
-        car_node_ = scene_.create(r, t, make_box(glm::vec3{0.5f}).bounds);
+    // --- player car ----------------------------------------------------------
+    // The alpha's body mesh is wheel-less on purpose. PlayerCarVisual attaches
+    // four copies of the shared wheel model and drives them from the sim's live
+    // suspension length, steering angle and accumulated spin.
+    present_loading("LOADING VEHICLES");
+    if (!car_visual_.init(renderer_, scene_, tuning_, car_)) {
+        AP_ERROR("player car model failed; cannot continue");
+        return false;
+    }
+    if (!car_visual_.select(scene_,tuning_,car_,start_car_)) return false;
+    dev_menu_.set_player_car(car_visual_.active_car());
+    vehicle_audio_.set_model(player_car_definition(car_visual_.active_car()).mesh_path);
+    if (!vehicle_effects_.init(renderer_)) {
+        AP_ERROR("vehicle fluid effects failed; cannot continue");
+        return false;
     }
 
     // --- the streamed world --------------------------------------------------
@@ -185,12 +625,14 @@ bool App::init() {
     }
 
     // So it is checked rather than commented. The drawn surface under the spawn
-    // point, reconstructed from the streamer's seed, against the ground physics
-    // will actually put the car on. These are the same function of the same
-    // seed, so the only tolerance that means anything is zero.
+    // point, reconstructed from the streamer's seed, against the collider's
+    // underlying terrain with any temporary snow layer removed. These are the
+    // same function of the same seed, so the only tolerance that means anything
+    // is zero.
     {
         const float drawn = mesh_height_at(world_.streamer().seed(), 0.0f, 0.0f);
-        const float driven = collider_.height(0.0f, 0.0f);
+        const float driven = collider_.height(0.0f, 0.0f) -
+                             collider_.snow_collision_depth();
         if (drawn != driven) {
             AP_ERROR("the world drawn is not the world driven: terrain seed "
                      "0x%016llX gives %.4f m at the origin, collider seed "
@@ -204,15 +646,73 @@ bool App::init() {
     }
 
     // --- roads ---------------------------------------------------------------
-    // Pinatty's road network, from the authored tables in src/city/roads.h.
+    // O'Haven's road network, from the authored tables in src/city/roads.h.
     // This used to be an empty list plus a --road-probe flag that baked two
     // crossing streets at the origin so the bake/upload/draw path was exercised
     // at all; the flag existed to be deleted the day map_spines() landed, and
     // this is that day.
-    if (!world_.set_roads(renderer_, scene_, city::map_spines())) {
+    present_loading("BUILDING STREETS");
+    if (!world_.set_roads(renderer_, scene_, collider_, authored_roads)) {
         AP_ERROR("road bake/upload failed; cannot continue");
         return false;
     }
+    if (!traffic_visual_.init(renderer_, scene_, world_.lanes(),
+                              world_.traffic_tuning(), collider_)) {
+        AP_ERROR("traffic models or signals failed to initialize");
+        return false;
+    }
+
+    // The first authored district: the player begins beside a working gas
+    // station and motel, with apartments and a drive-through on nearby blocks.
+    // Rendering and collision come from the same city table, so the buildings
+    // cannot be visible boxes the car drives straight through.
+    present_loading("LOADING O'HAVEN");
+    if (!world_.set_starting_area(renderer_, scene_, collider_)) {
+        AP_ERROR("starting area failed; cannot continue");
+        return false;
+    }
+    if (road_start_qa_) {
+        // Authored parking slabs and other firm ground overlays are attached
+        // by set_starting_area(). Settle after that so --start-at can exercise
+        // the actual top contact instead of the raw terrain hidden below it.
+        car_ = spawn_vehicle(tuning_, collider_, start_position_.x,
+                             start_position_.y, start_heading_radians_);
+        const auto ground = collider_.probe_down(
+            {start_position_.x, 120.0f, start_position_.y}, 160.0f);
+        if (ground.hit)
+            car_.position.y = ground.point.y + static_ride_height(tuning_);
+        car_.mechanical_key = splitmix64_mix(car_.mechanical_key ^ seed_);
+        prev_car_ = car_;
+    }
+
+    reset_aircraft();
+    reset_boat();
+    if (!trailer_visual_.init(renderer_,scene_)) return false;
+    reset_freight_yard(true);
+    // Start as a person beside the parked car. Player and crowd both use the
+    // supplied PSX character pack through its proven Probable Cause rigs.
+    character_spawned_ = true;
+    place_character_next_to_car();
+    if(start_player_position_set_ && !start_driving_) {
+        auto placed=spawn_character(collider_,start_player_position_.x,start_player_position_.y,-start_heading_radians_);
+        if(!character_position_clear(collider_,placed.position,CharacterTuning{})) {
+            AP_ERROR("--start-player-at is blocked by world geometry");return false;
+        }
+        player_character_=prev_player_character_=placed;
+    }
+    present_loading("LOADING CHARACTERS");
+    if (!character_visual_.init(player_character_)) {
+        AP_ERROR("character models failed; cannot continue");
+        return false;
+    }
+    if (!weapon_visual_.init(renderer_,scene_)) return false;
+    if (start_driving_ &&
+        (has_animated_driver(car_visual_.active_car()) || road_start_qa_)) {
+        on_foot_=false;
+        vehicle_audio_.set_model(player_car_definition(car_visual_.active_car()).mesh_path);
+        vehicle_audio_.enter_vehicle(false,car_.position);
+        collider_.set_kinematic_enabled(current_vehicle_collider_,false);
+    } else if (start_driving_) toggle_player_mode();
 
     // COLD FILL, BEFORE THE CLOCK STARTS.
     //
@@ -224,8 +724,9 @@ bool App::init() {
     // run() resets the frame clock after the first present, so this time is not
     // charged to the sim as dropped steps either.
     {
+        present_loading("PREPARING WORLD");
         const WallClock::time_point t0 = WallClock::now();
-        last_fill_steps_ = world_.fill(scene_, renderer_, car_.position);
+        last_fill_steps_ = world_.fill(scene_, renderer_, player_focus_position());
         last_fill_ms_ = std::chrono::duration<double>(WallClock::now() - t0)
                             .count() * 1000.0;
         AP_INFO("cold fill: %d steps, %.1f ms, %zu chunks, %.1f MB of terrain",
@@ -239,19 +740,61 @@ bool App::init() {
                      static_cast<float>(window_.height() > 0 ? window_.height() : 1);
     camera_.near_plane = kNearPlane;
     camera_.far_plane = kRenderDistance + 200.0f;
-    update_camera();
+    chase_camera_.reset();
+    camera_obstruction_distance_ = -1.0f;
+    seen_impact_count_ = car_.impact_count;
+    update_camera(0.0f);
 
     // A default that shows the whole feature set doing something on launch.
-    controls_.rain = 0.35f;
-    controls_.overcast = 0.30f;
-    controls_.fog = 0.55f;
+    update_weather();
 
-    AP_INFO("map 0x%016llX, run seed 0x%016llX, car spawned at %.2f m "
-            "(ground %.2f m)",
+    // Interactive launches begin at the title. The bounded renderer harness
+    // has nobody to press Start, so let it drive immediately and keep its
+    // physics/streaming coverage intact.
+    init_save_game();
+    if (start_wanted_level_ > 0)
+        wanted_.add_heat(wanted_heat_for_level(start_wanted_level_));
+    if (frame_limit_ > 0) ui_.enter_game();
+    if (opening_preview_) { ui_.enter_game();begin_new_game(); }
+    if (delivery_preview_ || delivery_check_) {
+        ui_.enter_game();mission_stage_=MissionStage::DeliveryActive;on_foot_=true;
+        const auto devon=city::devon_position();
+        player_character_=spawn_character(collider_,devon.x,devon.z-1.05f,3.14159265f);
+        prev_player_character_=player_character_;
+        world_.fill(scene_,renderer_,player_character_.position);
+        update_camera(0);
+        if (delivery_preview_ && !begin_delivery_cutscene()) return false;
+    }
+    input_.set_ui_mode(opening_cutscene_.active() || ui_.modal());
+
+    // Startup work above counts toward the seven seconds. If it finishes
+    // early, keep presenting the plate and polling events for the remainder so
+    // the window stays responsive and resize-safe instead of literally
+    // blocking in a blind sleep.
+    if (show_loading_screen) {
+        while (!input_.quit_requested()) {
+            const double shown_seconds = std::chrono::duration<double>(
+                WallClock::now() - loading_screen_started).count();
+            if (intro_ready(shown_seconds, true)) break;
+
+            present_loading(nullptr);
+            SDL_Delay(8u);
+        }
+        const double shown_seconds = std::chrono::duration<double>(
+            WallClock::now() - loading_screen_started).count();
+        AP_INFO("loading screen shown for %.2f s", shown_seconds);
+    }
+    loading_screen_.mark_ready();
+
+    AP_INFO("map 0x%016llX, run seed 0x%016llX, player spawned on foot at "
+            "(%.2f, %.2f), car at %.2f m (ground %.2f m)",
             static_cast<unsigned long long>(city::kMapSeed),
             static_cast<unsigned long long>(seed_),
+            static_cast<double>(player_character_.position.x),
+            static_cast<double>(player_character_.position.z),
             static_cast<double>(car_.position.y),
-            static_cast<double>(collider_.height(0.0f, 0.0f)));
+            static_cast<double>(collider_.height(start_position_.x,
+                                                 start_position_.y)));
 
     gl_errors_ += drain_gl_errors("after init");
 
@@ -260,6 +803,9 @@ bool App::init() {
 }
 
 void App::shutdown() {
+    opening_cutscene_.destroy();
+    intro_audio_.stop(audio_device_.mixer());
+    rain_audio_.stop(audio_device_.mixer());
     // Order matters only in that the GL resources must die while the context
     // is still alive, so everything gfx goes before the window.
     //
@@ -267,10 +813,29 @@ void App::shutdown() {
     // resources jointly with something else: its chunk meshes live in the
     // renderer's table and its nodes live in the scene, and it is the only
     // object that knows which mesh belongs to which node.
+    vehicle_leak_warning_.stop(audio_device_.mixer());
+    vehicle_audio_.stop();
+    police_siren_.stop();
+    traffic_idle_audio_.stop();
+    city_audio_.stop();
+    audio_device_.stop();
+    traffic_visual_.destroy(scene_);
+    weapon_visual_.destroy(scene_);
+    character_visual_.destroy();
+    vehicle_effects_.destroy(scene_);
     world_.shutdown(scene_, renderer_);
+    trailer_visual_.destroy(scene_);
+    car_visual_.destroy(scene_);
+    for (auto& parked:parked_vehicles_) parked.visual.destroy(scene_);
+    parked_vehicles_.clear();
     hud_.destroy();
+    tornado_.destroy();
+    tire_tracks_.destroy();
     rain_.destroy();
     sky_.destroy();
+    ocean_.destroy();
+    loading_screen_.destroy();
+    tiled_lighting_.destroy();
     renderer_.destroy();
     scene_.clear();
 
@@ -293,14 +858,116 @@ int App::drain_gl_errors(const char* where) {
     return found;
 }
 
+bool App::save_screenshot(const std::string& path) {
+    const int width = window_.width();
+    const int height = window_.height();
+    if (width <= 0 || height <= 0) return false;
+    std::vector<uint8_t> pixels(
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+    const std::size_t row_bytes = static_cast<std::size_t>(width) * 4u;
+    for (int y = 0; y < height / 2; ++y) {
+        uint8_t* top = pixels.data() + static_cast<std::size_t>(y) * row_bytes;
+        uint8_t* bottom = pixels.data() +
+            static_cast<std::size_t>(height - 1 - y) * row_bytes;
+        std::swap_ranges(top, top + row_bytes, bottom);
+    }
+
+    if (path.size() >= 4 && path.compare(path.size() - 4, 4, ".png") == 0) {
+        const bool saved = stbi_write_png(path.c_str(), width, height, 4,
+                                          pixels.data(), width * 4) != 0;
+        if (!saved) AP_ERROR("screenshot PNG save failed: '%s'", path.c_str());
+        else AP_INFO("screenshot saved to '%s'", path.c_str());
+        return saved;
+    }
+
+    SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormatFrom(
+        pixels.data(), width, height, 32, width * 4, SDL_PIXELFORMAT_RGBA32);
+    if (!surface) {
+        AP_ERROR("screenshot surface failed: %s", SDL_GetError());
+        return false;
+    }
+    const bool saved = SDL_SaveBMP(surface, path.c_str()) == 0;
+    if (!saved) AP_ERROR("screenshot save failed: %s", SDL_GetError());
+    else AP_INFO("screenshot saved to '%s'", path.c_str());
+    SDL_FreeSurface(surface);
+    return saved;
+}
+
+void App::begin_bug_report() {
+    if (bug_report_.open) return;
+    dev_menu_.close();
+    bug_report_restore_mouse_ = input_.mouse_look();
+    input_.set_mouse_look(false);
+    bug_report_.begin(player_focus_position(), player_focus_forward());
+    input_.set_ui_mode(true);
+    input_.consume_edges();
+    clock_.reset();
+    AP_INFO("bug report opened at position %.3f, %.3f, %.3f",
+            static_cast<double>(bug_report_.position.x),
+            static_cast<double>(bug_report_.position.y),
+            static_cast<double>(bug_report_.position.z));
+}
+
+void App::capture_and_submit_bug_report() {
+    bug_report_capture_pending_ = false;
+    const fs::path checkout = find_checkout_root();
+    const fs::path directory = checkout.empty()
+        ? fs::path{} : unique_bug_report_directory(checkout);
+    if (directory.empty()) {
+        vehicle_interaction_notice_ = "BUG REPORT SAVE FAILED";
+        vehicle_notice_until_ = step_index_ + 300;
+        AP_ERROR("bug report: could not find checkout or create report directory");
+        return;
+    }
+
+    const fs::path report_path = directory / "report.md";
+    const fs::path screenshot_path = directory / "screenshot.png";
+    const fs::path log_path = directory / "codex.log";
+    const char* mode = on_foot_ ? "on foot" :
+        (in_aircraft_ ? "aircraft" : (in_boat_ ? "boat" : "vehicle"));
+    const std::string report_text = bug_report_markdown(
+        bug_report_, static_cast<unsigned long long>(frames_rendered_),
+        static_cast<unsigned long long>(step_index_), mode, APRICOT_VERSION);
+
+    std::ofstream report_file(report_path);
+    report_file << report_text;
+    report_file.close();
+    if (!report_file || !save_screenshot(screenshot_path.string())) {
+        vehicle_interaction_notice_ = "BUG REPORT CAPTURE FAILED";
+        vehicle_notice_until_ = step_index_ + 300;
+        AP_ERROR("bug report: capture failed; partial report kept at '%s'",
+                 directory.c_str());
+        return;
+    }
+
+    const bool launched = launch_codex_report(
+        checkout, screenshot_path, report_path, log_path, report_text);
+    vehicle_interaction_notice_ = launched
+        ? "BUG REPORT SENT TO CODEX"
+        : "BUG REPORT SAVED - CODEX UNAVAILABLE";
+    vehicle_notice_until_ = step_index_ + 360;
+    if (launched) {
+        AP_INFO("bug report sent to Codex; files: '%s'", directory.c_str());
+    } else {
+        AP_WARN("bug report saved at '%s', but Codex could not be launched",
+                directory.c_str());
+    }
+}
+
 void App::poll_events() {
     input_.begin_frame();
+    bank_input_consumed_ = false;
+    weapon_input_consumed_=false;
 
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
+        // A lighting comparison must keep exactly the same camera and scene
+        // in both phases, even if keys arrive while this QA window has focus.
+        if(lighting_benchmark_ && e.type!=SDL_QUIT && e.type!=SDL_WINDOWEVENT) continue;
         // The UI sees every event first so its own state stays coherent.
         overlay::process_event(&e);
-
         if (e.type == SDL_WINDOWEVENT &&
             e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
             int w = 0, h = 0;
@@ -310,14 +977,98 @@ void App::poll_events() {
                 static_cast<float>(w) / static_cast<float>(h > 0 ? h : 1);
         }
 
+        // The reporter owns all typing while open. ImGui already saw the
+        // event above; keeping it out of the game mapper stops a bug sentence
+        // from steering the car or opening another screen underneath it.
+        if (bug_report_.open) {
+            input_.handle_event(e);
+            continue;
+        }
+
+        if (opening_cutscene_.active()) { input_.handle_event(e);continue; }
+
+        if (bank_interaction_.modal() || bank_input_consumed_) {
+            int w = 0, h = 0;
+            SDL_GetWindowSize(window_.sdl(), &w, &h);
+            bank_interaction_.event(e, {w, h}, bank_vault_);
+            bank_input_consumed_ = true;
+            input_.handle_event(e);
+            continue;
+        }
+
+        const bool wheel_down=(e.type==SDL_KEYDOWN && e.key.repeat==0 && e.key.keysym.sym==SDLK_TAB) ||
+            (e.type==SDL_CONTROLLERBUTTONDOWN && e.cbutton.button==SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+        const bool wheel_up=(e.type==SDL_KEYUP && e.key.keysym.sym==SDLK_TAB) ||
+            (e.type==SDL_CONTROLLERBUTTONUP && e.cbutton.button==SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+        if (wheel_down && ui_.screen()==UiScreen::Driving && on_foot_ && !dev_menu_.open() &&
+            !vehicle_transition_.active() && !boat_transition_.active() && !weapon_wheel_.open) {
+            weapon_restore_mouse_=input_.mouse_look();weapon_wheel_.begin();
+            input_.set_ui_mode(true);weapon_input_consumed_=true;
+            int w=0,h=0;SDL_GetWindowSize(window_.sdl(),&w,&h);
+            SDL_WarpMouseInWindow(window_.sdl(),w/2,h/2);
+            continue;
+        }
+        if (weapon_wheel_.open) {
+            weapon_input_consumed_=true;
+            const bool focus_lost=e.type==SDL_WINDOWEVENT && e.window.event==SDL_WINDOWEVENT_FOCUS_LOST;
+            const bool cancel=focus_lost ||
+                (e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_ESCAPE) ||
+                (e.type==SDL_CONTROLLERBUTTONDOWN && e.cbutton.button==SDL_CONTROLLER_BUTTON_B);
+            if (wheel_up || cancel) {
+                weapon_wheel_.close(!cancel);input_.set_ui_mode(ui_.modal());
+                if (weapon_restore_mouse_ && !focus_lost) input_.set_mouse_look(true);
+                input_.consume_edges();clock_.reset();
+                continue;
+            }
+            if (e.type==SDL_MOUSEMOTION) {
+                int w=0,h=0;SDL_GetWindowSize(window_.sdl(),&w,&h);
+                const float scale=std::max(1.f,static_cast<float>(h)*.25f);
+                weapon_wheel_.point((static_cast<float>(e.motion.x)-static_cast<float>(w)*.5f)/scale,
+                    (static_cast<float>(e.motion.y)-static_cast<float>(h)*.5f)/scale);
+            }
+            if (e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_1) weapon_wheel_.hovered=WeaponId::Unarmed;
+            if (e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_2) weapon_wheel_.hovered=WeaponId::Pistol;
+            input_.handle_event(e);
+            continue;
+        }
+
+        // Siren/lightbar is presentation-only, so no replay-format change.
+        const bool emergency_toggle=(e.type==SDL_KEYDOWN && e.key.repeat==0 &&
+            e.key.keysym.sym==SDLK_h) || (e.type==SDL_CONTROLLERBUTTONDOWN &&
+            e.cbutton.button==SDL_CONTROLLER_BUTTON_LEFTSTICK);
+        if (emergency_toggle && ui_.screen()==UiScreen::Driving &&
+            !dev_menu_.open() && !on_foot_ && !in_aircraft_ && !in_boat_ &&
+            has_police_lightbar(car_visual_.active_car())) {
+            police_emergency_enabled_=!police_emergency_enabled_;
+        }
         // The instancing A/B toggle is handled HERE rather than in InputMapper
         // on purpose. InputFrame is the replay tape format; a debug toggle
         // recorded into a tape would change what a replay does, and a replay
         // that disagrees with the run it recorded is worse than none.
-        if (e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
+        if (ui_.screen() == UiScreen::Driving &&
+            e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
             e.key.keysym.sym == SDLK_F7) {
             controls_.instancing = !controls_.instancing;
             AP_INFO("instancing %s", controls_.instancing ? "ON" : "OFF (naive path)");
+        }
+
+        // F2 captures a bug without making the player leave the broken spot.
+        if (ui_.screen() == UiScreen::Driving &&
+            e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
+            e.key.keysym.sym == SDLK_F2) {
+            begin_bug_report();
+            input_.handle_event(e);
+            continue;
+        }
+
+        // Keep the large profiling panel out of normal play. Like the other
+        // host-only debug keys, visibility is not part of a replay InputFrame.
+        if (ui_.screen() == UiScreen::Driving &&
+            e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
+            e.key.keysym.sym == SDLK_F3) {
+            controls_.toggle_stats();
+            AP_INFO("debug stats %s",
+                    controls_.stats_visible ? "VISIBLE" : "HIDDEN");
         }
 
         // F8 warps across the island. Same reasoning as F7: a debug action
@@ -325,9 +1076,21 @@ void App::poll_events() {
         // replay tape format and a teleport recorded into a tape would change
         // what a replay does. Latched rather than acted on here so the warp
         // happens at a step boundary with the rest of the world update.
-        if (e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
+        if (ui_.screen() == UiScreen::Driving &&
+            e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
             e.key.keysym.sym == SDLK_F8) {
             teleport_requested_ = true;
+        }
+
+        // GTA-style trainer menu. F1 itself stays host-side so opening a dev
+        // tool can never leak into a recorded InputFrame. Navigation reuses
+        // the normal menu edges only while the modal menu owns them.
+        if (ui_.screen() == UiScreen::Driving &&
+            e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
+            e.key.keysym.sym == SDLK_F1) {
+            dev_menu_.toggle();
+            if (dev_menu_.open()) input_.set_mouse_look(false);
+            AP_INFO("developer menu %s", dev_menu_.open() ? "OPEN" : "CLOSED");
         }
 
         input_.handle_event(e);
@@ -336,7 +1099,654 @@ void App::poll_events() {
     input_.end_frame();
 }
 
-void App::teleport(glm::vec3 to) {
+void App::process_ui_input(float dt) {
+    if (bug_report_.open) {
+        input_.set_ui_mode(true);
+        input_.consume_edges();
+        clock_.reset();
+        return;
+    }
+    if (opening_cutscene_.active()) {
+        const auto pressed=input_.frame().pressed;
+        if (pressed & kBtnBack) { opening_cutscene_.skip();finish_opening(); }
+        else if (pressed & kBtnPause) opening_cutscene_.toggle_pause();
+        input_.consume_edges();clock_.reset();return;
+    }
+    if (weapon_wheel_.open || weapon_input_consumed_) {
+        weapon_wheel_.point(input_.ui_axis_x(),input_.ui_axis_y());
+        input_.set_ui_mode(weapon_wheel_.open || ui_.modal());
+        input_.consume_edges();clock_.reset();return;
+    }
+    if (bank_interaction_.modal() || bank_input_consumed_) {
+        input_.set_ui_mode(bank_interaction_.modal() || ui_.modal());
+        input_.consume_edges();
+        clock_.reset();
+        return;
+    }
+    if (ui_.screen() == UiScreen::Driving && !dev_menu_.open() &&
+        !vehicle_transition_.active() &&
+        was_pressed(input_.frame(), kBtnAccept) &&
+        mission_stage_ == MissionStage::DeliveryActive &&
+        delivery_contact(player_character_.position,on_foot_)) {
+        begin_delivery_cutscene();
+        input_.consume_edges();clock_.reset();return;
+    }
+    if (ui_.screen() == UiScreen::Driving && !dev_menu_.open() && on_foot_ && !vehicle_transition_.active() &&
+        was_pressed(input_.frame(), kBtnAccept)) {
+        const BankTarget target = bank_target(
+            city::bank_local_position(player_character_.position), true);
+        if (target != BankTarget::None) {
+            bank_interaction_.interact(target, bank_vault_);
+            input_.set_ui_mode(bank_interaction_.modal());
+            input_.consume_edges();
+            clock_.reset();
+            return;
+        }
+    }
+    const UiScreen before = ui_.screen();
+    uint32_t pressed = input_.frame().pressed;
+    const bool pointer_moved =
+        input_.pointer_x() != last_ui_pointer_x_ ||
+        input_.pointer_y() != last_ui_pointer_y_;
+    last_ui_pointer_x_ = input_.pointer_x();
+    last_ui_pointer_y_ = input_.pointer_y();
+
+    int logical_w = window_.width();
+    int logical_h = window_.height();
+    SDL_GetWindowSize(window_.sdl(), &logical_w, &logical_h);
+    const UiCanvas canvas = UiCanvas::from_drawable(
+        {static_cast<float>(window_.width()),
+         static_cast<float>(window_.height())});
+    const glm::vec2 vp = canvas.size;
+    const glm::vec2 logical_size{static_cast<float>(logical_w),
+                                 static_cast<float>(logical_h)};
+
+    // The dev menu is modal but is not a game screen. It pauses the fixed-step
+    // clock and consumes its navigation edges before UiFlow or the vehicle can
+    // see them. Teleport closes the menu so the destination is visible at once.
+    if (dev_menu_.open()) {
+        dev_menu_.set_waypoint_available(
+            game_ui_.waypoint_position().has_value());
+        dev_menu_.set_wanted_level(wanted_.level());
+        const DevMenuAction dev_action = dev_menu_.update(pressed);
+        if (dev_action.kind == DevMenuActionKind::ReportBug) {
+            begin_bug_report();
+        } else if (dev_action.kind == DevMenuActionKind::TeleportWaypoint) {
+            const std::optional<glm::vec2> waypoint =
+                game_ui_.waypoint_position();
+            if (waypoint) {
+                const glm::vec3 forward = player_focus_forward();
+                const float heading = std::atan2(-forward.x, -forward.z);
+                dev_menu_.close();
+                teleport({waypoint->x, 0.0f, waypoint->y}, heading);
+                AP_INFO("developer teleport: map waypoint (%.1f, %.1f)",
+                        static_cast<double>(waypoint->x),
+                        static_cast<double>(waypoint->y));
+            }
+        } else if (dev_action.kind == DevMenuActionKind::Teleport &&
+            dev_action.location_index >= 0 &&
+            dev_action.location_index <
+                static_cast<int>(kDevTeleportLocations.size())) {
+            const DevTeleportLocation& location =
+                kDevTeleportLocations[static_cast<std::size_t>(
+                    dev_action.location_index)];
+            dev_menu_.close();
+            teleport({location.world_xz.x, 0.0f, location.world_xz.y},
+                     location.heading_radians);
+            AP_INFO("developer teleport: %s", location.name);
+        } else if (dev_action.kind ==
+                   DevMenuActionKind::SetDrivingMechanics) {
+            set_driving_mechanics(dev_action.driving_mechanics);
+            dev_menu_.close();
+        } else if (dev_action.kind == DevMenuActionKind::SetPlayerCar) {
+            cancel_vehicle_transition();
+            police_emergency_enabled_=false;
+            drop_trailer();
+            const auto old_tuning=tuning_;
+            tuning_=player_model_tuning(driving_mechanics_style_,dev_action.player_car);
+            const bool resized=tuning_.half_wheelbase!=old_tuning.half_wheelbase || tuning_.wheel_radius!=old_tuning.wheel_radius;
+            if (resized) {
+                collider_.set_kinematic_enabled(current_vehicle_collider_,false);
+                const auto forward=car_.orientation*glm::vec3{0,0,-1};
+                car_=spawn_vehicle(tuning_,collider_,car_.position.x,car_.position.z,std::atan2(-forward.x,-forward.z));
+                prev_car_=car_;seen_impact_count_=car_.impact_count;
+                camera_obstruction_distance_=-1.f;
+            }
+            if (car_visual_.select(
+                    scene_, tuning_, car_, dev_action.player_car)) {
+                dev_menu_.set_player_car(dev_action.player_car);
+                if (!in_boat_) vehicle_audio_.set_model(player_car_definition(dev_action.player_car).mesh_path);
+                dev_menu_.close();
+                const PlayerCarDefinition& definition =
+                    player_car_definition(dev_action.player_car);
+                AP_INFO("developer vehicle selected: %s %s",
+                        definition.brand, definition.model);
+            } else {
+                dev_menu_.set_player_car(car_visual_.active_car());
+                AP_ERROR("developer vehicle selection failed");
+            }
+        } else if (dev_action.kind == DevMenuActionKind::RepairVehicle) {
+            repair_vehicle(car_);
+            prev_car_ = car_;
+            seen_impact_count_ = car_.impact_count;
+            dev_menu_.close();
+            AP_INFO("developer vehicle repair: health %.0f, damage cleared",
+                    static_cast<double>(car_.health));
+        } else if (dev_action.kind ==
+                   DevMenuActionKind::CopyPlayerPosition) {
+            const glm::vec3 position = player_focus_position();
+            const glm::vec3 forward = player_focus_forward();
+            char text[192];
+            std::snprintf(
+                text, sizeof(text),
+                "position={%.3ff, %.3ff, %.3ff} forward={%.6ff, %.6ff, %.6ff}",
+                static_cast<double>(position.x),
+                static_cast<double>(position.y),
+                static_cast<double>(position.z),
+                static_cast<double>(forward.x),
+                static_cast<double>(forward.y),
+                static_cast<double>(forward.z));
+            const bool copied = SDL_SetClipboardText(text) == 0;
+            vehicle_interaction_notice_ =
+                copied ? "POSITION COPIED" : "POSITION COPY FAILED";
+            vehicle_notice_until_ = step_index_ + 240;
+            dev_menu_.close();
+            if (copied) {
+                AP_INFO("developer position copied: %s", text);
+            } else {
+                AP_WARN("developer position copy failed: %s; position: %s",
+                        SDL_GetError(), text);
+            }
+        } else if (dev_action.kind == DevMenuActionKind::SetWantedLevel) {
+            wanted_.set_level(dev_action.wanted_level);
+            dev_menu_.set_wanted_level(wanted_.level());
+            dev_menu_.close();
+            AP_INFO("developer wanted level: %d", wanted_.level());
+        } else if (dev_action.kind == DevMenuActionKind::SetWeather) {
+            apply_dev_weather(dev_action.weather, controls_);
+            update_weather();
+            AP_INFO("developer weather: %s",
+                    kDevWeatherLabels[static_cast<std::size_t>(
+                        dev_action.weather)]);
+        } else if (dev_action.kind == DevMenuActionKind::SetTime) {
+            AP_INFO("developer time: %s",
+                    kDevTimeLabels[static_cast<std::size_t>(dev_action.time)]);
+        } else if (dev_action.kind == DevMenuActionKind::SetSnowDepth) {
+            controls_.snow_depth_override_m = dev_action.snow_depth_m;
+            update_weather();
+            if (dev_action.snow_depth_m < 0.0f) {
+                AP_INFO("developer snow accumulation: automatic (%.3f m now)",
+                        static_cast<double>(conditions_.snow_depth_m));
+            } else {
+                AP_INFO("developer snow accumulation: %.3f m",
+                        static_cast<double>(conditions_.snow_depth_m));
+            }
+        } else if (dev_action.kind == DevMenuActionKind::SetCameraMode) {
+            chase_camera_.set_mode(dev_action.camera_mode);
+            camera_obstruction_distance_ = -1.0f;
+            AP_INFO("camera mode: %s", chase_camera_.mode_name());
+        } else if (dev_action.kind ==
+                   DevMenuActionKind::SetCameraAutoRecenter) {
+            chase_camera_.set_auto_recenter(dev_action.camera_auto_recenter);
+            AP_INFO("camera auto recenter: %s",
+                    dev_action.camera_auto_recenter ? "ON" : "OFF");
+        } else if (dev_action.kind ==
+                   DevMenuActionKind::AuditionCarSound) {
+            vehicle_audio_.audition(dev_action.car_sound_use,
+                                    dev_action.sound_variant);
+            AP_INFO("sound test: car group %d, option %d",
+                    static_cast<int>(dev_action.car_sound_use) + 1,
+                    dev_action.sound_variant + 1);
+        }
+        input_.set_ui_mode(dev_menu_.open() || bug_report_.open || ui_.modal());
+        input_.consume_edges();
+        clock_.reset();
+        return;
+    }
+
+    if (ui_.item_count() > 0) {
+        const glm::vec2 pointer = canvas.from_window(
+            {static_cast<float>(input_.pointer_x()),
+             static_cast<float>(input_.pointer_y())}, logical_size);
+        const int hovered = game_ui_.hit_test(ui_, pointer, vp);
+        if (ui_.screen() == UiScreen::Settings && hovered >= 100) {
+            ui_.set_settings_hovered_category(hovered - 100);
+            if (input_.pointer_pressed()) {
+                ui_.open_settings_page(
+                    static_cast<SettingsPage>(hovered - 99));
+            }
+        } else if (hovered >= 0 && (pointer_moved || input_.pointer_pressed())) {
+            if (ui_.screen() == UiScreen::Settings && pointer_moved)
+                ui_.clear_settings_hovered_category();
+            ui_.set_selection(hovered);
+            if (input_.pointer_pressed()) pressed |= kBtnAccept;
+        }
+    }
+
+    const UiAction action = ui_.update(pressed);
+    if (ui_.screen() == UiScreen::Map) {
+        if (before != UiScreen::Map)
+            game_ui_.open_map_view(player_focus_position(), vp);
+        glm::vec2 drag{0.0f};
+        if (input_.pointer_down()) {
+            drag = canvas.from_window(
+                {static_cast<float>(input_.pointer_dx()),
+                 static_cast<float>(input_.pointer_dy())}, logical_size);
+        }
+        game_ui_.update_map(
+            {input_.ui_axis_x(), input_.ui_axis_y()}, input_.ui_zoom_steps(),
+            drag, (pressed & kBtnAccept) != 0u, player_focus_position(), dt, vp,
+            canvas.from_window({static_cast<float>(input_.pointer_x()),
+                                static_cast<float>(input_.pointer_y())}, logical_size),
+            input_.ui_wheel_zoom_steps());
+        if (input_.waypoint_pressed() || (pressed & kBtnRespawn) != 0u)
+            game_ui_.toggle_waypoint(canvas.from_window(
+                {static_cast<float>(input_.pointer_x()), static_cast<float>(input_.pointer_y())},
+                logical_size), vp, !input_.waypoint_pressed());
+    }
+    if (action == UiAction::NewGame) {
+        begin_new_game();
+    } else if (action == UiAction::LoadGame) {
+        load_game();
+    } else if (action == UiAction::SaveGame) {
+        save_game();
+    } else if (action == UiAction::ResetVehicle) {
+        teleport({0.0f, 0.0f, 0.0f});
+    } else if (action == UiAction::QuitGame) {
+        input_.request_quit();
+    }
+    apply_ui_settings();
+
+    input_.set_ui_mode(opening_cutscene_.active() || ui_.modal());
+    if (ui_.modal() || ui_.screen() != before) {
+        // UI presses are host controls, not vehicle inputs. Clear them even on
+        // a zero-step frame, and drop pause wall time before play resumes.
+        input_.consume_edges();
+        clock_.reset();
+    }
+}
+
+void App::apply_ui_settings() {
+    const UiSettings& settings = ui_.settings();
+    if (!ui_settings_applied_ || settings.vsync != applied_ui_settings_.vsync)
+        window_.set_vsync(settings.vsync);
+    if (!ui_settings_applied_ || settings.master_volume != applied_ui_settings_.master_volume)
+        audio_device_.mixer().set_master(settings.master_volume);
+    if (!ui_settings_applied_ || settings.music_volume != applied_ui_settings_.music_volume)
+        audio_device_.mixer().set_category(Category::Music, settings.music_volume);
+    if (!ui_settings_applied_ || settings.sfx_volume != applied_ui_settings_.sfx_volume) {
+        for (Category category : {Category::Engine, Category::Tyres,
+                                  Category::Impacts, Category::World,
+                                  Category::Weather, Category::Ui})
+            audio_device_.mixer().set_category(category, settings.sfx_volume);
+    }
+    if (!ui_settings_applied_ ||
+        settings.camera_auto_recenter != applied_ui_settings_.camera_auto_recenter)
+        chase_camera_.set_auto_recenter(settings.camera_auto_recenter);
+    if (!ui_settings_applied_ || settings.camera_shake != applied_ui_settings_.camera_shake ||
+        settings.reduced_motion != applied_ui_settings_.reduced_motion)
+        chase_camera_.set_camera_shake(settings.camera_shake && !settings.reduced_motion);
+    applied_ui_settings_ = settings;
+    ui_settings_applied_ = true;
+}
+
+void App::update_weather(bool step_snowpack) {
+    dev_menu_.set_snow_depth_m(controls_.snow_depth_override_m);
+    conditions_=conditions_at(seed_,step_index_);
+    if (dev_menu_.weather()==DevWeatherPreset::Dynamic) {
+        controls_.rain=conditions_.rain;
+        controls_.overcast=conditions_.overcast;
+        controls_.fog=conditions_.fog;
+        snowpack_.set_depth_m(conditions_.snow_depth_m);
+    } else {
+        override_conditions_for_dev(dev_menu_.weather(), controls_,
+                                    conditions_);
+        if (step_snowpack) {
+            snowpack_ = advance_snowpack(
+                snowpack_, conditions_.snow, conditions_.heatwave, kSimDt);
+        }
+    }
+    const double requested_depth = controls_.snow_depth_override_m >= 0.0f
+        ? static_cast<double>(controls_.snow_depth_override_m)
+        : snowpack_.depth_m();
+    SnowpackState displayed_pack;
+    displayed_pack.set_depth_m(requested_depth);
+    conditions_.snow_depth_m = static_cast<float>(displayed_pack.depth_m());
+    conditions_.snow_cover =
+        visual_snow_cover_from_depth(displayed_pack.depth_m());
+    const SnowpackCollision collision =
+        snowpack_collision_from_depth(displayed_pack.depth_m());
+    collider_.set_snow_collision_depth(
+        collision.active ? static_cast<float>(collision.depth_m) : 0.0f);
+
+    // A manual depth or a forced accumulating pack changes snow grip after the
+    // atmospheric preset was built, so finish the derived physics terms here.
+    const float night =
+        std::clamp(-conditions_.sun_elevation * 2.0f, 0.0f, 1.0f);
+    const float loss = kWetGripLoss * conditions_.wetness +
+        kRainGripLoss * conditions_.rain +
+        kSnowGripLoss * conditions_.snow_cover +
+        kFloodGripLoss * conditions_.flood +
+        kHailGripLoss * conditions_.hail + kNightGripLoss * night;
+    conditions_.grip = std::clamp(1.0f - loss, kMinGrip, 1.0f);
+    if (dev_menu_.weather() == DevWeatherPreset::Tornado) {
+        if (!dev_tornado_center_set_) {
+            const glm::vec3 forward = camera_.forward();
+            dev_tornado_center_m_ = {
+                camera_.position.x + forward.x * 140.0f,
+                camera_.position.z + forward.z * 140.0f};
+            dev_tornado_center_set_ = true;
+        }
+        conditions_.tornado_center_m = dev_tornado_center_m_;
+    } else {
+        dev_tornado_center_set_ = false;
+    }
+    auto& rain = rain_.tuning();
+    rain.slant_x = conditions_.wind_mps.x / std::max(rain.fall_speed, 0.1f);
+    rain.slant_z = conditions_.wind_mps.y / std::max(rain.fall_speed, 0.1f);
+    rain_.snow_tuning().wind = conditions_.wind_mps;
+    rain_.blizzard_tuning().wind = conditions_.wind_mps;
+}
+
+void App::set_weather_preset(DevWeatherPreset preset) {
+    dev_menu_.set_weather(preset);
+    apply_dev_weather(preset, controls_);
+}
+
+void App::set_snow_depth_override(float depth_m) {
+    SnowpackState clamped;
+    clamped.set_depth_m(depth_m);
+    controls_.snow_depth_override_m = static_cast<float>(clamped.depth_m());
+    dev_menu_.set_snow_depth_m(controls_.snow_depth_override_m);
+}
+
+void App::set_driving_mechanics(DrivingMechanicsStyle style) {
+    driving_mechanics_style_ = style;
+    tuning_ = player_model_tuning(style,car_visual_.active_car());
+    dev_menu_.set_driving_mechanics(style);
+    AP_INFO("driving mechanics: %s", driving_mechanics_name(style));
+}
+
+glm::vec3 App::player_focus_position() const {
+    if (in_boat_) return boat_.position;
+    if (vehicle_transition_.active()) return car_.position;
+    if (in_aircraft_) return aircraft_.position;
+    return on_foot_ ? player_character_.position : car_.position;
+}
+
+glm::vec3 App::player_focus_forward() const {
+    if (in_boat_) return boat_forward(boat_);
+    if (in_aircraft_) return aircraft_forward(aircraft_);
+    return on_foot_
+        ? character_forward(player_character_.facing_yaw)
+        : car_.orientation * glm::vec3{0.0f, 0.0f, -1.0f};
+}
+
+std::vector<VisiblePoliceIdentity> App::visible_police(
+        glm::vec3 target) const {
+    std::vector<VisiblePoliceIdentity> visible;
+    if (wanted_.level() <= 0) return visible;
+    const PoliceTuning& police = world_.traffic().police_tuning();
+    const glm::vec2 target_xz{target.x, target.z};
+    for (const VehicleAgent& agent : world_.traffic().vehicles()) {
+        if (!agent.police_unit) continue;
+        const glm::vec2 position{agent.pos.x, agent.pos.z};
+        const bool in_gate = agent.police_pursuit
+            ? police_maintains_contact(position, target_xz, true, police)
+            : police_can_witness(position, {agent.fwd.x, agent.fwd.z},
+                                 target_xz, true, true, police);
+        if (!in_gate) continue;
+
+        const glm::vec3 from = agent.pos + glm::vec3{0.0f, 1.35f, 0.0f};
+        const glm::vec3 to = target + glm::vec3{0.0f, 1.05f, 0.0f};
+        const glm::vec3 delta = to - from;
+        const float distance = glm::length(delta);
+        if (distance <= 0.05f) {
+            visible.push_back({agent.lane_key, agent.slot});
+            continue;
+        }
+        const auto hit = collider_.raycast(from, delta / distance, distance);
+        if (!hit.hit || hit.distance >= distance - 0.08f)
+            visible.push_back({agent.lane_key, agent.slot});
+    }
+    return visible;
+}
+
+bool App::place_character_next_to_car(bool require_clear) {
+    const glm::vec3 car_forward =
+        car_.orientation * glm::vec3{0.0f, 0.0f, -1.0f};
+    const glm::vec3 car_right =
+        car_.orientation * glm::vec3{1.0f, 0.0f, 0.0f};
+    const float yaw = std::atan2(car_forward.x, -car_forward.z);
+    const glm::vec3 candidates[] = {
+        car_.position - car_right * (tuning_.car_collision_half_width+.85f),
+        car_.position + car_right * (tuning_.car_collision_half_width+.85f),
+        car_.position - car_forward * (tuning_.car_collision_half_length+.9f),
+    };
+    PlayerCharacterState placed = spawn_character(
+        collider_, candidates[0].x, candidates[0].z, yaw);
+    bool clear=false;
+    for (const glm::vec3 candidate : candidates) {
+        PlayerCharacterState trial = spawn_character(
+            collider_, candidate.x, candidate.z, yaw);
+        bool traffic_clear=true;
+        for (const auto& vehicle:world_.traffic().vehicles()) {
+            const auto f=traffic_vehicle_footprint(traffic_vehicle_kind(vehicle));
+            const auto delta=trial.position-vehicle.pos;
+            const glm::vec3 right{-vehicle.fwd.z,0,vehicle.fwd.x};
+            if (std::fabs(glm::dot(delta,vehicle.fwd))<f.half_length_m+.4f &&
+                std::fabs(glm::dot(delta,right))<f.half_width_m+.4f) traffic_clear=false;
+        }
+        const float ground=car_.position.y-tuning_.wheel_radius-
+            static_suspension_length(tuning_)-tuning_.com_height_above_mount;
+        const glm::vec3 from=car_.position+glm::vec3{0,.55f,0};
+        const glm::vec3 path=trial.position+glm::vec3{0,.85f,0}-from;
+        const float path_length=glm::length(path);
+        // While driving, this car's parked collider is disabled. World walls
+        // still block the route out, even if the destination itself is clear.
+        const auto obstruction=collider_.raycast(from,path/std::max(path_length,.001f),path_length);
+        const bool clear_path=!require_clear || !obstruction.hit || obstruction.distance>=path_length-.08f;
+        if (traffic_clear && clear_path && trial.position.y<=ground+.65f && trial.position.y>=ground-1.25f &&
+            character_position_clear(collider_, trial.position,character_tuning_)) {
+            placed = trial;
+            clear=true;
+            break;
+        }
+    }
+    if (!clear && require_clear) return false;
+    player_character_ = placed;
+    prev_player_character_ = placed;
+    return true;
+}
+
+void App::reset_aircraft() {
+    aircraft_ = {};
+    aircraft_.position = {city::kAirportSite.origin.x + city::kAirportAircraftStand.x,
+        city::kAirportSite.ground_m + .13f,
+        city::kAirportSite.origin.z + city::kAirportAircraftStand.z};
+    aircraft_.yaw = city::kAirportAircraftYaw;
+    prev_aircraft_ = aircraft_;
+    world_.sync_aircraft(scene_, collider_, aircraft_);
+    camera_obstruction_distance_ = -1;
+}
+
+bool App::nearby_aircraft() const {
+    if (!on_foot_ || !aircraft_in_boarding_range(aircraft_,
+        player_character_.position, aircraft_.position.y)) return false;
+    const auto door = aircraft_point(aircraft_, {-2.7f,.85f,10.3f});
+    const auto from = player_character_.position + glm::vec3{0,.85f,0};
+    const auto delta = door-from;
+    const float distance = glm::length(delta);
+    if (distance < .05f) return true;
+    const auto hit = collider_.raycast(from,delta/distance,distance);
+    return !hit.hit || hit.distance >= distance-.08f;
+}
+
+bool App::nearby_bent_elbow() const {
+    if (!on_foot_ || in_aircraft_ || in_boat_) return false;
+    const auto local = city::access_local(city::kNeighborhoodBarSite,
+                                          {player_character_.position.x,
+                                           player_character_.position.z});
+    return std::fabs(local.x) < 9.0f && local.y > 7.0f && local.y < 16.0f;
+}
+
+void App::drink_at_bent_elbow() {
+    if (!nearby_bent_elbow()) return;
+    start_drunk(drunk_);
+    vehicle_interaction_notice_ = "The Bent Elbow - drink " +
+        std::to_string(drunk_.drinks) + "/" + std::to_string(kMaxDrinks) +
+        ", drunk for 1.5 in-game hours";
+    vehicle_notice_until_ = step_index_ + 300;
+    AP_INFO("drinking at The Bent Elbow: drink %d/%d, intensity %.2f, %.0f sim seconds",
+            drunk_.drinks, kMaxDrinks, drunk_.intensity(), kDrunkDurationSeconds);
+}
+
+void App::run_aircraft_check() {
+    if (aircraft_check_ran_ || step_index_<20) return;
+    aircraft_check_ran_=true;
+    const auto fail=[&](const char* reason) { AP_ERROR("aircraft check: %s",reason); };
+    reset_aircraft(); on_foot_=true; in_aircraft_=false;
+    const auto door=aircraft_point(aircraft_,{-2.7f,0,10.3f});
+    player_character_=spawn_character(collider_,door.x,door.z,0);
+    prev_player_character_=player_character_;
+    if (!nearby_aircraft()) { fail("ground-level door unreachable"); return; }
+    toggle_player_mode();
+    if (!in_aircraft_ || on_foot_) { fail("boarding failed"); return; }
+    toggle_player_mode();
+    if (in_aircraft_ || !on_foot_) { fail("ground exit failed"); return; }
+    toggle_player_mode();
+    if (!in_aircraft_) { fail("re-entry failed"); return; }
+    // Exercise real runway support and the real world's obstacle queries.
+    aircraft_={}; aircraft_.position={-210,city::kAirportSite.ground_m+.13f,2046};
+    aircraft_.yaw=glm::half_pi<float>();
+    world_.sync_aircraft(scene_,collider_,aircraft_);
+    InputFrame lift; lift.throttle=1; lift.held=kBtnShiftUp;
+    world_.enable_aircraft_collision(collider_,false);
+    for (int i=0;i<1200;++i) aircraft_=step_aircraft(aircraft_,lift,collider_,1.f/120);
+    world_.sync_aircraft(scene_,collider_,aircraft_);
+    world_.enable_aircraft_collision(collider_,true);
+    if (aircraft_.grounded || aircraft_.crashed || aircraft_.position.y<20) {
+        AP_ERROR("aircraft check state: grounded=%d crashed=%d xyz=%.2f %.2f %.2f speed=%.2f",
+            aircraft_.grounded,aircraft_.crashed,aircraft_.position.x,aircraft_.position.y,
+            aircraft_.position.z,aircraft_.speed);
+        fail("takeoff failed"); return;
+    }
+    toggle_player_mode();
+    if (!in_aircraft_) { fail("unsafe airborne exit allowed"); return; }
+    prev_aircraft_=aircraft_;
+    world_.fill(scene_,renderer_,aircraft_.position);
+    aircraft_check_passed_=true;
+    AP_INFO("aircraft check passed: board, exit, re-enter, runway takeoff, airborne exit denied");
+}
+
+void App::toggle_player_mode() {
+    if (!vehicle_transition_.active() && toggle_boat()) return;
+    if (vehicle_transition_.active()) {
+        if (transition_waiting_) {
+            // The controller remains at its last exterior position during
+            // entry; exit retains vehicle ownership until completion.
+            cancel_vehicle_transition();
+            vehicle_interaction_notice_="Cancelled";
+            vehicle_notice_until_=step_index_+120;
+        }
+        return;
+    }
+    if (in_aircraft_) {
+        if (!aircraft_can_exit(aircraft_)) {
+            vehicle_interaction_notice_="Land and stop before getting out";
+            vehicle_notice_until_=step_index_+240;
+            return;
+        }
+        bool placed=false;
+        const auto door=aircraft_point(aircraft_,{-2.7f,.85f,10.3f});
+        for (float x : {-2.7f,-3.7f,-4.7f}) {
+            const auto p=aircraft_point(aircraft_,{x,0,10.3f});
+            const auto trial=spawn_character(collider_,p.x,p.z,-aircraft_.yaw);
+            const auto path=trial.position+glm::vec3{0,.85f,0}-door;
+            const float length=glm::length(path);
+            const auto hit=length>.05f ? collider_.raycast(door,path/length,length)
+                                      : TerrainCollider::GroundHit{};
+            if (std::fabs(trial.position.y-aircraft_.position.y)>.65f ||
+                (hit.hit && hit.distance<length-.08f) ||
+                !character_position_clear(collider_,trial.position,character_tuning_)) continue;
+            player_character_=trial; prev_player_character_=trial; placed=true; break;
+        }
+        if (!placed) {
+            vehicle_interaction_notice_="No room at the aircraft door";
+            vehicle_notice_until_=step_index_+240;
+            return;
+        }
+        in_aircraft_=false; on_foot_=true;
+        character_look_dx_pending_=character_look_dy_pending_=0;
+        camera_obstruction_distance_=-1;
+        AP_INFO("player exited aircraft");
+        return;
+    }
+    if (nearby_aircraft()) {
+        in_aircraft_=true; on_foot_=false;
+        vehicle_audio_.exit_vehicle();
+        sync_current_vehicle_obstacle();
+        character_look_dx_pending_=character_look_dy_pending_=0;
+        camera_obstruction_distance_=-1;
+        AP_INFO("player boarded Aster A-80");
+        return;
+    }
+    if (on_foot_) {
+        const auto target = nearby_vehicle();
+        if (target.kind!=VehicleEntryTarget::Kind::None && has_animated_driver(target.model)) {
+            begin_vehicle_transition(target,true);
+            return;
+        }
+        if (!take_nearby_vehicle(target)) return;
+        on_foot_ = false;
+        if (target.kind == VehicleEntryTarget::Kind::Current)
+            enter_mission_car(mission_stage_);
+        vehicle_audio_.set_model(player_car_definition(car_visual_.active_car()).mesh_path);
+        vehicle_audio_.enter_vehicle(target.kind == VehicleEntryTarget::Kind::Traffic, car_.position);
+        collider_.set_kinematic_enabled(current_vehicle_collider_,false);
+        character_look_dx_pending_ = 0.0f;
+        character_look_dy_pending_ = 0.0f;
+        chase_camera_.reset();
+        camera_obstruction_distance_ = -1.0f;
+        AP_INFO("player entered vehicle");
+        return;
+    }
+
+    const float speed = glm::length(glm::vec2{car_.velocity.x, car_.velocity.z});
+    if (speed > 1.5f) {
+        vehicle_interaction_notice_="Stop before getting out";
+        vehicle_notice_until_=step_index_+240;
+        return;
+    }
+    if (has_animated_driver(car_visual_.active_car())) {
+        begin_vehicle_transition({},false);
+        return;
+    }
+    if (!place_character_next_to_car(true)) {
+        vehicle_interaction_notice_="No room to get out";
+        vehicle_notice_until_=step_index_+240;
+        return;
+    }
+    on_foot_ = true;
+    police_emergency_enabled_=false;
+    vehicle_audio_.exit_vehicle();
+    sync_current_vehicle_obstacle();
+    character_look_dx_pending_ = 0.0f;
+    character_look_dy_pending_ = 0.0f;
+    camera_obstruction_distance_ = -1.0f;
+    AP_INFO("player exited vehicle");
+}
+
+void App::teleport(glm::vec3 to, float heading_radians) {
+    boat_transition_={};
+    cancel_vehicle_transition();
+    transition_camera_release_=0;
+    police_emergency_enabled_=false;
+    if (in_aircraft_) { in_aircraft_=false; on_foot_=true; }
+    if (in_boat_) {
+        in_boat_=false;on_foot_=true;boat_.speed=0;boat_.velocity={};boat_.throttle=0;
+        vehicle_audio_.exit_vehicle();
+    }
     // A mission warp, and the thing it is really testing is the fill path.
     //
     // Order matters and each line buys something specific:
@@ -358,15 +1768,21 @@ void App::teleport(glm::vec3 to) {
     // spawn_vehicle takes (x, z, yaw). Passing (x, yaw, z) compiles perfectly
     // and puts the car on the z = 0 line every time, facing a direction derived
     // from where it should have been standing.
-    car_ = spawn_vehicle(tuning_, collider_, to.x, to.z, 0.0f);
+    drop_trailer();
+    car_ = spawn_vehicle(tuning_, collider_, to.x, to.z, heading_radians);
     prev_car_ = car_;
+    if (character_spawned_) place_character_next_to_car();
 
     const WallClock::time_point t0 = WallClock::now();
-    last_fill_steps_ = world_.fill(scene_, renderer_, car_.position);
+    last_fill_steps_ = world_.fill(scene_, renderer_, player_focus_position());
     last_fill_ms_ =
         std::chrono::duration<double>(WallClock::now() - t0).count() * 1000.0;
 
-    update_camera();
+    chase_camera_.reset();
+    camera_obstruction_distance_ = -1.0f;
+    seen_impact_count_ = car_.impact_count;
+    impact_feedback_seconds_ = 0.0f;
+    update_camera(0.0f);
     clock_.reset();
 
     // The destination's level is logged alongside the cost, because a fill that
@@ -375,7 +1791,8 @@ void App::teleport(glm::vec3 to) {
     // fits inside the evict radius, so a warp can land on ground that is
     // already resident at the level it wants — but "legitimate" and "the
     // readiness test is broken again" look identical without this.
-    const ChunkCoord under = chunk_at(car_.position.x, car_.position.z);
+    const glm::vec3 focus = player_focus_position();
+    const ChunkCoord under = chunk_at(focus.x, focus.z);
     AP_INFO("teleport to (%.0f, %.0f): filled in %d steps / %.1f ms, "
             "destination lod %d, %zu chunks, %.1f MB",
             static_cast<double>(to.x), static_cast<double>(to.z),
@@ -385,52 +1802,246 @@ void App::teleport(glm::vec3 to) {
             static_cast<double>(world_.stats().mesh_bytes) / (1024.0 * 1024.0));
 }
 
-void App::update_camera() {
-    // Interpolate the car between its previous and current sim states. Without
-    // this a 120 Hz sim visibly steps on a 144 Hz panel.
+void App::update_camera(float dt) {
+    if (overhead_qa_) {
+        camera_.position = {start_position_.x, 542.0f, start_position_.y + 0.5f};
+        camera_.yaw = 0.0f;
+        camera_.pitch = -glm::half_pi<float>() + 0.001f;
+        camera_.fov_y = glm::radians(64.0f);
+        return;
+    }
     const float a = static_cast<float>(clock_.alpha());
-    const glm::vec3 pos = glm::mix(prev_car_.position, car_.position, a);
-    const glm::quat rot = glm::slerp(prev_car_.orientation, car_.orientation, a);
+    ChaseCameraPose pose;
+    if (boat_transition_.active()) {
+        const auto* body=world_.rendered_boat_transform(scene_);
+        const float side=(glm::inverse(boat_rotation(boat_))*(boat_shore_pose_.position-boat_.position)).x<0?-1.f:1.f;
+        const float progress=float(boat_transition_.tick)/float(kBoatTransitionTicks);
+        const auto target=body?body->transform_point({side*.50f,1.f,-.85f}):boat_.position+glm::vec3{0,1,0};
+        const float blend=vehicle_transition_ease(progress/.18f);
+        pose.target=glm::mix(boat_transition_camera_.position+boat_transition_camera_.forward()*4.8f,target,blend);
+        pose.collision_pivot=target;
+        pose.desired_eye=glm::mix(boat_transition_camera_.position,
+            boat_point(boat_,{side*5.5f,3.8f,-4.5f}),blend);
+        pose.fov_y=glm::radians(60.f);
+    } else if (vehicle_transition_.active()) {
+        const auto body=car_visual_.fitted_body_transform(car_);
+        const glm::vec3 side=body.rotation*glm::vec3{1,0,0};
+        const auto sample=sample_vehicle_transition(vehicle_transition_,transition_waiting_ ? 1.f : a);
+        const float blend=vehicle_transition_ease(sample.progress/.22f);
+        const auto target=glm::mix(transition_door_.position+glm::vec3{0,1.1f,0},
+            body.transform_point(vehicle_driver_layout(car_visual_.active_car()).hip)+glm::vec3{0,.25f,0},.5f);
+        pose.target=glm::mix(transition_camera_.position+transition_camera_.forward()*4.8f,target,blend);
+        pose.collision_pivot=target;
+        pose.desired_eye=glm::mix(transition_camera_.position,
+            target+side*4.5f+glm::vec3{0,2.2f,0},blend);
+        pose.fov_y=glm::mix(transition_camera_.fov_y,glm::radians(60.f),blend);
+    } else if (in_boat_) {
+        const auto pos=glm::mix(prev_boat_.position,boat_.position,a);
+        const auto forward=glm::slerp(boat_rotation(prev_boat_),boat_rotation(boat_),a)*glm::vec3{0,0,1};
+        pose.target=pos+glm::vec3{0,.9f,0};
+        pose.collision_pivot=pos+glm::vec3{0,1.8f,0};
+        pose.desired_eye=pos-forward*10.f+glm::vec3{0,4.8f,0};
+        pose.fov_y=glm::radians(65.f);
+    } else if (in_aircraft_) {
+        const auto pos=glm::mix(prev_aircraft_.position,aircraft_.position,a);
+        const auto forward=glm::slerp(aircraft_rotation(prev_aircraft_),
+            aircraft_rotation(aircraft_),a)*glm::vec3{0,0,1};
+        pose.target=pos+glm::vec3{0,4,0};
+        pose.collision_pivot=pos+glm::vec3{0,10,0};
+        pose.desired_eye=pos-forward*42.0f+glm::vec3{0,16,0};
+        pose.fov_y=glm::radians(65.0f);
+    } else if (on_foot_) {
+        const glm::vec3 pos = glm::mix(prev_player_character_.position,
+                                       player_character_.position, a);
+        const float yaw = interpolate_camera_yaw(prev_player_character_.view_yaw,
+                                   player_character_.view_yaw, a);
+        const float pitch = glm::mix(prev_player_character_.view_pitch,
+                                     player_character_.view_pitch, a);
+        const float cp = std::cos(pitch);
+        const glm::vec3 view_forward{
+            cp * std::sin(yaw), std::sin(pitch), -cp * std::cos(yaw)};
+        pose.target = pos + glm::vec3{0.0f, 1.38f, 0.0f};
+        pose.collision_pivot = pose.target;
+        pose.desired_eye = pose.target - view_forward * 4.8f;
+        pose.fov_y = glm::radians(60.0f);
+    } else {
+        // Interpolate the car between its previous and current sim states.
+        // Without this a 120 Hz sim visibly steps on a 144 Hz panel.
+        const glm::vec3 pos = glm::mix(prev_car_.position, car_.position, a);
+        const glm::quat rot =
+            glm::slerp(prev_car_.orientation, car_.orientation, a);
+        const glm::vec3 forward =
+            rot * glm::vec3{0.0f, 0.0f, -1.0f};
+        const glm::vec3 velocity =
+            glm::mix(prev_car_.velocity, car_.velocity, a);
+        const glm::vec3 angular_velocity =
+            glm::mix(prev_car_.angular_velocity, car_.angular_velocity, a);
+        const InputFrame& input = input_.frame();
+        pose = chase_camera_.update(
+            pos, forward, velocity, angular_velocity.y,
+            input.look_dx, input.look_dy, is_held(input, kBtnLookBack), dt);
+        if (car_visual_.active_car()==PlayerCarId::HarrowCityliner || car_visual_.active_car()==PlayerCarId::HarrowHauler) {
+            pose.target.y+=.9f;
+            pose.collision_pivot=pose.target;
+            pose.desired_eye=pose.target+(pose.desired_eye-pos)*(trailer_.attached?2.7f:1.65f);
+            if(trailer_.attached) pose.desired_eye+=rot*glm::vec3{5.f,1.5f,0};
+        }
+    }
 
-    const glm::vec3 forward = rot * glm::vec3{0.0f, 0.0f, -1.0f};
-    const glm::vec3 up{0.0f, 1.0f, 0.0f};
+    apply_drunk_camera(pose, drunk_);
 
-    glm::vec3 eye = pos - forward * kCamBack + up * kCamUp;
+    if (!vehicle_transition_.active() && !boat_transition_.active() && transition_camera_release_>0.f) {
+        const float blend=vehicle_transition_ease(1.f-transition_camera_release_);
+        pose.target=glm::mix(transition_camera_.position+transition_camera_.forward()*4.8f,pose.target,blend);
+        pose.desired_eye=glm::mix(transition_camera_.position,pose.desired_eye,blend);
+        pose.fov_y=glm::mix(transition_camera_.fov_y,pose.fov_y,blend);
+        transition_camera_release_=std::max(0.f,transition_camera_release_-std::max(dt,0.f)/.45f);
+    }
+    glm::vec3 eye = pose.desired_eye;
+    const bool ignore_current_vehicle=vehicle_transition_.active() || (!on_foot_ && !in_boat_ && !in_aircraft_);
+    if (ignore_current_vehicle) collider_.set_kinematic_enabled(current_vehicle_collider_,false);
+    if (ignore_current_vehicle && trailer_.attached) enable_trailer_collision(false);
+    if (in_aircraft_) world_.enable_aircraft_collision(collider_,false);
+    if (in_boat_ || boat_transition_.active()) world_.enable_boat_collision(collider_,false);
+    const glm::vec3 eye_ray = pose.desired_eye - pose.collision_pivot;
+    const float desired_distance = glm::length(eye_ray);
+    if (desired_distance > 1e-4f) {
+        float allowed_distance = desired_distance;
+        const TerrainCollider::GroundHit obstruction =
+            collider_.raycast(pose.collision_pivot, eye_ray, desired_distance);
+        if (obstruction.hit && obstruction.distance < desired_distance) {
+            allowed_distance = std::max(obstruction.distance - 0.35f, 0.15f);
+        }
 
+        if (camera_obstruction_distance_ < 0.0f ||
+            allowed_distance < camera_obstruction_distance_) {
+            // Pull in immediately. One clipped frame is enough to fill the
+            // screen with the inside of a wall.
+            camera_obstruction_distance_ = allowed_distance;
+        } else {
+            // Ease back out after clearing the corner so the wall does not
+            // catapult the view behind the car in one frame.
+            const float release = 1.0f - std::exp(-4.0f * std::max(dt, 0.0f));
+            camera_obstruction_distance_ =
+                glm::mix(camera_obstruction_distance_, allowed_distance, release);
+        }
+        camera_obstruction_distance_ =
+            std::min(camera_obstruction_distance_, desired_distance);
+        eye = pose.collision_pivot +
+              eye_ray / desired_distance * camera_obstruction_distance_;
+    }
+
+    if (in_aircraft_) world_.enable_aircraft_collision(collider_,true);
+    if (in_boat_ || boat_transition_.active()) world_.enable_boat_collision(collider_,true);
+    if (ignore_current_vehicle && trailer_.attached) enable_trailer_collision(true);
+    if (ignore_current_vehicle) sync_current_vehicle_obstacle();
     // Never let the camera drop below the ground: a chase cam behind a car
     // climbing a hill ends up inside the hill, and the whole screen goes to
     // whatever the inside of the terrain looks like.
     const float ground = collider_.height(eye.x, eye.z) + 1.2f;
     if (eye.y < ground) eye.y = ground;
 
-    const glm::vec3 target = pos + forward * kCamLookAhead;
-    const glm::vec3 dir = target - eye;
+    const glm::vec3 dir = pose.target - eye;
     const float flat = std::sqrt(dir.x * dir.x + dir.z * dir.z);
 
     camera_.position = eye;
     camera_.yaw = std::atan2(dir.x, -dir.z);
     camera_.pitch = std::atan2(dir.y, flat > 1e-4f ? flat : 1e-4f);
+    camera_.fov_y = pose.fov_y;
 }
 
-void App::render() {
-    glViewport(0, 0, window_.width(), window_.height());
-
+SkyEnv App::current_sky_env() const {
     // Sim time, not wall time. See the note in app.h.
     const float sim_seconds =
         static_cast<float>(static_cast<double>(step_index_) * kSimDt);
-    const float time_of_day =
+    const float live_time_of_day =
         0.28f + sim_seconds * controls_.sky_speed /
                     static_cast<float>(kSecondsPerDay);
+    const float selected_time = kDevTimeValues[static_cast<std::size_t>(
+        dev_menu_.time())];
+    const float time_of_day = daylight_qa_ ? 0.5f :
+        (lighting_night_ ? 0.0f : (selected_time >= 0.0f ? selected_time : live_time_of_day));
 
     WeatherParams weather;
-    weather.rain = controls_.rain;
+    weather.rain = ui_.settings().weather_effects ? controls_.rain : 0.0f;
+    weather.snow = ui_.settings().weather_effects ? conditions_.snow : 0.0f;
+    weather.snow_cover =
+        ui_.settings().weather_effects ? conditions_.snow_cover : 0.0f;
     weather.overcast = controls_.overcast;
     weather.fog = controls_.fog;
     weather.fog_start_m = kRenderDistance * 0.25f;
     weather.fog_end_m = kRenderDistance;
-    const SkyEnv env = compute_sky_env(time_of_day, weather);
+    SkyEnv env = compute_sky_env(time_of_day, weather);
 
-    update_camera();
+    DistanceHazeParams haze;
+    haze.weather_fog = controls_.fog;
+    apply_distance_haze(env, haze);
+    return env;
+}
+
+void App::render() {
+    glViewport(0, 0, window_.width(), window_.height());
+    if (audio_device_.running()) {
+        const bool title = ui_.screen() == UiScreen::Title ||
+            (ui_.screen() == UiScreen::Map && ui_.map_return_screen() == UiScreen::Title);
+        intro_audio_.update(audio_device_.mixer(), title, camera_frame_dt_);
+        rain_audio_.update(audio_device_.mixer(), audio_device_.bank(),
+                           title || !ui_.settings().weather_effects
+                               ? 0.0f : controls_.rain, camera_frame_dt_);
+    }
+
+    // The title shares the startup composition. Do not spend a world render
+    // behind it or let a paused gameplay camera leak through the background.
+    if (ui_.screen() == UiScreen::Title ||
+        (ui_.screen() == UiScreen::Settings &&
+         ui_.settings_return_screen() == UiScreen::Title)) {
+        loading_screen_.render(window_.width(), window_.height());
+        const glm::vec2 vp = UiCanvas::from_drawable(
+            {window_.width(), window_.height()}).size;
+        GameUiSnapshot snapshot;
+        snapshot.save_notice=save_notice_.c_str();
+        snapshot.title_opacity = loading_screen_.menu_opacity();
+        hud_.begin(vp);
+        game_ui_.draw(hud_, ui_, snapshot, vp);
+        hud_.end();
+        if (frames_rendered_ < 8) gl_errors_ += drain_gl_errors("title screen");
+        window_.swap();
+        ++frames_rendered_;
+        return;
+    }
+
+    if (opening_cutscene_.active()) { render_opening();return; }
+
+    const SkyEnv env = current_sky_env();
+    const float sim_seconds =
+        static_cast<float>(static_cast<double>(step_index_) * kSimDt);
+    // Window occupancy is replay-stable from the session seed and absolute
+    // sim step, while this darkness gate follows the sky the player actually
+    // sees (including --night and the dev time presets).
+    const float visible_night_level = automatic_headlight_level(
+        env.sun_dir.y, AtmosphericWeather::Clear);
+    const float visible_headlight_level = automatic_headlight_level(
+        env.sun_dir.y, conditions_.atmosphere);
+    const float selected_time = kDevTimeValues[static_cast<std::size_t>(
+        dev_menu_.time())];
+    const float visible_time_of_day_per_step =
+        !daylight_qa_ && !lighting_night_ && selected_time < 0.0f
+            ? controls_.sky_speed * static_cast<float>(kSimDt /
+                                                        kSecondsPerDay)
+            : 0.0f;
+    world_.sync_skyscraper_window_lights(
+        scene_,seed_,step_index_,env.time_of_day,visible_night_level,
+        visible_time_of_day_per_step,camera_.position);
+
+    update_camera(camera_frame_dt_);
+    if (tire_track_check_) tire_track_check_camera();
+    camera_.fov_y = glm::radians(static_cast<float>(ui_.settings().camera_fov));
+    if(signal_check_)signal_check_camera();
+    Listener listener;
+    listener.position = camera_.position;
+    listener.forward = camera_.forward();
+    listener.right = camera_.right();
+    vehicle_audio_.set_listener(listener);
 
     // Clear to the fog colour, so anything the sky pass somehow misses blends
     // with the horizon instead of showing as a hard black band.
@@ -450,54 +2061,519 @@ void App::render() {
     // the real thing, and it is the number that says when a broadphase has
     // stopped being premature. Display only: it never reaches the sim.
     const WallClock::time_point cull_t0 = WallClock::now();
-    const Scene::CullResult& culled =
-        scene_.cull(camera_.frustum(), camera_.position, kRenderDistance);
+    float scene_draw_distance = kRenderDistance;
+    if (env.fog_density >= 0.999f && env.fog_end > env.fog_start) {
+        // At fog_end the shader is 100% atmosphere. Keep a small guard band for
+        // large bounds, then stop submitting invisible geometry behind it.
+        scene_draw_distance =
+            std::min(kRenderDistance, env.fog_end + 96.0f);
+    }
+    traffic_visual_.sync_street_lights(scene_, camera_.position,
+        visible_night_level);
+    const Scene::CullResult& culled = scene_.cull(
+        camera_.frustum(), camera_.position, scene_draw_distance);
     cull_ms_ = std::chrono::duration<double>(WallClock::now() - cull_t0).count() *
                1000.0;
 
     Renderer::Options opts;
     opts.instancing = controls_.instancing;
-    render_stats_ = renderer_.render(scene_, culled.visible, camera_, env, opts);
+    // Follow the light the player can actually see. The demo sky can run
+    // faster than session conditions through sky_speed, so using the sim's
+    // headlight_level here would leave the lamps on under a visible noon sun.
+    HeadlightRig headlights = car_visual_.headlights(
+        prev_car_, car_, static_cast<float>(clock_.alpha()),
+        visible_headlight_level);
+    std::vector<TrafficSpotLight> stress_lights;
+    if(lighting_stress_ && visible_headlight_level>0) {
+        glm::vec3 forward=camera_.forward(); forward.y=0;
+        forward=glm::normalize(forward);
+        const glm::vec3 right=glm::normalize(glm::cross(forward,glm::vec3{0,1,0}));
+        for(int row=0;row<10;++row) for(int col=0;col<10;++col) {
+            const float distance=12.0f+static_cast<float>(row)*8.0f;
+            glm::vec3 p=camera_.position+forward*distance+
+                right*((static_cast<float>(col)-4.5f)/4.5f*distance*0.7f);
+            p.y=collider_.height(p.x,p.z)+0.8f;
+            const glm::vec3 direction=glm::normalize(-forward+glm::vec3{0,-0.075f,0});
+            for(float side : {-0.7f,0.7f}) stress_lights.push_back({
+                glm::vec4{p+right*side,32},glm::vec4{direction,4.5f}});
+        }
+    }
+    emergency_light_sources_=lighting_stress_ ? stress_lights : traffic_visual_.headlights();
+    // Indoor fixtures stay on during the day and share their visible positions.
+    const auto add_interior_lights=[&](const city::StartSite& site,
+        const auto& parts,std::string_view name,float range,glm::vec3 local_direction=glm::vec3{0,-1,0},
+        float power=2.3f,float outer=.58f) {
+        if (lighting_stress_) return;
+        for (const auto& part:parts) {
+            if (std::string_view(part.name)!=name) continue;
+            const glm::vec3 p{site.origin.x+site.cos_yaw*part.centre.x+site.sin_yaw*part.centre.z,
+                site.ground_m+part.bottom_m-.04f,
+                site.origin.z-site.sin_yaw*part.centre.x+site.cos_yaw*part.centre.z};
+            const auto direction=glm::normalize(glm::vec3{
+                site.cos_yaw*local_direction.x+site.sin_yaw*local_direction.z,local_direction.y,
+                -site.sin_yaw*local_direction.x+site.cos_yaw*local_direction.z});
+            const glm::vec3 color = name == "quickbite interior ceiling light lens"
+                ? glm::vec3{1.0f,.97f,.91f}
+                : glm::vec3{1.0f,.88f,.70f};
+            if (glm::distance(p,camera_.position)<65.f)
+                emergency_light_sources_.push_back({glm::vec4{p,range},
+                    glm::vec4{direction,power},{color,outer}});
+        }
+    };
+    add_interior_lights(city::kFastFoodSite,city::kFastFoodParts,
+        "quickbite interior ceiling light lens",10.5f,{0,-1,0},1.8f,.35f);
+    add_interior_lights(city::kTacomacoSite,city::kFastFoodParts,
+        "quickbite interior ceiling light lens",10.5f,{0,-1,0},1.8f,.35f);
+    add_interior_lights(city::kGasStationSite,city::kGasStationParts,
+        "store interior ceiling light lens",6.6f);
+    static const auto pawn_lights=city::bake_pawn_shop();
+    add_interior_lights(city::kPawnShopSite,pawn_lights,"pawn ceiling light lens",6.4f);
+    static const auto gun_store_lights=city::bake_gun_store();
+    add_interior_lights(city::kGunStoreSite,gun_store_lights,"gun store ceiling light lens",7.2f,{0,-1,0},3.4f,.35f);
+    add_interior_lights(city::kGunStoreSite,gun_store_lights,"gun store rack light lens",5.5f,{0,-.85f,-1});
+    add_interior_lights(city::kGunStoreSite,gun_store_lights,"gun store counter light lens",7.f,{0,-.55f,-1},3.0f);
+    add_interior_lights(city::kGunStoreSite,gun_store_lights,"gun store exterior light lens",5.5f);
+    static const auto bar_lights=city::bake_neighborhood_bar();
+    add_interior_lights(city::kNeighborhoodBarSite,bar_lights,"bar warm light lens",6.5f);
+    // Hospital fixtures are authored by the exterior sidecars, but their
+    // albedo/emissive faces do not illuminate the pavement by themselves.
+    // Feed the named lenses through the existing tiled-light path after dusk.
+    if (visible_night_level > 0.05f) {
+        static const auto hospital_lights =
+            city::bake_polished_hospital_campus();
+        add_interior_lights(city::kHospitalSite, hospital_lights,
+            "hospital facade wall light lens", 8.0f,
+            {0.0f, -0.65f, -1.0f}, 2.4f, 0.42f);
+        add_interior_lights(city::kHospitalSite, hospital_lights,
+            "hospital arrival canopy light lens", 11.0f,
+            {0.0f, -1.0f, 0.0f}, 3.4f, 0.48f);
+        add_interior_lights(city::kHospitalSite, hospital_lights,
+            "hospital grounds path light lens", 7.0f,
+            {0.0f, -0.9f, 0.15f}, 2.2f, 0.55f);
+        add_interior_lights(city::kHospitalSite, hospital_lights,
+            "hospital garage ceiling light lens", 9.0f,
+            {0.0f, -1.0f, 0.0f}, 2.8f, 0.50f);
+        static const auto hospital_parking_lights =
+            city::bake_hospital_north_parking();
+        add_interior_lights(city::kHospitalNorthParkingSite,
+            hospital_parking_lights, "hospital parking lot light lens", 23.0f,
+            {0.0f, -1.0f, 0.0f}, 5.0f, 0.54f);
+    }
+    if(!lighting_stress_) for(const auto& p:world_.residential_lights()) {
+        if(glm::distance(p,camera_.position)<65.f)
+            emergency_light_sources_.push_back({glm::vec4{p,5.8f},
+                {0,-1,0,2.3f},{1,.88f,.70f,.58f}});
+    }
+    // Small authored marina downlights share the existing tiled light path.
+    // Keep distant/off-day lamps out of the upload rather than global fill.
+    if (!lighting_stress_ && visible_night_level>0) {
+        for (const auto& at:city::kMarinaLampPositions) {
+            const glm::vec3 p{city::kMarlinDockSite.origin.x+at.x,3.98f,
+                              city::kMarlinDockSite.origin.z+at.z};
+            if (glm::distance(p,camera_.position)<110.f)
+                emergency_light_sources_.push_back({glm::vec4{p,13.f},
+                    {0,-1,0,3.2f*visible_night_level},{1,.78f,.46f,.48f}});
+        }
+    }
+    // Miandi neon tubes use emissive geometry for the visible source, while
+    // these authored, bounded cones put the matching colour onto nearby walls
+    // and paving. Keep them in the same tiled path as traffic and civic lights.
+    if (!lighting_stress_ && visible_night_level > 0.0f) {
+        for (const auto& light : city::kMiandiNightLights) {
+            const glm::vec3 position{light.world_position.x,
+                                     light.world_position.y,
+                                     light.world_position.z};
+            if (glm::distance(position, camera_.position) >= 220.0f) continue;
+            const glm::vec3 direction{light.world_direction.x,
+                                      light.world_direction.y,
+                                      light.world_direction.z};
+            const glm::vec3 color{light.linear_rgb.x, light.linear_rgb.y,
+                                  light.linear_rgb.z};
+            emergency_light_sources_.push_back({
+                glm::vec4{position, light.range_m},
+                glm::vec4{direction, city::miandi_night_light_power(
+                                         light, visible_night_level)},
+                glm::vec4{color, light.outer_cone_cos}});
+        }
+    }
+    if (const auto* body=car_visual_.rendered_body_transform(scene_)) {
+        append_police_lights(emergency_light_sources_,*body,step_index_,
+            police_emergency_enabled_ && !on_foot_ && !in_aircraft_ && !in_boat_ &&
+            has_police_lightbar(car_visual_.active_car()),car_visual_.active_car());
+    }
+    const auto& traffic_lights=emergency_light_sources_;
+    lighting_source_count_=traffic_lights.size();
+    const auto grid_start=WallClock::now();
+    const std::vector<TrafficSpotLight> empty_lights;
+    if(!tiled_lighting_.upload(traffic_lights_off_ ? empty_lights : traffic_lights,
+        camera_.view_projection(),camera_.view(),window_.width(),window_.height())) {
+        AP_ERROR("traffic lighting upload failed");
+        ++gl_errors_;
+    }
+    headlights.traffic=tiled_lighting_.view();
+    const int phase_frame=std::max(0,frames_rendered_-300);
+    const bool lights_on=!traffic_lights_off_ && (!lighting_benchmark_ || (phase_frame/120)%2!=0);
+    if(!lights_on) headlights.traffic.columns=0;
+    const bool measure=lighting_benchmark_ && frames_rendered_>=300 && phase_frame%120>=16;
+    if(measure) {
+        light_grid_ms_.push_back(std::chrono::duration<double>(WallClock::now()-grid_start).count()*1000.0);
+        light_build_ms_.push_back(tiled_lighting_.build_ms());
+        light_upload_ms_.push_back(tiled_lighting_.upload_ms());
+        tiled_lighting_.begin_timing(lights_on);
+    }
+    render_stats_ =
+        renderer_.render(scene_, culled.visible, camera_, env, headlights,
+                         world_.canopy_lights(), opts);
+    tire_tracks_.render(camera_, env, headlights, world_.canopy_lights());
 
-    // 3. Rain over the world, blended.
-    rain_.render(camera_, env);
+    // 3. Animated people. They use the same lighting as the opaque world, but
+    // each draw carries its own continuously sampled bone palette.
+    character_visual_.render(camera_, env, headlights,
+                             world_.canopy_lights());
+    if (ui_.settings().weather_effects &&
+        conditions_.tornado_intensity > 0.05f) {
+        const glm::vec2 centre = conditions_.tornado_center_m;
+        tornado_.render(camera_, centre,
+                        collider_.height(centre.x, centre.y),
+                        conditions_.tornado_intensity, sim_seconds);
+    }
+    ocean_.render(camera_,env,headlights,world_.canopy_lights(),sim_seconds,
+                  flood_water_level(conditions_.flood));
+    renderer_.render_glass(scene_,culled.visible,camera_,env,headlights,world_.canopy_lights());
+    render_stats_=renderer_.stats();
+    if(measure) tiled_lighting_.end_timing();
+    if(lighting_benchmark_ && (frames_rendered_==419 || frames_rendered_==539)) {
+        AP_INFO("lighting phase %s: %d world draws, %d instanced batches, %d character draws",
+            lights_on ? "ON" : "OFF",render_stats_.draw_calls,render_stats_.instanced_batches,
+            character_visual_.last_draw_count());
+    }
 
-    // 4. HUD last, one draw.
+    // 4. Rain or snow over the world, blended.
+    if (ui_.settings().weather_effects) {
+        rain_.render(camera_, env, headlights, world_.canopy_lights());
+    }
+
+    // 5. HUD last, one draw.
     {
-        const glm::vec2 vp{static_cast<float>(window_.width()),
-                           static_cast<float>(window_.height())};
+        const glm::vec2 vp = UiCanvas::from_drawable(
+            {static_cast<float>(window_.width()),
+             static_cast<float>(window_.height())}).size;
         hud_.begin(vp);
 
-        const float speed_kmh = glm::length(car_.velocity) * 3.6f;
-        char line[64];
+        if (ui_.screen() == UiScreen::Driving) {
+            GameUiSnapshot radar;
+            radar.player_position = player_focus_position();
+            radar.player_forward = player_focus_forward();
+            radar.road_name = current_road_name_.update(
+                {radar.player_position.x, radar.player_position.z});
+            radar.speed_mph = metres_per_second_to_miles_per_hour(glm::length(
+                on_foot_ ? player_character_.velocity : in_boat_ ? boat_.velocity :
+                in_aircraft_ ? aircraft_.velocity : car_.velocity));
+            radar.wanted_level = wanted_.level();
+            radar.time_of_day = env.time_of_day;
+            if (mission_stage_ == MissionStage::DeliveryNeedsCar)
+                radar.mission_target = glm::vec2{car_.position.x, car_.position.z};
+            else if (mission_stage_ == MissionStage::DeliveryActive)
+                radar.mission_target = glm::vec2{city::devon_position().x,
+                                                 city::devon_position().z};
+            game_ui_.draw_minimap(hud_, ui_, radar, vp);
+            const glm::vec3 focus = player_focus_position();
+            const HazardExposure exposure = hazard_exposure_at(
+                conditions_, focus, collider_.height(focus.x, focus.z));
+            const GameplayHazard hazard = dominant_hazard(exposure);
+            const float severity = hazard_severity(exposure, hazard);
+            const char* warning = nullptr;
+            if (hazard != GameplayHazard::None && severity >= 0.15f) {
+                warning = hazard_warning(hazard, severity);
+            } else if (conditions_.atmosphere == AtmosphericWeather::Tornado &&
+                       conditions_.tornado_intensity >= 0.35f) {
+                warning = "TORNADO WATCH";
+            }
+            if (warning) {
+                const float half =
+                    hud_.measure_text(warning, 21.0f) * 0.5f + 22.0f;
+                const glm::vec2 lo{vp.x * 0.5f - half, 72.0f};
+                const glm::vec2 hi{vp.x * 0.5f + half, 108.0f};
+                hud_.rect(lo + glm::vec2{3.0f, 4.0f},
+                          hi + glm::vec2{3.0f, 4.0f}, {0, 0, 0, 0.35f});
+                hud_.rect(lo, hi, {0.20f, 0.025f, 0.02f, 0.90f});
+                hud_.outline(lo, hi, 2.0f, {1.0f, 0.48f, 0.12f, 1.0f});
+                hud_.text_centered(warning, vp.x * 0.5f, 78.0f, 21.0f,
+                                   {1.0f, 0.92f, 0.72f, 1.0f});
+            }
+            if (mission_stage_ == MissionStage::DeliveryNeedsCar)
+                hud_.text("GET IN YOUR CAR", {28,32},28,{1,.90f,.65f,1});
+            else if (mission_stage_==MissionStage::DeliveryActive)
+                hud_.text("DELIVERY: Take Lou's package to Devon at Ostend docks",{28,32},28,{1,.90f,.65f,1});
 
-        hud_.rect({20.0f, vp.y - 118.0f}, {330.0f, vp.y - 20.0f},
-                  {0.0f, 0.0f, 0.0f, 0.45f});
-        hud_.outline({20.0f, vp.y - 118.0f}, {330.0f, vp.y - 20.0f}, 2.0f,
-                     {1.0f, 1.0f, 1.0f, 0.20f});
+            if (conditions_.tornado_intensity > 0.05f) {
+                const glm::vec2 centre = conditions_.tornado_center_m;
+                const float ground = collider_.height(centre.x, centre.y);
+                const auto cue = project_mission_cue(
+                    {centre.x, ground + 28.0f, centre.y},
+                    camera_.view_projection(), vp);
+                const auto base_cue = project_mission_cue(
+                    {centre.x, ground + 1.0f, centre.y},
+                    camera_.view_projection(), vp);
+                if (!cue.visible && !base_cue.visible) {
+                    // Keep the event locatable when the funnel is behind the
+                    // camera or hidden outside the view frustum.
+                    const glm::vec3 camera_right = camera_.right();
+                    const glm::vec2 to_tornado = centre - glm::vec2{
+                        camera_.position.x, camera_.position.z};
+                    const float side = glm::dot(
+                        to_tornado, glm::vec2{camera_right.x, camera_right.z});
+                    constexpr float kMarkerY = 178.0f;
+                    if (side < 0.0f) {
+                        hud_.text("< TORNADO", {24.0f, kMarkerY}, 20.0f,
+                                  {1.0f, 0.58f, 0.20f, 1.0f});
+                    } else {
+                        constexpr const char* kLabel = "TORNADO >";
+                        const float width = hud_.measure_text(kLabel, 20.0f);
+                        hud_.text(kLabel, {vp.x - width - 24.0f, kMarkerY},
+                                  20.0f, {1.0f, 0.58f, 0.20f, 1.0f});
+                    }
+                }
+            }
 
-        std::snprintf(line, sizeof(line), "%3.0f KM/H", static_cast<double>(speed_kmh));
-        hud_.text(line, {36.0f, vp.y - 104.0f}, 34.0f, {1.0f, 0.94f, 0.80f, 1.0f});
+            if (mission_car_cue_visible(mission_stage_, on_foot_)) {
+                const float bob = std::sin(static_cast<float>(step_index_) *
+                    static_cast<float>(kSimDt) * 3.2f) * .12f;
+                const auto cue = project_mission_cue(
+                    car_.position + glm::vec3{0, 2.55f + bob, 0},
+                    camera_.view_projection(), vp);
+                if (cue.visible) {
+                    constexpr const char* label = "Enter your car";
+                    const float half = hud_.measure_text(label, 24) * .5f + 17;
+                    const glm::vec2 lo{cue.screen.x-half, cue.screen.y-53};
+                    const glm::vec2 hi{cue.screen.x+half, cue.screen.y-17};
+                    hud_.rect(lo+glm::vec2{3,4},hi+glm::vec2{3,4},{0,0,0,.42f});
+                    hud_.rect(lo,hi,{.025f,.030f,.028f,.94f});
+                    hud_.outline(lo,hi,2,{1,.76f,.18f,1});
+                    hud_.text_centered(label,cue.screen.x,cue.screen.y-47,24,{1,.94f,.73f,1});
+                    hud_.triangle({cue.screen.x-10,cue.screen.y-17},
+                                  {cue.screen.x+10,cue.screen.y-17},
+                                  {cue.screen.x,cue.screen.y-3},
+                                  {1,.76f,.18f,1});
+                }
+            }
+            if (in_boat_) {
+                char speed[128];
+                std::snprintf(speed,sizeof(speed),"MARLIN SPRINT 22   %.0f KNOTS",
+                    static_cast<double>(glm::length(boat_.velocity)*1.943844f));
+                hud_.text_centered(speed,vp.x*.5f,vp.y-160,22,{.8f,.95f,1,1});
+                hud_.text_centered(boat_.blocked ? "SHALLOW WATER / OBSTACLE - REVERSE OR R TO RECOVER" :
+                    "W / S  THROTTLE / REVERSE    A / D  STEER    SPACE  SLOW    R  RECOVER",
+                    vp.x*.5f,vp.y-130,18,{1,1,1,1});
+            } else if (in_aircraft_) {
+                char flight[256];
+                const auto support=collider_.probe_down(aircraft_.position+glm::vec3{0,.05f,0},10000);
+                const float altitude=std::max(0.0f,aircraft_.position.y-
+                    (support.hit?support.point.y:collider_.height(aircraft_.position.x,aircraft_.position.z)));
+                std::snprintf(flight,sizeof(flight),"ASTER A-80   %.0f MPH   %.0f FT   THROTTLE %.0f%%",
+                    static_cast<double>(aircraft_.speed*2.23694f),static_cast<double>(altitude*3.28084f),
+                    static_cast<double>(aircraft_.throttle*100));
+                hud_.text_centered(flight,vp.x*.5f,vp.y-160,22,{.8f,.95f,1,1});
+                hud_.text_centered(aircraft_.crashed ? "AIRCRAFT DAMAGED - R TO RESET" :
+                    "W/S THROTTLE   A/D BANK / TAXI   SHIFT/CTRL PITCH   SPACE BRAKE",
+                    vp.x*.5f,vp.y-130,18,{1,1,1,1});
+            } else if (!on_foot_) {
+                const float speed_mph = metres_per_second_to_miles_per_hour(
+                    glm::length(car_.velocity));
+                const float health01 =
+                    glm::clamp(car_.health / 100.0f, 0.0f, 1.0f);
+                const float right = vp.x - 24.0f;
+                const float bottom = vp.y - 24.0f;
+                const float left = right - 260.0f;
+                const float top = bottom - 154.0f;
+                const glm::vec4 condition_color = glm::mix(
+                    glm::vec4{0.92f, 0.12f, 0.08f, 1.0f},
+                    glm::vec4{0.96f, 0.67f, 0.14f, 1.0f}, health01);
 
-        // Everything below is read straight off the car and the conditions —
-        // no game layer computes it, because there is not one. A real HUD data
-        // model comes back with the pilot game, in apricot_sim where a headless
-        // test can reach it.
-        std::snprintf(line, sizeof(line), "GEAR %d   %4.0f RPM", car_.gear,
-                      static_cast<double>(car_.engine_rpm));
-        hud_.text(line, {36.0f, vp.y - 62.0f}, 18.0f, {0.85f, 0.90f, 1.0f, 1.0f});
+                // Sparse PS2-era GTA treatment: hard corners, deep smoked
+                // plate, one strong accent and no telemetry dump.
+                hud_.rect({left + 5.0f, top + 5.0f},
+                          {right + 5.0f, bottom + 5.0f},
+                          {0.0f, 0.0f, 0.0f, 0.28f});
+                hud_.rect({left, top}, {right, bottom},
+                          {0.01f, 0.015f, 0.02f, 0.72f});
+                hud_.rect({right - 5.0f, top}, {right, bottom},
+                          {0.84f, 0.10f, 0.06f, 0.95f});
+                hud_.outline({left, top}, {right, bottom}, 1.0f,
+                             {1.0f, 0.92f, 0.72f, 0.18f});
 
-        std::snprintf(line, sizeof(line), "%s / %s   GRIP %.2f",
-                      daylight_name(conditions_.daylight),
-                      weather_name(conditions_.weather),
-                      static_cast<double>(conditions_.grip));
-        hud_.text(line, {36.0f, vp.y - 40.0f}, 18.0f, {0.80f, 1.0f, 0.85f, 1.0f});
+                char line[32];
+                std::snprintf(line, sizeof(line), "%3.0f MPH",
+                              static_cast<double>(speed_mph));
+                hud_.text_centered(line, left + 127.0f, top + 10.0f, 42.0f,
+                                   {1.0f, 0.78f, 0.30f, 1.0f});
 
-        std::snprintf(line, sizeof(line), "%d DRAWS  %d INST", render_stats_.draw_calls,
-                      render_stats_.instances);
-        hud_.text_centered(line, vp.x * 0.5f, 18.0f, 16.0f,
-                           controls_.instancing ? glm::vec4{0.75f, 1.0f, 0.80f, 0.9f}
-                                                : glm::vec4{1.0f, 0.78f, 0.35f, 0.95f});
+                hud_.text(vehicle_engine_failed(car_.mechanical) ? "ENGINE OUT":"VEHICLE", {left + 18.0f, top + 68.0f}, 13.0f,
+                          {0.68f, 0.70f, 0.68f, 1.0f});
+                std::snprintf(line, sizeof(line), "%3.0f%%",
+                              static_cast<double>(car_.health));
+                hud_.text_centered(line, right - 32.0f, top + 68.0f, 13.0f,
+                                   condition_color);
+
+                const float bar_left = left + 18.0f;
+                const float bar_right = right - 18.0f;
+                const float bar_top = top + 93.0f;
+                hud_.rect({bar_left, bar_top}, {bar_right, bar_top + 8.0f},
+                          {0.08f, 0.09f, 0.09f, 0.95f});
+                hud_.rect({bar_left, bar_top},
+                          {bar_left + (bar_right - bar_left) * health01,
+                           bar_top + 8.0f},
+                          condition_color);
+
+                const auto leaks = vehicle_fluid_leaks(car_.body_damage);
+                const std::array<float, 3> fluid_levels{
+                    car_.mechanical.fuel_remaining,
+                    car_.mechanical.oil_remaining,
+                    1.0f - leaks[static_cast<std::size_t>(
+                                     VehicleFluidKind::Coolant)].severity,
+                };
+                constexpr std::array<UiSymbol, 3> fluid_symbols{
+                    UiSymbol::LocalGasStation,
+                    UiSymbol::OilBarrel,
+                    UiSymbol::ModeDual,
+                };
+                const auto fluid_color = [](float level) {
+                    if (level < 0.28f) {
+                        return glm::vec4{0.96f, 0.12f, 0.08f, 1.0f};
+                    }
+                    if (level < 0.62f) {
+                        return glm::vec4{1.0f, 0.62f, 0.12f, 1.0f};
+                    }
+                    return glm::vec4{0.72f, 0.82f, 0.66f, 1.0f};
+                };
+                for (std::size_t i = 0; i < fluid_levels.size(); ++i) {
+                    const float slot_x = left + 18.0f +
+                                         static_cast<float>(i) * 75.0f;
+                    const float level = glm::clamp(fluid_levels[i], 0.0f, 1.0f);
+                    const glm::vec4 color = fluid_color(level);
+                    hud_.symbol(fluid_symbols[i], {slot_x, top + 112.0f},
+                                21.0f, color);
+                    hud_.rect({slot_x + 28.0f, top + 123.0f},
+                              {slot_x + 62.0f, top + 128.0f},
+                              {0.10f, 0.11f, 0.11f, 0.95f});
+                    hud_.rect({slot_x + 28.0f, top + 123.0f},
+                              {slot_x + 28.0f + 34.0f * level,
+                               top + 128.0f},
+                              color);
+                }
+
+                if (impact_feedback_seconds_ > 0.0f) {
+                    const float flash_alpha = glm::clamp(
+                        impact_feedback_seconds_ / 0.55f, 0.0f, 1.0f) * 0.65f;
+                    hud_.outline({5.0f, 5.0f}, {vp.x - 5.0f, vp.y - 5.0f},
+                                 8.0f, {1.0f, 0.16f, 0.08f, flash_alpha});
+                }
+            }
+
+            if (!dev_menu_.open() && !bank_interaction_.modal() &&
+                !weapon_wheel_.open && mission_success_feedback_s_ <= 0.0f) {
+                std::string prompt;
+                if (step_index_<vehicle_notice_until_) prompt=vehicle_interaction_notice_;
+                else if (vehicle_transition_.active()) prompt=vehicle_transition_.direction==VehicleTransitionDirection::Enter
+                    ? "Getting in" : "Getting out";
+                else if (boat_transition_.active()) prompt=boat_transition_.direction==VehicleTransitionDirection::Enter
+                    ? "Boarding Marlin Sprint 22" : "Climbing onto dock";
+                else if (in_boat_) prompt="E / A  -  Exit beside dock or shore";
+                else if (in_aircraft_) prompt=aircraft_can_exit(aircraft_) ?
+                    "E / A  -  Exit aircraft" : "LAND AND STOP TO EXIT";
+                else if (!on_foot_) prompt="E / A  -  Exit vehicle";
+                else if (mission_stage_==MissionStage::DeliveryActive &&
+                         delivery_contact(player_character_.position,on_foot_))
+                    prompt="E / A  -  Give Lou's package to Devon";
+                else if (nearby_bent_elbow())
+                    prompt=drunk_.active()
+                        ? "G  -  Have another drink at The Bent Elbow"
+                        : "G  -  Have a drink at The Bent Elbow";
+                else if (nearby_aircraft()) prompt="E / A  -  Board Aster A-80";
+                else if (nearby_boat()) prompt="E / A  -  Board Marlin Sprint 22";
+                else {
+                    const auto target=nearby_vehicle();
+                    if (target.kind!=VehicleEntryTarget::Kind::None) {
+                        const auto& model=player_car_definition(target.model);
+                        prompt=target.kind==VehicleEntryTarget::Kind::Traffic?"E / A  -  Steal ":"E / A  -  Enter ";
+                        prompt+=model.brand;prompt+=" ";prompt+=model.model;
+                    }
+                }
+                if (!on_foot_ && !in_aircraft_ && !in_boat_ && car_visual_.active_car()==PlayerCarId::HarrowHauler)
+                    prompt += trailer_.attached ? "   T / DPAD RIGHT - DROP TRAILER" : "   T / DPAD RIGHT - COUPLE TRAILER";
+                if (!on_foot_ && !in_aircraft_ && !in_boat_ && has_police_lightbar(car_visual_.active_car()))
+                    prompt += "   H / L3 - SIREN + LIGHTS";
+                if (!on_foot_ && !in_aircraft_ && !in_boat_ && repair_shop_ready(car_,tuning_))
+                    prompt += repair_shop_visit_.serviced ? "   SERVICE COMPLETE" : "   HOLD STILL - REPAIRING";
+                if (!prompt.empty()) hud_.text_centered(prompt.c_str(),vp.x*.5f,vp.y-90,20,{1,.95f,.75f,1});
+            }
+            game_ui_.draw_dev_menu(hud_, dev_menu_, vp);
+            if (on_foot_ && !dev_menu_.open() && !bank_interaction_.modal() &&
+                !weapon_wheel_.open && mission_success_feedback_s_ <= 0.0f)
+                hud_.text_centered("TAB / LB - WEAPONS",vp.x*.5f,vp.y-56,16,{.8f,.82f,.83f,1});
+            draw_weapon_wheel(hud_,weapon_wheel_,vp);
+            if(repair_shop_feedback_s_>0)
+                hud_.text_centered("CAR REPAIRED",vp.x*.5f,vp.y*.25f,30,{.65f,1,.65f,1});
+            if (mission_success_feedback_s_ > 0.0f) {
+                constexpr float kDisplaySeconds = 6.25f;
+                const float age = kDisplaySeconds - mission_success_feedback_s_;
+                const float enter = glm::smoothstep(0.0f, 0.42f, age);
+                const float leave = glm::smoothstep(0.0f, 1.25f,
+                    mission_success_feedback_s_);
+                const float alpha = enter * leave;
+                const float centre_x = vp.x * 0.5f + (1.0f - enter) * 92.0f;
+                const float top = vp.y * 0.32f;
+                const float title_h = 94.0f;
+                const float title_w = hud_.measure_title_text(
+                    "Mission Success", title_h);
+                const float half = std::max(340.0f, title_w * 0.5f + 58.0f);
+
+                // An original late-90s crime-game card: hard slanted plate,
+                // warm title ink, thick offset shadow and a single red slash.
+                hud_.quad({centre_x - half - 22.0f, top + 8.0f},
+                          {centre_x + half, top - 4.0f},
+                          {centre_x + half + 18.0f, top + 141.0f},
+                          {centre_x - half, top + 154.0f},
+                          {0.015f, 0.012f, 0.012f, 0.62f * alpha});
+                hud_.rect({centre_x - half + 72.0f, top + 124.0f},
+                          {centre_x + half - 48.0f, top + 131.0f},
+                          {0.82f, 0.10f, 0.07f, 0.95f * alpha});
+                hud_.rect({centre_x + half - 124.0f, top + 124.0f},
+                          {centre_x + half - 48.0f, top + 131.0f},
+                          {1.0f, 0.57f, 0.12f, alpha});
+                hud_.title_text_centered("Mission Success", centre_x + 7.0f,
+                                         top + 19.0f, title_h,
+                                         {0.02f, 0.015f, 0.012f,
+                                          0.92f * alpha});
+                hud_.title_text_centered("Mission Success", centre_x,
+                                         top + 10.0f, title_h,
+                                         {0.94f, 0.91f, 0.82f, alpha});
+                hud_.text_centered("PACKAGE DELIVERED", centre_x,
+                                   top + 137.0f, 17.0f,
+                                   {1.0f, 0.72f, 0.30f, alpha});
+            }
+            if (!dev_menu_.open()) bank_interaction_.draw(hud_, vp,
+                bank_target(city::bank_local_position(player_character_.position), on_foot_),
+                bank_vault_);
+        } else {
+            GameUiSnapshot snapshot;
+        snapshot.save_notice=save_notice_.c_str();
+            snapshot.player_position = player_focus_position();
+            snapshot.player_forward = player_focus_forward();
+            if (mission_stage_ == MissionStage::DeliveryNeedsCar)
+                snapshot.mission_target = glm::vec2{car_.position.x, car_.position.z};
+            else if (mission_stage_ == MissionStage::DeliveryActive)
+                snapshot.mission_target = glm::vec2{city::devon_position().x,
+                                                    city::devon_position().z};
+            snapshot.speed_mph = metres_per_second_to_miles_per_hour(
+                glm::length(on_foot_ ? player_character_.velocity
+                                     : (in_boat_ ? boat_.velocity : (in_aircraft_ ? aircraft_.velocity : car_.velocity))));
+            snapshot.vehicle_health = car_.health;
+            snapshot.weather = weather_name(conditions_.weather);
+            snapshot.daylight = daylight_name(conditions_.daylight);
+            snapshot.time_of_day = env.time_of_day;
+            game_ui_.draw(hud_, ui_, snapshot, vp);
+        }
 
         hud_.end();
     }
@@ -523,6 +2599,9 @@ void App::render() {
     stats.rain_drops = rain_.live_drops();
     stats.rain_quads = rain_.drawn_quads();
     stats.time_of_day = env.time_of_day;
+    stats.snow_depth_m = conditions_.snow_depth_m;
+    stats.fog_start_m = env.fog_start;
+    stats.fog_end_m = env.fog_end;
     stats.gl_errors = gl_errors_;
 
     const World::Stats& ws = world_.stats();
@@ -549,7 +2628,74 @@ void App::render() {
     peak_cull_ms_ = std::max(peak_cull_ms_, cull_ms_);
     peak_mesh_ms_ = std::max(peak_mesh_ms_, mesh_ms_);
 
-    overlay::draw(window_, stats, controls_);
+    if (bug_report_.open) {
+        overlay::draw_bug_report(window_, bug_report_);
+    } else if (ui_.screen() == UiScreen::Driving && controls_.stats_visible &&
+               !bug_report_capture_pending_) {
+        overlay::draw(window_, stats, controls_);
+    }
+
+    if (bug_report_.cancel_requested) {
+        bug_report_.cancel_requested = false;
+        bug_report_.close();
+        input_.set_ui_mode(ui_.modal());
+        if (bug_report_restore_mouse_) input_.set_mouse_look(true);
+        AP_INFO("bug report cancelled");
+    } else if (bug_report_.submit_requested) {
+        bug_report_.submit_requested = false;
+        bug_report_.close();
+        bug_report_capture_pending_ = true;
+        bug_report_submit_frame_ = frames_rendered_;
+        input_.set_ui_mode(ui_.modal());
+        if (bug_report_restore_mouse_) input_.set_mouse_look(true);
+        AP_INFO("bug report queued for clean framebuffer capture");
+    }
+
+    // Wait one rendered frame after the form closes. The attachment then
+    // contains the game view the player meant to report, not the report form.
+    if (bug_report_capture_pending_ &&
+        frames_rendered_ > bug_report_submit_frame_) {
+        capture_and_submit_bug_report();
+    }
+
+    if(lighting_benchmark_ && !screenshot_path_.empty() &&
+        (frames_rendered_==419 || frames_rendered_==539)) {
+        save_screenshot(screenshot_path_+(frames_rendered_==419 ? ".off.bmp" : ".on.bmp"));
+    }
+    if (police_check_ && frames_rendered_>=180 && !screenshot_path_.empty()) {
+        const auto power=police_flash_power(step_index_,police_emergency_enabled_);
+        const unsigned bit=power[0]>0 ? 1u : power[1]>0 ? 2u :
+            (!police_emergency_enabled_ && frames_rendered_>450 ? 4u : 0u);
+        if (bit && !(police_check_captures_&bit) && police_siren_.started()) {
+            if (save_screenshot(screenshot_path_+(bit==1 ? ".red.bmp" : bit==2 ? ".blue.bmp" : ".off.bmp"))) {
+                police_check_captures_|=bit;
+                AP_INFO("police check captured phase %u with siren controller ready",bit);
+            }
+        }
+    }
+    if (driver_transition_check_ && is_motorbike(car_visual_.active_car()) &&
+        vehicle_transition_.active() && vehicle_transition_.tick>=150 &&
+        !screenshot_path_.empty()) {
+        const unsigned bit=driver_check_stage_==1 ? 8u : driver_check_stage_==3 ? 16u : 0u;
+        if (bit && !(driver_check_camera_captures_&bit) &&
+            save_screenshot(screenshot_path_+(bit==8 ? ".saddle-enter-mid.bmp" :
+                ".saddle-exit-mid.bmp"))) driver_check_camera_captures_|=bit;
+    }
+    if (driver_transition_check_ && driver_check_stage_==4 && !screenshot_path_.empty()) {
+        const unsigned bit=transition_camera_release_>.9f ? 1u :
+            (transition_camera_release_>.4f && transition_camera_release_<.6f ? 2u :
+             (transition_camera_release_<=0.f ? 4u : 0u));
+        if (bit && !(driver_check_camera_captures_&bit) &&
+            save_screenshot(screenshot_path_+(bit==1 ? ".exit-start.bmp" :
+                bit==2 ? ".exit-mid.bmp" : ".exit-end.bmp"))) driver_check_camera_captures_|=bit;
+    }
+    if(house_check_)capture_house_check();
+    if(signal_check_)capture_signal_check();
+    if (!screenshot_path_.empty() && frame_limit_ > 0 &&
+        frames_rendered_ + 1 >= frame_limit_) {
+        save_screenshot(screenshot_path_);
+        screenshot_path_.clear();
+    }
 
     // Check the error queue for the first stretch of frames. Every frame
     // forever would be a needless driver round trip; never checking at all is
@@ -560,6 +2706,57 @@ void App::render() {
 
     window_.swap();
     ++frames_rendered_;
+}
+
+InputFrame App::tire_track_check_input() const {
+    InputFrame input;
+    // Four seconds to build speed, then a long handbrake arc. The last phase
+    // releases the rear tyres and leaves the camera looking across the trail.
+    if (step_index_ < 480u) {
+        input.throttle = 1.0f;
+    } else if (step_index_ < 820u) {
+        input.throttle = 0.38f;
+        input.steer = 0.88f;
+        input.handbrake = 1.0f;
+    } else if (step_index_ < 1080u) {
+        input.throttle = 0.28f;
+        input.steer = -0.35f;
+    }
+    return input;
+}
+
+void App::tire_track_check_camera() {
+    glm::vec3 track_min{0.0f};
+    glm::vec3 track_max{0.0f};
+    if (tire_tracks_.recent_bounds(track_min, track_max, 48u)) {
+        const glm::vec3 target = (track_min + track_max) * 0.5f;
+        const float span = std::max(
+            std::max(track_max.x - track_min.x, track_max.z - track_min.z),
+            12.0f);
+        camera_.position = target +
+            glm::vec3{span * 0.42f, std::max(15.0f, span * 0.86f),
+                      span * 0.42f};
+        const glm::vec3 look = target - camera_.position;
+        camera_.yaw = std::atan2(look.x, -look.z);
+        camera_.pitch = std::atan2(
+            look.y, glm::length(glm::vec2{look.x, look.z}));
+        return;
+    }
+
+    glm::vec3 forward = car_.orientation * glm::vec3{0.0f, 0.0f, -1.0f};
+    forward.y = 0.0f;
+    const float forward_length = glm::length(forward);
+    forward = forward_length > 1e-5f
+        ? forward / forward_length
+        : glm::vec3{0.0f, 0.0f, -1.0f};
+    const glm::vec3 right{-forward.z, 0.0f, forward.x};
+    const glm::vec3 target = car_.position - forward * 7.0f;
+    camera_.position = car_.position - forward * 2.0f + right * 15.0f +
+                       glm::vec3{0.0f, 16.0f, 0.0f};
+    const glm::vec3 look = target - camera_.position;
+    camera_.yaw = std::atan2(look.x, -look.z);
+    camera_.pitch = std::atan2(
+        look.y, glm::length(glm::vec2{look.x, look.z}));
 }
 
 int App::run() {
@@ -583,9 +2780,35 @@ int App::run() {
 
     while (!input_.quit_requested()) {
         if (frame_limit_ > 0 && frames_rendered_ >= frame_limit_) break;
+        if(house_check_ && (house_check_failed_ || (house_check_complete_ && house_check_capture_.empty())))break;
+        if(signal_check_ && (signal_check_failed_ || (signal_check_done_ && signal_check_capture_.empty())))break;
+        if (delivery_check_) tick_delivery_check();
+        if (weapon_check_) {
+            const auto key=[&](SDL_Keycode code,bool down) {
+                SDL_Event event{};event.type=down ? SDL_KEYDOWN:SDL_KEYUP;
+                event.key.keysym.sym=code;event.key.keysym.scancode=SDL_GetScancodeFromKey(code);
+                SDL_PushEvent(&event);
+            };
+            if (frames_rendered_==30 || frames_rendered_==120 || frames_rendered_==170) key(SDLK_TAB,true);
+            if (frames_rendered_==35) key(SDLK_2,true);
+            if (frames_rendered_==36) key(SDLK_2,false);
+            if (frames_rendered_==60 || frames_rendered_==200) key(SDLK_TAB,false);
+            if (frames_rendered_==125 || frames_rendered_==175) key(SDLK_1,true);
+            if (frames_rendered_==126 || frames_rendered_==176) key(SDLK_1,false);
+            if (frames_rendered_==150) key(SDLK_ESCAPE,true);
+            if (frames_rendered_==151) { key(SDLK_ESCAPE,false);key(SDLK_TAB,false); }
+            if (frames_rendered_==160 && weapon_wheel_.equipped!=WeaponId::Pistol)
+                weapon_check_captures_|=8u;
+        }
+        if (police_check_ && (frames_rendered_==60 || frames_rendered_==450)) {
+            SDL_Event event{}; event.type=SDL_KEYDOWN;
+            event.key.keysym.sym=SDLK_h; event.key.keysym.scancode=SDL_SCANCODE_H;
+            SDL_PushEvent(&event);
+            event.type=SDL_KEYUP; SDL_PushEvent(&event);
+        }
 
         const WallClock::time_point now = WallClock::now();
-        const double dt = std::chrono::duration<double>(now - last).count();
+        double dt = std::chrono::duration<double>(now - last).count();
         last = now;
 
         frame_ms_ = frame_ms_ + (dt * 1000.0 - frame_ms_) * kFpsSmoothing;
@@ -604,8 +2827,53 @@ int App::run() {
         }
 
         poll_events();
+        const bool cinematic_before_ui=opening_cutscene_.active();
+        const UiScreen screen_before_ui = ui_.screen();
+        process_ui_input(static_cast<float>(std::clamp(dt, 0.0, 0.1)));
+        if (opening_cutscene_.active()) {
+            camera_frame_dt_=static_cast<float>(std::clamp(dt,0.0,0.1));
+            const float elapsed=frame_limit_>0 ? 1.f/30.f : camera_frame_dt_;
+            if (opening_cutscene_.advance(elapsed)) { finish_opening();dt=0;last=WallClock::now(); }
+            else {
+                opening_cutscene_.sync();
+                camera_=opening_cutscene_.camera(window_.aspect());
+                world_.update(scene_,renderer_,camera_.position);scene_.update();
+                render();first_frame=false;clock_.reset();continue;
+            }
+        }
+        if (cinematic_before_ui && !opening_cutscene_.active()) { dt=0;last=WallClock::now(); }
+        const bool began_or_resumed =
+            screen_before_ui != UiScreen::Driving &&
+            ui_.screen() == UiScreen::Driving;
+        if (began_or_resumed) {
+            last = WallClock::now();
+        }
 
-        const FixedStep::Tick tick = clock_.advance(dt);
+        camera_frame_dt_ = static_cast<float>(std::clamp(dt, 0.0, 0.1));
+        repair_shop_feedback_s_=std::max(0.f,repair_shop_feedback_s_-camera_frame_dt_);
+        mission_success_feedback_s_=std::max(
+            0.f,mission_success_feedback_s_-camera_frame_dt_);
+        impact_feedback_seconds_ =
+            std::max(0.0f, impact_feedback_seconds_ - camera_frame_dt_);
+        if (ui_.screen() == UiScreen::Driving && on_foot_ && !vehicle_transition_.active() &&
+            !bank_interaction_.modal() && !bank_input_consumed_ && !weapon_wheel_.open && !weapon_input_consumed_) {
+            // A 144 Hz render frame can owe zero 120 Hz sim steps. Keep look
+            // deltas until one real character step consumes them.
+            character_look_dx_pending_ += input_.frame().look_dx;
+            character_look_dy_pending_ += input_.frame().look_dy;
+        }
+
+        FixedStep::Tick tick;
+        if (ui_.screen() == UiScreen::Driving && !began_or_resumed &&
+            !dev_menu_.open() && !bank_interaction_.modal() && !bank_input_consumed_ &&
+            !weapon_wheel_.open && !weapon_input_consumed_ &&
+            !(lighting_benchmark_ && frames_rendered_>=300)) {
+            tick = clock_.advance((lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_) ? 1.0/60.0 : dt);
+        } else {
+            // Title, pause and map are real pauses. Never let wall time from a
+            // modal screen turn into a burst of vehicle steps on return.
+            clock_.reset();
+        }
         last_steps_ = tick.steps;
         last_clamped_ = tick.clamped;
         if (tick.clamped) {
@@ -614,36 +2882,195 @@ int App::run() {
         }
 
         for (int i = 0; i < tick.steps; ++i) {
+            const InputFrame raw_input = tire_track_check_
+                ? tire_track_check_input()
+                : (signal_check_ ? signal_check_input() : input_.frame());
             // Snapshot before EACH step, not before the batch: prev_car_ has to
             // be exactly one step behind or the render interpolation covers the
             // wrong span on a multi-step frame.
             prev_car_ = car_;
+            prev_trailer_=trailer_;
+            prev_aircraft_ = aircraft_;
+            prev_boat_ = boat_;
+            prev_player_character_ = player_character_;
+
+            const bool swing_occupied =
+                (on_foot_ && bank_vault_swing_occupied(
+                    city::bank_local_position(player_character_.position), 0.45f)) ||
+                bank_vault_swing_occupied(city::bank_local_position(car_.position), 3.0f);
+            step_bank_vault(bank_vault_, static_cast<float>(kSimDt), swing_occupied);
+            world_.sync_bank_vault(scene_, collider_, bank_vault_.openness);
+
+            if (i == 0 && was_pressed(input_.frame(), kBtnTrailer)) toggle_trailer();
+            if (i == 0 && was_pressed(input_.frame(), kBtnRespawn) && !on_foot_) drop_trailer();
+            if (i == 0 && was_pressed(input_.frame(), kBtnAccept)) {
+                toggle_player_mode();
+            }
+            if (i == 0 && was_pressed(input_.frame(), kBtnDrink))
+                drink_at_bent_elbow();
+            if (i == 0 && on_foot_ && !vehicle_transition_.active() && !boat_transition_.active() &&
+                was_pressed(input_.frame(), kBtnRespawn)) {
+                place_character_next_to_car();
+            }
+            if (i == 0 && in_aircraft_ && was_pressed(input_.frame(), kBtnRespawn)) reset_aircraft();
+            if (i == 0 && in_boat_ && !boat_transition_.active() && was_pressed(input_.frame(), kBtnRespawn)) reset_boat();
+            const bool boat_was_transitioning=boat_transition_.active();
+            if (boat_was_transitioning) step_boat_transition();
+            if (in_boat_ && !boat_was_transitioning) {
+                world_.enable_boat_collision(collider_,false);
+                boat_=step_boat(boat_,input_.frame(),collider_,static_cast<float>(kSimDt));
+                world_.sync_boat(scene_,collider_,boat_);
+                world_.enable_boat_collision(collider_,true);
+            }
+            if (in_aircraft_) {
+                world_.enable_aircraft_collision(collider_,false);
+                aircraft_=step_aircraft(aircraft_,input_.frame(),collider_,static_cast<float>(kSimDt));
+                world_.sync_aircraft(scene_,collider_,aircraft_);
+                world_.enable_aircraft_collision(collider_,true);
+            }
 
             // Conditions are a pure function of (seed, ABSOLUTE step), never an
             // accumulator, so a tape replayed from any point in the session
             // gets its own weather back. See game/conditions.h.
-            conditions_ = conditions_at(seed_, step_index_);
-            car_ = step_vehicle(car_, conditioned_tuning(tuning_, conditions_),
-                                input_.frame(), collider_,
-                                static_cast<float>(kSimDt));
+            update_weather(true);
+            collider_.set_kinematic_enabled(current_vehicle_collider_,false);
+            if (trailer_.attached) enable_trailer_collision(false);
+            auto step_tuning = conditioned_tuning(tuning_, conditions_);
+            // Loaded rig accelerates/brakes more slowly without changing the
+            // tractor suspension mass or letting it sag through its wheels.
+            if (trailer_.attached) {
+                step_tuning.engine_peak_torque*=.62f;
+                step_tuning.brake_torque*=.80f;
+            }
+            const bool transitioning=vehicle_transition_.active();
+            const InputFrame vehicle_input = apply_drunk_input(raw_input, drunk_);
+            car_ = (on_foot_ || in_aircraft_ || in_boat_ || transitioning)
+                ? step_unoccupied_vehicle(car_, step_tuning, collider_,
+                                          static_cast<float>(kSimDt))
+                : step_vehicle(car_, step_tuning, vehicle_input, collider_,
+                               static_cast<float>(kSimDt));
+            if (conditions_.tornado_intensity > 0.0f) {
+                const TornadoForce tornado = apricot::tornado_force_at(
+                    {car_.position.x, car_.position.z},
+                    tornado_params(conditions_));
+                car_.velocity += tornado.force_n /
+                    std::max(tuning_.mass_kg, 1.0f) *
+                    static_cast<float>(kSimDt);
+            }
+            traffic_visual_.step_signals(scene_, collider_, car_, static_cast<float>(kSimDt));
+            if (car_.breakaway_id != UINT32_MAX)
+                vehicle_audio_.play_car_collision(glm::length(car_.breakaway_velocity), car_.position);
+            if(step_repair_shop(repair_shop_visit_,car_,tuning_,static_cast<float>(kSimDt),
+                !on_foot_ && !in_aircraft_ && !in_boat_ && !transitioning)) {
+                prev_car_=car_;repair_shop_feedback_s_=3.f;
+                AP_INFO("Rook's Auto Repair: body and mechanical condition restored");
+            }
+            step_trailer();
+            sync_current_vehicle_obstacle();
+            for (auto& parked:parked_vehicles_)
+                step_vehicle_mechanical(parked.state.mechanical,parked.state.body_damage,
+                    static_cast<float>(kSimDt),parked.state.mechanical_key);
+            if (transitioning) step_vehicle_transition();
+            if (on_foot_ && !transitioning && !boat_was_transitioning) {
+                InputFrame character_input = apply_drunk_input(input_.frame(), drunk_);
+                character_input.look_dx = i == 0
+                    ? character_look_dx_pending_ : 0.0f;
+                character_input.look_dy = i == 0
+                    ? character_look_dy_pending_ : 0.0f;
+                if (house_check_) character_input = house_check_input();
+                world_.step_house_doors(scene_,collider_,&player_character_,character_tuning_,
+                    character_input,static_cast<float>(kSimDt));
+                player_character_ = step_character(
+                    player_character_, character_tuning_, character_input,
+                    collider_, static_cast<float>(kSimDt));
+                if (conditions_.tornado_intensity > 0.0f) {
+                    const TornadoForce tornado = apricot::tornado_force_at(
+                        {player_character_.position.x,
+                         player_character_.position.z},
+                        tornado_params(conditions_));
+                    player_character_.velocity += tornado.force_n /
+                        std::max(tuning_.mass_kg, 1.0f) *
+                        static_cast<float>(kSimDt);
+                }
+                if (house_check_) update_house_check();
+                if (i == 0) {
+                    character_look_dx_pending_ = 0.0f;
+                    character_look_dy_pending_ = 0.0f;
+                }
+            }
+            if (!on_foot_ || transitioning || boat_was_transitioning)
+                world_.step_house_doors(scene_,collider_,nullptr,character_tuning_,
+                    InputFrame{},static_cast<float>(kSimDt));
+            step_drunk(drunk_, static_cast<float>(kSimDt));
+            OnFootTrafficHazard foot_hazard;
+            const OnFootTrafficHazard* foot_hazard_ptr = nullptr;
+            if (on_foot_) {
+                foot_hazard.height_m = player_character_.position.y;
+                foot_hazard.position = {
+                    player_character_.position.x, player_character_.position.z};
+                foot_hazard.velocity = {
+                    player_character_.velocity.x, player_character_.velocity.z};
+                foot_hazard_ptr = &foot_hazard;
+            }
+            const glm::vec3 police_target = player_focus_position();
+            const auto police_visible = visible_police(police_target);
+            world_.set_police_context(wanted_.level(), police_target,
+                                      police_visible);
+            world_.step_traffic(static_cast<int64_t>(step_index_), car_,
+                                foot_hazard_ptr);
+            world_.resolve_traffic_collision(
+                car_, tuning_.car_collision_half_width,
+                tuning_.car_collision_half_length, tuning_.mass_kg, tuning_.body_damage_gain);
+            // Traffic may displace the tractor after its vehicle step. Keep
+            // the final published hitch pose exact, including while on foot.
+            if (trailer_.attached && glm::distance(tractor_hitch(car_,tuning_),
+                    trailer_point(trailer_,kTrailerKingpin))>.001f) {
+                enable_trailer_collision(false);
+                collider_.set_kinematic_enabled(current_vehicle_collider_,false);
+                trailer_=prev_trailer_;
+                step_tractor_trailer(trailer_,car_,prev_car_,tuning_,collider_);
+                sync_trailer_collision();sync_current_vehicle_obstacle();
+            }
+            if (car_.car_contact_speed > 0.0f) {
+                vehicle_audio_.play_car_collision(car_.car_contact_speed,
+                                                  car_.position);
+            }
+            vehicle_effects_.step(scene_, collider_, step_index_, car_, tuning_,
+                                  world_.traffic());
+            tire_tracks_.step(car_, vehicle_input.handbrake,
+                              conditions_.snow_cover, step_index_);
+            wanted_.update(
+                static_cast<float>(kSimDt),
+                !visible_police(player_focus_position()).empty(),
+                world_.traffic().police_tuning());
+            if (car_.impact_count != seen_impact_count_) {
+                seen_impact_count_ = car_.impact_count;
+                impact_feedback_seconds_ = 0.55f;
+                chase_camera_.add_impact(car_.last_impact_speed);
+                AP_INFO("vehicle impact: %.1f m/s, %.1f damage, %.0f health",
+                        static_cast<double>(car_.last_impact_speed),
+                        static_cast<double>(car_.last_impact_damage),
+                        static_cast<double>(car_.health));
+            }
             ++step_index_;
+            if (vehicle_entry_check_ && !vehicle_entry_check_passed_) run_vehicle_entry_check();
+            if (driver_transition_check_ && driver_check_stage_<6) run_driver_transition_check();
+            if (aircraft_check_ && !aircraft_check_ran_) run_aircraft_check();
+            if (boat_check_ && !boat_check_ran_) run_boat_check();
+            if (trailer_check_ && !trailer_check_ran_) run_trailer_check();
         }
 
         // Consume latched edges ONLY when a step actually ran. On a zero-step
         // frame the edges stay latched for the next one. Moving this out of
         // the guard silently drops presses at high frame rates.
-        if (tick.steps > 0) input_.consume_edges();
-
-        // The car node is the only transform that MOVES; the streamed world is
-        // static, so Scene::update walks one dirty node per frame plus whatever
-        // the streamer created this frame.
-        if (car_node_ != kInvalidId) {
-            const float a = static_cast<float>(clock_.alpha());
-            Transform t;
-            t.position = glm::mix(prev_car_.position, car_.position, a);
-            t.rotation = glm::slerp(prev_car_.orientation, car_.orientation, a);
-            t.scale = car_half_ * 2.0f;
-            scene_.set_transform(car_node_, t);
+        if (tick.steps > 0) {
+            if (!on_foot_ && !in_aircraft_ && !in_boat_ && !vehicle_transition_.active() && was_pressed(input_.frame(), kBtnCamCycle)) {
+                chase_camera_.cycle();
+                dev_menu_.set_camera_mode(chase_camera_.mode());
+                camera_obstruction_distance_ = -1.0f;
+                AP_INFO("camera mode: %s", chase_camera_.mode_name());
+            }
+            input_.consume_edges();
         }
 
         // Residency, once per FRAME rather than once per sim step.
@@ -662,7 +3089,8 @@ int App::run() {
         // object updated at frame rate and free to look anywhere; streaming
         // keyed to where you are looking is streaming that depends on the
         // display. See docs/design/pinatty.md 7.2.
-        if (warp_interval_ > 0 && frames_rendered_ > 0 &&
+        if (ui_.screen() == UiScreen::Driving && warp_interval_ > 0 &&
+            frames_rendered_ > 0 &&
             frames_rendered_ % warp_interval_ == 0) {
             teleport_requested_ = true;
         }
@@ -680,7 +3108,7 @@ int App::run() {
             last = WallClock::now();  // do not charge the fill to the next frame
         } else {
             const WallClock::time_point mesh_t0 = WallClock::now();
-            world_.update(scene_, renderer_, car_.position);
+            world_.update(scene_, renderer_, player_focus_position());
             mesh_ms_ =
                 std::chrono::duration<double>(WallClock::now() - mesh_t0).count() *
                 1000.0;
@@ -707,12 +3135,170 @@ int App::run() {
             }
         }
 
+        VehicleAudioFrame audio_frame;
+        audio_frame.active =
+            ui_.screen() == UiScreen::Driving && !dev_menu_.open() &&
+            !bank_interaction_.modal() && !weapon_wheel_.open;
+        audio_frame.dt_seconds = camera_frame_dt_;
+        audio_frame.engine_running = !on_foot_ && !in_aircraft_ && !in_boat_ &&
+            !vehicle_engine_failed(car_.mechanical);
+        audio_frame.engine_rpm = car_.engine_rpm;
+        const float drive_pedal = car_.gear == kGearReverse
+                                      ? input_.frame().brake
+                                      : input_.frame().throttle;
+        audio_frame.accelerating = !on_foot_ && !in_aircraft_ && !in_boat_ &&
+            !vehicle_transition_.active() && !vehicle_engine_failed(car_.mechanical) && drive_pedal > 0.20f;
+        audio_frame.handbrake = on_foot_ || in_aircraft_ || in_boat_
+                                    ? 0.0f
+                                    : input_.frame().handbrake;
+        audio_frame.drift_slip = std::max(
+            car_.wheels[kWheelRearLeft].slip,
+            car_.wheels[kWheelRearRight].slip);
+        audio_frame.speed_mps = glm::length(
+            glm::vec3{car_.velocity.x, 0.0f, car_.velocity.z});
+        if (audio_frame.accelerating && audio_frame.speed_mps < 7.0f) {
+            for (const auto& wheel : car_.wheels) {
+                if (!wheel.grounded) continue;
+                const float excess_speed = std::fabs(wheel.angular_velocity) *
+                    tuning_.wheel_radius - audio_frame.speed_mps;
+                audio_frame.burnout_amount = std::max(audio_frame.burnout_amount,
+                    std::clamp((excess_speed - 2.0f) / 6.0f, 0.0f, 1.0f));
+            }
+        }
+        audio_frame.gear = car_.gear;
+        audio_frame.position = car_.position;
+        if (in_boat_) {
+            audio_frame.engine_running=true;
+            audio_frame.engine_rpm=850.f+std::fabs(boat_.throttle)*1800.f+std::fabs(boat_.speed)*100.f;
+            audio_frame.accelerating=std::fabs(boat_.throttle)>.2f;
+            audio_frame.handbrake=0;audio_frame.drift_slip=0;audio_frame.gear=1;
+            audio_frame.speed_mps=glm::length(boat_.velocity);audio_frame.position=boat_.position;
+        }
+        vehicle_audio_.update(audio_frame);
+        if(vehicle_leak_warning_.update(audio_device_.mixer(),audio_frame.active,
+            !on_foot_ && !in_aircraft_ && !in_boat_ && !vehicle_transition_.active(),
+            car_.mechanical_key,vehicle_leak_mask(car_.body_damage),
+            static_cast<double>(tick.steps)*kSimDt))
+            AP_INFO("vehicle fluid leak warning chime");
+        if (on_foot_ || in_aircraft_ || in_boat_ || !has_police_lightbar(car_visual_.active_car()))
+            police_emergency_enabled_=false;
+        const bool player_police_siren = police_emergency_enabled_ && !on_foot_ &&
+            !in_aircraft_ && !in_boat_ &&
+            has_police_lightbar(car_visual_.active_car());
+        const VehicleAgent* ai_pursuer =
+            world_.traffic().nearest_police_pursuer();
+        const glm::vec3 siren_position = player_police_siren || !ai_pursuer
+            ? car_.position : ai_pursuer->pos;
+        police_siren_.update(audio_frame.active,
+                             player_police_siren || ai_pursuer != nullptr,
+                             siren_position);
+        traffic_idle_audio_.begin_frame(camera_.position);
+        for (const auto& vehicle : world_.traffic().vehicles()) {
+            if (vehicle_engine_failed(vehicle.mechanical)) continue;
+            const char* model = "car5";
+            switch (traffic_vehicle_kind(vehicle)) {
+                case TrafficVehicleKind::Sedan: break;
+                case TrafficVehicleKind::BoxTruck: model = "car8"; break;
+                case TrafficVehicleKind::Ambulance: model = "ambulance"; break;
+                case TrafficVehicleKind::Firetruck: model = "firetruck"; break;
+                case TrafficVehicleKind::HalcyonSix: model = "halcyon_six"; break;
+                case TrafficVehicleKind::MontroseRegentEight: model = "montrose_regent_eight"; break;
+                case TrafficVehicleKind::VesperVx91: model = "vesper_vx91"; break;
+                case TrafficVehicleKind::Police: model = "municipal_cruiser_91c"; break;
+            }
+            traffic_idle_audio_.submit(vehicle.lane_key, vehicle.slot, vehicle.pos,
+                                       vehicle.speed_mps, model);
+        }
+        traffic_idle_audio_.end_frame(audio_frame.active);
+
+        // Five transforms move: the wheel-less body and four separately driven
+        // wheels. Do this after a possible teleport so the model cannot spend a
+        // frame at the old end of the island while the camera is at the new one.
+        const SkyEnv visual_env = current_sky_env();
+        const float visible_headlight_level = automatic_headlight_level(
+            visual_env.sun_dir.y, conditions_.atmosphere);
+        const float brake_level = (on_foot_ || in_aircraft_ || in_boat_ || vehicle_transition_.active())
+            ? 0.0f
+            : (car_.gear == kGearReverse
+                   ? input_.frame().throttle
+                   : input_.frame().brake);
+        const glm::vec3 presentation_focus = player_focus_position();
+        const bool inside_interior = world_.inside_authored_interior(
+            presentation_focus,
+            interior_presentation_lod_ ? city::kInteriorExitMarginM : 0.0f);
+        if (inside_interior != interior_presentation_lod_) {
+            interior_presentation_lod_ = inside_interior;
+            AP_INFO("interior presentation: %s (traffic %.0f m, NPC %.0f m)",
+                    interior_presentation_lod_ ? "nearby-only" : "full outdoor",
+                    static_cast<double>(interior_presentation_lod_
+                        ? city::kInteriorTrafficPresentationRadiusM : 0.0f),
+                    static_cast<double>(interior_presentation_lod_
+                        ? city::kInteriorNpcPresentationRadiusM : 0.0f));
+        }
+        const float traffic_presentation_radius = interior_presentation_lod_
+            ? city::kInteriorTrafficPresentationRadiusM : 0.0f;
+        const float npc_presentation_radius = interior_presentation_lod_
+            ? city::kInteriorNpcPresentationRadiusM : 0.0f;
+        trailer_visual_.sync(scene_,prev_trailer_,trailer_,static_cast<float>(clock_.alpha()),visible_headlight_level,brake_level);
+        car_visual_.sync(scene_, tuning_, prev_car_, car_,
+                         static_cast<float>(clock_.alpha()),
+                         visible_headlight_level, brake_level);
+        car_visual_.sync_emergency(scene_,step_index_,police_emergency_enabled_ &&
+            !on_foot_ && !in_aircraft_ && !in_boat_);
+        car_visual_.sync_driver_door(scene_,vehicle_transition_.active()
+            ? vehicle_transition_door_open(sample_vehicle_transition(vehicle_transition_,
+                transition_waiting_ ? 1.f : static_cast<float>(clock_.alpha()))) : 0.f);
+        character_visual_.sync(
+            world_.traffic(), prev_player_character_,
+            player_character_, static_cast<float>(clock_.alpha()),
+            static_cast<int64_t>(step_index_), on_foot_, presentation_focus,
+            npc_presentation_radius);
+        if (boat_transition_.active())
+            character_visual_.sync_boat_transition(world_.rendered_boat_transform(scene_),
+                boat_transition_,static_cast<float>(clock_.alpha()));
+        else if (in_boat_)
+            character_visual_.sync_boat_driver(world_.rendered_boat_transform(scene_),true,
+                input_.frame().steer,static_cast<float>(step_index_)*static_cast<float>(kSimDt));
+        else if (vehicle_transition_.active())
+            character_visual_.sync_transition(car_visual_.active_car(), car_visual_.rendered_body_transform(scene_),
+                vehicle_transition_,transition_waiting_ ? 1.f : static_cast<float>(clock_.alpha()));
+        else character_visual_.sync_driver(car_visual_.active_car(),
+            !on_foot_ && !in_aircraft_ && !in_boat_,car_visual_.rendered_body_transform(scene_));
+        glm::mat4 weapon_hand{1};
+        const bool has_weapon_hand=on_foot_ && !vehicle_transition_.active() &&
+            character_visual_.player_right_hand_transform(weapon_hand);
+        weapon_visual_.sync(scene_,weapon_wheel_.equipped,has_weapon_hand ? &weapon_hand:nullptr);
+        traffic_visual_.sync(scene_, world_.traffic(), world_.lanes(),
+                             static_cast<int64_t>(step_index_),
+                             visible_headlight_level, presentation_focus,
+                             traffic_presentation_radius);
         scene_.update();
 
-        rain_.update(camera_, controls_.rain, static_cast<float>(kSimDt) *
-                                                  static_cast<float>(tick.steps));
+        PrecipitationType precipitation_type = PrecipitationType::Rain;
+        float precipitation_intensity = controls_.rain;
+        if (conditions_.snow > 0.0f) {
+            precipitation_type =
+                conditions_.atmosphere == AtmosphericWeather::Blizzard
+                    ? PrecipitationType::Blizzard
+                    : PrecipitationType::Snow;
+            precipitation_intensity = conditions_.snow;
+        }
+        rain_.update(
+            camera_, precipitation_type,
+            ui_.settings().weather_effects ? precipitation_intensity : 0.0f,
+            static_cast<float>(kSimDt) * static_cast<float>(tick.steps));
 
         render();
+        if (weapon_check_) {
+            if (frames_rendered_==60 && weapon_wheel_.open && weapon_wheel_.hovered==WeaponId::Pistol &&
+                save_screenshot(screenshot_path_+".wheel.bmp")) weapon_check_captures_|=1u;
+            glm::mat4 hand{1};
+            if (frames_rendered_==100 && !weapon_wheel_.open && weapon_wheel_.equipped==WeaponId::Pistol &&
+                character_visual_.player_right_hand_transform(hand) &&
+                save_screenshot(screenshot_path_+".held.bmp")) weapon_check_captures_|=2u;
+            if (frames_rendered_==240 && !weapon_wheel_.open && weapon_wheel_.equipped==WeaponId::Unarmed &&
+                save_screenshot(screenshot_path_+".unarmed.bmp")) weapon_check_captures_|=4u;
+        }
 
         if (first_frame) {
             first_frame = false;
@@ -730,9 +3316,44 @@ int App::run() {
             render_stats_.instanced_batches, render_stats_.draw_calls,
             render_stats_.instances, render_stats_.largest_run,
             render_stats_.skipped_binds);
-    AP_INFO("last frame: hud %d quads in %d draw(s), rain %d drops / %d quads",
+    AP_INFO("last frame: hud %d quads in %d draw(s), precip %d particles / %d quads",
             hud_.last_quad_count(), hud_.last_draw_calls(), rain_.live_drops(),
             rain_.drawn_quads());
+    AP_INFO("tire tracks: %zu live bounded decals (%zu rubber, %zu dirt, %zu "
+            "snow), %d drawn last frame",
+            tire_tracks_.live_count(),
+            tire_tracks_.live_count(TireTrackSurface::Rubber),
+            tire_tracks_.live_count(TireTrackSurface::Dirt),
+            tire_tracks_.live_count(TireTrackSurface::Snow),
+            tire_tracks_.drawn_quads());
+    AP_INFO("vehicle effects: %zu live fluid marks",
+            vehicle_effects_.mark_count());
+    AP_INFO("weather: %s, snowfall %.2f, snowpack %.3f m (collision %.3f m)",
+            atmospheric_weather_name(conditions_.atmosphere),
+            static_cast<double>(conditions_.snow),
+            static_cast<double>(conditions_.snow_depth_m),
+            static_cast<double>(collider_.snow_collision_depth()));
+    AP_INFO("traffic: %zu simulated cars, %zu simulated pedestrians, "
+            "%zu signal heads; %zu police (%zu pursuing)",
+            world_.traffic().vehicles().size(), world_.traffic().peds().size(),
+            traffic_visual_.signal_head_count(),
+            world_.traffic().police_unit_count(),
+            world_.traffic().police_pursuit_count());
+    AP_INFO("presentation: %zu traffic rigs, %zu ambient NPC rigs, %zu staff "
+            "rigs; %d character draws; interior %s",
+            traffic_visual_.car_count(), character_visual_.ambient_npc_count(),
+            character_visual_.staff_count(), character_visual_.last_draw_count(),
+            interior_presentation_lod_ ? "nearby-only" : "full outdoor");
+    {
+        const auto& windows=world_.skyscraper_window_stats();
+        AP_INFO("city windows: %zu/%zu lit (office %zu, residential %zu, "
+                "mixed %zu; LOD %zu dynamic / %zu static)",windows.lit,
+                windows.panes,windows.office,windows.residential,windows.mixed,
+                windows.dynamic_lod,windows.static_lod);
+    }
+    AP_INFO("audio: %zu live loops, %u dropped mixer commands",
+            vehicle_audio_.loop_count() + city_audio_.loop_count() + traffic_idle_audio_.loop_count(),
+            audio_device_.mixer().dropped_commands());
     {
         const World::Stats& ws = world_.stats();
         AP_INFO("terrain: %zu chunks resident (lod %zu / %zu / %zu / %zu), "
@@ -759,6 +3380,21 @@ int App::run() {
     }
 
     gl_errors_ += drain_gl_errors("at shutdown");
+    const auto& light_grid=tiled_lighting_.grid();
+    AP_INFO("traffic lighting: %zu source beams, %zu view-relevant beams, max %u per cell, %zu light references%s",
+        lighting_source_count_,light_grid.visible_lights,light_grid.max_cell_lights,light_grid.indices.size(),
+        lighting_stress_ ? " (synthetic 100-car fixture)" : " (actual traffic)");
+    if(lighting_benchmark_) {
+        const auto median=[](std::vector<double> values) {
+            if(values.empty()) return -1.0;
+            std::sort(values.begin(),values.end());
+            return values[values.size()/2];
+        };
+        const auto& timings=tiled_lighting_.timings();
+        AP_INFO("lighting benchmark: GPU world+people OFF %.3f ms (%zu samples), ON %.3f ms (%zu samples); CPU grid+upload %.3f ms median",
+            median(timings[0]),timings[0].size(),median(timings[1]),timings[1].size(),median(light_grid_ms_));
+        AP_INFO("lighting CPU breakdown: binning %.3f ms, upload %.3f ms median",median(light_build_ms_),median(light_upload_ms_));
+    }
     if (gl_errors_ > 0) {
         AP_ERROR("%d GL error(s) during the session — the frames you saw are "
                  "not the frames that were asked for",

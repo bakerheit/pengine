@@ -1,0 +1,39 @@
+{
+  "id": "12_lou",
+  "kind": "Cutscene dialogue",
+  "title": "The lotto - line 12",
+  "character": "Lou - Manager",
+  "voice": "ballad",
+  "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Move on briskly to an everyday errand.",
+  "text": "Anyway. I gotta go make a delivery.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "12_lou.wav",
+  "transcript": "Anyway. I gotta go make a delivery.",
+  "transcript_matches": true,
+  "duration_seconds": 3.55,
+  "peak_dbfs": -10.31,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 399,
+    "input_tokens": 242,
+    "output_tokens": 157,
+    "input_token_details": {
+      "text_tokens": 242,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 86,
+      "audio_tokens": 71,
+      "reasoning_tokens": 63
+    }
+  },
+  "response_id": "resp_EKQys10arPsECEqcLBs6I"
+}

@@ -208,6 +208,7 @@ endif()
 
 # --- apricot: the executable. ------------------------------------------------
 add_executable(apricot)
+target_include_directories(apricot SYSTEM PRIVATE ${stb_SOURCE_DIR})
 target_compile_options(apricot PRIVATE ${APRICOT_STRICT_FLAGS})
 target_link_libraries(apricot PRIVATE apricot_host)
 
@@ -221,5 +222,18 @@ endif()
 
 add_subdirectory(src)
 add_subdirectory(tests)
+add_subdirectory(tools)
 
 message(STATUS "apricot ${APRICOT_VERSION} (${CMAKE_BUILD_TYPE})")
+
+
+if(APPLE)
+    set(APRICOT_GAME_APP "${CMAKE_BINARY_DIR}/bin/Probable Cause.app")
+    add_custom_command(TARGET apricot POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${APRICOT_GAME_APP}/Contents/MacOS"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:apricot>"
+            "${APRICOT_GAME_APP}/Contents/MacOS/apricot"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/src/app/game_info.plist"
+            "${APRICOT_GAME_APP}/Contents/Info.plist"
+        VERBATIM)
+endif()

@@ -2,12 +2,13 @@
 
 #include <cstdint>
 
+#include "city/florangia_roads.h"
 #include "city/map.h"
 
 namespace apricot {
 namespace city {
 
-// PINATTY'S ROAD NETWORK — the authored spines, as compiled C++ data.
+// O'HAVEN'S ROAD NETWORK — the authored spines, as compiled C++ data.
 //
 // This is the table `map_spines()` turns into `RoadSpine`s for src/road/, and
 // it is ALSO the table the Grade terrain operators are derived from. Those are
@@ -116,6 +117,15 @@ enum class RoadStructure : uint8_t {
     Fill = 4,    // drapes, and the corridor operator builds up to it
 };
 
+// Optional authored bridge architecture. Kept separate from RoadStructure so
+// a bridge can remain a plain gameplay deck (the Kessel chokepoint), retain
+// the long-span viaduct kit, or opt into the smaller municipal creek kit.
+enum class BridgeDetailStyle : uint8_t {
+    None = 0,
+    Viaduct = 1,
+    Municipal = 2,
+};
+
 constexpr bool road_structure_is_decked(RoadStructure s) {
     return s == RoadStructure::Bridge || s == RoadStructure::Tunnel;
 }
@@ -204,6 +214,14 @@ struct Road {
     // class width — see the PCG-170 note in road/road_class.h.
     float width_m = 0.0f;
 
+    // Optional linear carriageway profile. Zero keeps the resolved constant
+    // width above. A tapered road also carries its lane count at each end so
+    // the asphalt, paint, map and lane graph describe the same strip.
+    float width_start_m = 0.0f;
+    float width_end_m = 0.0f;
+    uint8_t lanes_start_per_dir = 0;
+    uint8_t lanes_end_per_dir = 0;
+
     // Does this road shape the ground under it (a Grade corridor operator)?
     //
     // NOT ALWAYS TRUE, AND THE FALSE CASES ARE THE INTERESTING ONES.
@@ -237,13 +255,47 @@ struct Road {
     RoadPoint path[kMaxRoadPoints]{};
     int count = 0;
 
+    // Graded suspended ramps use the path heights; old bridges remain flat.
+    bool deck_profile = false;
+    bool one_way = false;
+    // A ramp endpoint may meet a through lane away from the authored road
+    // centreline. These flags ask the lane graph to weld coincident lane
+    // endpoints there without inventing a full-width road junction.
+    bool lane_connect_start = false;
+    bool lane_connect_end = false;
+    BridgeDetailStyle bridge_detail_style = BridgeDetailStyle::None;
+    // A narrow access meeting a straight sidewalk road should cut only the
+    // near kerb and walk, not generate a full crossing plate. The ribbon
+    // baker validates the junction shape before honoring this hint.
+    bool curb_cut_tee = false;
+
     // --- derived, all constexpr, none of it authored -------------------------
 
     constexpr float ribbon_half_m() const {
-        return width_m > 0.0f ? width_m * 0.5f + (road_has_sidewalks(cls)
+        const float profiled = width_start_m > width_end_m ? width_start_m
+                                                           : width_end_m;
+        const float resolved = profiled > 0.0f ? profiled : width_m;
+        return resolved > 0.0f ? resolved * 0.5f + (road_has_sidewalks(cls)
                                                       ? kWalkWidthM
                                                       : 0.0f)
                               : road_ribbon_half_m(cls);
+    }
+
+    constexpr float carriageway_width_start_m() const {
+        if (width_start_m > 0.0f) return width_start_m;
+        return width_m > 0.0f ? width_m : road_width_m(cls);
+    }
+
+    constexpr float carriageway_width_end_m() const {
+        if (width_end_m > 0.0f) return width_end_m;
+        return width_m > 0.0f ? width_m : road_width_m(cls);
+    }
+
+    constexpr float carriageway_width_at_point(int i) const {
+        if (count <= 1) return carriageway_width_start_m();
+        const float t = static_cast<float>(i) / static_cast<float>(count - 1);
+        return carriageway_width_start_m() +
+               (carriageway_width_end_m() - carriageway_width_start_m()) * t;
     }
 
     constexpr float corridor_half_m() const {
@@ -297,7 +349,13 @@ struct Road {
     constexpr bool well_formed() const {
         if (name == nullptr) return false;
         if (count < 2 || count > kMaxRoadPoints) return false;
-        if (width_m < 0.0f) return false;
+        if (width_m < 0.0f || width_start_m < 0.0f || width_end_m < 0.0f)
+            return false;
+        const bool any_profile = width_start_m > 0.0f || width_end_m > 0.0f ||
+                                 lanes_start_per_dir > 0 || lanes_end_per_dir > 0;
+        if (any_profile && (width_start_m <= 0.0f || width_end_m <= 0.0f ||
+                            lanes_start_per_dir == 0 || lanes_end_per_dir == 0))
+            return false;
         // A decked road that also grades the ground fills in the thing it was
         // built to cross. This is the Camber channel / causeway lesson applied
         // one level up.
@@ -341,6 +399,18 @@ struct Road {
 //   150-159   Camber Point
 //   160-179   Marrow
 //   180-199   inter-district links
+//   200-206   Vellum hospital-superblock split stubs and north extension
+//   220-221   Florangia Highway and airport access
+//   222-229   Miandi first-pass street grid
+
+constexpr RoadPoint vellum_road_point(float east, float south,
+                                      float elevation_m = 12.0f) {
+    constexpr float c = 0.9945218954f;
+    constexpr float s = -0.1045284633f;
+    return {70.0f + c * east + s * south,
+            -40.0f - s * east + c * south, elevation_m};
+}
+
 inline constexpr Road kRoads[] = {
 
     // =======================================================================
@@ -410,7 +480,8 @@ inline constexpr Road kRoads[] = {
      .block_quality = 210,
      .deck_y_m = 6.0f,
      .path = {{-928.0f, 142.0f, 6.0f}, {-872.0f, 248.0f, 6.0f}},
-     .count = 2},
+     .count = 2,
+     .bridge_detail_style = BridgeDetailStyle::Municipal},
 
     {.name = "Route 1 - the Vellum Reach",
      .id = 6,
@@ -419,12 +490,133 @@ inline constexpr Road kRoads[] = {
      .block_quality = 120,  // in town a block is a suggestion, not a wall
      .shapes_ground = true,
      .path = {{-872.0f, 248.0f, 6.0f},
-              {-620.0f, 400.0f, 8.0f},
-              {-380.0f, 470.0f, 11.0f},
-              {-40.0f, 490.0f, 12.0f},
-              {420.0f, 520.0f, 12.0f},
-              {1120.0f, 560.0f, 12.0f}},
-     .count = 6},
+              {-760.0f, 315.56f, 6.0f},
+              {-700.0f, 351.75f, 7.0f},
+              {-620.0f, 400.0f, 11.0f},
+              {-540.0f, 423.33f, 16.0f}},
+     .count = 5},
+
+    // Halloway's paired ramps get a real fourth auxiliary lane on each side
+    // of the viaduct. The first three lane centres stay fixed while the outer
+    // shoulder opens by 5 m per carriageway over an 84 m taper.
+    {.name = "Route 1 - Halloway West Taper", .id = 18,
+     .district = DistrictId::VellumRow, .cls = RoadClass::Freeway,
+     .block_quality = 120, .width_start_m = 30.0f, .width_end_m = 40.0f,
+     .lanes_start_per_dir = 3, .lanes_end_per_dir = 4, .shapes_ground = true,
+     .path = {{-540.0f, 423.33f, 16.0f}, {-460.0f, 446.67f, 21.0f}}, .count = 2},
+    {.name = "Route 1 - Halloway West Auxiliary", .id = 19,
+     .district = DistrictId::HallowaySquare, .cls = RoadClass::Freeway,
+     .block_quality = 120, .width_start_m = 40.0f, .width_end_m = 40.0f,
+     .lanes_start_per_dir = 4, .lanes_end_per_dir = 4, .shapes_ground = true,
+     .path = {{-460.0f, 446.67f, 21.0f}, {-420.0f, 458.33f, 22.0f},
+              {-380.0f, 470.0f, 22.0f}}, .count = 3},
+    {.name = "Route 1 - Halloway West Auxiliary Viaduct", .id = 29,
+     .district = DistrictId::HallowaySquare, .cls = RoadClass::Freeway,
+     .structure = RoadStructure::Bridge, .deck_y_m = 22.0f,
+     .width_start_m = 40.0f, .width_end_m = 40.0f,
+     .lanes_start_per_dir = 4, .lanes_end_per_dir = 4,
+     .path = {{-380.0f, 470.0f, 22.0f}, {-340.0f, 472.353f, 22.0f}}, .count = 2,
+     .bridge_detail_style = BridgeDetailStyle::Viaduct},
+
+    // The auxiliary lane leaves on the ramp at the west end, so the deck has
+    // to narrow AFTER the fork. A raw 40 m -> 30 m road seam bakes as a square
+    // junction plate: a huge unmarked asphalt shelf beside the ramp. This
+    // short profile turns that shelf into a real painted gore taper while the
+    // first three lane centres remain fixed.
+    {.name = "Route 1 - Halloway West Gore Taper", .id = 45,
+     .district = DistrictId::HallowaySquare, .cls = RoadClass::Freeway,
+     .structure = RoadStructure::Bridge, .deck_y_m = 22.0f,
+     .width_start_m = 40.0f, .width_end_m = 30.0f,
+     .lanes_start_per_dir = 3, .lanes_end_per_dir = 3,
+     .path = {{-340.0f, 472.353f, 22.0f}, {-280.0f, 475.882f, 22.0f}}, .count = 2,
+     .bridge_detail_style = BridgeDetailStyle::Viaduct},
+
+    // Two genuine underpasses: North Arm and Cinder Link pass BELOW this
+    // deck. No Grade operator here: the space beneath must stay open.
+    {.name = "Route 1 - Halloway Viaduct", .id = 11,
+     .district = DistrictId::HallowaySquare, .cls = RoadClass::Freeway,
+     .structure = RoadStructure::Bridge, .deck_y_m = 22.0f,
+     .path = {{-280.0f, 475.882f, 22.0f}, {-40.0f, 490.0f, 22.0f},
+              {160.0f, 503.043f, 22.0f}}, .count = 3,
+     .bridge_detail_style = BridgeDetailStyle::Viaduct},
+    {.name = "Route 1 - Halloway East Gore Taper", .id = 46,
+     .district = DistrictId::HallowaySquare, .cls = RoadClass::Freeway,
+     .structure = RoadStructure::Bridge, .deck_y_m = 22.0f,
+     .width_start_m = 30.0f, .width_end_m = 40.0f,
+     .lanes_start_per_dir = 3, .lanes_end_per_dir = 3,
+     .path = {{160.0f, 503.043f, 22.0f}, {220.0f, 506.957f, 22.0f}}, .count = 2,
+     .bridge_detail_style = BridgeDetailStyle::Viaduct},
+    {.name = "Route 1 - Halloway East Auxiliary Viaduct", .id = 43,
+     .district = DistrictId::HallowaySquare, .cls = RoadClass::Freeway,
+     .structure = RoadStructure::Bridge, .deck_y_m = 22.0f,
+     .width_start_m = 40.0f, .width_end_m = 40.0f,
+     .lanes_start_per_dir = 4, .lanes_end_per_dir = 4,
+     .path = {{220.0f, 506.957f, 22.0f}, {480.0f, 523.429f, 22.0f}}, .count = 2,
+     .bridge_detail_style = BridgeDetailStyle::Viaduct},
+    {.name = "Route 1 - Halloway East Taper", .id = 44,
+     .district = DistrictId::HallowaySquare, .cls = RoadClass::Freeway,
+     .structure = RoadStructure::Bridge, .deck_y_m = 22.0f,
+     .width_start_m = 40.0f, .width_end_m = 30.0f,
+     .lanes_start_per_dir = 4, .lanes_end_per_dir = 3,
+     .path = {{480.0f, 523.429f, 22.0f}, {600.0f, 530.286f, 22.0f}}, .count = 2,
+     .bridge_detail_style = BridgeDetailStyle::Viaduct},
+    {.name = "Route 1 - Vellum East Approach", .id = 12,
+     .district = DistrictId::VellumRow, .cls = RoadClass::Freeway,
+     .shapes_ground = true,
+     .path = {{600.0f, 530.286f, 22.0f}, {640.0f, 532.571f, 22.0f},
+              {700.0f, 536.0f, 20.0f}, {760.0f, 539.429f, 17.0f},
+              {820.0f, 542.857f, 14.0f}, {880.0f, 546.286f, 12.0f},
+              {940.0f, 549.714f, 12.0f}, {1120.0f, 560.0f, 12.0f}}, .count = 8},
+
+    // Diamond interchange. Each ramp now lands on the physical outer
+    // auxiliary lane instead of welding its centreline to the freeway centre.
+    // The north pair also shares one surface-road station: its two one-way
+    // mouths continue straight across North Arm instead of making staggered
+    // T-junctions 40 m apart.
+    {.name = "Halloway westbound entry", .id = 13,
+     .district = DistrictId::HallowaySquare, .cls = RoadClass::Alley,
+     .structure = RoadStructure::Bridge, .deck_y_m = 22.0f, .width_m = 8.0f,
+     .path = {{-45.714f, 440.0f, 12.357f}, {-80.0f, 440.0f, 12.5f},
+              {-100.0f, 424.0f, 14.0f}, {-135.0f, 396.0f, 16.0f},
+              {-190.0f, 426.0f, 20.0f},
+              {-245.0f, 459.0f, 22.0f}, {-338.972f, 454.883f, 22.0f}},
+     .count = 7, .deck_profile = true, .one_way = true,
+     .lane_connect_end = true},
+    {.name = "Halloway westbound exit", .id = 14,
+     .district = DistrictId::HallowaySquare, .cls = RoadClass::Alley,
+     .structure = RoadStructure::Bridge, .deck_y_m = 12.5f, .width_m = 8.0f,
+     .path = {{221.106f, 489.492f, 22.0f}, {165.0f, 482.0f, 22.0f},
+              {120.0f, 471.0f, 22.0f}, {55.0f, 438.0f, 16.0f},
+              {-20.0f, 440.0f, 12.5f}, {-45.714f, 440.0f, 12.357f}},
+     .count = 6, .deck_profile = true, .one_way = true,
+     .lane_connect_start = true},
+    // South interchange terminal. This signal used to sit only 7 m from a
+    // second signal where the Plaza Ring accidentally crossed the North Arm.
+    // The ramp pair now forms one straight, legible one-way approach at z=550;
+    // the Ring lands on the Arm 100 m farther south at its own proper node.
+    {.name = "Halloway eastbound entry", .id = 15,
+     .district = DistrictId::HallowaySquare, .cls = RoadClass::Alley,
+     .structure = RoadStructure::Bridge, .deck_y_m = 22.0f, .width_m = 8.0f,
+     .path = {{-46.207f, 550.0f, 12.461f}, {-15.0f, 550.0f, 12.7f},
+              {10.0f, 550.7f, 14.0f}, {55.0f, 552.0f, 14.5f},
+              {120.0f, 550.0f, 18.0f},
+              {165.0f, 540.0f, 21.0f}, {218.894f, 524.422f, 22.0f}},
+     .count = 7, .deck_profile = true, .one_way = true,
+     .lane_connect_end = true},
+    {.name = "Halloway eastbound exit", .id = 16,
+     .district = DistrictId::HallowaySquare, .cls = RoadClass::Alley,
+     .structure = RoadStructure::Bridge, .deck_y_m = 14.0f, .width_m = 8.0f,
+     .path = {{-341.028f, 489.823f, 22.0f}, {-285.0f, 497.0f, 22.0f},
+              {-230.0f, 520.0f, 20.0f}, {-150.0f, 555.0f, 16.0f},
+              {-90.0f, 550.0f, 13.5f}, {-60.0f, 550.0f, 12.55f},
+              {-46.207f, 550.0f, 12.461f}},
+     .count = 7, .deck_profile = true, .one_way = true,
+     .lane_connect_start = true},
+    {.name = "Cinder Underpass", .id = 17,
+     .district = DistrictId::VellumRow, .cls = RoadClass::Street,
+     .shapes_ground = true,
+     .path = {{401.5f, 326.7f, 12.0f}, {401.5f, 600.0f, 12.0f},
+              {480.0f, 800.0f, 13.0f}}, .count = 3},
 
     {.name = "Route 1 - the Nickel Reach",
      .id = 7,
@@ -484,19 +676,19 @@ inline constexpr Road kRoads[] = {
      .corridor_feather_m = 24.0f,
      .path = {{215.0f, 1420.0f, 16.0f},
               {200.0f, 1650.0f, 10.0f},
-              {185.0f, 1880.0f, 7.0f},
-              {170.0f, 2130.0f, 6.0f}},
-     .count = 4},
+              {185.0f, 1880.0f, 7.0f}},
+     .count = 3},
 
     // =======================================================================
     //  20-49. VELLUM ROW — the grid.
     // =======================================================================
     //
-    // Nine north-south streets 92 m apart and eleven east-west 62 m apart, on
-    // the district's authored 6-degree rotation and its authored 92 x 62 m
-    // block. Ninety-nine four-way junctions: EVERY ONE OF THEM IS FOUR CHOICES,
-    // which is what makes this the district where you escape by reading the
-    // pursuit rather than by out-driving it.
+    // Nine north-south streets 92 m apart and eleven full cross streets 62 m
+    // apart, on the district's authored 6-degree rotation and 92 x 62 m block.
+    // Two short east-side cross streets add the northern tower rows without
+    // disturbing the Ferrone fork. The regional hospital absorbs a three-by-
+    // three superblock and clips five internal runs; the rest remains a dense
+    // four-choice grid, so pursuits route around the campus perimeter.
     //
     // None of them shapes the ground and none of them needs to. The Vellum Row
     // plate is a Flatten at strength 1.0, so the whole grid stands on ground
@@ -506,50 +698,66 @@ inline constexpr Road kRoads[] = {
     // The coordinates are the rotation arithmetic done once, not typed nine and
     // eleven times: centre (70, -40), north (sin 6, -cos 6), east (cos 6, sin 6).
 
-    {.name = "Vellum NS 1", .id = 20, .district = DistrictId::VellumRow,
+    // The two-row north extension is deliberately east-side only. Ferrone Road
+    // leaves the core from Vellum Row at Tenth; extending the whole grid past
+    // that fork creates a field of dead-end asphalt and crosses its approach.
+    {.name = "Briar Street", .id = 20, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-261.5f, -406.7f, 12.0f}, {-330.5f, 249.7f, 12.5f}}, .count = 2},
-    {.name = "Vellum NS 2", .id = 21, .district = DistrictId::VellumRow,
+     .path = {vellum_road_point(-368.0f, -330.0f),
+              {-330.5f, 249.7f, 12.5f}}, .count = 2},
+    {.name = "Mercer Avenue", .id = 21, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-170.0f, -397.0f, 12.0f}, {-239.0f, 259.3f, 13.0f}}, .count = 2},
-    {.name = "Vellum NS 3", .id = 22, .district = DistrictId::VellumRow,
+     .path = {vellum_road_point(-276.0f, -330.0f),
+              {-239.0f, 259.3f, 13.0f}}, .count = 2},
+    {.name = "Bellweather Road", .id = 22, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-78.5f, -387.4f, 12.0f}, {-147.5f, 269.0f, 12.0f}}, .count = 2},
-    {.name = "Vellum NS 4", .id = 23, .district = DistrictId::VellumRow,
+     .path = {vellum_road_point(-184.0f, -330.0f),
+              {-147.5f, 269.0f, 12.0f}}, .count = 2},
+    // The hospital superblock removes the middle of Rook Lane. Keep the
+    // stable id on its longer south half; id 200 owns the short north stub.
+    {.name = "Rook Lane", .id = 23, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{13.0f, -377.8f, 12.0f}, {-56.0f, 278.6f, 13.5f}}, .count = 2},
+     .path = {vellum_road_point(-92.0f, -62.0f),
+              vellum_road_point(-92.0f, 330.0f, 13.5f)}, .count = 2},
 
     // The middle north-south run is the district spine and carries the traffic,
     // so it is the one street here wide enough to be worth blocking.
-    {.name = "Vellum Row (the street)", .id = 24, .district = DistrictId::VellumRow,
+    // Vellum Row bends around the hospital instead of cutting through it. Its
+    // stable id remains on the long south arterial; id 201 is the north stub.
+    {.name = "Vellum Row", .id = 24, .district = DistrictId::VellumRow,
      .cls = RoadClass::Arterial, .block_quality = 160,
-     .path = {{104.5f, -368.2f, 12.0f}, {35.5f, 288.2f, 13.5f}}, .count = 2},
-    {.name = "Vellum NS 6", .id = 25, .district = DistrictId::VellumRow,
+     .path = {vellum_road_point(0.0f, -124.0f),
+              vellum_road_point(0.0f, 330.0f, 13.5f)}, .count = 2},
+    {.name = "Juniper Avenue", .id = 25, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{196.0f, -358.6f, 12.0f}, {127.0f, 297.8f, 13.0f}}, .count = 2},
-    {.name = "Vellum NS 7", .id = 26, .district = DistrictId::VellumRow,
+     .path = {vellum_road_point(92.0f, -434.0f),
+              {127.0f, 297.8f, 13.0f}}, .count = 2},
+    {.name = "Ashford Street", .id = 26, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{287.5f, -349.0f, 12.0f}, {218.5f, 307.4f, 12.0f}}, .count = 2},
-    {.name = "Vellum NS 8", .id = 27, .district = DistrictId::VellumRow,
+     .path = {vellum_road_point(184.0f, -434.0f),
+              {218.5f, 307.4f, 12.0f}}, .count = 2},
+    {.name = "Wren Road", .id = 27, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{379.0f, -339.3f, 12.0f}, {310.0f, 317.0f, 12.5f}}, .count = 2},
-    {.name = "Vellum NS 9", .id = 28, .district = DistrictId::VellumRow,
+     .path = {vellum_road_point(276.0f, -434.0f),
+              {310.0f, 317.0f, 12.5f}}, .count = 2},
+    {.name = "Cinder Street", .id = 28, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{470.5f, -329.7f, 12.0f}, {401.5f, 326.7f, 12.0f}}, .count = 2},
+     .path = {vellum_road_point(368.0f, -434.0f),
+              {401.5f, 326.7f, 12.0f}}, .count = 2},
 
-    {.name = "Vellum EW 1", .id = 30, .district = DistrictId::VellumRow,
+    {.name = "First Street", .id = 30, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-380.1f, 224.4f, 11.0f}, {455.3f, 312.2f, 12.0f}}, .count = 2},
-    {.name = "Vellum EW 2", .id = 31, .district = DistrictId::VellumRow,
+    {.name = "Second Street", .id = 31, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-373.6f, 162.7f, 11.5f}, {461.8f, 250.5f, 12.0f}}, .count = 2},
-    {.name = "Vellum EW 3", .id = 32, .district = DistrictId::VellumRow,
+    {.name = "Third Street", .id = 32, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-367.1f, 101.1f, 11.5f}, {468.3f, 188.9f, 12.0f}}, .count = 2},
-    {.name = "Vellum EW 4", .id = 33, .district = DistrictId::VellumRow,
+    {.name = "Fourth Street", .id = 33, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-360.7f, 39.4f, 11.5f}, {474.7f, 127.2f, 12.0f}}, .count = 2},
-    {.name = "Vellum EW 5", .id = 34, .district = DistrictId::VellumRow,
+    {.name = "Fifth Street", .id = 34, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-354.2f, -22.2f, 12.0f}, {481.2f, 65.6f, 12.0f}}, .count = 2},
 
@@ -559,21 +767,59 @@ inline constexpr Road kRoads[] = {
     {.name = "Halloway Street", .id = 35, .district = DistrictId::VellumRow,
      .cls = RoadClass::Arterial, .block_quality = 160,
      .path = {{-347.7f, -83.9f, 12.0f}, {487.7f, 3.9f, 11.5f}}, .count = 2},
-    {.name = "Vellum EW 7", .id = 36, .district = DistrictId::VellumRow,
+    {.name = "Sixth Street", .id = 36, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-341.2f, -145.6f, 12.0f}, {494.2f, -57.8f, 11.5f}}, .count = 2},
-    {.name = "Vellum EW 8", .id = 37, .district = DistrictId::VellumRow,
+    {.name = "Seventh Street", .id = 37, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-334.7f, -207.2f, 12.0f}, {500.7f, -119.4f, 11.5f}}, .count = 2},
-    {.name = "Vellum EW 9", .id = 38, .district = DistrictId::VellumRow,
+     .path = {vellum_road_point(0.0f, -124.0f),
+              vellum_road_point(420.0f, -124.0f, 11.5f)}, .count = 2},
+    {.name = "Eighth Street", .id = 38, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-328.3f, -268.9f, 12.0f}, {507.1f, -181.1f, 11.5f}}, .count = 2},
-    {.name = "Vellum EW 10", .id = 39, .district = DistrictId::VellumRow,
+     .path = {vellum_road_point(92.0f, -186.0f),
+              vellum_road_point(420.0f, -186.0f, 11.5f)}, .count = 2},
+    {.name = "Ninth Street", .id = 39, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-321.8f, -330.5f, 12.0f}, {513.6f, -242.7f, 12.0f}}, .count = 2},
-    {.name = "Vellum EW 11", .id = 40, .district = DistrictId::VellumRow,
+     .path = {vellum_road_point(92.0f, -248.0f),
+              vellum_road_point(420.0f, -248.0f)}, .count = 2},
+    {.name = "Tenth Street", .id = 40, .district = DistrictId::VellumRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-315.3f, -392.2f, 12.0f}, {520.1f, -304.4f, 12.0f}}, .count = 2},
+    {.name = "Eleventh Street", .id = 205, .district = DistrictId::VellumRow,
+     .cls = RoadClass::Street, .block_quality = 90,
+     .path = {vellum_road_point(92.0f, -372.0f),
+              vellum_road_point(368.0f, -372.0f)}, .count = 2},
+    {.name = "Twelfth Street", .id = 206, .district = DistrictId::VellumRow,
+     .cls = RoadClass::Street, .block_quality = 90,
+     .path = {vellum_road_point(92.0f, -434.0f),
+              vellum_road_point(368.0f, -434.0f)}, .count = 2},
+
+    // Matching perimeter stubs stop at the campus boundary. Their names
+    // intentionally match the surviving halves so the map shows one street
+    // name while the graph sees separate roads with stable unique ids.
+    {.name = "Rook Lane", .id = 200, .district = DistrictId::VellumRow,
+     .cls = RoadClass::Street, .block_quality = 90,
+     .path = {vellum_road_point(-92.0f, -330.0f),
+              vellum_road_point(-92.0f, -310.0f)}, .count = 2},
+    {.name = "Vellum Row", .id = 201, .district = DistrictId::VellumRow,
+     .cls = RoadClass::Arterial, .block_quality = 160,
+     .path = {vellum_road_point(0.0f, -330.0f),
+              vellum_road_point(0.0f, -310.0f)}, .count = 2},
+    {.name = "Seventh Street", .id = 202,
+     .district = DistrictId::VellumRow, .cls = RoadClass::Street,
+     .block_quality = 90,
+     .path = {vellum_road_point(-420.0f, -124.0f),
+              vellum_road_point(-184.0f, -124.0f)}, .count = 2},
+    {.name = "Eighth Street", .id = 203,
+     .district = DistrictId::VellumRow, .cls = RoadClass::Street,
+     .block_quality = 90,
+     .path = {vellum_road_point(-420.0f, -186.0f),
+              vellum_road_point(-184.0f, -186.0f)}, .count = 2},
+    {.name = "Ninth Street", .id = 204,
+     .district = DistrictId::VellumRow, .cls = RoadClass::Street,
+     .block_quality = 90,
+     .path = {vellum_road_point(-420.0f, -248.0f),
+              vellum_road_point(-184.0f, -248.0f)}, .count = 2},
 
     // The two ramps that put the grid on Route 1. Only two, and that is the
     // point: nine streets spilling straight onto a freeway would make the
@@ -602,9 +848,13 @@ inline constexpr Road kRoads[] = {
 
     {.name = "the North Arm", .id = 50, .district = DistrictId::HallowaySquare,
      .cls = RoadClass::Arterial, .block_quality = 150, .shapes_ground = true,
-     .path = {{-70.0f, 780.0f, 14.0f}, {-55.0f, 620.0f, 13.0f},
-              {-40.0f, 490.0f, 12.0f}},
-     .count = 3},
+     .path = {{-70.0f, 780.0f, 14.0f}, {-56.552f, 650.0f, 14.0f},
+              {-46.207f, 550.0f, 12.461f}, {-40.0f, 490.0f, 12.0f},
+              {-45.714f, 440.0f, 12.357f},
+              {-48.0f, 420.0f, 12.5f},
+              {-55.0f, 380.0f, 13.0f},
+              vellum_road_point(0.0f, 330.0f, 13.5f)},
+     .count = 8},
     {.name = "the East Arm", .id = 51, .district = DistrictId::HallowaySquare,
      .cls = RoadClass::Arterial, .block_quality = 150, .shapes_ground = true,
      .path = {{-70.0f, 780.0f, 14.0f}, {230.0f, 830.0f, 14.0f},
@@ -621,18 +871,20 @@ inline constexpr Road kRoads[] = {
               {-780.0f, 620.0f, 9.0f}, {-1010.0f, 560.0f, 7.0f}},
      .count = 4},
 
-    // The ring the four arms hang off. A radial district needs one or the
-    // plaza is a roundabout with no roundabout.
+    // The ring the four arms hang off. Its north point is authored directly
+    // on the North Arm. The old (-70,620) point missed the arterial, crossed
+    // it 7 m beyond the ramp terminal, and produced two overlapping signal
+    // boxes that no driver could read as separate junctions.
     {.name = "the Plaza Ring (west)", .id = 54,
      .district = DistrictId::HallowaySquare, .cls = RoadClass::Arterial,
      .block_quality = 110, .shapes_ground = true,
-     .path = {{-70.0f, 620.0f, 14.0f}, {-230.0f, 700.0f, 14.0f},
+     .path = {{-56.552f, 650.0f, 14.0f}, {-230.0f, 700.0f, 14.0f},
               {-230.0f, 860.0f, 14.0f}, {-70.0f, 940.0f, 14.0f}},
      .count = 4},
     {.name = "the Plaza Ring (east)", .id = 55,
      .district = DistrictId::HallowaySquare, .cls = RoadClass::Arterial,
      .block_quality = 110, .shapes_ground = true,
-     .path = {{-70.0f, 620.0f, 14.0f}, {90.0f, 700.0f, 14.0f},
+     .path = {{-56.552f, 650.0f, 14.0f}, {90.0f, 700.0f, 14.0f},
               {90.0f, 860.0f, 14.0f}, {-70.0f, 940.0f, 14.0f}},
      .count = 4},
 
@@ -772,6 +1024,16 @@ inline constexpr Road kRoads[] = {
               {-572.1f, -0.6f, 5.5f}},
      .count = 5},
 
+    // A quiet dirt spur from Old Tide's west end into the working farm in the
+    // open wedge above the Apron Spine. It is a dead end, not a new shortcut
+    // across Route 1, so the freeway remains grade-separated.
+    {.name = "Tidewater Farm Track", .id = 78,
+     .district = DistrictId::Saltmarsh, .cls = RoadClass::Dirt,
+     .block_quality = 0, .shapes_ground = true,
+     .path = {{-1300.0f, -190.0f, 5.5f}, {-1300.0f, -260.0f, 5.4f},
+              {-1285.0f, -335.0f, 5.2f}},
+     .count = 3},
+
     {.name = "Marsh Hill Road", .id = 75, .district = DistrictId::Saltmarsh,
      .cls = RoadClass::Street, .block_quality = 120, .shapes_ground = true,
      .path = {{-1018.4f, 324.9f, 5.5f}, {-1010.0f, 450.0f, 6.2f},
@@ -788,7 +1050,7 @@ inline constexpr Road kRoads[] = {
 
     {.name = "the Apron Spine", .id = 80, .district = DistrictId::OstendDocks,
      .cls = RoadClass::Arterial, .block_quality = 200, .shapes_ground = true,
-     .path = {{-1453.0f, -522.0f, 6.0f}, {-1700.0f, -560.0f, 5.0f},
+     .path = {{-1453.0f, -522.0f, 8.22f}, {-1700.0f, -560.0f, 5.0f},
               {-1950.0f, -600.0f, 5.0f}},
      .count = 3},
 
@@ -811,6 +1073,22 @@ inline constexpr Road kRoads[] = {
      .cls = RoadClass::Arterial, .block_quality = 220, .shapes_ground = true,
      .path = {{-1690.0f, -840.0f, 5.0f}, {-1960.0f, -880.0f, 5.0f}},
      .count = 2},
+
+    {.name = "Boatworks Road", .id = 84, .district = DistrictId::OstendDocks,
+     .cls = RoadClass::Alley, .block_quality = 25, .width_m = 8.0f,
+     .shapes_ground = true, .corridor_feather_m = 12.0f,
+     // World -Z is north. Branch from the north arm of Berth 2, hold a
+     // ten-metre centreline setback around the parking slab's north-east
+     // corner, then bend south through its dedicated east opening.
+     .path = {{-1951.6072f, -645.0f, 5.0f}, {-1967.0f, -645.0f, 5.0f},
+              {-1968.0f, -644.5f, 5.0f}, {-1968.7f, -643.5f, 5.0f},
+              {-1969.0f, -642.0f, 5.0f},
+              {-1969.0f, -637.0f, 5.0f}, {-1969.0f, -632.0f, 5.0f},
+              {-1969.4f, -629.5f, 5.0f}, {-1970.2f, -627.0f, 5.0f},
+              {-1971.5f, -624.8f, 5.0f}, {-1973.5f, -622.5f, 5.0f},
+              {-1975.5f, -621.0f, 5.0f}, {-1977.0f, -620.3f, 5.0f},
+              {-1979.0f, -620.0f, 5.0f}, {-1981.0f, -620.0f, 5.0f}},
+     .count = 15, .curb_cut_tee = true},
 
     // =======================================================================
     //  90-99. KEPLER FLATS — hazards as terrain.
@@ -873,7 +1151,7 @@ inline constexpr Road kRoads[] = {
      .count = 2},
 
     // THE FIRE ROAD. Unmarked, unpaved, and the single most valuable piece of
-    // local knowledge Pinatty has to teach: it is the way off the hill when the
+    // local knowledge O'Haven has to teach: it is the way off the hill when the
     // Shoulder is shut. Never stage a block on it — a player who has earned
     // this route has earned the escape.
     {.name = "the fire road", .id = 102, .district = DistrictId::FerroneHill,
@@ -1050,25 +1328,137 @@ inline constexpr Road kRoads[] = {
     //  150-159. CAMBER POINT — the escape hatch and the arena.
     // =======================================================================
     //
-    // A perimeter road around the runway, on the flattest large surface in the
-    // world, reached only by the causeway.
-
-    {.name = "the Perimeter Road", .id = 150,
+    // Public frontage stays on the terminal side of the field. The first
+    // draft called this a perimeter road and closed it through the apron;
+    // worse, the Camber Causeway met that loop in the middle of the airfield.
+    // This is now an open landside street. The airport parkway joins its east
+    // end, and every public destination branches from it before the runway.
+    {.name = "Airport Frontage Road", .id = 150,
      .district = DistrictId::CamberPoint, .cls = RoadClass::Street,
-     .block_quality = 60,
-     .path = {{170.0f, 2130.0f, 6.0f}, {-330.0f, 2110.0f, 6.0f},
-              {-330.0f, 2230.0f, 6.0f}, {560.0f, 2240.0f, 6.0f},
-              {600.0f, 2100.0f, 6.0f}, {170.0f, 2130.0f, 6.0f}},
+     .block_quality = 40, .width_m = 12.0f,
+     .path = {{-280.0f, 2390.0f, 6.0f},
+              {330.0f, 2390.0f, 6.0f},
+              {400.0f, 2390.0f, 6.0f},
+              {460.0f, 2390.0f, 6.0f},
+              {520.0f, 2400.0f, 6.0f},
+              {600.0f, 2410.0f, 6.0f}},
      .count = 6},
 
     // Inside the loop, not outside it. It ran south to z = 2000 in the first
     // draft, and z = 2000 at this x is 220 m from the Camber channel's
     // centreline -- inside a 300 m feather that pulls the ground to -0.24 m.
     // The taxiway was under water and nothing but the measurement said so.
-    {.name = "the Apron", .id = 151, .district = DistrictId::CamberPoint,
-     .cls = RoadClass::Street, .block_quality = 20,
-     .path = {{-330.0f, 2170.0f, 6.0f}, {100.0f, 2180.0f, 6.0f}},
-     .count = 2},
+    {.name = "Secure Apron Access", .id = 151,
+     .district = DistrictId::CamberPoint,
+     .cls = RoadClass::Alley, .block_quality = 20, .width_m = 8.0f,
+     .path = {{-355.0f, 2170.0f, 6.0f},
+              {-250.0f, 2176.3253f, 6.0f},
+              {-170.0f, 2180.0f, 6.0f},
+              {-70.0f, 2190.0f, 6.0f}},
+     .count = 4},
+
+    // Two perimeter-road connections form a complete public landside loop.
+    // Ten points ease the approaches into the 260 m pickup/dropoff frontage;
+    // the old six-point version forced sharp road plates and sidewalk mitres
+    // across the carriageway at both terminal corners. Parking lives inside
+    // the broad return loop, with the noisy junctions down at the far edge.
+    {.name = "the Terminal Loop", .id = 152,
+     .district = DistrictId::CamberPoint, .cls = RoadClass::Street,
+     .block_quality = 35, .width_m = 12.0f,
+     .path = {{-100.0f, 2390.0f, 6.0f},
+              {-100.0f, 2360.0f, 6.0f},
+              {-80.0f, 2332.0f, 6.0f},
+              {-50.0f, 2312.0f, 6.0f},
+              {-15.0f, 2300.0f, 6.0f},
+              {245.0f, 2300.0f, 6.0f},
+              {280.0f, 2312.0f, 6.0f},
+              {310.0f, 2332.0f, 6.0f},
+              {330.0f, 2360.0f, 6.0f},
+              {330.0f, 2390.0f, 6.0f}},
+     .count = 10},
+
+    // The airport edge is three precincts, not one giant parking lot. Public
+    // access comes off the south ring; freight stays on the east service side.
+    // Each spur touches the ring, making all three part of the driveable graph.
+    {.name = "Camber Gateway", .id = 153,
+     .district = DistrictId::CamberPoint, .cls = RoadClass::Street,
+     .block_quality = 45, .width_m = 10.0f,
+     .path = {{-205.0f, 2390.0f, 6.0f},
+              {-205.0f, 2365.0f, 6.0f},
+              {-200.0f, 2338.0f, 6.0f}},
+     .count = 3},
+    {.name = "Rental Row", .id = 154,
+     .district = DistrictId::CamberPoint, .cls = RoadClass::Street,
+     .block_quality = 40, .width_m = 10.0f,
+     .path = {{400.0f, 2390.0f, 6.0f},
+              {415.0f, 2360.0f, 6.0f},
+              {415.0f, 2338.0f, 6.0f}},
+     .count = 3},
+    // Freight peels off the parkway before passenger traffic reaches its first
+    // terminal decision. The old spur joined the frontage street only 25 m
+    // from the parkway and made arriving cars immediately mix with trucks.
+    {.name = "Cargo Service", .id = 155,
+     .district = DistrictId::CamberPoint, .cls = RoadClass::Alley,
+     .block_quality = 20, .width_m = 8.0f,
+     .path = {{675.0f, 2350.0f, 6.0f},
+              {650.0f, 2345.0f, 6.0f},
+              {620.0f, 2335.0f, 6.0f},
+              {590.0f, 2320.0f, 6.0f},
+              {575.0f, 2310.0f, 6.0f},
+              {560.0f, 2310.0f, 6.0f}},
+     .count = 6},
+    // Visitors who reach the west service entrance split off before the
+    // security barrier. This return lane feeds the south ring, which carries
+    // them east to the hotel, parking, and terminal loop without entering the
+    // apron. It is deliberately an alley: this is a low-speed correction, not
+    // a second public airport entrance.
+    {.name = "Visitor Return", .id = 156,
+     .district = DistrictId::CamberPoint, .cls = RoadClass::Alley,
+     .block_quality = 20, .width_m = 8.0f,
+     .path = {{-335.0f, 2171.2048f, 6.0f},
+              {-330.0f, 2220.0f, 6.0f},
+              {-330.0f, 2280.0f, 6.0f},
+              {-315.0f, 2330.0f, 6.0f},
+              {-285.0f, 2375.0f, 6.0f},
+              {-250.0f, 2390.0f, 6.0f}},
+     .count = 6},
+
+    // The public road off the island used to continue dead straight from the
+    // causeway, across runway 09-27, and stop on the apron. The parkway now
+    // widens after the bridge, stays north of the runway protection area,
+    // wraps outside the east airport edge, clears the cargo parcel, and lands
+    // on the public frontage road. There is no public-to-airside junction.
+    {.name = "O'Haven Airport Parkway", .id = 157,
+     .district = DistrictId::CamberPoint, .cls = RoadClass::Arterial,
+     .block_quality = 150, .shapes_ground = true,
+     .path = {{185.0f, 1880.0f, 7.0f},
+              {220.0f, 1915.0f, 6.5f},
+              {350.0f, 1930.0f, 6.0f},
+              {520.0f, 1930.0f, 6.0f},
+              {620.0f, 1960.0f, 6.0f},
+              {670.0f, 2020.0f, 6.0f},
+              {680.0f, 2130.0f, 6.0f},
+              {680.0f, 2260.0f, 6.0f},
+              {675.0f, 2350.0f, 6.0f},
+              {650.0f, 2390.0f, 6.0f},
+              {600.0f, 2410.0f, 6.0f}},
+     .count = 11},
+
+    // Two proper kerb cuts feed one internal parking aisle. Before this spine
+    // the 330 m asphalt field almost touched the frontage road but had no legal
+    // way in; drivers had to invent a driveway across the sidewalk.
+    {.name = "Terminal Parking Access", .id = 158,
+     .district = DistrictId::CamberPoint, .cls = RoadClass::Alley,
+     .block_quality = 0, .width_m = 8.0f,
+     .path = {{-20.0f, 2390.0f, 6.0f},
+              {-20.0f, 2370.0f, 6.0f},
+              {-10.0f, 2360.0f, 6.0f},
+              {10.0f, 2355.0f, 6.0f},
+              {220.0f, 2355.0f, 6.0f},
+              {240.0f, 2360.0f, 6.0f},
+              {250.0f, 2370.0f, 6.0f},
+              {250.0f, 2390.0f, 6.0f}},
+     .count = 8},
 
     // =======================================================================
     //  160-179. MARROW — off-road, where the cruiser cannot follow.
@@ -1134,12 +1524,239 @@ inline constexpr Road kRoads[] = {
               {-660.0f, -140.0f, 5.5f}},
      .count = 5},
 
-    // Vellum Row to Nickel Heights.
+    // Halloway Street to Nickel Heights. The old west end landed on Fifth
+    // Street, leaving the named downtown arterial one block short of the
+    // district connector.
     {.name = "the Nickel Road", .id = 182, .district = DistrictId::Count,
      .cls = RoadClass::Arterial, .block_quality = 160, .shapes_ground = true,
-     .path = {{481.2f, 65.6f, 12.0f}, {590.0f, 62.0f, 11.5f},
+     .path = {{487.7f, 3.9f, 11.5f}, {590.0f, 62.0f, 11.5f},
               {700.0f, 60.0f, 11.0f}},
      .count = 3},
+
+    // =======================================================================
+    //  220-239. FLORANGIA STATE ROADS.
+    // =======================================================================
+
+    // A four-lane major road rather than a grade-separated freeway, so its
+    // one airport junction can be a real signalised T at ground level.
+    {.name = "Florangia Highway",
+     .id = kFlorangiaHighwayRoadId,
+     .district = DistrictId::Count,
+     .cls = RoadClass::Arterial,
+     .block_quality = 215,
+     .shapes_ground = true,
+     .path = {{kFlorangiaHighwayPath[0].x, kFlorangiaHighwayPath[0].z,
+               kFlorangiaHighwayBedM},
+              {kFlorangiaHighwayPath[1].x, kFlorangiaHighwayPath[1].z,
+               kFlorangiaHighwayBedM},
+              {kFlorangiaHighwayPath[2].x, kFlorangiaHighwayPath[2].z,
+               kFlorangiaHighwayBedM},
+              {kFlorangiaHighwayPath[3].x, kFlorangiaHighwayPath[3].z,
+               kFlorangiaAirportApproachBedM},
+              {kFlorangiaHighwayPath[4].x, kFlorangiaHighwayPath[4].z,
+               kFlorangiaAirportRoadBedM},
+              {kFlorangiaHighwayPath[5].x, kFlorangiaHighwayPath[5].z,
+               kFlorangiaAirportApproachBedM},
+              {kFlorangiaHighwayPath[6].x, kFlorangiaHighwayPath[6].z,
+               kFlorangiaHighwayBedM},
+              {kFlorangiaHighwayPath[7].x, kFlorangiaHighwayPath[7].z,
+               kFlorangiaHighwayBedM},
+              {kFlorangiaHighwayPath[8].x, kFlorangiaHighwayPath[8].z,
+               kFlorangiaHighwayBedM}},
+     .count = static_cast<int>(kFlorangiaHighwayPath.size())},
+
+    // Public terminal approach. Airport-side roads extend from SpurEnd.
+    {.name = "Florangia Airport Spur",
+     .id = kFlorangiaAirportSpurRoadId,
+     .district = DistrictId::Count,
+     .cls = RoadClass::Street,
+     .block_quality = 45,
+     .shapes_ground = true,
+     .path = {{kFlorangiaAirportAccessNode.x, kFlorangiaAirportAccessNode.z,
+               kFlorangiaAirportRoadBedM},
+              {kFlorangiaAirportSpurEnd.x, kFlorangiaAirportSpurEnd.z,
+               kFlorangiaAirportRoadBedM}},
+     .count = 2},
+
+    // =======================================================================
+    //  222-234. MIANDI — southeast Florangia's first drivable city grid.
+    // =======================================================================
+
+    // Continues from Florangia Highway's exact terminal node, follows the dry
+    // peninsula southeast, and becomes the main downtown avenue.
+    {.name = "Biscayne Boulevard", .id = 222,
+     .district = DistrictId::Count, .cls = RoadClass::Arterial,
+     .block_quality = 220, .shapes_ground = true,
+     .path = {{5900.0f, 6650.0f, 8.0f}, {6100.0f, 7000.0f, 8.0f},
+              {6300.0f, 7400.0f, 8.0f}, {6600.0f, 7700.0f, 8.0f},
+              {7000.0f, 8000.0f, 8.0f}, {7100.0f, 8040.0f, 8.0f},
+              {7300.0f, 8120.0f, 8.0f}, {7500.0f, 8200.0f, 8.0f},
+              {7500.0f, 8400.0f, 8.0f}, {7500.0f, 8600.0f, 8.0f},
+              {7500.0f, 8800.0f, 8.0f}},
+     .count = 11},
+
+    {.name = "Calle Ocho", .id = 223,
+     .district = DistrictId::Count, .cls = RoadClass::Street,
+     .block_quality = 170, .shapes_ground = true,
+     .path = {{6900.0f, 8200.0f, 8.0f}, {7100.0f, 8200.0f, 8.0f},
+              {7300.0f, 8200.0f, 8.0f}, {7500.0f, 8200.0f, 8.0f},
+              {7700.0f, 8200.0f, 8.0f}, {7900.0f, 8200.0f, 8.0f},
+              {8100.0f, 8200.0f, 8.0f}},
+     .count = 7},
+
+    {.name = "Bayfront Avenue", .id = 224,
+     .district = DistrictId::Count, .cls = RoadClass::Arterial,
+     .block_quality = 210, .shapes_ground = true,
+     .path = {{6900.0f, 8400.0f, 8.0f}, {7100.0f, 8400.0f, 8.0f},
+              {7300.0f, 8400.0f, 8.0f}, {7500.0f, 8400.0f, 8.0f},
+              {7700.0f, 8400.0f, 8.0f}, {7900.0f, 8400.0f, 8.0f},
+              {8100.0f, 8400.0f, 8.0f}},
+     .count = 7},
+
+    {.name = "Coral Way", .id = 225,
+     .district = DistrictId::Count, .cls = RoadClass::Street,
+     .block_quality = 165, .shapes_ground = true,
+     .path = {{6900.0f, 8600.0f, 8.0f}, {7100.0f, 8600.0f, 8.0f},
+              {7300.0f, 8600.0f, 8.0f}, {7500.0f, 8600.0f, 8.0f},
+              {7700.0f, 8600.0f, 8.0f}, {7900.0f, 8600.0f, 8.0f},
+              {8100.0f, 8600.0f, 8.0f}},
+     .count = 7},
+
+    {.name = "Port Sol Drive", .id = 226,
+     .district = DistrictId::Count, .cls = RoadClass::Arterial,
+     .block_quality = 200, .shapes_ground = true,
+     .path = {{7000.0f, 8800.0f, 8.0f}, {7100.0f, 8800.0f, 8.0f},
+              {7300.0f, 8800.0f, 8.0f}, {7500.0f, 8800.0f, 8.0f},
+              {7700.0f, 8800.0f, 8.0f}, {7900.0f, 8800.0f, 8.0f},
+              {8000.0f, 8800.0f, 8.0f}},
+     .count = 7},
+
+    {.name = "Palm Avenue", .id = 227,
+     .district = DistrictId::Count, .cls = RoadClass::Street,
+     .block_quality = 150, .shapes_ground = true,
+     .path = {{6900.0f, 8000.0f, 8.0f}, {6900.0f, 8200.0f, 8.0f},
+              {6900.0f, 8400.0f, 8.0f},
+              {6900.0f, 8600.0f, 8.0f}, {7000.0f, 8800.0f, 8.0f}},
+     .count = 5},
+
+    {.name = "Ocean Drive", .id = 228,
+     .district = DistrictId::Count, .cls = RoadClass::Arterial,
+     .block_quality = 205, .shapes_ground = true,
+     .path = {{8100.0f, 8000.0f, 8.0f}, {8100.0f, 8200.0f, 8.0f},
+              {8100.0f, 8400.0f, 8.0f},
+              {8100.0f, 8600.0f, 8.0f}, {8000.0f, 8800.0f, 8.0f}},
+     .count = 5},
+
+    // Diagonal waterfront link keeps the southeast resort blocks from being
+    // a cul-de-sac while preserving two obvious police chokepoints.
+    {.name = "Causeway Boulevard", .id = 229,
+     .district = DistrictId::Count, .cls = RoadClass::Street,
+     .block_quality = 225, .shapes_ground = true,
+     .path = {{7500.0f, 8600.0f, 8.0f}, {7700.0f, 8800.0f, 8.0f},
+              {8000.0f, 8800.0f, 8.0f}},
+     .count = 3},
+
+    {.name = "Gateway Drive", .id = 230,
+     .district = DistrictId::Count, .cls = RoadClass::Street,
+     .block_quality = 155, .shapes_ground = true,
+     .path = {{7000.0f, 8000.0f, 8.0f}, {7100.0f, 8000.0f, 8.0f},
+              {7300.0f, 8000.0f, 8.0f}, {7500.0f, 8000.0f, 8.0f},
+              {7700.0f, 8000.0f, 8.0f}, {7900.0f, 8000.0f, 8.0f},
+              {8100.0f, 8000.0f, 8.0f}},
+     .count = 7},
+
+    {.name = "Solana Avenue", .id = 231,
+     .district = DistrictId::Count, .cls = RoadClass::Street,
+     .block_quality = 145, .shapes_ground = true,
+     .path = {{7100.0f, 8000.0f, 8.0f}, {7100.0f, 8040.0f, 8.0f},
+              {7100.0f, 8200.0f, 8.0f}, {7100.0f, 8400.0f, 8.0f},
+              {7100.0f, 8600.0f, 8.0f}, {7100.0f, 8800.0f, 8.0f}},
+     .count = 6},
+
+    {.name = "Mango Avenue", .id = 232,
+     .district = DistrictId::Count, .cls = RoadClass::Street,
+     .block_quality = 145, .shapes_ground = true,
+     .path = {{7300.0f, 8000.0f, 8.0f}, {7300.0f, 8120.0f, 8.0f},
+              {7300.0f, 8200.0f, 8.0f}, {7300.0f, 8400.0f, 8.0f},
+              {7300.0f, 8600.0f, 8.0f}, {7300.0f, 8800.0f, 8.0f}},
+     .count = 6},
+
+    {.name = "Royal Palm Avenue", .id = 233,
+     .district = DistrictId::Count, .cls = RoadClass::Street,
+     .block_quality = 145, .shapes_ground = true,
+     .path = {{7700.0f, 8000.0f, 8.0f}, {7700.0f, 8200.0f, 8.0f},
+              {7700.0f, 8400.0f, 8.0f}, {7700.0f, 8600.0f, 8.0f},
+              {7700.0f, 8800.0f, 8.0f}},
+     .count = 5},
+
+    {.name = "Seabreeze Avenue", .id = 234,
+     .district = DistrictId::Count, .cls = RoadClass::Street,
+     .block_quality = 145, .shapes_ground = true,
+     .path = {{7900.0f, 8000.0f, 8.0f}, {7900.0f, 8200.0f, 8.0f},
+              {7900.0f, 8400.0f, 8.0f}, {7900.0f, 8600.0f, 8.0f},
+              {7900.0f, 8800.0f, 8.0f}},
+     .count = 5},
+
+    // =======================================================================
+    //  240-249. WESTMERE ESTATES — a private bluff neighborhood.
+    // =======================================================================
+
+    // The approach shares Marsh Road's authored control point, giving the
+    // road graph one exact three-way junction instead of two nearly-touching
+    // carriageways. It becomes the neighborhood's quiet central spine.
+    {.name = "Westmere Drive", .id = 240, .district = DistrictId::Count,
+     .cls = RoadClass::Street, .block_quality = 210, .width_m = 12.0f,
+     .shapes_ground = true,
+     .path = {{-560.0f, -340.0f, 9.00f}, {-620.0f, -390.0f, 6.21f},
+              {-660.0f, -450.0f, 6.55f}, {-680.0f, -520.0f, 7.85f},
+              {-720.0f, -575.0f, 7.99f}, {-780.0f, -625.0f, 7.72f},
+              {-875.0f, -625.0f, 8.02f}},
+     .count = 7},
+
+    // Each court is a lollipop: a short stem from Westmere Drive followed by
+    // a compact, level turnaround around a planted island. Homes face the
+    // bulb, through traffic has no reason to enter, and traffic can turn
+    // without reversing over a drive.
+    // Keeping each bulb level also prevents its own Grade corridor from
+    // choosing different heights where the closed polyline overlaps itself.
+    {.name = "Laurel Court", .id = 241,
+     .district = DistrictId::Count, .cls = RoadClass::Alley,
+     .block_quality = 20, .width_m = 9.5f, .shapes_ground = true,
+     .path = {{-720.0f, -575.0f, 7.99f}, {-760.0f, -535.0f, 7.85f},
+              {-850.0f, -532.0f, 8.36f}, {-866.0f, -527.71f, 8.36f},
+              {-877.71f, -516.0f, 8.36f}, {-882.0f, -500.0f, 8.36f},
+              {-877.71f, -484.0f, 8.36f}, {-866.0f, -472.29f, 8.36f},
+              {-850.0f, -468.0f, 8.36f}, {-834.0f, -472.29f, 8.36f},
+              {-822.29f, -484.0f, 8.36f}, {-818.0f, -500.0f, 8.36f},
+              {-822.29f, -516.0f, 8.36f}, {-834.0f, -527.71f, 8.36f},
+              {-850.0f, -532.0f, 8.36f}},
+     .count = 15},
+
+    {.name = "Cedar Court", .id = 242, .district = DistrictId::Count,
+     .cls = RoadClass::Alley, .block_quality = 20, .width_m = 9.5f,
+     .shapes_ground = true,
+     .path = {{-875.0f, -625.0f, 8.02f}, {-930.0f, -625.0f, 8.46f},
+              {-978.0f, -625.0f, 7.98f}, {-982.29f, -609.0f, 7.98f},
+              {-994.0f, -597.29f, 7.98f}, {-1010.0f, -593.0f, 7.98f},
+              {-1026.0f, -597.29f, 7.98f}, {-1037.71f, -609.0f, 7.98f},
+              {-1042.0f, -625.0f, 7.98f}, {-1037.71f, -641.0f, 7.98f},
+              {-1026.0f, -652.71f, 7.98f}, {-1010.0f, -657.0f, 7.98f},
+              {-994.0f, -652.71f, 7.98f}, {-982.29f, -641.0f, 7.98f},
+              {-978.0f, -625.0f, 7.98f}},
+     .count = 15},
+
+    {.name = "Magnolia Court", .id = 243,
+     .district = DistrictId::Count, .cls = RoadClass::Alley,
+     .block_quality = 20, .width_m = 9.5f, .shapes_ground = true,
+     .path = {{-780.0f, -625.0f, 7.72f}, {-790.0f, -650.0f, 7.57f},
+              {-820.0f, -668.0f, 7.44f}, {-836.0f, -672.29f, 7.44f},
+              {-847.71f, -684.0f, 7.44f}, {-852.0f, -700.0f, 7.44f},
+              {-847.71f, -716.0f, 7.44f}, {-836.0f, -727.71f, 7.44f},
+              {-820.0f, -732.0f, 7.44f}, {-804.0f, -727.71f, 7.44f},
+              {-792.29f, -716.0f, 7.44f}, {-788.0f, -700.0f, 7.44f},
+              {-792.29f, -684.0f, 7.44f}, {-804.0f, -672.29f, 7.44f},
+              {-820.0f, -668.0f, 7.44f}},
+     .count = 15},
 };
 
 inline constexpr int kRoadCount =

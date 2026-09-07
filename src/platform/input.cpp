@@ -89,6 +89,13 @@ void InputMapper::set_mouse_look(bool on) {
     frame_.look_dy = 0.0f;
 }
 
+void InputMapper::set_ui_mode(bool on) {
+    if (ui_mode_ == on) return;
+    ui_mode_ = on;
+    if (on) set_mouse_look(false);
+    if (!on) pointer_down_ = false;
+}
+
 // --- gamepad -----------------------------------------------------------------
 
 void InputMapper::open_gamepad(int device_index) {
@@ -134,6 +141,12 @@ void InputMapper::begin_frame() {
     // pressed is latched until a sim step consumes it.
     frame_.look_dx = 0.0f;
     frame_.look_dy = 0.0f;
+    pointer_pressed_ = false;
+    waypoint_pressed_ = false;
+    pointer_dx_ = 0;
+    pointer_dy_ = 0;
+    ui_zoom_steps_ = 0.0f;
+    ui_wheel_zoom_steps_ = 0.0f;
 }
 
 void InputMapper::handle_event(const SDL_Event& e) {
@@ -148,9 +161,9 @@ void InputMapper::handle_event(const SDL_Event& e) {
             const std::size_t sc = static_cast<std::size_t>(e.key.keysym.scancode);
             if (sc < kKeyCount) key_down_[sc] = down;
 
-            // --- Esc: release the capture, or quit ---------------------------
+            // --- Esc: release capture, then become Back ----------------------
             // Handled BEFORE anything else and returned from, so the keystroke
-            // that gives the cursor back is not ALSO read as a quit, a pause,
+            // that gives the cursor back is not ALSO read as Back or Pause,
             // or a latched edge. The matching key-up is swallowed too — a
             // release that fires a game action is the same bug arriving 30 ms
             // later, and much harder to see.
@@ -159,12 +172,10 @@ void InputMapper::handle_event(const SDL_Event& e) {
                     if (mouse_look_) {
                         set_mouse_look(false);
                         swallow_escape_ = true;
-                    } else {
-                        quit_ = true;
-                    }
+                    } else set_button(kBtnBack, true);
                 } else if (swallow_escape_) {
                     swallow_escape_ = false;
-                }
+                } else set_button(kBtnBack, false);
                 return;
             }
 
@@ -180,20 +191,51 @@ void InputMapper::handle_event(const SDL_Event& e) {
             }
 
             switch (e.key.keysym.sym) {
+                case SDLK_t:         set_button(kBtnTrailer, down); break;
+                case SDLK_g:         set_button(kBtnDrink, down); break;
+                case SDLK_a:         set_button(kBtnMenuLeft, down); break;
+                case SDLK_d:         set_button(kBtnMenuRight, down); break;
                 case SDLK_r:         set_button(kBtnRespawn, down); break;
                 case SDLK_c:         set_button(kBtnCamCycle, down); break;
                 case SDLK_p:         set_button(kBtnPause, down); break;
+                case SDLK_m:         set_button(kBtnMap, down); break;
                 case SDLK_b:         set_button(kBtnLookBack, down); break;
+                case SDLK_w:
+                case SDLK_UP:        set_button(kBtnMenuUp, down); break;
+                case SDLK_s:
+                case SDLK_DOWN:      set_button(kBtnMenuDown, down); break;
+                case SDLK_LEFT:      set_button(kBtnMenuLeft, down); break;
+                case SDLK_RIGHT:     set_button(kBtnMenuRight, down); break;
                 case SDLK_BACKSPACE: set_button(kBtnBack, down); break;
                 case SDLK_LSHIFT:    set_button(kBtnShiftUp, down); break;
                 case SDLK_LCTRL:     set_button(kBtnShiftDown, down); break;
-                case SDLK_RETURN:    set_button(kBtnAccept, down); break;
+                case SDLK_RETURN:
+                case SDLK_e:         set_button(kBtnAccept, down); break;
+                case SDLK_EQUALS:
+                case SDLK_KP_PLUS:
+                    if (down && ui_mode_) ui_zoom_steps_ += 1.0f;
+                    break;
+                case SDLK_MINUS:
+                case SDLK_KP_MINUS:
+                    if (down && ui_mode_) ui_zoom_steps_ -= 1.0f;
+                    break;
                 default: break;
             }
             break;
         }
 
         case SDL_MOUSEBUTTONDOWN:
+            pointer_x_ = e.button.x;
+            pointer_y_ = e.button.y;
+            if (e.button.button == SDL_BUTTON_RIGHT && ui_mode_) {
+                waypoint_pressed_ = true;
+                return;
+            }
+            if (e.button.button == SDL_BUTTON_LEFT && ui_mode_) {
+                pointer_pressed_ = true;
+                pointer_down_ = true;
+                return;
+            }
             // A click while the cursor is free CAPTURES it, and is consumed
             // doing so. Delivering it onward as well would mean the click that
             // grabs the mouse also fires whatever the newly captured mode has
@@ -205,7 +247,22 @@ void InputMapper::handle_event(const SDL_Event& e) {
             }
             break;
 
+        case SDL_MOUSEBUTTONUP:
+            pointer_x_ = e.button.x;
+            pointer_y_ = e.button.y;
+            if (e.button.button == SDL_BUTTON_LEFT && ui_mode_) {
+                pointer_down_ = false;
+                return;
+            }
+            break;
+
         case SDL_MOUSEMOTION:
+            pointer_x_ = e.motion.x;
+            pointer_y_ = e.motion.y;
+            if (ui_mode_) {
+                pointer_dx_ += e.motion.xrel;
+                pointer_dy_ += e.motion.yrel;
+            }
             if (mouse_look_ && discard_motion_frames_ == 0) {
                 frame_.look_dx +=
                     static_cast<float>(e.motion.xrel) * kLookRadiansPerPixel;
@@ -213,6 +270,15 @@ void InputMapper::handle_event(const SDL_Event& e) {
                     static_cast<float>(e.motion.yrel) * kLookRadiansPerPixel;
             }
             break;
+
+        case SDL_MOUSEWHEEL: {
+            if (ui_mode_) {
+                const float direction =
+                    e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1.0f : 1.0f;
+                ui_wheel_zoom_steps_ += static_cast<float>(e.wheel.y) * direction;
+            }
+            break;
+        }
 
         // --- gamepad hotplug -------------------------------------------------
         // NOTE the asymmetry, which is a genuine trap: `which` is a DEVICE
@@ -253,11 +319,29 @@ void InputMapper::handle_event(const SDL_Event& e) {
                 case SDL_CONTROLLER_BUTTON_START:
                     set_button(kBtnPause, down);
                     break;
+                case SDL_CONTROLLER_BUTTON_BACK:
+                    set_button(kBtnMap, down);
+                    break;
+                case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
+                    set_button(kBtnTrailer, down);
+                    set_button(kBtnMenuRight, down);
+                    break;
+                case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
+                    set_button(kBtnMenuLeft, down);
+                    break;
+                case SDL_CONTROLLER_BUTTON_DPAD_UP:
+                    set_button(kBtnMenuUp, down);
+                    break;
+                case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+                    set_button(kBtnMenuDown, down);
+                    break;
                 case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
                     set_button(kBtnShiftUp, down);
+                    if (down && ui_mode_) ui_zoom_steps_ += 1.0f;
                     break;
                 case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
                     set_button(kBtnShiftDown, down);
+                    if (down && ui_mode_) ui_zoom_steps_ -= 1.0f;
                     break;
                 case SDL_CONTROLLER_BUTTON_RIGHTSTICK:
                     set_button(kBtnLookBack, down);
@@ -306,6 +390,16 @@ void InputMapper::end_frame(float dt_seconds) {
     const float steer_left = key_held(key_down_, SDL_SCANCODE_A) ? 1.0f : 0.0f;
     const float steer_right = key_held(key_down_, SDL_SCANCODE_D) ? 1.0f : 0.0f;
     const float steer_target = std::clamp(steer_right - steer_left, -1.0f, 1.0f);
+    ui_axis_x_ =
+        ((key_held(key_down_, SDL_SCANCODE_D) ||
+          key_held(key_down_, SDL_SCANCODE_RIGHT)) ? 1.0f : 0.0f) -
+        ((key_held(key_down_, SDL_SCANCODE_A) ||
+          key_held(key_down_, SDL_SCANCODE_LEFT)) ? 1.0f : 0.0f);
+    ui_axis_y_ =
+        ((key_held(key_down_, SDL_SCANCODE_S) ||
+          key_held(key_down_, SDL_SCANCODE_DOWN)) ? 1.0f : 0.0f) -
+        ((key_held(key_down_, SDL_SCANCODE_W) ||
+          key_held(key_down_, SDL_SCANCODE_UP)) ? 1.0f : 0.0f);
 
     key_steer_ = ramp_toward(key_steer_, steer_target, dt, kSteerRiseSeconds,
                              kSteerFallSeconds);
@@ -314,7 +408,7 @@ void InputMapper::end_frame(float dt_seconds) {
         kPedalRiseSeconds, kPedalFallSeconds);
     key_brake_ = ramp_toward(
         key_brake_, key_held(key_down_, SDL_SCANCODE_S) ? 1.0f : 0.0f, dt,
-        kPedalRiseSeconds, kPedalFallSeconds);
+        kBrakeRiseSeconds, kBrakeFallSeconds);
 
     float steer = key_steer_;
     float throttle = key_throttle_;
@@ -337,6 +431,25 @@ void InputMapper::end_frame(float dt_seconds) {
                               pad_axis(pad_, SDL_CONTROLLER_AXIS_LEFTY)};
         const glm::vec2 shaped =
             apply_stick_deadzone(stick, kStickDeadzone, kStickSaturation);
+        if (shaped.x != 0.0f || shaped.y != 0.0f) {
+            ui_axis_x_ = shaped.x;
+            ui_axis_y_ = shaped.y;
+        } else {
+            const float dpad_x =
+                static_cast<float>(SDL_GameControllerGetButton(
+                    pad_, SDL_CONTROLLER_BUTTON_DPAD_RIGHT)) -
+                static_cast<float>(SDL_GameControllerGetButton(
+                    pad_, SDL_CONTROLLER_BUTTON_DPAD_LEFT));
+            const float dpad_y =
+                static_cast<float>(SDL_GameControllerGetButton(
+                    pad_, SDL_CONTROLLER_BUTTON_DPAD_DOWN)) -
+                static_cast<float>(SDL_GameControllerGetButton(
+                    pad_, SDL_CONTROLLER_BUTTON_DPAD_UP));
+            if (dpad_x != 0.0f || dpad_y != 0.0f) {
+                ui_axis_x_ = dpad_x;
+                ui_axis_y_ = dpad_y;
+            }
+        }
 
         const float pad_throttle =
             pad_trigger(pad_, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);

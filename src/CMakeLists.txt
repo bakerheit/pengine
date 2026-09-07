@@ -5,7 +5,7 @@ add_subdirectory(core)
 add_subdirectory(scene)
 add_subdirectory(terrain)
 add_subdirectory(road)
-add_subdirectory(city)     # Pinatty: map tables + terrain ops, and the AI decision layers
+add_subdirectory(city)     # O'Haven: map tables + terrain ops, and the AI decision layers
 add_subdirectory(physics)
 add_subdirectory(game)
 add_subdirectory(traffic)   # ambient population: phantoms + the active set (PENG-26)

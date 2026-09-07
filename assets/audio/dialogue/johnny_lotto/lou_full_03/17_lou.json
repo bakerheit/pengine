@@ -1,0 +1,39 @@
+{
+  "id": "17_lou",
+  "kind": "Cutscene dialogue",
+  "title": "Lou full performance - line 17",
+  "character": "Lou - Manager",
+  "voice": "ballad",
+  "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. Give familiar directions while walking. Ostend is OSS-tend. Speak north west smoothly as one direction.",
+  "text": "You just need to take this to the Ostend docks up north west a bit.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "17_lou.wav",
+  "transcript": "You just need to take this to the Ostend docks up north west a bit.",
+  "transcript_matches": true,
+  "duration_seconds": 5.4,
+  "peak_dbfs": -11.31,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 491,
+    "input_tokens": 274,
+    "output_tokens": 217,
+    "input_token_details": {
+      "text_tokens": 274,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 109,
+      "audio_tokens": 108,
+      "reasoning_tokens": 76
+    }
+  },
+  "response_id": "resp_EKRbqyusl4W82M1Kz6m6A"
+}

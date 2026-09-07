@@ -137,8 +137,7 @@ const Resolved& resolved() {
             AP_INFO("assets: '%s' (via %s)", out.root.c_str(), out.strategy);
         } else {
             AP_WARN("assets: no assets directory found; falling back to '%s'. "
-                    "Shaders and overlay fonts will not load; the procedural "
-                    "world still will.",
+                    "Required asset loaders may refuse startup.",
                     out.root.c_str());
         }
         return out;

@@ -31,7 +31,7 @@ PedSeparation eval(glm::vec2 self, glm::vec2 fwd,
 }
 
 // The lane right vector ped_separation projects onto.
-glm::vec2 right_of(glm::vec2 fwd) { fwd = glm::normalize(fwd); return {fwd.y, -fwd.x}; }
+glm::vec2 right_of(glm::vec2 fwd) { fwd = glm::normalize(fwd); return {-fwd.y, fwd.x}; }
 
 void test_no_neighbours() {
     PedSeparation s = eval({0, 0}, {1, 0}, {});
@@ -136,6 +136,23 @@ void test_diagonal_forward_projects_correctly() {
     apricot_test::pass("the projection is in the lane frame, not world axes");
 }
 
+void test_opposing_walkers_choose_different_world_sides() {
+    // Both directions share the same physical sidewalk now. Their keep-right
+    // choices must move apart in world space, also on non-axis-aligned paths.
+    for (glm::vec2 forward : {glm::vec2{1, 0}, glm::vec2{1, 1}, glm::vec2{-1, 2}}) {
+        forward = glm::normalize(forward);
+        const glm::vec2 a = -forward * 0.35f, b = forward * 0.35f;
+        const PedSeparation sa = eval(a, forward, {b});
+        const PedSeparation sb = eval(b, -forward, {a});
+        REQUIRE(sa.blocked && sb.blocked);
+        const glm::vec2 offset_a = right_of(forward) * sa.lateral_target;
+        const glm::vec2 offset_b = right_of(-forward) * sb.lateral_target;
+        REQUIRE(glm::length(offset_a - offset_b) >= 0.99f);
+        REQUIRE(glm::dot(offset_a, offset_b) < 0.0f);
+    }
+    apricot_test::pass("opposing sidewalk walkers pass on different world sides");
+}
+
 }  // namespace
 
 int main() {
@@ -149,5 +166,6 @@ int main() {
     test_preferred_offset_when_uncrowded();
     test_space_scale_widens_sidestep();
     test_diagonal_forward_projects_correctly();
+    test_opposing_walkers_choose_different_world_sides();
     return apricot_test::done("ped_separation_tests");
 }

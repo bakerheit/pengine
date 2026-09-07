@@ -1,0 +1,39 @@
+{
+  "id": "03_npc_swimming_in_money",
+  "kind": "NPC",
+  "title": "Swimming in money",
+  "character": "Cocky small-time crook",
+  "voice": "verse",
+  "direction": "Young adult American man with a light East Coast edge. A private, delighted boast to yourself. You're broke but convinced your big break is coming. Grin on 'swimming in the money'; cocky and a little ridiculous.",
+  "text": "Wait til they see me swimming in the money.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "03_npc_swimming_in_money.wav",
+  "transcript": "Wait til they see me swimming in the money.",
+  "transcript_matches": true,
+  "duration_seconds": 3.9,
+  "peak_dbfs": -7.35,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 329,
+    "input_tokens": 191,
+    "output_tokens": 138,
+    "input_token_details": {
+      "text_tokens": 191,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 60,
+      "audio_tokens": 78,
+      "reasoning_tokens": 36
+    }
+  },
+  "response_id": "resp_EKQEJ94CgNR7eVPZGgUsl"
+}

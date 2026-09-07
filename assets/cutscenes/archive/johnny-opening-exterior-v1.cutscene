@@ -1,0 +1,14 @@
+APRICOT_CUTSCENE 1
+"Halloway - Opening study" 0.460000008
+3 2 6
+"01 - Halloway Gas" 6 1 -7.64550972 18 2.39818931 12.3464537 13.5 -15.6107359 52 -4.34835863 17 -0.271791101 12.3464537 13.5 -15.6107359 48
+"02 - Johnny / getting closer" 6 1 0.654107988 13.6499996 -9.59999275 2.12946081 13.3999996 -14.0702648 48 0.716825008 13.6499996 -10.1967058 2.12946081 13.3999996 -14.0702648 46
+"03 - Lou / the next shift" 6 1 24.1812649 13.75 -14.366847 27.4834919 13.5 -18.0418034 50 24.1812649 13.75 -14.366847 27.4834919 13.5 -18.0418034 50
+"Johnny Mercer" "models/characters/psx_pack/player_male_01/skin.emesh" "models/characters/psx_pack/player_male_01/body.png" "models/characters/psx_pack/animations/idle.eanim" 2.12946081 12.1599998 -14.0702648 2.12946081 12.1599998 -14.0702648 -6 -6 1.75999999 0 18
+"Lou (stand-in)" "models/characters/psx_pack/civilian_male_05/skin.emesh" "models/characters/psx_pack/civilian_male_05/body.png" "models/characters/psx_pack/animations/idle.eanim" 27.4834919 12.1999998 -18.0418034 27.4834919 12.1999998 -18.0418034 -6 -6 1.79999995 0 18
+"Johnny" "All right. Getting closer." "" 6.30000019 2.5
+"Lou" "To what?" "" 9 1.29999995
+"Johnny" "Retirement." "" 10.5 1.39999998
+"Lou" "Pump two's a mess." "" 12.5 2
+"Johnny" "I cleaned pump two." "" 14.6000004 1.5
+"Lou" "Somebody used it." "" 16.2000008 1.70000005

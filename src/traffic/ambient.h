@@ -43,6 +43,70 @@ inline constexpr uint32_t kChannelPhantomSlotSpeed = 0x2200u;
 inline constexpr uint32_t kChannelPhantomPedSpeed  = 0x2300u;
 inline constexpr uint32_t kChannelPhantomPedSide   = 0x2400u;
 
+// Presentation and collision choose the same legacy body from stable phantom
+// identity. Keeping this recipe here prevents the renderer from showing a
+// narrow sedan around a widest-model collision box (the visible air-gap bug)
+// while preserving activation/order determinism.
+enum class TrafficVehicleKind : uint8_t {
+    Sedan = 0,
+    BoxTruck = 1,
+    Ambulance = 2,
+    Firetruck = 3,
+    HalcyonSix = 4,
+    MontroseRegentEight = 5,
+    VesperVx91 = 6,
+    Police = 7,
+};
+
+struct TrafficVehicleFootprint {
+    float half_width_m = 1.0f;
+    float half_length_m = 2.5f;
+};
+
+inline uint64_t traffic_vehicle_identity_hash(uint64_t lane_key,
+                                              uint32_t slot) {
+    return splitmix64_mix(lane_key ^
+        (static_cast<uint64_t>(slot) << 32));
+}
+
+inline TrafficVehicleKind traffic_vehicle_kind(uint64_t lane_key,
+                                               uint32_t slot) {
+    const uint64_t identity = traffic_vehicle_identity_hash(lane_key, slot);
+    const uint32_t roll = static_cast<uint32_t>(
+        identity % 30u);
+    const uint32_t legacy_roll = roll % 15u;
+    if (legacy_roll < 10u) {
+        const uint32_t sedan_variant = static_cast<uint32_t>(
+            (identity / 30u) % 4u);
+        if (sedan_variant == 0u) return TrafficVehicleKind::HalcyonSix;
+        if (sedan_variant == 1u) {
+            return TrafficVehicleKind::MontroseRegentEight;
+        }
+        if (sedan_variant == 2u) return TrafficVehicleKind::VesperVx91;
+        return TrafficVehicleKind::Sedan;
+    }
+    if (legacy_roll < 14u) return TrafficVehicleKind::BoxTruck;
+    return roll == 14u ? TrafficVehicleKind::Ambulance
+                       : TrafficVehicleKind::Firetruck;
+}
+
+inline TrafficVehicleFootprint traffic_vehicle_footprint(
+    TrafficVehicleKind kind) {
+    // Measured after the real make_traffic_visual_layout() 5 m fit.
+    switch (kind) {
+        case TrafficVehicleKind::Sedan: return {0.943954f, 2.5f};
+        case TrafficVehicleKind::BoxTruck: return {1.148594f, 2.5f};
+        case TrafficVehicleKind::Ambulance: return {0.964955f, 2.5f};
+        case TrafficVehicleKind::Firetruck: return {0.976563f, 2.5f};
+        case TrafficVehicleKind::HalcyonSix: return {0.946970f, 2.5f};
+        case TrafficVehicleKind::MontroseRegentEight:
+            return {0.929577f, 2.5f};
+        case TrafficVehicleKind::VesperVx91: return {0.970497f, 2.5f};
+        case TrafficVehicleKind::Police: return {1.018182f, 2.5f};
+    }
+    return {1.0f, 2.5f};
+}
+
 // How dense the ambient population is and how fast it moves. Everything here
 // scales the SCHEDULE, so changing any of it moves every phantom in the world —
 // it is a world parameter, not a per-agent one.
@@ -116,6 +180,13 @@ struct LaneSchedule {
     float    speed_mps     = 0.0f;  // lane speed (per_slot_speed == false)
     float    length_m      = 0.0f;
 };
+
+// Minimum centre-to-centre spacing for a free-running traffic schedule. Fast
+// lanes need enough road to stop even when the nominal density asks for more
+// cars; otherwise an analytic freeway platoon becomes a pileup the first time
+// its leader encounters a junction queue.
+float traffic_vehicle_spacing_m(float nominal_spacing_m, float density,
+                                float speed_mps);
 
 // Keyed entropy for one phantom. The recipe is the one lane_graph.h prescribes:
 // the lane's STABLE key split across the two coordinate axes, the slot folded

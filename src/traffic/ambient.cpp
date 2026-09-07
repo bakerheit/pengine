@@ -32,19 +32,13 @@ int64_t wrap(int64_t v, int64_t period) {
     return r < 0 ? r + period : r;
 }
 
-LaneSchedule build_schedule(uint64_t map_seed, const Lane& lane, float density,
-                            float spacing_m, uint32_t max_slots, float speed) {
+LaneSchedule build_schedule(uint64_t map_seed, const Lane& lane, float gap_m,
+                            uint32_t max_slots, float speed) {
     LaneSchedule s;
     s.length_m = lane.length_m;
     s.speed_mps = speed;
 
-    const float d = std::max(density, 0.0f);
-    if (!(d > 0.0f) || !(speed > 0.0f) || !(lane.length_m > 0.0f)) return s;
-
-    // Denser lane, shorter gap. The authored scalar divides the nominal gap
-    // rather than multiplying a count, so doubling the density halves the
-    // headway rather than doing something that depends on the lane's length.
-    const float gap_m = std::max(spacing_m / d, 1.0f);
+    if (!(gap_m > 0.0f) || !(speed > 0.0f) || !(lane.length_m > 0.0f)) return s;
 
     // THE LENGTH IS QUANTISED BEFORE IT REACHES A CEIL, AND THAT IS NOT
     // FUSSINESS.
@@ -111,12 +105,25 @@ float slot_speed(uint64_t map_seed, const Lane& lane, uint32_t slot,
 
 }  // namespace
 
+float traffic_vehicle_spacing_m(float nominal_spacing_m, float density,
+                                float speed_mps) {
+    const float authored = std::max(nominal_spacing_m, 1.0f) /
+                           std::max(density, 0.01f);
+    constexpr float kTrafficEmergencyBrakeMps2 = 8.0f;
+    constexpr float kBodyAndMarginM = 6.0f;
+    const float stopping = kBodyAndMarginM +
+        std::max(0.0f, speed_mps) * std::max(0.0f, speed_mps) /
+            (2.0f * kTrafficEmergencyBrakeMps2);
+    return std::max(authored, stopping);
+}
+
 LaneSchedule vehicle_schedule(uint64_t map_seed, const Lane& lane,
                               const AmbientTuning& t) {
     Rng r{phantom_key(map_seed, lane.key, 0u, kChannelPhantomLaneSpeed)};
     const float v = lane.speed_limit_mps * r.range(t.speed_lo, t.speed_hi);
-    return build_schedule(map_seed, lane, lane.traffic_density,
-                          t.vehicle_spacing_m, t.max_vehicle_slots, v);
+    const float spacing = traffic_vehicle_spacing_m(
+        t.vehicle_spacing_m, lane.traffic_density, v);
+    return build_schedule(map_seed, lane, spacing, t.max_vehicle_slots, v);
 }
 
 LaneSchedule ped_schedule(uint64_t map_seed, const Lane& lane,
@@ -124,8 +131,10 @@ LaneSchedule ped_schedule(uint64_t map_seed, const Lane& lane,
     Rng r{phantom_key(map_seed, lane.key, 0u, kChannelPhantomPedSpeed)};
     const float v = r.range(t.ped_speed_lo, t.ped_speed_hi);
     // Two footways, so the same along-lane spacing yields twice the slots.
-    return build_schedule(map_seed, lane, lane.ped_density * 2.0f,
-                          t.ped_spacing_m, t.max_ped_slots, v);
+    const float density = std::max(lane.ped_density * 2.0f, 0.0f);
+    const float spacing = density > 0.0f
+        ? std::max(t.ped_spacing_m / density, 1.0f) : 0.0f;
+    return build_schedule(map_seed, lane, spacing, t.max_ped_slots, v);
 }
 
 PhantomState phantom_vehicle(uint64_t map_seed, const Lane& lane,

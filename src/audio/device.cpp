@@ -65,7 +65,7 @@ void notification_callback(const ma_device_notification* notification) {
 
 AudioDevice::~AudioDevice() { stop(); }
 
-bool AudioDevice::start() {
+bool AudioDevice::start(const SfxOverridePaths& overrides) {
     if (running_) return true;
 
     Impl* impl = new Impl{};
@@ -113,10 +113,11 @@ bool AudioDevice::start() {
     mixer_.stop_all();
 
     bank_ = synth_bank(sample_rate_);
-    AP_INFO("audio: bank synthesised — %zu engine layers, %zu surfaces, "
-            "%.2f s of PCM, zero files read",
-            kEngineLayerCount, kSurfaceCount,
-            static_cast<double>(bank_total_seconds_()));
+    const std::size_t override_count = override_bank_from_wavs(bank_, overrides);
+    AP_INFO("audio: bank ready — recorded vehicle and city ambience set, "
+            "%.2f s of PCM, %zu WAV override%s",
+            static_cast<double>(bank_total_seconds_()), override_count,
+            override_count == 1 ? "" : "s");
 
     if (ma_device_start(&impl->device) != MA_SUCCESS) {
         AP_WARN("audio: device opened but would not start; running silent");
@@ -170,7 +171,7 @@ void AudioDevice::stop() {
 
 // Total PCM generated, for the one startup log line that proves the bank is
 // real. Cheap, runs once, and it is the number you actually want to see when
-// somebody asks how much memory the "no audio assets" engine spends on audio.
+// somebody asks how much memory the complete runtime bank spends on audio.
 float AudioDevice::bank_total_seconds_() const {
     float total = 0.0f;
     for (std::size_t i = 0; i < kEngineLayerCount; ++i) {
@@ -180,6 +181,18 @@ float AudioDevice::bank_total_seconds_() const {
     total += bank_.tyre_scrub.duration_seconds();
     for (const PcmClip& c : bank_.surface_roll) total += c.duration_seconds();
     for (const PcmClip& c : bank_.suspension_thump) total += c.duration_seconds();
+    for (const auto& group : bank_.car_sound_audition) {
+        for (const PcmClip& c : group) total += c.duration_seconds();
+    }
+    total += bank_.player_throttle_attack.duration_seconds();
+    total += bank_.engine_start.duration_seconds();
+    total += bank_.engine_idle.duration_seconds();
+    total += bank_.player_throttle_hold.duration_seconds();
+    total += bank_.player_throttle_release.duration_seconds();
+    total += bank_.player_car_collision.duration_seconds();
+    total += bank_.player_drift_tyres.duration_seconds();
+    total += bank_.city_ambience.duration_seconds();
+    total += bank_.mission_success.duration_seconds();
     total += bank_.rain.duration_seconds();
     total += bank_.wind.duration_seconds();
     total += bank_.checkpoint.duration_seconds();

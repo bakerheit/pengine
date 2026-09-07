@@ -1,0 +1,23 @@
+{
+  "source_sha256": "1862ee51faa8cdbd87ba9bd91a5da77cb05d1db58a5943898cba9557571d1c93",
+  "source_seconds": 12.552,
+  "startup_source_seconds": [
+    0.125,
+    3.05
+  ],
+  "idle_source_seconds": [
+    3.95,
+    7.051
+  ],
+  "idle_loop_seconds": 2.981,
+  "startup_seconds": 2.925,
+  "stability_score": 0.3662301026867209,
+  "gain": 1.3620122737459024,
+  "seam_step": 0.01137752091225424,
+  "interior_step_p999": 0.0848056609357997,
+  "idle_rms": 0.08608082738965316,
+  "files": {
+    "engine_start.wav": "9e4282328bb3f8ce6e81694515d187bd5dc322826247083668f50c4925a7a55c",
+    "engine_idle.wav": "6ab4de5be9f0f1d0641e856886a93a0de0181892930fddee49809a961d6c1db6"
+  }
+}

@@ -16,8 +16,10 @@
 #include <cstring>
 #include <vector>
 
+#include "app/driving_mechanics.h"
 #include "core/fixed_step.h"
 #include "core/input_frame.h"
+#include "core/input_shape.h"
 #include "physics/terrain_collider.h"
 #include "physics/vehicle.h"
 #include "test_assert.h"
@@ -144,11 +146,34 @@ bool identical(const VehicleState& a, const VehicleState& b) {
     if (a.gear != b.gear) return false;
     if (!same_bits(a.shift_timer, b.shift_timer)) return false;
     if (!same_bits(a.recovery_timer, b.recovery_timer)) return false;
+    if (!same_bits(a.pitch_recovery_timer, b.pitch_recovery_timer)) return false;
+    if (!same_bits(a.health, b.health)) return false;
+    if (!same_bits(a.last_impact_speed, b.last_impact_speed)) return false;
+    if (!same_bits(a.last_impact_damage, b.last_impact_damage)) return false;
+    if (!same_bits(a.car_contact_speed, b.car_contact_speed)) return false;
+    if (a.impact_count != b.impact_count) return false;
+    for (std::size_t i = 0; i < kVehicleDamageZoneCount; ++i) {
+        if (!same_bits(a.body_damage.zones[i], b.body_damage.zones[i])) return false;
+    }
+    for (std::size_t i = 0; i < a.body_damage.stamps.size(); ++i) {
+        const VehicleDentStamp& x = a.body_damage.stamps[i];
+        const VehicleDentStamp& y = b.body_damage.stamps[i];
+        if (!same_bits(x.contact_xz.x, y.contact_xz.x) ||
+            !same_bits(x.contact_xz.y, y.contact_xz.y) ||
+            !same_bits(x.severity, y.severity) ||
+            !same_bits(x.motion_angle, y.motion_angle) ||
+            !same_bits(x.radius, y.radius) ||
+            !same_bits(x.height, y.height) ||
+            !same_bits(x.glancing, y.glancing)) {
+            return false;
+        }
+    }
     for (std::size_t i = 0; i < kWheelCount; ++i) {
         const WheelState& x = a.wheels[i];
         const WheelState& y = b.wheels[i];
         if (!same_bits(x.contact_point, y.contact_point)) return false;
         if (!same_bits(x.contact_normal, y.contact_normal)) return false;
+        if (x.contact_material != y.contact_material) return false;
         if (!same_bits(x.suspension_length, y.suspension_length)) return false;
         if (!same_bits(x.spin, y.spin)) return false;
         if (!same_bits(x.angular_velocity, y.angular_velocity)) return false;
@@ -179,9 +204,16 @@ std::vector<InputFrame> make_tape(int steps) {
 }
 
 VehicleState run_tape(const VehicleTuning& tuning, const TerrainCollider& collider,
-                      const VehicleState& start, const std::vector<InputFrame>& tape) {
+                      const VehicleState& start, const std::vector<InputFrame>& tape,
+                      float* distance = nullptr) {
     VehicleState s = start;
-    for (const InputFrame& f : tape) s = step_vehicle(s, tuning, f, collider, kDt);
+    float travelled = 0.0f;
+    for (const InputFrame& f : tape) {
+        const glm::vec3 before = s.position;
+        s = step_vehicle(s, tuning, f, collider, kDt);
+        travelled += glm::length(s.position - before);
+    }
+    if (distance) *distance = travelled;
     return s;
 }
 
@@ -301,11 +333,16 @@ void throttle_drives_and_brake_stops() {
     // --- brake ------------------------------------------------------------
     InputFrame stop;
     stop.brake = 1.0f;
+    const VehicleState brake_entry = s;
     const glm::vec3 brake_from = s.position;
     int steps = 0;
     float previous = glm::length(s.velocity);
+    float peak_brake_slip = 0.0f;
     while (glm::length(s.velocity) > 0.15f && steps < 1200) {
         s = step_vehicle(s, tuning, stop, collider, kDt);
+        for (const WheelState& wheel : s.wheels) {
+            peak_brake_slip = std::max(peak_brake_slip, wheel.slip);
+        }
         ++steps;
     }
     REQUIRE_MSG(steps < 1200, "full brake never brought the car to rest",
@@ -314,9 +351,20 @@ void throttle_drives_and_brake_stops() {
                 "brake decelerates");
 
     const float distance = glm::length(s.position - brake_from);
-    std::printf("      (reached %.2f m/s, stopped in %.2f m / %.2f s)\n",
+    std::printf("      (reached %.2f m/s, stopped in %.2f m / %.2f s, "
+                "peak brake slip %.2f)\n",
                 static_cast<double>(top), static_cast<double>(distance),
-                static_cast<double>(steps) * static_cast<double>(kDt));
+                static_cast<double>(steps) * static_cast<double>(kDt),
+                static_cast<double>(peak_brake_slip));
+    REQUIRE_MSG(distance < 10.0f,
+                "full braking still needed more than 10 metres from 21 m/s",
+                "service brakes feel immediate");
+    REQUIRE_MSG(static_cast<float>(steps) * kDt < 1.0f,
+                "full braking still took one second or more",
+                "service brakes stop promptly");
+    REQUIRE_MSG(peak_brake_slip < 1.20f,
+                "the service brakes locked a wheel past peak tyre grip",
+                "ABS keeps the tyres biting");
 
     // --- and STAYS at rest -------------------------------------------------
     const glm::vec3 rest = s.position;
@@ -328,7 +376,289 @@ void throttle_drives_and_brake_stops() {
     std::printf("      (crept %.4f m over five more seconds on the brakes)\n",
                 static_cast<double>(crept));
 
+    // GTA-style braking also stays pointed when the player is steering. A
+    // short stop that yaws into a skid is not an arcade brake, it is only a
+    // stronger lock-up.
+    VehicleState turning_stop = brake_entry;
+    InputFrame brake_and_turn;
+    brake_and_turn.brake = 1.0f;
+    brake_and_turn.steer = 0.65f;
+    float braking_peak_slip = 0.0f;
+    int turning_steps = 0;
+    while (glm::length(turning_stop.velocity) > 0.15f && turning_steps < 600) {
+        turning_stop =
+            step_vehicle(turning_stop, tuning, brake_and_turn, collider, kDt);
+        braking_peak_slip =
+            std::max(braking_peak_slip, body_slip_degrees(turning_stop));
+        ++turning_steps;
+    }
+    std::printf("      (full brake plus steering peaked at %.1f deg body slip)\n",
+                static_cast<double>(braking_peak_slip));
+    REQUIRE_MSG(braking_peak_slip < 6.0f,
+                "service braking with steering became a sideways skid",
+                "arcade braking stays pointed");
+
     apricot_test::pass("throttle drives, brake stops, and it stays stopped");
+}
+
+void arcade_brake_transitions_through_reverse_and_back() {
+    const TerrainCollider collider(kSeed);
+    VehicleTuning tuning;
+    tuning.arcade_reverse = true;
+    float x = 0.0f;
+    float z = 0.0f;
+    flattest_spot(collider, x, z);
+
+    VehicleState s = spawn_vehicle(tuning, collider, x, z, 0.0f);
+    InputFrame gas;
+    gas.throttle = 1.0f;
+    for (int i = 0; i < 300; ++i) {
+        s = step_vehicle(s, tuning, gas, collider, kDt);
+    }
+    const float forward_entry = vehicle_forward_speed(s);
+    REQUIRE_MSG(forward_entry > 10.0f, "reverse test never reached road speed",
+                "test setup drives forward");
+
+    InputFrame reverse;
+    reverse.brake = 1.0f;
+    s = step_vehicle(s, tuning, reverse, collider, kDt);
+    REQUIRE_MSG(s.gear >= 1, "S selected reverse while still moving forward",
+                "S brakes before reversing");
+    REQUIRE_MSG(vehicle_forward_speed(s) < forward_entry,
+                "S did not brake the forward motion first",
+                "S brakes before reversing");
+
+    int reverse_step = -1;
+    for (int i = 0; i < 480; ++i) {
+        s = step_vehicle(s, tuning, reverse, collider, kDt);
+        if (reverse_step < 0 && s.gear == kGearReverse) reverse_step = i;
+    }
+    const float reverse_speed = vehicle_forward_speed(s);
+    REQUIRE_MSG(reverse_step >= 0, "holding S never selected reverse",
+                "S engages reverse at a stop");
+    REQUIRE_MSG(s.gear == kGearReverse && reverse_speed < -3.0f,
+                "reverse gear engaged but did not back the car up",
+                "S drives backward");
+
+    int drive_step = -1;
+    for (int i = 0; i < 600; ++i) {
+        s = step_vehicle(s, tuning, gas, collider, kDt);
+        if (drive_step < 0 && s.gear >= 1) drive_step = i;
+    }
+    const float forward_again = vehicle_forward_speed(s);
+    std::printf("      (forward %.2f m/s, reverse selected after %.2f s and "
+                "reached %.2f m/s, drive returned after %.2f s to %.2f m/s)\n",
+                static_cast<double>(forward_entry),
+                static_cast<double>(reverse_step + 1) * static_cast<double>(kDt),
+                static_cast<double>(reverse_speed),
+                static_cast<double>(drive_step + 1) * static_cast<double>(kDt),
+                static_cast<double>(forward_again));
+    REQUIRE_MSG(drive_step >= 0, "W never returned the gearbox to drive",
+                "W exits reverse at a stop");
+    REQUIRE_MSG(s.gear >= 1 && forward_again > 3.0f,
+                "W selected drive but did not move forward again",
+                "W drives forward again");
+
+    apricot_test::pass("S brakes into reverse and W brakes back into drive");
+}
+
+void braking_through_a_turn_stays_on_four_wheels() {
+    const TerrainCollider collider(kSeed);
+    const VehicleTuning tuning;
+    VehicleState s = spawn_vehicle(tuning, collider, 0.0f, 0.0f, 0.0f);
+
+    InputFrame gas;
+    gas.throttle = 1.0f;
+    for (int i = 0; i < 480; ++i) {
+        s = step_vehicle(s, tuning, gas, collider, kDt);
+    }
+    const float entry_speed = glm::length(s.velocity);
+    REQUIRE_MSG(entry_speed > 15.0f, "brake-turn test never reached road speed",
+                "test setup drives fast");
+
+    InputFrame brake_turn;
+    brake_turn.brake = 1.0f;
+    brake_turn.steer = 1.0f;
+    float lowest_up = vehicle_up(s).y;
+    float peak_roll = std::fabs(vehicle_right(s).y);
+    float peak_roll_rate = std::fabs(glm::dot(s.angular_velocity,
+                                              vehicle_forward(s)));
+    int fewest_grounded = kWheelCount;
+    for (int i = 0; i < 240; ++i) {
+        s = step_vehicle(s, tuning, brake_turn, collider, kDt);
+        lowest_up = std::min(lowest_up, vehicle_up(s).y);
+        peak_roll = std::max(peak_roll, std::fabs(vehicle_right(s).y));
+        peak_roll_rate = std::max(
+            peak_roll_rate,
+            std::fabs(glm::dot(s.angular_velocity, vehicle_forward(s))));
+        int grounded = 0;
+        for (const WheelState& wheel : s.wheels) {
+            if (wheel.grounded) ++grounded;
+        }
+        fewest_grounded = std::min(fewest_grounded, grounded);
+    }
+
+    std::printf("      (brake-turn from %.1f m/s: up %.3f, roll sine %.3f, "
+                "roll rate %.2f rad/s, at least %d wheels down)\n",
+                static_cast<double>(entry_speed),
+                static_cast<double>(lowest_up),
+                static_cast<double>(peak_roll),
+                static_cast<double>(peak_roll_rate), fewest_grounded);
+    REQUIRE_MSG(lowest_up > 0.85f,
+                "braking with steering rolled the car toward its side",
+                "service-brake turn stays upright");
+    REQUIRE_MSG(peak_roll < 0.35f,
+                "braking with steering produced near-rollover body lean",
+                "service-brake turn stays planted");
+    REQUIRE_MSG(peak_roll_rate < 1.5f,
+                "the brake-turn built a dangerous rollover rate",
+                "service-brake turn damps rollover momentum");
+    REQUIRE_MSG(fewest_grounded >= 3,
+                "the brake-turn lifted one whole side of the car",
+                "service-brake turn keeps tyre contact");
+
+    apricot_test::pass("full braking through a turn stays upright");
+}
+
+void grounded_roll_stability_absorbs_a_curb_trip() {
+    const TerrainCollider collider(kSeed);
+    const VehicleTuning tuning;
+    VehicleState s = spawn_vehicle(tuning, collider, 0.0f, 0.0f, 0.0f);
+
+    InputFrame hold;
+    hold.brake = 1.0f;
+    for (int i = 0; i < 120; ++i) {
+        s = step_vehicle(s, tuning, hold, collider, kDt);
+    }
+
+    // A violent one-sided kerb hit represented at the instant after impact.
+    // Eight rad/s would turn an undamped chassis several times before
+    // ordinary angular drag could gather it back up.
+    VehicleTuning old_handling = tuning;
+    old_handling.roll_inertia_scale = 1.4f;
+    old_handling.grounded_roll_damping = 0.0f;
+    old_handling.grounded_roll_rate_limit = 0.0f;
+    VehicleState old_s = s;
+
+    // Give both versions the same angular IMPULSE. The heavier roll inertia
+    // turns that into less angular velocity, exactly as a real kerb hit would.
+    constexpr float old_roll_rate = 8.0f;
+    const float protected_roll_rate =
+        old_roll_rate * old_handling.roll_inertia_scale / tuning.roll_inertia_scale;
+    s.velocity = vehicle_forward(s) * 18.0f;
+    old_s.velocity = vehicle_forward(old_s) * 18.0f;
+    s.angular_velocity = vehicle_forward(s) * protected_roll_rate;
+    old_s.angular_velocity = vehicle_forward(old_s) * old_roll_rate;
+
+    InputFrame coast;
+    float lowest_up = vehicle_up(s).y;
+    float peak_roll_sine = std::fabs(vehicle_right(s).y);
+    float old_peak_roll_sine = std::fabs(vehicle_right(old_s).y);
+    for (int i = 0; i < 240; ++i) {
+        s = step_vehicle(s, tuning, coast, collider, kDt);
+        old_s = step_vehicle(old_s, old_handling, coast, collider, kDt);
+        lowest_up = std::min(lowest_up, vehicle_up(s).y);
+        peak_roll_sine =
+            std::max(peak_roll_sine, std::fabs(vehicle_right(s).y));
+        old_peak_roll_sine =
+            std::max(old_peak_roll_sine, std::fabs(vehicle_right(old_s).y));
+    }
+
+    std::printf("      (equal curb impulse: %.2f vs %.2f rad/s, peak roll sine "
+                "%.3f vs old %.3f, lowest up %.3f, final up %.3f)\n",
+                static_cast<double>(protected_roll_rate),
+                static_cast<double>(old_roll_rate),
+                static_cast<double>(peak_roll_sine),
+                static_cast<double>(old_peak_roll_sine),
+                static_cast<double>(lowest_up),
+                static_cast<double>(vehicle_up(s).y));
+    REQUIRE_MSG(lowest_up > 0.60f,
+                "a sharp grounded roll impulse tipped the car onto its side",
+                "curb trip stays below rollover angle");
+    REQUIRE_MSG(peak_roll_sine < 0.80f,
+                "a curb trip produced near-rollover body lean",
+                "curb trip is absorbed");
+    REQUIRE_MSG(peak_roll_sine < old_peak_roll_sine * 0.90f,
+                "roll stability did not materially improve the curb trip",
+                "curb trip is much flatter than the old handling");
+    REQUIRE_MSG(vehicle_up(s).y > 0.95f,
+                "the car did not settle upright after the curb trip",
+                "curb trip settles back onto four wheels");
+
+    apricot_test::pass("grounded roll stability absorbs a violent curb trip");
+}
+
+void both_pedals_at_a_standstill_do_a_burnout() {
+    const TerrainCollider collider(kSeed);
+    VehicleTuning tuning;
+    tuning.arcade_reverse = true;
+    float x = 0.0f;
+    float z = 0.0f;
+    flattest_spot(collider, x, z);
+
+    VehicleState s = spawn_vehicle(tuning, collider, x, z, 0.0f);
+    const glm::vec3 start = s.position;
+
+    InputFrame burnout;
+    burnout.throttle = 1.0f;
+    burnout.brake = 1.0f;
+
+    float peak_front_omega = 0.0f;
+    float peak_rear_omega = 0.0f;
+    float peak_rear_slip = 0.0f;
+    float peak_speed = 0.0f;
+    for (int i = 0; i < 240; ++i) {
+        s = step_vehicle(s, tuning, burnout, collider, kDt);
+        peak_front_omega = std::max(
+            peak_front_omega,
+            std::max(std::fabs(s.wheels[kWheelFrontLeft].angular_velocity),
+                     std::fabs(s.wheels[kWheelFrontRight].angular_velocity)));
+        peak_rear_omega = std::max(
+            peak_rear_omega,
+            std::max(std::fabs(s.wheels[kWheelRearLeft].angular_velocity),
+                     std::fabs(s.wheels[kWheelRearRight].angular_velocity)));
+        peak_rear_slip = std::max(
+            peak_rear_slip,
+            std::max(s.wheels[kWheelRearLeft].slip,
+                     s.wheels[kWheelRearRight].slip));
+        peak_speed = std::max(
+            peak_speed, glm::length(glm::vec2{s.velocity.x, s.velocity.z}));
+    }
+
+    const float held_distance =
+        glm::length(glm::vec2{s.position.x - start.x, s.position.z - start.z});
+    std::printf("      (held %.3f m; peak speed %.2f m/s; front %.1f rad/s, "
+                "rear %.1f rad/s at %.1f slip)\n",
+                static_cast<double>(held_distance),
+                static_cast<double>(peak_speed),
+                static_cast<double>(peak_front_omega),
+                static_cast<double>(peak_rear_omega),
+                static_cast<double>(peak_rear_slip));
+
+    REQUIRE_MSG(s.gear == 1, "W+S selected reverse during the burnout",
+                "burnout stays in drive");
+    REQUIRE_MSG(held_distance < 0.75f && peak_speed <= tuning.burnout_max_speed + 0.1f,
+                "the brake stand launched the car",
+                "front brakes hold the car");
+    REQUIRE_MSG(peak_front_omega < 5.0f,
+                "the front wheels spun through the brake stand",
+                "front wheels stay locked");
+    REQUIRE_MSG(peak_rear_omega > 20.0f && peak_rear_slip > 3.0f,
+                "the driven wheels did not spin up",
+                "rear wheels light up");
+
+    // Letting go of S ends the brake stand immediately and returns the normal
+    // AWD launch behavior; there is no latched burnout mode to get stuck in.
+    InputFrame gas;
+    gas.throttle = 1.0f;
+    for (int i = 0; i < 180; ++i) {
+        s = step_vehicle(s, tuning, gas, collider, kDt);
+    }
+    REQUIRE_MSG(vehicle_forward_speed(s) > 3.0f,
+                "the car stayed held after S was released",
+                "release S to launch");
+
+    apricot_test::pass("W+S at a standstill holds the car and spins the rear wheels");
 }
 
 void the_car_stays_on_the_surface_over_a_long_drive() {
@@ -498,8 +828,12 @@ void the_same_tape_replays_bit_for_bit() {
     REQUIRE_MSG(identical(spawn_a, spawn_b), "two identical seeds spawned differently",
                 "spawn is deterministic");
 
-    const VehicleState end_a = run_tape(tuning, collider_a, spawn_a, tape);
-    const VehicleState end_b = run_tape(tuning, collider_b, spawn_b, tape);
+    float distance_a = 0.0f;
+    float distance_b = 0.0f;
+    const VehicleState end_a =
+        run_tape(tuning, collider_a, spawn_a, tape, &distance_a);
+    const VehicleState end_b =
+        run_tape(tuning, collider_b, spawn_b, tape, &distance_b);
 
     REQUIRE_MSG(identical(end_a, end_b),
                 "the same tape produced a different car; replays and ghosts are "
@@ -508,11 +842,14 @@ void the_same_tape_replays_bit_for_bit() {
 
     // The run has to have actually gone somewhere, or "identical" is trivially
     // true of two cars that never moved.
-    const float tape_travel = glm::length(end_a.position - spawn_a.position);
-    std::printf("      (tape moved the car %.1f m from spawn)\n",
-                static_cast<double>(tape_travel));
-    REQUIRE_MSG(tape_travel > 50.0f,
-                "the replay tape barely moved the car", "test would be vacuous");
+    const float displacement = glm::length(end_a.position - spawn_a.position);
+    std::printf("      (tape drove %.1f m and ended %.1f m from spawn)\n",
+                static_cast<double>(distance_a), static_cast<double>(displacement));
+    REQUIRE_MSG(distance_a > 500.0f,
+                "the replay tape barely drove the car", "test would be vacuous");
+    REQUIRE_MSG(same_bits(distance_a, distance_b),
+                "identical runs accumulated different travel distances",
+                "distance is deterministic too");
 
     // Stepping is pure in its arguments: calling it again from the same state
     // gives the same answer, and the state it was handed is untouched.
@@ -605,14 +942,46 @@ void low_grip_takes_longer_to_stop() {
 
     REQUIRE_MSG(results[0].stopped, "the car could not stop even on rock",
                 "high grip stops");
-    REQUIRE_MSG(results[1].distance > results[0].distance * 1.05f,
+    // The strong GTA-style service-brake assist deliberately compresses the
+    // gap between firm surfaces, but it must not erase their ordering.
+    REQUIRE_MSG(results[1].distance > results[0].distance * 1.03f,
                 "gravel stopped no longer than rock", "gravel is looser than rock");
-    REQUIRE_MSG(results[2].distance > results[0].distance * 1.15f,
+    REQUIRE_MSG(results[2].distance > results[0].distance * 1.10f,
                 "rain made no difference to stopping distance", "rain costs grip");
     REQUIRE_MSG(results[3].distance > results[0].distance * 1.4f,
                 "sand stopped nearly as fast as rock", "sand is much looser");
 
     apricot_test::pass("stopping distance tracks the surface under the tyres");
+}
+
+void wheel_contacts_publish_the_top_overlay_material() {
+    TerrainCollider collider(kSeed);
+    const VehicleTuning tuning;
+    float x = 0.0f;
+    float z = 0.0f;
+    flattest_spot(collider, x, z);
+
+    AABB grass_stage;
+    grass_stage.expand({x - 50.0f, -2000.0f, z - 50.0f});
+    grass_stage.expand({x + 50.0f, 2000.0f, z + 50.0f});
+    collider.paint_surface(grass_stage, Surface::Grass);
+
+    const float parking_top = collider.height(x, z) + 0.12f;
+    collider.add_static_ground_rect({x, z}, parking_top, {12.0f, 12.0f},
+                                    0.0f, Surface::Rock);
+    VehicleState car = spawn_vehicle(tuning, collider, x, z, 0.0f);
+    for (int i = 0; i < 30; ++i) {
+        car = step_vehicle(car, tuning, InputFrame{}, collider, kDt);
+    }
+
+    for (const WheelState& wheel : car.wheels) {
+        REQUIRE(wheel.grounded);
+        REQUIRE(wheel.contact_material == Surface::Rock);
+        REQUIRE(wheel.contact_point.y > collider.height(
+                    wheel.contact_point.x, wheel.contact_point.z));
+    }
+    apricot_test::pass(
+        "wheel contacts retain a paved parking overlay above grass terrain");
 }
 
 void an_inverted_car_rights_itself() {
@@ -670,7 +1039,269 @@ void an_inverted_car_rights_itself() {
     apricot_test::pass("an inverted car rights itself, slowly, without a teleport");
 }
 
+void a_car_balanced_on_its_bumper_cannot_drive_forever() {
+    const TerrainCollider collider(kSeed);
+    const VehicleTuning tuning;
+    float x = 0.0f;
+    float z = 0.0f;
+    flattest_spot(collider, x, z);
+
+    VehicleState s = spawn_vehicle(tuning, collider, x, z, 0.0f);
+    // Reproduce the live failure: after a rough landing the rear body corner is
+    // on the grass, one axle is still close enough to drive, and the chassis is
+    // pitched about sixty degrees nose-up. This is still above the old
+    // side/roof recovery threshold, so the translation-only ground guard could
+    // let it skate in this pose forever.
+    s.orientation = glm::angleAxis(glm::radians(60.0f),
+                                   glm::vec3{1.0f, 0.0f, 0.0f}) *
+                    s.orientation;
+    s.position.y = collider.height(x, z) + 1.95f;
+    s.velocity = glm::vec3{0.0f, 0.0f, -4.0f};
+    s.angular_velocity = glm::vec3{0.0f};
+    s.health = 0.0f;
+
+    InputFrame gas;
+    gas.throttle = 1.0f;
+    float lowest_up = vehicle_up(s).y;
+    float highest_up = lowest_up;
+    for (int i = 0; i < 120 * 8; ++i) {
+        s = step_vehicle(s, tuning, gas, collider, kDt);
+        lowest_up = std::min(lowest_up, vehicle_up(s).y);
+        highest_up = std::max(highest_up, vehicle_up(s).y);
+    }
+
+    std::printf("      (bumper balance: up.y %.3f -> %.3f, high %.3f, speed %.2f m/s)\n",
+                0.5, static_cast<double>(vehicle_up(s).y),
+                static_cast<double>(highest_up),
+                static_cast<double>(glm::length(s.velocity)));
+    REQUIRE_MSG(vehicle_up(s).y > 0.80f,
+                "a nose-high car kept driving on its bumper",
+                "steep grounded pitch recovers");
+    REQUIRE_MSG(!vehicle_airborne(s),
+                "the recovered car never put its wheels back down",
+                "recovery ends on the tyres");
+
+    apricot_test::pass("a car balanced on its bumper falls back onto its wheels");
+}
+
+void hill_hop_landings_put_both_axles_back_down() {
+    const TerrainCollider collider(kSeed);
+    float x = 0.0f;
+    float z = 0.0f;
+    flattest_spot(collider, x, z);
+    for (std::size_t index = 0; index < kDrivingMechanicsStyleCount; ++index) {
+        const auto style = static_cast<DrivingMechanicsStyle>(index);
+        VehicleTuning tuning = player_vehicle_tuning(style);
+        // Landing must work through contact physics, before delayed recovery.
+        tuning.recovery_delay = 1000.0f;
+        for (const float pitch : {35.0f, -35.0f, 55.0f, -55.0f}) {
+            VehicleState car = spawn_vehicle(tuning, collider, x, z, 0.0f);
+            car.orientation = glm::angleAxis(glm::radians(pitch),
+                                             glm::vec3{1.0f, 0.0f, 0.0f});
+            car.position.y = collider.height(x, z) + 3.0f;
+            car.velocity = {0.0f, -2.0f, -8.0f};
+            car.angular_velocity = glm::vec3{0.0f};
+            InputFrame gas;
+            gas.throttle = 0.4f;
+            int settled = -1;
+            int supported_steps = 0;
+            for (int step = 0; step < 120 * 3; ++step) {
+                car = step_vehicle(car, tuning, gas, collider, kDt);
+                REQUIRE(std::isfinite(car.position.y));
+                if (vehicle_up(car).y > 0.9f && front_load(car) > 100.0f &&
+                    rear_load(car) > 100.0f) {
+                    if (++supported_steps >= 30) {
+                        settled = step;
+                        break;
+                    }
+                } else {
+                    supported_steps = 0;
+                }
+            }
+            std::printf("      (%s landing %+.0f deg: settled %d, pitch %.3f)\n",
+                        driving_mechanics_name(style), static_cast<double>(pitch),
+                        settled, static_cast<double>(vehicle_forward(car).y));
+            REQUIRE_MSG(settled >= 0,
+                        "a hill-hop landing kept sliding on its bumper",
+                        "ground contact brings both axles down without recovery");
+        }
+    }
+    apricot_test::pass("hill-hop landings return both axles to the ground");
+}
+
+void a_hill_hop_in_free_flight_keeps_gravity_and_rotation() {
+    const TerrainCollider collider(kSeed);
+    VehicleTuning tuning = player_vehicle_tuning(DrivingMechanicsStyle::ClassicGta);
+    tuning.drag = 0.0f;
+    tuning.angular_drag = 0.0f;
+    VehicleState car = spawn_vehicle(tuning, collider, 0.0f, 0.0f, 0.0f);
+    car.position.y += 50.0f;
+    car.orientation = glm::angleAxis(glm::radians(35.0f),
+                                     glm::vec3{1.0f, 0.0f, 0.0f});
+    car.velocity = {0.0f, 5.0f, -8.0f};
+    car.angular_velocity = {0.2f, 0.0f, 0.0f};
+    const float initial_height = car.position.y;
+    InputFrame gas;
+    gas.throttle = 1.0f;
+    constexpr int kSteps = 120;
+    for (int step = 0; step < kSteps; ++step) {
+        car = step_vehicle(car, tuning, gas, collider, kDt);
+        REQUIRE(vehicle_airborne(car));
+        REQUIRE_NEAR(car.angular_velocity.x, 0.2f, 1e-5f);
+        REQUIRE_NEAR(car.angular_velocity.y, 0.0f, 1e-5f);
+        REQUIRE_NEAR(car.angular_velocity.z, 0.0f, 1e-5f);
+        REQUIRE(car.recovery_timer == 0.0f && car.pitch_recovery_timer == 0.0f);
+    }
+    const float duration = kSteps * kDt;
+    REQUIRE_NEAR(car.velocity.y, 5.0f - tuning.gravity * duration, 1e-4f);
+    REQUIRE_NEAR(car.velocity.z, -8.0f, 1e-5f);
+    const float expected_height = initial_height + 5.0f * duration -
+        tuning.gravity * kDt * kDt * (kSteps * (kSteps + 1) / 2);
+    REQUIRE_NEAR(car.position.y, expected_height, 0.001f);
+    apricot_test::pass("free flight retains gravity and angular momentum");
+}
+
+void a_wall_brake_turn_cannot_trip_the_car_onto_its_edge() {
+    TerrainCollider collider(kSeed);
+    const VehicleTuning tuning =
+        player_vehicle_tuning(DrivingMechanicsStyle::ClassicGta);
+    float x = 0.0f;
+    float z = 0.0f;
+    flattest_spot(collider, x, z);
+
+    // A wall beside the car plus a motorway-speed diagonal approach recreates
+    // the screenshot failure. The old service-brake boost multiplied lateral
+    // grip too; once the wall removed the remaining travel, the tyres tripped
+    // the car to up.y ~= 0.21 and it settled forever around 0.50 on a body edge.
+    AABB wall;
+    wall.expand({x + 4.0f, collider.height(x + 4.0f, z) - 2.0f, z - 100.0f});
+    wall.expand({x + 5.0f, collider.height(x + 4.0f, z) + 5.0f, z + 100.0f});
+    collider.add_static_box(wall, Surface::Rock);
+
+    VehicleState car = spawn_vehicle(tuning, collider, x, z, 0.0f);
+    constexpr float kForwardSpeed = 40.0f;
+    car.velocity = vehicle_forward(car) * kForwardSpeed +
+                   vehicle_right(car) * 8.0f;
+    car.gear = 4;
+    for (WheelState& wheel : car.wheels) {
+        wheel.angular_velocity = kForwardSpeed / tuning.wheel_radius;
+    }
+
+    InputFrame brake_turn;
+    brake_turn.brake = 1.0f;
+    brake_turn.steer = 1.0f;
+    float lowest_up = vehicle_up(car).y;
+    for (int step = 0; step < 120 * 8; ++step) {
+        car = step_vehicle(car, tuning, brake_turn, collider, kDt);
+        lowest_up = std::min(lowest_up, vehicle_up(car).y);
+    }
+
+    std::printf("      (wall brake-turn: lowest up %.3f, final %.3f, speed %.2f m/s)\n",
+                static_cast<double>(lowest_up),
+                static_cast<double>(vehicle_up(car).y),
+                static_cast<double>(vehicle_speed(car)));
+    REQUIRE_MSG(lowest_up > 0.85f,
+                "a hard wall-side brake-turn tripped the car onto its edge",
+                "braking grip cannot create rollover-level lateral force");
+    REQUIRE_MSG(vehicle_up(car).y > 0.90f,
+                "the stopped car remained balanced upright on its bodywork",
+                "post-impact car settles on its tyres");
+
+    apricot_test::pass(
+        "a wall-side panic brake-turn scrubs instead of standing the car up");
+}
+
 // --- the rest: the handling requirements, each pinned to a number ------------
+
+void steering_is_progressive_and_ackermann_correct() {
+    const TerrainCollider collider(kSeed);
+    const VehicleTuning tuning;
+    float x = 0.0f;
+    float z = 0.0f;
+    flattest_spot(collider, x, z);
+
+    VehicleState s = spawn_vehicle(tuning, collider, x, z, 0.0f);
+    InputFrame half_lock;
+    half_lock.steer = 0.5f;
+    half_lock.brake = 1.0f;
+    for (int i = 0; i < 120; ++i) {
+        s = step_vehicle(s, tuning, half_lock, collider, kDt);
+    }
+
+    const float linear_half_lock = tuning.max_steer * 0.5f;
+    REQUIRE_MSG(s.steer_angle < linear_half_lock * 0.9f,
+                "half stick still asks for nearly half the steering rack",
+                "fine control around steering centre");
+    REQUIRE_MSG(s.steer_angle > linear_half_lock * 0.65f,
+                "the progressive rack ate too much useful steering travel",
+                "middle steering remains useful");
+
+    const float before_release = s.steer_angle;
+    InputFrame released;
+    released.brake = 1.0f;
+    s = step_vehicle(s, tuning, released, collider, kDt);
+    REQUIRE_MSG(before_release - s.steer_angle > tuning.steer_rate * kDt,
+                "the rack returns no faster than it winds on",
+                "steering recentres quickly");
+
+    constexpr float central = 0.42f;
+    const float left = wheel_steer_angle(tuning, central, kWheelFrontLeft);
+    const float right = wheel_steer_angle(tuning, central, kWheelFrontRight);
+    REQUIRE_MSG(right > central && central > left,
+                "right turn does not give the inside wheel more lock",
+                "Ackermann inside/outside order");
+    REQUIRE_MSG(wheel_steer_angle(tuning, central, kWheelRearLeft) == 0.0f &&
+                    wheel_steer_angle(tuning, central, kWheelRearRight) == 0.0f,
+                "Ackermann helper steered a rear wheel", "rear wheels stay straight");
+    REQUIRE_NEAR(static_cast<double>(
+                     wheel_steer_angle(tuning, -central, kWheelFrontLeft)),
+                 static_cast<double>(-right), 1e-6);
+    REQUIRE_NEAR(static_cast<double>(
+                     wheel_steer_angle(tuning, -central, kWheelFrontRight)),
+                 static_cast<double>(-left), 1e-6);
+
+    apricot_test::pass("steering is progressive, recentres fast, and uses Ackermann angles");
+}
+
+void anti_roll_bars_reduce_body_roll() {
+    const TerrainCollider collider(kSeed);
+    VehicleTuning with_bars;
+    VehicleTuning without_bars = with_bars;
+    without_bars.anti_roll_front = 0.0f;
+    without_bars.anti_roll_rear = 0.0f;
+
+    float x = 0.0f;
+    float z = 0.0f;
+    flattest_spot(collider, x, z);
+    VehicleState entry = spawn_vehicle(with_bars, collider, x, z, 0.0f);
+
+    InputFrame gas;
+    gas.throttle = 0.9f;
+    for (int i = 0; i < 420; ++i) {
+        entry = step_vehicle(entry, with_bars, gas, collider, kDt);
+    }
+
+    VehicleState stable = entry;
+    VehicleState loose = entry;
+    InputFrame turn = gas;
+    turn.steer = 0.75f;
+    float stable_peak = 0.0f;
+    float loose_peak = 0.0f;
+    for (int i = 0; i < 120; ++i) {
+        stable = step_vehicle(stable, with_bars, turn, collider, kDt);
+        loose = step_vehicle(loose, without_bars, turn, collider, kDt);
+        stable_peak = std::max(stable_peak, std::fabs(vehicle_right(stable).y));
+        loose_peak = std::max(loose_peak, std::fabs(vehicle_right(loose).y));
+    }
+
+    std::printf("      (peak roll sine %.3f with bars, %.3f without)\n",
+                static_cast<double>(stable_peak), static_cast<double>(loose_peak));
+    REQUIRE_MSG(stable_peak < loose_peak * 0.95f,
+                "anti-roll bars did not measurably flatten a hard turn",
+                "anti-roll controls body attitude");
+
+    apricot_test::pass("anti-roll bars flatten the chassis without stiffer springs");
+}
 
 void load_transfers_under_acceleration_braking_and_cornering() {
     const TerrainCollider collider(kSeed);
@@ -776,18 +1407,69 @@ void the_handbrake_breaks_the_rear_loose() {
                 "the rear tyres never left the grippy side of the slip curve",
                 "rear is genuinely sliding");
 
+    // The input the player actually complained about: stay on power and hold
+    // a useful amount of steering. With no handbrake this should carve a turn,
+    // not settle into a permanent drift.
+    VehicleState powered = entry;
+    InputFrame powered_turn;
+    powered_turn.throttle = 0.85f;
+    powered_turn.steer = 0.65f;
+    float powered_peak = 0.0f;
+    for (int i = 0; i < 240; ++i) {
+        powered = step_vehicle(powered, tuning, powered_turn, collider, kDt);
+        powered_peak = std::max(powered_peak, body_slip_degrees(powered));
+    }
+    std::printf("      (powered turn peaks at %.1f deg body slip)\n",
+                static_cast<double>(powered_peak));
+    REQUIRE_MSG(powered_peak < 8.0f,
+                "an ordinary powered turn became a drift",
+                "power-on handling stays planted");
+
     apricot_test::pass("the handbrake breaks the rear loose");
 }
 
-// The other half of the requirement, and the half that is easy to get wrong:
-// the back stepping out is only good if the driver can gather it back up.
-//
-// Catchability cannot be tested with a fixed input — hold full opposite lock
-// for two seconds and you swing the car the other way, which says nothing about
-// the car. So this closes the loop: a plain proportional counter-steer, the
-// crudest possible driver. If the slide is recoverable at all, that is enough
-// to recover it; if the model snapped, no gain would save it.
-void a_slide_can_be_caught() {
+void a_small_sideways_slip_grips_instead_of_skating() {
+    const TerrainCollider collider(kSeed);
+    const VehicleTuning tuning;
+    float x = 0.0f;
+    float z = 0.0f;
+    flattest_spot(collider, x, z);
+
+    VehicleState s = spawn_vehicle(tuning, collider, x, z, 0.0f);
+    InputFrame gas;
+    gas.throttle = 0.9f;
+    for (int i = 0; i < 480; ++i) s = step_vehicle(s, tuning, gas, collider, kDt);
+
+    // A side gust / small bump, not a deliberate drift. This sits well below
+    // the tyre limit and used to fall into the low-slip grip trough, where it
+    // skated instead of gathering itself back up.
+    s.velocity += vehicle_right(s) * 2.0f;
+    const float disturbed = body_slip_degrees(s);
+    float peak = disturbed;
+    InputFrame coast;
+    for (int i = 0; i < 30; ++i) {  // quarter of a second
+        s = step_vehicle(s, tuning, coast, collider, kDt);
+        peak = std::max(peak, body_slip_degrees(s));
+    }
+    const float recovered = body_slip_degrees(s);
+
+    std::printf("      (small lateral upset %.1f deg -> %.1f deg in 250 ms; "
+                "peak %.1f deg)\n",
+                static_cast<double>(disturbed), static_cast<double>(recovered),
+                static_cast<double>(peak));
+    REQUIRE_MSG(disturbed > 3.0f, "the lateral upset was too small to measure",
+                "test would be vacuous");
+    REQUIRE_MSG(peak < disturbed + 1.0f,
+                "a small slip grew before the tyres found grip",
+                "no low-slip grip trough");
+    REQUIRE_MSG(recovered < 1.0f,
+                "a small slip kept skating for a quarter second",
+                "ordinary slip grips immediately");
+
+    apricot_test::pass("a small sideways slip grips instead of skating");
+}
+
+void a_handbrake_tap_nudges_while_a_hold_rotates() {
     const TerrainCollider collider(kSeed);
     const VehicleTuning tuning;
     float x = 0.0f;
@@ -799,32 +1481,100 @@ void a_slide_can_be_caught() {
     gas.throttle = 0.9f;
     for (int i = 0; i < 480; ++i) entry = step_vehicle(entry, tuning, gas, collider, kDt);
 
-    // Provoke: 1.25 s of handbrake and lock.
+    struct PullResult {
+        float peak_slip = 0.0f;
+        float settled_slip = 0.0f;
+        float peak_pull = 0.0f;
+    };
+
+    const auto drive_pull = [&](int held_steps) {
+        VehicleState s = entry;
+        PullResult result;
+        float handbrake = 0.0f;
+        constexpr int kReleaseSteps = 240;
+        for (int i = 0; i < held_steps + kReleaseSteps; ++i) {
+            const bool held = i < held_steps;
+            handbrake = input::ramp_toward(
+                handbrake, held ? 1.0f : 0.0f, kDt,
+                input::kHandbrakeRiseSeconds, input::kHandbrakeFallSeconds);
+
+            InputFrame in;
+            in.throttle = 0.3f;
+            in.steer = 0.75f;
+            in.handbrake = handbrake;
+            s = step_vehicle(s, tuning, in, collider, kDt);
+            result.peak_pull = std::max(result.peak_pull, handbrake);
+            result.peak_slip = std::max(result.peak_slip, body_slip_degrees(s));
+        }
+        result.settled_slip = body_slip_degrees(s);
+        return result;
+    };
+
+    const PullResult tap = drive_pull(9);    // 75 ms
+    const PullResult hold = drive_pull(90);  // 750 ms
+
+    std::printf("      (75 ms tap: %.0f%% pull / %.1f deg; 750 ms hold: "
+                "%.0f%% pull / %.1f deg; settles at %.1f deg)\n",
+                static_cast<double>(tap.peak_pull * 100.0f),
+                static_cast<double>(tap.peak_slip),
+                static_cast<double>(hold.peak_pull * 100.0f),
+                static_cast<double>(hold.peak_slip),
+                static_cast<double>(hold.settled_slip));
+
+    REQUIRE_MSG(tap.peak_pull < 0.55f,
+                "a quick tap reached nearly full handbrake",
+                "tap stays partial");
+    REQUIRE_MSG(tap.peak_slip < 5.0f,
+                "a quick handbrake tap snapped the car sideways",
+                "tap only nudges rotation");
+    REQUIRE_MSG(hold.peak_slip > tap.peak_slip + 4.0f,
+                "holding the handbrake did not add useful rotation",
+                "hold creates a deliberate slide");
+    REQUIRE_MSG(hold.peak_slip < 20.0f,
+                "a normal handbrake hold spun the car too far",
+                "hold remains controlled");
+    REQUIRE_MSG(hold.settled_slip < 3.0f,
+                "the held slide did not settle after release",
+                "release restores grip");
+
+    apricot_test::pass("a handbrake tap nudges while a hold rotates");
+}
+
+// The other half of the requirement, and the half that is easy to get wrong:
+// the back stepping out is only good if the car gathers back up after the
+// driver releases the handbrake. The player can counter-steer to make that
+// faster, but ordinary tyre grip must not preserve a drift forever.
+//
+// Catchability cannot be tested with a fixed input — hold full opposite lock
+// for two seconds and you swing the car the other way, which says nothing about
+// the car. So this closes the loop: a plain proportional counter-steer, the
+// crudest possible driver. If the slide is recoverable at all, that is enough
+// to recover it; if the model snapped, no gain would save it.
+void a_slide_recovers_cleanly() {
+    const TerrainCollider collider(kSeed);
+    const VehicleTuning tuning;
+    float x = 0.0f;
+    float z = 0.0f;
+    flattest_spot(collider, x, z);
+
+    VehicleState entry = spawn_vehicle(tuning, collider, x, z, 0.0f);
+    InputFrame gas;
+    gas.throttle = 0.9f;
+    for (int i = 0; i < 480; ++i) entry = step_vehicle(entry, tuning, gas, collider, kDt);
+
+    // Provoke: one second of handbrake and lock. That is a deliberate slide,
+    // but not the old 1.25-second hold that kept winding the car around after
+    // the driver already had all the rotation a corner could use.
     //
-    // IT USED TO BE HALF A SECOND, and PENG-41 showed that was not a slide.
-    // The ground under this test is now an authored Flatten at full weight --
-    // Pinatty's downtown plate, DEAD level, zero relief under the wheelbase --
-    // so for the first time the terrain contributes nothing and the tyre model
-    // is on its own. Measured there, at 120 Hz on grass:
-    //
-    //     yank  60 steps -> provoked  6.6 deg, abandoned settles to  0.0
-    //     yank  90 steps -> provoked 13.7 deg, abandoned settles to  0.1
-    //     yank 120 steps -> provoked 21.3 deg, abandoned settles to  8.2
-    //     yank 150 steps -> provoked 29.2 deg, abandoned holds at   21.1
-    //     yank 200 steps -> provoked 42.8 deg, and NOBODY catches it (32.8)
-    //
-    // Half a second only bends the car about six degrees, which is inside the
-    // tyre's linear range where any stable car self-centres -- so the negative
-    // control at the bottom was passing on the old bumpy terrain because the
-    // BUMPS kept the car unsettled, not because the slip curve falls off. That
-    // is the terrain being tested, not the car. 150 steps puts the tyres past
-    // the peak on ground that is doing nothing, which is the claim.
+    // The ground under this test is an authored Flatten at full weight --
+    // O'Haven's downtown plate, dead level -- so the terrain contributes
+    // nothing and the tyre model has to own both the slide and the recovery.
     InputFrame yank;
     yank.throttle = 0.3f;
     yank.steer = 0.75f;
     yank.handbrake = 1.0f;
     VehicleState sliding = entry;
-    for (int i = 0; i < 150; ++i) {
+    for (int i = 0; i < 120; ++i) {
         sliding = step_vehicle(sliding, tuning, yank, collider, kDt);
     }
     const float provoked = body_slip_degrees(sliding);
@@ -832,14 +1582,20 @@ void a_slide_can_be_caught() {
                 "test would be vacuous");
 
     // Branch A: a driver catches it.
-    constexpr float kCounterSteerGain = 0.04f;  // lock per degree of slip
+    constexpr float kCounterSteerGain = 0.04f;  // effective lock per degree of slip
     VehicleState caught = sliding;
     float caught_peak = provoked;
     for (int i = 0; i < 360; ++i) {
         InputFrame in;
         in.throttle = 0.3f;
-        in.steer = glm::clamp(-kCounterSteerGain * signed_body_slip_degrees(caught),
-                              -1.0f, 1.0f);
+        // Convert desired effective rack travel back through the progressive
+        // input curve. The controller is meant to test the tyre model, not get
+        // weaker just because the human-facing stick now has finer control.
+        const float desired = glm::clamp(
+            -kCounterSteerGain * signed_body_slip_degrees(caught), -1.0f, 1.0f);
+        in.steer = std::copysign(
+            std::pow(std::fabs(desired), 1.0f / tuning.steer_input_exponent),
+            desired);
         caught = step_vehicle(caught, tuning, in, collider, kDt);
         caught_peak = std::max(caught_peak, body_slip_degrees(caught));
     }
@@ -865,15 +1621,11 @@ void a_slide_can_be_caught() {
                 "a slide is catchable");
     REQUIRE_MSG(glm::length(caught.velocity) > 8.0f,
                 "the car only stopped sliding by stopping", "caught, not parked");
-    // And the catch has to be the DRIVER's doing. If the car straightened
-    // itself out with the wheel left alone, the slip curve is not really
-    // falling off past the peak and none of this is a handling model.
-    REQUIRE_MSG(body_slip_degrees(abandoned) > 10.0f,
-                "the car recovered on its own; the tyre model is not losing grip "
-                "past the peak at all",
-                "a slide does not fix itself");
+    REQUIRE_MSG(body_slip_degrees(abandoned) < 3.0f,
+                "the car kept drifting after the handbrake was released",
+                "normal grip brings the car back into line");
 
-    apricot_test::pass("a slide can be caught, and does not fix itself");
+    apricot_test::pass("a handbrake slide recovers cleanly with or without counter-steer");
 }
 
 void the_gearbox_exposes_real_revs_and_a_gear() {
@@ -1034,32 +1786,595 @@ void props_are_solid() {
         if (s.position.z < wall.min.z) went_through = true;
     }
 
-    std::printf("      (closest approach to the wall %.3f m, radius %.2f m)\n",
+    std::printf("      (closest approach %.3f m, radius %.2f m, impact %.2f m/s, "
+                "damage %.1f, health %.1f)\n",
                 static_cast<double>(closest),
-                static_cast<double>(tuning.chassis_collision_radius));
+                static_cast<double>(tuning.chassis_collision_radius),
+                static_cast<double>(s.last_impact_speed),
+                static_cast<double>(s.last_impact_damage),
+                static_cast<double>(s.health));
     REQUIRE_MSG(!went_through, "the car drove straight through a solid prop",
                 "props stop the car");
     REQUIRE_MSG(closest < 5.0f, "the car never reached the wall",
                 "test would be vacuous");
+    REQUIRE_MSG(s.impact_count > 0u, "the wall stopped the car without an impact event",
+                "impact is reported");
+    REQUIRE_MSG(s.last_impact_speed > tuning.impact_safe_speed,
+                "a damaging impact reported a parking-bump speed",
+                "impact speed is meaningful");
+    REQUIRE_MSG(s.health < 100.0f && s.health >= 0.0f,
+                "a hard wall strike did not reduce bounded vehicle health",
+                "crash damage is applied");
+    const float front_damage =
+        s.body_damage.zones[kDamageFrontLeft] +
+        s.body_damage.zones[kDamageFrontCenter] +
+        s.body_damage.zones[kDamageFrontRight];
+    const float rear_damage =
+        s.body_damage.zones[kDamageRearLeft] +
+        s.body_damage.zones[kDamageRearCenter] +
+        s.body_damage.zones[kDamageRearRight];
+    REQUIRE_MSG(front_damage > 0.0f && rear_damage == 0.0f,
+                "a frontal wall strike damaged the wrong body region",
+                "impact location is preserved");
 
-    apricot_test::pass("static prop boxes are solid");
+    apricot_test::pass("static prop boxes stop and damage the car");
+}
+
+void regional_damage_targets_and_accumulates() {
+    VehicleDamageState damage;
+    apply_vehicle_impact(damage, {-0.86f, 0.0f, -2.05f}, 35.0f,
+                         0.86f, 2.05f);
+    REQUIRE_NEAR(damage.zones[kDamageFrontLeft], 0.275, 1e-6);
+    REQUIRE_NEAR(damage.zones[kDamageSideLeftFront], 0.275, 1e-6);
+    REQUIRE_NEAR(damage.zones[kDamageFrontCenter], 0.0, 1e-6);
+    REQUIRE_NEAR(damage.zones[kDamageFrontRight], 0.0, 1e-6);
+
+    apply_vehicle_impact(damage, {0.0f, 0.0f, -2.05f}, 17.5f,
+                         0.86f, 2.05f);
+    REQUIRE_NEAR(damage.zones[kDamageFrontCenter], 0.5, 1e-6);
+    REQUIRE_NEAR(damage.zones[kDamageFrontRight], 0.0, 1e-6);
+
+    apply_vehicle_impact(damage, {0.86f, 0.0f, 0.0f}, 35.0f,
+                         0.86f, 2.05f);
+    REQUIRE_NEAR(damage.zones[kDamageSideRightMiddle], 0.55, 1e-6);
+    REQUIRE_NEAR(damage.zones[kDamageSideRightFront], 0.0, 1e-6);
+    REQUIRE_NEAR(damage.zones[kDamageSideRightRear], 0.0, 1e-6);
+    REQUIRE_NEAR(damage.zones[kDamageSideLeftMiddle], 0.0, 1e-6);
+
+    apply_vehicle_impact(damage, {0.86f, 0.0f, 1.025f}, 17.5f,
+                         0.86f, 2.05f);
+    REQUIRE(damage.zones[kDamageSideRightMiddle] > 0.55f);
+    REQUIRE(damage.zones[kDamageSideRightRear] > 0.0f);
+
+    for (int i = 0; i < 8; ++i) {
+        apply_vehicle_impact(damage, {-0.86f, 0.0f, -2.05f}, 35.0f,
+                             0.86f, 2.05f);
+    }
+    REQUIRE_NEAR(damage.zones[kDamageFrontLeft], 1.0, 1e-6);
+    REQUIRE_NEAR(damage.zones[kDamageSideLeftFront], 1.0, 1e-6);
+
+    for (std::size_t i = 0; i < kVehicleDamageZoneCount; ++i)
+        damage.zones[i] = static_cast<float>(i) /
+                          static_cast<float>(kVehicleDamageZoneCount - 1u);
+    const glm::vec4 packed0 = pack_vehicle_damage0(damage);
+    const glm::vec3 triples[] = {
+        unpack_vehicle_damage_triple(packed0.x),
+        unpack_vehicle_damage_triple(packed0.y),
+        unpack_vehicle_damage_triple(packed0.z),
+        unpack_vehicle_damage_triple(packed0.w),
+    };
+    for (std::size_t group = 0; group < 4u; ++group) {
+        REQUIRE_NEAR(triples[group].x, damage.zones[group * 3u], 1.0 / 255.0);
+        REQUIRE_NEAR(triples[group].y, damage.zones[group * 3u + 1u],
+                     1.0 / 255.0);
+        REQUIRE_NEAR(triples[group].z, damage.zones[group * 3u + 2u],
+                     1.0 / 255.0);
+    }
+
+    VehicleDamageState impacts;
+    apply_vehicle_impact(impacts, {0.0f, 0.0f, -2.05f}, 24.0f,
+                         0.86f, 2.05f, {0.05f, -1.0f}, 0.18f, 0.08f, 0.0f);
+    apply_vehicle_impact(impacts, {0.86f, 0.0f, 1.45f}, 28.0f,
+                         0.86f, 2.05f, {0.95f, 0.18f}, 0.52f, 0.78f, 1.0f);
+    REQUIRE(impacts.stamps[0].severity > 0.0f);
+    REQUIRE(impacts.stamps[1].severity > 0.0f);
+    REQUIRE(impacts.stamps[0].glancing < 0.1f);
+    REQUIRE(impacts.stamps[1].glancing > 0.9f);
+    REQUIRE(impacts.stamps[0].radius < impacts.stamps[1].radius);
+
+    const glm::vec2 packed_stamps = pack_vehicle_damage1(impacts);
+    const VehicleDentStamp stamp0 =
+        unpack_vehicle_dent_stamp(packed_stamps.x);
+    const VehicleDentStamp stamp1 =
+        unpack_vehicle_dent_stamp(packed_stamps.y);
+    REQUIRE_NEAR(stamp0.contact_xz.x, impacts.stamps[0].contact_xz.x,
+                 2.0 / 31.0);
+    REQUIRE_NEAR(stamp0.contact_xz.y, impacts.stamps[0].contact_xz.y,
+                 2.0 / 31.0);
+    REQUIRE_NEAR(stamp0.severity, impacts.stamps[0].severity, 1.0 / 31.0);
+    REQUIRE_NEAR(stamp0.height, impacts.stamps[0].height, 1.0 / 3.0);
+    REQUIRE_NEAR(stamp1.radius, impacts.stamps[1].radius, 1.0 / 3.0);
+    REQUIRE_NEAR(stamp1.glancing, 1.0, 1e-6);
+    apricot_test::pass(
+        "damage zones and two directional impact variations persist and pack");
+}
+
+void wheel_damage_is_local_and_changes_handling() {
+    VehicleDamageState damage;
+    damage.zones[kDamageFrontLeft] = 0.82f;
+    damage.zones[kDamageSideLeftFront] = 0.64f;
+    damage.zones[kDamageRearCenter] = 1.0f;
+    REQUIRE_NEAR(vehicle_wheel_damage(damage, kWheelFrontLeft), 0.82, 1e-6);
+    REQUIRE_NEAR(vehicle_wheel_damage(damage, kWheelFrontRight), 0.0, 1e-6);
+    REQUIRE_NEAR(vehicle_wheel_damage(damage, kWheelRearLeft), 0.38, 1e-6);
+    REQUIRE_NEAR(vehicle_wheel_damage(damage, kWheelRearRight), 0.38, 1e-6);
+
+    VehicleTuning tuning;
+    TerrainCollider collider(0xB37u);
+    const float x = 41.0f;
+    const float z = -29.0f;
+    VehicleState healthy = spawn_vehicle(tuning, collider, x, z, 0.0f);
+    VehicleState bent = healthy;
+    bent.body_damage.zones[kDamageFrontLeft] = 1.0f;
+    bent.body_damage.zones[kDamageSideLeftFront] = 1.0f;
+
+    InputFrame throttle;
+    throttle.throttle = 0.75f;
+    for (int step = 0; step < 360; ++step) {
+        healthy = step_vehicle(healthy, tuning, throttle, collider, kDt);
+        bent = step_vehicle(bent, tuning, throttle, collider, kDt);
+    }
+    REQUIRE_MSG(std::fabs(bent.steer_angle) > 0.025f,
+                "a fully bent front wheel left the rack perfectly centred",
+                "bent front corner pulls steering");
+    REQUIRE_MSG(glm::distance(glm::vec2{bent.position.x, bent.position.z},
+                              glm::vec2{healthy.position.x, healthy.position.z}) >
+                    0.20f,
+                "wheel damage had no measurable effect on the driven path",
+                "localized wheel damage changes handling");
+    apricot_test::pass("wheel-arch hits bend only nearby wheels and affect handling");
+}
+
+void lamps_and_fluid_leaks_follow_local_damage() {
+    VehicleDamageState damage;
+    damage.zones[kDamageFrontLeft] = 0.88f;
+
+    REQUIRE(vehicle_lamp_health(damage, VehicleLamp::FrontLeft) < 0.05f);
+    REQUIRE(vehicle_lamp_health(damage, VehicleLamp::FrontRight) > 0.99f);
+    REQUIRE(vehicle_lamp_health(damage, VehicleLamp::RearLeft) > 0.99f);
+
+    auto leaks = vehicle_fluid_leaks(damage);
+    REQUIRE(leaks[0].kind == VehicleFluidKind::Coolant);
+    REQUIRE(leaks[0].severity > 0.85f);
+    REQUIRE(leaks[0].local_xz.x < -0.5f);
+    REQUIRE(leaks[1].severity == 0.0f);
+    REQUIRE(leaks[2].severity == 0.0f);
+
+    damage.zones[kDamageRearRight] = 0.92f;
+    leaks = vehicle_fluid_leaks(damage);
+    REQUIRE(vehicle_lamp_health(damage, VehicleLamp::RearRight) < 0.02f);
+    REQUIRE(vehicle_lamp_health(damage, VehicleLamp::RearLeft) > 0.99f);
+    REQUIRE(leaks[2].kind == VehicleFluidKind::Fuel);
+    REQUIRE(leaks[2].severity > 0.95f);
+    REQUIRE(leaks[2].local_xz.x > 0.5f);
+
+    damage.zones[kDamageFrontCenter] = 1.0f;
+    leaks = vehicle_fluid_leaks(damage);
+    REQUIRE(leaks[1].kind == VehicleFluidKind::Oil);
+    REQUIRE(leaks[1].severity > 0.99f);
+    REQUIRE_NEAR(leaks[1].local_xz.x, 0.0, 1e-6);
+    apricot_test::pass(
+        "lamp failures and coolant/oil/fuel sources stay on the struck region");
+}
+
+void repair_clears_damage_without_resetting_the_drive() {
+    VehicleState car;
+    car.position = {42.0f, 7.0f, -19.0f};
+    car.orientation = glm::angleAxis(0.7f, glm::vec3{0.0f, 1.0f, 0.0f});
+    car.velocity = {8.0f, -0.5f, -13.0f};
+    car.angular_velocity = {0.2f, 0.6f, -0.1f};
+    car.steer_angle = 0.31f;
+    car.engine_rpm = 5100.0f;
+    car.gear = 4;
+    car.health = 17.0f;
+    car.last_impact_speed = 24.0f;
+    car.last_impact_damage = 31.0f;
+    car.impact_count = 9u;
+    car.body_damage.zones[kDamageFrontLeft] = 1.0f;
+    car.body_damage.zones[kDamageRearRight] = 0.75f;
+    car.body_damage.stamps[0].severity = 0.9f;
+    const VehicleState before = car;
+
+    repair_vehicle(car);
+
+    REQUIRE(car.health == 100.0f);
+    REQUIRE(car.last_impact_speed == 0.0f);
+    REQUIRE(car.last_impact_damage == 0.0f);
+    REQUIRE(vehicle_damage_total(car.body_damage) == 0.0f);
+    REQUIRE(car.body_damage.stamps[0].severity == 0.0f);
+    REQUIRE(car.position == before.position);
+    REQUIRE(car.orientation == before.orientation);
+    REQUIRE(car.velocity == before.velocity);
+    REQUIRE(car.angular_velocity == before.angular_velocity);
+    REQUIRE(car.steer_angle == before.steer_angle);
+    REQUIRE(car.engine_rpm == before.engine_rpm);
+    REQUIRE(car.gear == before.gear);
+    REQUIRE(car.impact_count == before.impact_count);
+
+    apricot_test::pass(
+        "repair restores the car without moving it or resetting the drive");
+}
+
+void every_driving_profile_survives_a_mixed_drive() {
+    const TerrainCollider collider(kSeed);
+    float x = 0.0f;
+    float z = 0.0f;
+    flattest_spot(collider, x, z);
+
+    for (int profile_index = 0;
+         profile_index < static_cast<int>(kDrivingMechanicsStyleCount);
+         ++profile_index) {
+        const DrivingMechanicsStyle style =
+            static_cast<DrivingMechanicsStyle>(profile_index);
+        const VehicleTuning tuning = player_vehicle_tuning(style);
+        VehicleState s = spawn_vehicle(tuning, collider, x, z, 0.0f);
+        const glm::vec3 start = s.position;
+        float peak_speed = 0.0f;
+
+        // Ten seconds: accelerate, weave both ways, pull the handbrake, then
+        // brake. This is a stability smoke, not a claim that any profile is
+        // more fun; the whole point of the F1 switch is that a person decides
+        // that part from the live game.
+        for (int step = 0; step < 1200; ++step) {
+            const float time = static_cast<float>(step) * kDt;
+            InputFrame input;
+            input.throttle = step < 1020 ? 0.82f : 0.0f;
+            input.steer = 0.62f * std::sin(time * 0.72f);
+            input.handbrake = (step >= 650 && step < 710) ? 0.75f : 0.0f;
+            input.brake = step >= 1020 ? 0.75f : 0.0f;
+            s = step_vehicle(s, tuning, input, collider, kDt);
+            peak_speed = std::max(peak_speed, vehicle_speed(s));
+
+            REQUIRE_MSG(std::isfinite(s.position.x) &&
+                            std::isfinite(s.position.y) &&
+                            std::isfinite(s.position.z) &&
+                            std::isfinite(s.velocity.x) &&
+                            std::isfinite(s.velocity.y) &&
+                            std::isfinite(s.velocity.z),
+                        "a driving profile produced non-finite vehicle state",
+                        driving_mechanics_name(style));
+        }
+
+        const float travelled = glm::distance(start, s.position);
+        std::printf("      (%-8s mixed drive: %.0f m, peak %.1f m/s, up %.3f)\n",
+                    driving_mechanics_name(style),
+                    static_cast<double>(travelled),
+                    static_cast<double>(peak_speed),
+                    static_cast<double>(vehicle_up(s).y));
+        REQUIRE_MSG(travelled > 25.0f,
+                    "a driving profile barely moved under sustained throttle",
+                    driving_mechanics_name(style));
+        REQUIRE_MSG(peak_speed < tuning.max_speed,
+                    "a driving profile reached the emergency speed clamp",
+                    driving_mechanics_name(style));
+        REQUIRE_MSG(vehicle_up(s).y > 0.35f,
+                    "a normal mixed drive left a profile on its side or roof",
+                    driving_mechanics_name(style));
+    }
+
+    apricot_test::pass("all nine driving profiles survive a real mixed-input drive");
+}
+
+struct MediumTurnResult {
+    float radius_m = 0.0f;
+    float mean_speed_mps = 0.0f;
+    float yaw_radians = 0.0f;
+};
+
+MediumTurnResult measure_medium_speed_turn(DrivingMechanicsStyle style) {
+    const TerrainCollider collider(kSeed);
+    float x = 0.0f;
+    float z = 0.0f;
+    flattest_spot(collider, x, z);
+
+    const VehicleTuning tuning = player_vehicle_tuning(style);
+    VehicleState car = spawn_vehicle(tuning, collider, x, z, 0.0f);
+
+    InputFrame accelerate;
+    accelerate.throttle = 0.82f;
+    for (int step = 0; step < 900 && vehicle_speed(car) < 18.0f; ++step) {
+        car = step_vehicle(car, tuning, accelerate, collider, kDt);
+    }
+
+    float distance = 0.0f;
+    float yaw = 0.0f;
+    float speed_sum = 0.0f;
+    int samples = 0;
+    glm::vec2 previous_forward{vehicle_forward(car).x,
+                               vehicle_forward(car).z};
+    previous_forward = glm::normalize(previous_forward);
+
+    for (int step = 0; step < 420; ++step) {
+        const float speed = vehicle_speed(car);
+        InputFrame turn;
+        turn.steer = 1.0f;
+        turn.throttle = speed < 18.0f ? 0.55f : 0.18f;
+        turn.brake = speed > 21.0f ? 0.20f : 0.0f;
+
+        const glm::vec3 before = car.position;
+        car = step_vehicle(car, tuning, turn, collider, kDt);
+        const glm::vec2 current_forward = glm::normalize(
+            glm::vec2{vehicle_forward(car).x, vehicle_forward(car).z});
+
+        // Let the rack finish winding on before measuring the settled arc.
+        if (step >= 60) {
+            distance += glm::length(glm::vec2{car.position.x - before.x,
+                                               car.position.z - before.z});
+            yaw += std::acos(glm::clamp(glm::dot(previous_forward,
+                                                 current_forward),
+                                        -1.0f, 1.0f));
+            speed_sum += vehicle_speed(car);
+            ++samples;
+        }
+        previous_forward = current_forward;
+    }
+
+    MediumTurnResult result;
+    result.radius_m = yaw > 1e-4f ? distance / yaw : 100000.0f;
+    result.mean_speed_mps =
+        samples > 0 ? speed_sum / static_cast<float>(samples) : 0.0f;
+    result.yaw_radians = yaw;
+    return result;
+}
+
+void arcade_and_sport_turn_tightly_at_medium_speed() {
+    const MediumTurnResult arcade =
+        measure_medium_speed_turn(DrivingMechanicsStyle::Arcade);
+    const MediumTurnResult sport =
+        measure_medium_speed_turn(DrivingMechanicsStyle::Sport);
+    const MediumTurnResult classic_gta =
+        measure_medium_speed_turn(DrivingMechanicsStyle::ClassicGta);
+
+    std::printf("      (medium-speed full-lock radius: Arcade %.1f m at %.1f m/s; "
+                "Sport %.1f m at %.1f m/s; Classic GTA %.1f m at %.1f m/s)\n",
+                static_cast<double>(arcade.radius_m),
+                static_cast<double>(arcade.mean_speed_mps),
+                static_cast<double>(sport.radius_m),
+                static_cast<double>(sport.mean_speed_mps),
+                static_cast<double>(classic_gta.radius_m),
+                static_cast<double>(classic_gta.mean_speed_mps));
+    REQUIRE_MSG(arcade.yaw_radians > 1.0f && sport.yaw_radians > 1.0f &&
+                    classic_gta.yaw_radians > 1.0f,
+                "the medium-speed turn never established a measurable arc",
+                "turn-radius test is meaningful");
+    REQUIRE_MSG(arcade.mean_speed_mps > 14.0f &&
+                    arcade.mean_speed_mps < 22.0f &&
+                    sport.mean_speed_mps > 14.0f &&
+                    sport.mean_speed_mps < 22.0f &&
+                    classic_gta.mean_speed_mps > 14.0f &&
+                    classic_gta.mean_speed_mps < 22.0f,
+                "the radius was measured outside the intended medium-speed band",
+                "turn-radius speed is controlled");
+    REQUIRE_MSG(arcade.radius_m < 36.0f,
+                "Arcade still washed into a wide medium-speed arc",
+                "Arcade turns tightly at medium speed");
+    REQUIRE_MSG(sport.radius_m < 36.0f,
+                "Sport still washed into a wide medium-speed arc",
+                "Sport turns tightly at medium speed");
+    REQUIRE_MSG(classic_gta.radius_m < 35.0f,
+                "Classic GTA still washed into a wide medium-speed arc",
+                "Classic GTA turns tightly at medium speed");
+
+    apricot_test::pass(
+        "Arcade, Sport, and Classic GTA turn tightly at a measured medium speed");
+}
+
+void classic_gta_fast_turn_scrubs_or_slides_instead_of_flipping() {
+    const TerrainCollider collider(kSeed);
+
+    const VehicleTuning tuning =
+        player_vehicle_tuning(DrivingMechanicsStyle::ClassicGta);
+    // Use the real opening position. The flat test pad hid the terrain and
+    // roadside load changes that make a fast turn trip during actual play.
+    VehicleState car = spawn_vehicle(tuning, collider, 0.0f, 0.0f, 0.0f);
+
+    InputFrame accelerate;
+    accelerate.throttle = 1.0f;
+    for (int step = 0; step < 1500 && vehicle_speed(car) < 30.0f; ++step) {
+        car = step_vehicle(car, tuning, accelerate, collider, kDt);
+    }
+    const float entry_speed = vehicle_speed(car);
+    REQUIRE_MSG(entry_speed >= 28.0f,
+                "fast-turn setup never reached a dangerous road speed",
+                "fast-turn rollover test is meaningful");
+
+    float lowest_up = vehicle_up(car).y;
+    float peak_roll_sine = std::fabs(vehicle_right(car).y);
+    float peak_roll_rate = 0.0f;
+    int fewest_grounded = kWheelCount;
+    InputFrame turn;
+    turn.steer = 1.0f;
+    turn.throttle = 0.35f;
+    for (int step = 0; step < 360; ++step) {
+        // A fast outside-wheel curb bite is the failure case reported from
+        // play: cornering load and a one-sided terrain hit arrive together.
+        // This represents the post-contact roll rate, then lets the real
+        // suspension and grounded stability own the outcome.
+        if (step == 90) {
+            car.angular_velocity += vehicle_forward(car) * 20.0f;
+        }
+        car = step_vehicle(car, tuning, turn, collider, kDt);
+        lowest_up = std::min(lowest_up, vehicle_up(car).y);
+        peak_roll_sine =
+            std::max(peak_roll_sine, std::fabs(vehicle_right(car).y));
+        peak_roll_rate = std::max(
+            peak_roll_rate,
+            std::fabs(glm::dot(car.angular_velocity, vehicle_forward(car))));
+        int grounded = 0;
+        for (const WheelState& wheel : car.wheels) {
+            if (wheel.grounded) ++grounded;
+        }
+        fewest_grounded = std::min(fewest_grounded, grounded);
+    }
+
+    std::printf("      (Classic GTA fast turn from %.1f m/s: lowest up %.3f, "
+                "roll sine %.3f, roll rate %.2f rad/s, at least %d wheels down)\n",
+                static_cast<double>(entry_speed),
+                static_cast<double>(lowest_up),
+                static_cast<double>(peak_roll_sine),
+                static_cast<double>(peak_roll_rate), fewest_grounded);
+    REQUIRE_MSG(lowest_up > 0.75f,
+                "Classic GTA flipped or leaned onto its side in a fast turn",
+                "excess corner speed should scrub or slide");
+    REQUIRE_MSG(peak_roll_sine < 0.65f,
+                "Classic GTA built near-rollover lean in a fast turn",
+                "fast turn keeps believable body roll");
+    REQUIRE_MSG(peak_roll_rate < 2.0f,
+                "Classic GTA built an unrealistic barrel-roll rate",
+                "fast turn damps rollover momentum");
+
+    apricot_test::pass(
+        "Classic GTA scrubs or slides through a too-fast turn without flipping");
+}
+
+void classic_gta_high_speed_brake_turn_is_forgiving() {
+    const TerrainCollider collider(kSeed);
+    const VehicleTuning tuning =
+        player_vehicle_tuning(DrivingMechanicsStyle::ClassicGta);
+    VehicleState car = spawn_vehicle(tuning, collider, 0.0f, 0.0f, 0.0f);
+
+    InputFrame accelerate;
+    accelerate.throttle = 1.0f;
+    for (int step = 0; step < 2400 && vehicle_speed(car) < 40.0f; ++step) {
+        car = step_vehicle(car, tuning, accelerate, collider, kDt);
+    }
+    const float entry_speed = vehicle_speed(car);
+    REQUIRE_MSG(entry_speed >= 36.0f,
+                "brake-turn setup never reached very high road speed",
+                "high-speed brake-turn test is meaningful");
+
+    float lowest_up = vehicle_up(car).y;
+    float peak_roll_sine = std::fabs(vehicle_right(car).y);
+    float peak_pitch_sine = std::fabs(vehicle_forward(car).y);
+    float peak_roll_rate = 0.0f;
+    float peak_pitch_rate = 0.0f;
+    int fewest_grounded = kWheelCount;
+    int brake_steps = 0;
+    InputFrame brake_turn;
+    brake_turn.brake = 1.0f;
+    brake_turn.steer = 1.0f;
+    for (int step = 0;
+         step < 1200 && vehicle_forward_speed(car) > 1.0f;
+         ++step) {
+        car = step_vehicle(car, tuning, brake_turn, collider, kDt);
+        brake_steps = step + 1;
+        lowest_up = std::min(lowest_up, vehicle_up(car).y);
+        peak_roll_sine =
+            std::max(peak_roll_sine, std::fabs(vehicle_right(car).y));
+        peak_pitch_sine =
+            std::max(peak_pitch_sine, std::fabs(vehicle_forward(car).y));
+        peak_roll_rate = std::max(
+            peak_roll_rate,
+            std::fabs(glm::dot(car.angular_velocity, vehicle_forward(car))));
+        peak_pitch_rate = std::max(
+            peak_pitch_rate,
+            std::fabs(glm::dot(car.angular_velocity, vehicle_right(car))));
+        int grounded = 0;
+        for (const WheelState& wheel : car.wheels) {
+            if (wheel.grounded) ++grounded;
+        }
+        fewest_grounded = std::min(fewest_grounded, grounded);
+    }
+
+    // Keep holding the exact same inputs after the stop. Arcade reverse may
+    // engage, and the chassis still has to settle instead of standing up on a
+    // body edge after the test's old early exit.
+    for (int step = 0; step < 120 * 5; ++step) {
+        car = step_vehicle(car, tuning, brake_turn, collider, kDt);
+        lowest_up = std::min(lowest_up, vehicle_up(car).y);
+        peak_roll_sine =
+            std::max(peak_roll_sine, std::fabs(vehicle_right(car).y));
+        peak_pitch_sine =
+            std::max(peak_pitch_sine, std::fabs(vehicle_forward(car).y));
+        peak_roll_rate = std::max(
+            peak_roll_rate,
+            std::fabs(glm::dot(car.angular_velocity, vehicle_forward(car))));
+        peak_pitch_rate = std::max(
+            peak_pitch_rate,
+            std::fabs(glm::dot(car.angular_velocity, vehicle_right(car))));
+        int grounded = 0;
+        for (const WheelState& wheel : car.wheels) {
+            if (wheel.grounded) ++grounded;
+        }
+        fewest_grounded = std::min(fewest_grounded, grounded);
+    }
+
+    std::printf("      (Classic GTA brake-turn from %.1f m/s: lowest up %.3f, "
+                "roll/pitch sine %.3f/%.3f, rates %.2f/%.2f rad/s, "
+                "at least %d wheels down, %.2f s to 1 m/s)\n",
+                static_cast<double>(entry_speed),
+                static_cast<double>(lowest_up),
+                static_cast<double>(peak_roll_sine),
+                static_cast<double>(peak_pitch_sine),
+                static_cast<double>(peak_roll_rate),
+                static_cast<double>(peak_pitch_rate), fewest_grounded,
+                static_cast<double>(brake_steps) * static_cast<double>(kDt));
+    REQUIRE_MSG(lowest_up > 0.75f,
+                "Classic GTA flipped during a high-speed brake-turn",
+                "braking and turning should stay forgiving");
+    REQUIRE_MSG(peak_roll_sine < 0.65f && peak_pitch_sine < 0.65f,
+                "Classic GTA approached a rollover during a high-speed brake-turn",
+                "brake-turn keeps believable chassis attitude");
+    REQUIRE_MSG(peak_roll_rate < 2.0f && peak_pitch_rate < 2.0f,
+                "Classic GTA built a tumbling rate during a high-speed brake-turn",
+                "brake-turn damps roll and pitch momentum");
+    REQUIRE_MSG(fewest_grounded >= 3,
+                "Classic GTA launched both sides during a high-speed brake-turn",
+                "brake-turn keeps tyre contact");
+    REQUIRE_MSG(vehicle_forward_speed(car) <= 1.0f && brake_steps < 600,
+                "forgiving brake steering made the panic stop ineffective",
+                "brake-turn still stops promptly");
+
+    apricot_test::pass(
+        "Classic GTA smooths a high-speed brake-turn instead of flipping");
 }
 
 }  // namespace
 
 int main() {
     std::printf("vehicle_tests\n");
+    hill_hop_landings_put_both_axles_back_down();
+    a_hill_hop_in_free_flight_keeps_gravity_and_rotation();
     the_car_settles_to_a_stable_rest_height();
     throttle_drives_and_brake_stops();
+    arcade_brake_transitions_through_reverse_and_back();
+    braking_through_a_turn_stays_on_four_wheels();
+    grounded_roll_stability_absorbs_a_curb_trip();
+    both_pedals_at_a_standstill_do_a_burnout();
     the_car_stays_on_the_surface_over_a_long_drive();
     the_same_tape_replays_bit_for_bit();
     low_grip_takes_longer_to_stop();
+    wheel_contacts_publish_the_top_overlay_material();
     an_inverted_car_rights_itself();
+    a_car_balanced_on_its_bumper_cannot_drive_forever();
+    a_wall_brake_turn_cannot_trip_the_car_onto_its_edge();
+    steering_is_progressive_and_ackermann_correct();
+    anti_roll_bars_reduce_body_roll();
     load_transfers_under_acceleration_braking_and_cornering();
     the_handbrake_breaks_the_rear_loose();
-    a_slide_can_be_caught();
+    a_small_sideways_slip_grips_instead_of_skating();
+    a_handbrake_tap_nudges_while_a_hold_rotates();
+    a_slide_recovers_cleanly();
     the_gearbox_exposes_real_revs_and_a_gear();
     a_car_put_somewhere_impossible_ends_up_somewhere_possible();
+    regional_damage_targets_and_accumulates();
+    wheel_damage_is_local_and_changes_handling();
+    lamps_and_fluid_leaks_follow_local_damage();
     props_are_solid();
+    repair_clears_damage_without_resetting_the_drive();
+    every_driving_profile_survives_a_mixed_drive();
+    arcade_and_sport_turn_tightly_at_medium_speed();
+    classic_gta_fast_turn_scrubs_or_slides_instead_of_flipping();
+    classic_gta_high_speed_brake_turn_is_forgiving();
     return apricot_test::done("vehicle_tests");
 }

@@ -399,11 +399,35 @@ inline float apply_op(const TerrainOp& op, float h, float x, float z) {
 //   1. Flatten  — the plates the districts are built on
 //   2. Bench    — terraces cut into a plate or a hillside
 //   3. Mound    — berms and spoil heaps raised on top
-//   4. Carve    — the water, cut LAST so a basin inside an apron stays wet.
-//                 Move a carve above its flatten and you fill in the harbour.
-//   5. Grade    — roads, which win over everything, because a road that a
+//   4. Carve    — the water, after the district plates so the harbour stays wet.
+//   5. Flatten  — the airport reclamation, after the channel's bank feather.
+//                 Its footprint must stay dry; the channel itself stays north.
+//   6. Grade    — roads, which win over everything, because a road that a
 //                 district plate half-buried is how you get a 30% gradient
 //                 nobody authored.
+
+// Site plates are named records as well as table entries. Terrain scatter uses
+// the same footprint to clear wild trees and rocks from the developed parcel;
+// a second hand-written rectangle would eventually drift into the building.
+inline constexpr TerrainOp kEastArmGalleriaTerrainOp{
+    .kind = OpKind::Flatten,
+    .shape = OpShape::Rect,
+    .note = "East Arm Galleria: level retail terrace under the mall, forecourt "
+            "and parking instead of a rigid slab over overlapping district grades",
+    .centre = {351.968f, 915.617f},
+    // This is the conservative world AABB of the rotated 148 x 170 m parcel,
+    // plus a three-metre full-strength earthwork shoulder for the rendered
+    // one-metre terrain lattice. Feathering begins outside the site boundary.
+    .half_m = {86.7f, 96.3f},
+    .feather_m = 24.0f,
+    .target_m = 13.82f,
+};
+
+inline float authored_site_clearance_weight(float x, float z) {
+    float unused_profile = 0.0f;
+    return op_weight(kEastArmGalleriaTerrainOp, x, z, unused_profile);
+}
+
 inline constexpr TerrainOp kBaseOps[] = {
     // ---- 1. Flatten: the district plates ---------------------------------
     {.kind = OpKind::Flatten,
@@ -463,15 +487,6 @@ inline constexpr TerrainOp kBaseOps[] = {
      .strength = 0.75f},
 
     {.kind = OpKind::Flatten,
-     .shape = OpShape::Rect,
-     .note = "Camber Point: the airfield. The flattest large surface in the "
-             "world, which is where handling gets tested and stunts land",
-     .centre = {150.0f, 2140.0f},
-     .half_m = {520.0f, 180.0f},
-     .feather_m = 200.0f,
-     .target_m = 6.0f},
-
-    {.kind = OpKind::Flatten,
      .shape = OpShape::Corridor,
      .note = "The Strand: 2.2 km of promenade behind the beach, one gentle "
              "curve, so the only decision on it is the throttle",
@@ -494,6 +509,12 @@ inline constexpr TerrainOp kBaseOps[] = {
      .feather_m = 190.0f,
      .target_m = 36.0f,
      .strength = 0.8f},
+
+    // Site plates compose after the broad district plates. Nickel Heights has
+    // a 300 m feather that reaches this block; putting the smaller Galleria
+    // terrace before it let that distant suburb pull one side down by 0.15 m.
+    // The East Arm road Grade still composes later and owns the street edge.
+    kEastArmGalleriaTerrainOp,
 
     // ---- 2. Bench: terraces ----------------------------------------------
     {.kind = OpKind::Bench,
@@ -588,13 +609,28 @@ inline constexpr TerrainOp kBaseOps[] = {
      .feather_m = 160.0f,
      .target_m = -7.0f},
 
+    // ---- 5. Reclamation: preserve the entire authored airfield ------------
+    // The channel's south-bank feather reaches into the airport rectangle.
+    // Flattening before that carve submerged the northwest lot (below -4 m)
+    // and cut through the runway shoulder. Keep this plate AFTER the carve,
+    // but BEFORE road grades. Its existing 200 m feather forms the island's
+    // banks without changing the radial outline or filling the channel core.
+    {.kind = OpKind::Flatten,
+     .shape = OpShape::Rect,
+     .note = "Camber Point: the airfield. The flattest large surface in the "
+             "world, which is where handling gets tested and stunts land",
+     // The footprint includes the runway, public parking and terminal loop.
+     .centre = {150.0f, 2195.0f},
+     .half_m = {520.0f, 235.0f},
+     .feather_m = 200.0f,
+     .target_m = 6.0f},
 };
 
 inline constexpr int kBaseOpCount =
     static_cast<int>(sizeof(kBaseOps) / sizeof(kBaseOps[0]));
 
 // ---------------------------------------------------------------------------
-//  5. Grade: roads win, and they are DERIVED FROM THE ROAD TABLE
+//  6. Grade: roads win, and they are DERIVED FROM THE ROAD TABLE
 // ---------------------------------------------------------------------------
 //
 // There is no hand-written Grade in kBaseOps and there must never be one
@@ -648,9 +684,9 @@ struct TerrainOpTable {
     constexpr TerrainOp& operator[](int i) { return ops[i]; }
 };
 
-// The authored plates, terraces, berms and water, then every road. Grade still
-// composes LAST, which is what keeps the Camber Causeway on top of the Camber
-// channel instead of at the bottom of it.
+// The authored plates, terraces, berms, water and airfield, then every road.
+// Grade still composes LAST, which is what keeps the Camber Causeway on top of
+// the Camber channel instead of at the bottom of it.
 constexpr TerrainOpTable build_terrain_ops() {
     TerrainOpTable out{};
     int w = 0;
@@ -687,7 +723,7 @@ inline constexpr TerrainOpTable kTerrainOps = build_terrain_ops();
 // height_at() is called 4225 times per chunk for the mesh, four more times per
 // vertex for the normals, and again by every physics ground query. A naive
 // loop over the whole op table adds that many shape tests to every one of
-// them. So the table is bucketed by a 128 m grid over the world box: 48 x 48
+// them. So the table is bucketed by a 128 m grid over the world box: 160 x 160
 // cells, built ONCE, AT COMPILE TIME.
 //
 // THIS IS DATA, NOT A CACHE, and the distinction is the whole reason it is
@@ -858,6 +894,22 @@ inline float road_corridor_weight(float x, float z) {
         const float w = op_weight(kTerrainOps[idx], x, z, unused_profile);
         if (w > most) most = w;
     }
+    // Suspended roads must not Grade the ground, but trees still cannot grow
+    // through their decks. This is only the scatter mask, never a height op.
+    for (const Road& road : kRoads) {
+        if (road.bridge_detail_style == BridgeDetailStyle::None &&
+            !road.deck_profile) continue;
+        const float radius = road.ribbon_half_m() + 6.0f;
+        for (int i = 1; i < road.count; ++i) {
+            const auto& a = road.path[i-1];
+            const auto& end = road.path[i];
+            const float dx=end.x-a.x, dz=end.z-a.z;
+            float t=((x-a.x)*dx+(z-a.z)*dz)/(dx*dx+dz*dz);
+            t=t<0.0f?0.0f:(t>1.0f?1.0f:t);
+            const float ox=x-a.x-dx*t, oz=z-a.z-dz*t;
+            if (ox*ox+oz*oz<radius*radius) return 1.0f;
+        }
+    }
     return most;
 }
 
@@ -868,7 +920,7 @@ inline float road_corridor_weight(float x, float z) {
 static_assert(kTerrainOpCount > 0, "the op table is empty");
 static_assert(kTerrainOpCount <= 255,
               "op indices are stored as uint8_t in the bucket index");
-static_assert(kOpBucketsPerSide == 48, "the world box is not 6144 m wide");
+static_assert(kOpBucketsPerSide == 160, "the world box is not 20480 m wide");
 static_assert(!kOpIndex.overflowed,
               "a 128 m cell holds more than kMaxOpsPerBucket operators - raise "
               "the cap or split the op, but do NOT let the index drop one");
@@ -887,20 +939,30 @@ constexpr bool all_ops_well_formed() {
 static_assert(all_ops_well_formed(),
               "a terrain operator is malformed - see TerrainOp::well_formed()");
 
-// Composition order is the map, so it is pinned: all Flattens, then Benches,
-// then Mounds, then Carves, then Grades. Reordering the table is allowed and
-// is an authoring decision; reordering it BY ACCIDENT, by pasting a new op in
-// the wrong group, is what this catches.
+// Composition order is the map, so it is pinned: district Flattens, Benches,
+// Mounds, Carves, the final airport reclamation Flatten, then Grades.
+// Reordering the table is an authoring decision; pasting a new op into the
+// wrong group by accident is what this catches.
 constexpr bool ops_are_grouped_by_kind() {
     int rank = -1;
     for (int i = 0; i < kTerrainOpCount; ++i) {
+        // This is the one explicit late plate, not permission to move an
+        // arbitrary district flatten after water and fill in its harbour.
+        if (i == kBaseOpCount - 1) {
+            if (rank > 3 || kTerrainOps[i].kind != OpKind::Flatten ||
+                kTerrainOps[i].shape != OpShape::Rect ||
+                kTerrainOps[i].centre.x != 150.0f ||
+                kTerrainOps[i].centre.z != 2195.0f) return false;
+            rank = 4;
+            continue;
+        }
         int r = 0;
         switch (kTerrainOps[i].kind) {
             case OpKind::Flatten: r = 0; break;
             case OpKind::Bench:   r = 1; break;
             case OpKind::Mound:   r = 2; break;
             case OpKind::Carve:   r = 3; break;
-            case OpKind::Grade:   r = 4; break;
+            case OpKind::Grade:   r = 5; break;
         }
         if (r < rank) return false;
         rank = r;
@@ -909,7 +971,8 @@ constexpr bool ops_are_grouped_by_kind() {
 }
 static_assert(ops_are_grouped_by_kind(),
               "the op table is out of composition order: flatten, bench, "
-              "mound, carve, grade. A carve above its flatten fills in the "
+              "mound, carve, airport reclamation, grade. A carve above its "
+              "flatten fills in the "
               "harbour and nothing will tell you but the water");
 
 }  // namespace city

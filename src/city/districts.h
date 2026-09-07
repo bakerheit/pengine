@@ -244,7 +244,7 @@ inline constexpr District kDistricts[] = {
     // Switchbacks turn a chase into a series of commitments; a missed hairpin
     // is a 30 m drop, not a scrape. One paved road in makes it the best
     // roadblock in the game, and the unmarked fire road out is the single most
-    // valuable piece of local knowledge Pinatty has to teach. From the mast
+    // valuable piece of local knowledge O'Haven has to teach. From the mast
     // you can see every other landmark, which is how a player builds a mental
     // map without opening one.
     // -----------------------------------------------------------------------
@@ -381,12 +381,16 @@ inline constexpr District kDistricts[] = {
     {.id = DistrictId::CamberPoint,
      .name = "Camber Point",
 
+     // The jurisdiction follows the whole airport plate, including the
+     // terminal ring and its landside development. The old south edge cut
+     // through the parking field and called half the airport countryside.
      .boundary = {.points = {{-420.0f, 2010.0f},
                              {680.0f, 1985.0f},
                              {730.0f, 2270.0f},
-                             {60.0f, 2380.0f},
+                             {650.0f, 2410.0f},
+                             {-370.0f, 2410.0f},
                              {-440.0f, 2230.0f}},
-                  .count = 5},
+                  .count = 6},
 
      .blocks = {.pattern = BlockPattern::Perimeter,
                 .grid_deg = 0.0f,

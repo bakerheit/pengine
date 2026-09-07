@@ -11,12 +11,15 @@
 // plane. If the mesher ever changes its triangulation, this fails loudly rather
 // than letting the collider drift quietly away from what is drawn.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <vector>
 
+#include "app/vehicle_effects_layout.h"
 #include "core/aabb.h"
 #include "physics/terrain_collider.h"
+#include "road/ribbon.h"
 #include "terrain/chunk.h"
 #include "terrain/heightmap.h"
 #include "terrain/surface.h"
@@ -234,6 +237,68 @@ void probe_down_keeps_the_sign_of_the_gap() {
                 "negative distance survives");
 
     apricot_test::pass("probe_down reports penetration as a negative distance");
+}
+
+void zero_snow_depth_preserves_existing_terrain_collision() {
+    TerrainCollider collider(kSeed);
+    const float x = 18.25f;
+    const float z = -31.75f;
+    const float original_height = collider.height(x, z);
+    const glm::vec3 original_normal = collider.normal(x, z);
+    const TerrainCollider::GroundHit original_hit =
+        collider.probe_down({x, original_height + 2.0f, z}, 5.0f);
+
+    REQUIRE(collider.snow_collision_depth() == 0.0f);
+    collider.set_snow_collision_depth(0.0f);
+    REQUIRE(collider.snow_collision_depth() == 0.0f);
+    REQUIRE(collider.height(x, z) == original_height);
+    REQUIRE(collider.normal(x, z) == original_normal);
+
+    const TerrainCollider::GroundHit zero_hit =
+        collider.probe_down({x, original_height + 2.0f, z}, 5.0f);
+    REQUIRE(zero_hit.hit == original_hit.hit);
+    REQUIRE(zero_hit.distance == original_hit.distance);
+    REQUIRE(zero_hit.point == original_hit.point);
+    REQUIRE(zero_hit.normal == original_hit.normal);
+    REQUIRE(zero_hit.material == original_hit.material);
+    REQUIRE(zero_hit.prop == original_hit.prop);
+    REQUIRE(zero_hit.road == original_hit.road);
+    apricot_test::pass("zero snow depth preserves terrain collision exactly");
+}
+
+void positive_snow_depth_raises_terrain_collision() {
+    TerrainCollider collider(kSeed);
+    const float x = -44.5f;
+    const float z = 27.25f;
+    const float bare_height = collider.height(x, z);
+    const float field_height = collider.field_height(x, z);
+    const glm::vec3 bare_normal = collider.normal(x, z);
+    constexpr float kSnowDepth = 0.65f;
+
+    collider.set_snow_collision_depth(kSnowDepth);
+    REQUIRE_NEAR(collider.snow_collision_depth(), kSnowDepth, 1e-6);
+    REQUIRE_NEAR(collider.height(x, z), bare_height + kSnowDepth, 1e-5);
+    REQUIRE(collider.field_height(x, z) == field_height);
+    REQUIRE(collider.normal(x, z) == bare_normal);
+
+    const glm::vec3 origin{x, bare_height + 2.0f, z};
+    const TerrainCollider::GroundHit down = collider.probe_down(origin, 5.0f);
+    REQUIRE(down.hit);
+    REQUIRE(!down.prop);
+    REQUIRE(!down.road);
+    REQUIRE_NEAR(down.point.y, bare_height + kSnowDepth, 1e-5);
+    REQUIRE_NEAR(down.distance, 2.0f - kSnowDepth, 1e-5);
+
+    const TerrainCollider::GroundHit ray =
+        collider.raycast(origin, {0.0f, -1.0f, 0.0f}, 5.0f);
+    REQUIRE(ray.hit);
+    REQUIRE(!ray.prop);
+    REQUIRE_NEAR(ray.point.y, bare_height + kSnowDepth, 1e-4);
+
+    collider.set_snow_collision_depth(-1.0f);
+    REQUIRE(collider.snow_collision_depth() == 0.0f);
+    REQUIRE(collider.height(x, z) == bare_height);
+    apricot_test::pass("positive snow raises terrain collision and probes");
 }
 
 void props_are_found_by_a_downward_probe() {
@@ -491,6 +556,177 @@ void painted_regions_override_the_classifier() {
     apricot_test::pass("painted stage sections override the classifier");
 }
 
+void baked_road_slabs_override_the_terrain_under_the_wheels() {
+    TerrainCollider collider(kSeed);
+    const float x = 63.9f;  // straddles the spatial-index cell boundary
+    const float z = -20.0f;
+    const float top = std::max({collider.height(x - 1.0f, z - 1.0f),
+                                collider.height(x + 1.0f, z - 1.0f),
+                                collider.height(x + 1.0f, z + 1.0f),
+                                collider.height(x - 1.0f, z + 1.0f)}) +
+                      0.18f;
+
+    RoadCollision road;
+    RoadCollisionTri first;
+    first.geom = {{x - 1.0f, top, z - 1.0f},
+                  {x + 1.0f, top, z + 1.0f},
+                  {x + 1.0f, top, z - 1.0f},
+                  {0.0f, 1.0f, 0.0f}};
+    first.layer = RoadLayer::Walk;
+    first.material = Surface::Rock;
+    RoadCollisionTri second;
+    second.geom = {{x - 1.0f, top, z - 1.0f},
+                   {x - 1.0f, top, z + 1.0f},
+                   {x + 1.0f, top, z + 1.0f},
+                   {0.0f, 1.0f, 0.0f}};
+    second.layer = RoadLayer::Walk;
+    second.material = Surface::Rock;
+
+    const float road_x = x + 4.0f;
+    const float road_top =
+        std::max({collider.height(road_x - 1.0f, z - 1.0f),
+                  collider.height(road_x + 1.0f, z - 1.0f),
+                  collider.height(road_x + 1.0f, z + 1.0f),
+                  collider.height(road_x - 1.0f, z + 1.0f)}) +
+        0.06f;
+    RoadCollisionTri road_first;
+    road_first.geom = {{road_x - 1.0f, road_top, z - 1.0f},
+                       {road_x + 1.0f, road_top, z + 1.0f},
+                       {road_x + 1.0f, road_top, z - 1.0f},
+                       {0.0f, 1.0f, 0.0f}};
+    road_first.layer = RoadLayer::Carriageway;
+    road_first.material = Surface::Gravel;
+    RoadCollisionTri road_second;
+    road_second.geom = {{road_x - 1.0f, road_top, z - 1.0f},
+                        {road_x - 1.0f, road_top, z + 1.0f},
+                        {road_x + 1.0f, road_top, z + 1.0f},
+                        {0.0f, 1.0f, 0.0f}};
+    road_second.layer = RoadLayer::Carriageway;
+    road_second.material = Surface::Gravel;
+    road.triangles = {first, second, road_first, road_second};
+    collider.set_road_collision(road);
+
+    REQUIRE(collider.road_triangle_count() == 4u);
+    const TerrainCollider::GroundHit on_walk =
+        collider.probe_down({x, top + 2.0f, z}, 5.0f);
+    REQUIRE(on_walk.hit);
+    REQUIRE(on_walk.road);
+    REQUIRE(!on_walk.prop);
+    REQUIRE_NEAR(on_walk.point.y, top, 1e-5);
+
+    const VehicleFluidMarkPlacement pavement_mark =
+        vehicle_fluid_mark_placement(collider, {x, z}, top + 0.8f);
+    REQUIRE(pavement_mark.road);
+    REQUIRE_NEAR(pavement_mark.position.y,
+                 top + kVehicleFluidMarkLiftM, 1e-5);
+    const VehicleFluidMarkPlacement road_mark =
+        vehicle_fluid_mark_placement(collider, {road_x, z}, road_top + 0.8f);
+    REQUIRE(road_mark.road);
+    REQUIRE_NEAR(road_mark.position.y,
+                 road_top + kVehicleFluidMarkLiftM, 1e-5);
+
+    collider.set_snow_collision_depth(0.28f);
+    const VehicleFluidMarkPlacement snow_mark =
+        vehicle_fluid_mark_placement(
+            collider, {road_x, z}, road_top + 1.0f);
+    REQUIRE(snow_mark.road);
+    REQUIRE_NEAR(snow_mark.position.y,
+                 road_top + 0.28f + kVehicleFluidMarkLiftM, 1e-5);
+    collider.set_snow_collision_depth(0.0f);
+
+    const glm::vec3 slope_normal =
+        glm::normalize(glm::vec3{-0.12f, 1.0f, 0.08f});
+    const glm::quat slope_rotation =
+        vehicle_fluid_mark_rotation(slope_normal, 1.25f);
+    REQUIRE(glm::length(slope_rotation * glm::vec3{0.0f, 1.0f, 0.0f} -
+                        slope_normal) < 1e-5f);
+
+    // A wheel that penetrated the slab by a few centimetres is recovered onto
+    // it; something genuinely underneath a bridge deck is not pulled upward.
+    const TerrainCollider::GroundHit shallow =
+        collider.probe_down({x, top - 0.10f, z}, 5.0f);
+    REQUIRE(shallow.road);
+    REQUIRE(shallow.distance < 0.0f);
+    const TerrainCollider::GroundHit underneath =
+        collider.probe_down({x, top - 1.0f, z}, 5.0f);
+    REQUIRE(!underneath.road);
+
+    collider.clear_road_collision();
+    REQUIRE(collider.road_triangle_count() == 0u);
+    REQUIRE(!collider.probe_down({x, top + 2.0f, z}, 5.0f).road);
+    apricot_test::pass(
+        "wheels and fluid marks rest on baked roads and sidewalk slabs");
+}
+
+void snow_depth_raises_baked_road_collision() {
+    TerrainCollider collider(kSeed);
+    const float x = 91.0f;
+    const float z = -36.0f;
+    const float bare_terrain = collider.height(x, z);
+    const float road_top = bare_terrain + 0.40f;
+
+    RoadCollision road;
+    RoadCollisionTri first;
+    first.geom = {{x - 1.0f, road_top, z - 1.0f},
+                  {x + 1.0f, road_top, z + 1.0f},
+                  {x + 1.0f, road_top, z - 1.0f},
+                  {0.0f, 1.0f, 0.0f}};
+    first.layer = RoadLayer::Carriageway;
+    first.material = Surface::Gravel;
+    RoadCollisionTri second;
+    second.geom = {{x - 1.0f, road_top, z - 1.0f},
+                   {x - 1.0f, road_top, z + 1.0f},
+                   {x + 1.0f, road_top, z + 1.0f},
+                   {0.0f, 1.0f, 0.0f}};
+    second.layer = RoadLayer::Carriageway;
+    second.material = Surface::Gravel;
+    road.triangles = {first, second};
+    collider.set_road_collision(road);
+
+    constexpr float kSnowDepth = 0.55f;
+    collider.set_snow_collision_depth(kSnowDepth);
+    const TerrainCollider::GroundHit hit = collider.probe_down(
+        {x, road_top + kSnowDepth + 1.0f, z}, 3.0f);
+    REQUIRE(hit.hit);
+    REQUIRE(hit.road);
+    REQUIRE(!hit.prop);
+    REQUIRE(hit.material == Surface::Gravel);
+    REQUIRE_NEAR(hit.point.y, road_top + kSnowDepth, 1e-5);
+    REQUIRE_NEAR(hit.distance, 1.0f, 1e-5);
+    REQUIRE_NEAR(collider.height(x, z), bare_terrain + kSnowDepth, 1e-5);
+    apricot_test::pass("snow raises road and terrain ground by the same depth");
+}
+
+void snow_depth_does_not_raise_static_obstacle_tops() {
+    TerrainCollider collider(kSeed);
+    const float x = 122.0f;
+    const float z = 73.0f;
+    const float bare_ground = collider.height(x, z);
+    const float obstacle_top = bare_ground + 3.0f;
+    collider.add_static_box(
+        {{x - 1.0f, bare_ground, z - 1.0f},
+         {x + 1.0f, obstacle_top, z + 1.0f}},
+        Surface::Rock);
+
+    const TerrainCollider::GroundHit bare =
+        collider.probe_down({x, obstacle_top + 2.0f, z}, 8.0f);
+    REQUIRE(bare.hit);
+    REQUIRE(bare.prop);
+    REQUIRE_NEAR(bare.point.y, obstacle_top, 1e-5);
+
+    collider.set_snow_collision_depth(0.80f);
+    REQUIRE_NEAR(collider.height(x, z), bare_ground + 0.80f, 1e-5);
+    REQUIRE_NEAR(collider.static_boxes().front().bounds.max.y,
+                 obstacle_top, 1e-5);
+    const TerrainCollider::GroundHit snowy =
+        collider.probe_down({x, obstacle_top + 2.0f, z}, 8.0f);
+    REQUIRE(snowy.hit);
+    REQUIRE(snowy.prop);
+    REQUIRE_NEAR(snowy.point.y, obstacle_top, 1e-5);
+    REQUIRE_NEAR(snowy.distance, bare.distance, 1e-5);
+    apricot_test::pass("snow does not raise static obstacle tops");
+}
+
 void every_query_is_pure() {
     const TerrainCollider a(kSeed);
     const TerrainCollider b(kSeed);
@@ -519,11 +755,16 @@ int main() {
     the_mesh_and_the_field_genuinely_differ();
     queries_work_where_nothing_was_ever_meshed();
     probe_down_keeps_the_sign_of_the_gap();
+    zero_snow_depth_preserves_existing_terrain_collision();
+    positive_snow_depth_raises_terrain_collision();
     props_are_found_by_a_downward_probe();
     raycast_finds_terrain_and_props();
     surfaces_vary_and_grip_follows_them();
     the_collider_never_classifies_for_itself();
     painted_regions_override_the_classifier();
+    baked_road_slabs_override_the_terrain_under_the_wheels();
+    snow_depth_raises_baked_road_collision();
+    snow_depth_does_not_raise_static_obstacle_tops();
     every_query_is_pure();
     return apricot_test::done("terrain_collision_tests");
 }

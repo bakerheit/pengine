@@ -38,7 +38,12 @@ namespace apricot {
 //     own because it is not a game concept (see below). A caller that needs to
 //     restore a start POSE pairs the tape with its own start record; the tape
 //     stays a flat block of intent.
-inline constexpr uint32_t kReplayTapeVersion = 3;
+// v4: appended map/menu button bits. The InputFrame byte layout is unchanged,
+//     but the bitmask semantics grew and old readers must refuse unknown intent.
+// v5: appended the trailer coupling button; the byte layout is unchanged.
+// v6: appended the settings menu direction buttons; the byte layout is
+// unchanged.
+inline constexpr uint32_t kReplayTapeVersion = 6;
 
 struct ReplayTape {
     uint32_t version = kReplayTapeVersion;

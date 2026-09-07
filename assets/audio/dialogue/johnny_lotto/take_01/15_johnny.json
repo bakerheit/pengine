@@ -1,0 +1,39 @@
+{
+  "id": "15_johnny",
+  "kind": "Cutscene dialogue",
+  "title": "The lotto - line 15",
+  "character": "Johnny Mercer",
+  "voice": "cedar",
+  "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Scrappy, cocky working-class gas station clerk Johnny Mercer; same casting as the cedar getaway-driver audition. Relaxed conversational indoor volume, talking to your older manager across the checkout. Natural and understated, no narration. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Restless but familiar and conversational. You have been stuck working indoors all day.",
+  "text": "Yeah. I've been in here all day. Let me get out of the store for a bit.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "15_johnny.wav",
+  "transcript": "Yeah. I've been in here all day. Let me get out of the store for a bit.",
+  "transcript_matches": true,
+  "duration_seconds": 5.1,
+  "peak_dbfs": -2.63,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 417,
+    "input_tokens": 258,
+    "output_tokens": 159,
+    "input_token_details": {
+      "text_tokens": 258,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 57,
+      "audio_tokens": 102,
+      "reasoning_tokens": 21
+    }
+  },
+  "response_id": "resp_EKQz0wNjg0jRuO7QUqX8Q"
+}

@@ -54,6 +54,16 @@ LaneRef lane_of_spine(const Net& n, uint32_t spine_id, bool forward) {
     return kInvalidLane;
 }
 
+LaneRef indexed_lane_of_spine(const Net& n, uint32_t spine_id, bool forward,
+                              uint8_t index) {
+    for (LaneRef r = 0; r < n.lanes.lane_count(); ++r) {
+        const Lane& l = n.lanes.lane(r);
+        if (n.graph.edge(l.edge).spine_id == spine_id && l.forward == forward &&
+            l.index == index) return r;
+    }
+    return kInvalidLane;
+}
+
 glm::vec2 xz(glm::vec3 p) { return glm::vec2{p.x, p.z}; }
 
 void test_lane_counts_follow_the_hierarchy() {
@@ -122,9 +132,9 @@ void test_lateral_sign_is_one_convention() {
         REQUIRE_NEAR(q.lateral_m, off, 1e-3f);
     }
 
-    // And the right vector really is cross(up, tangent).
+    // And the right vector really is cross(tangent, up).
     const LanePose p = n.lanes.pose(r, mid);
-    const glm::vec3 want = glm::cross(glm::vec3{0.0f, 1.0f, 0.0f}, p.tangent);
+    const glm::vec3 want = glm::cross(p.tangent, glm::vec3{0.0f, 1.0f, 0.0f});
     REQUIRE_NEAR(glm::length(p.right - want), 0.0f, 1e-5f);
     REQUIRE_NEAR(glm::length(p.tangent), 1.0f, 1e-5f);
     pass("one lateral sign convention across pose(), project_onto() and right");
@@ -187,7 +197,8 @@ void test_lane_rides_the_carriageway_surface() {
             continue;
         }
         for (glm::vec3 p : n.lanes.lane(r).centreline) {
-            const float want = mesh_height_at(seed, p.x, p.z) + kDrapeEpsM;
+            const float want =
+                mesh_height_at(seed, p.x, p.z) + kDrapeEpsM + 0.03f;
             worst = std::max(worst, std::fabs(static_cast<double>(p.y - want)));
             ++checked;
         }
@@ -230,6 +241,17 @@ void test_junction_control_follows_the_hierarchy() {
         REQUIRE(t.graph.node(j).edges.size() == 3);
         REQUIRE(t.lanes.junction_control(j) == JunctionControl::None);
 
+        s[0].cls = RoadClass::Arterial;
+        s[1].cls = RoadClass::Alley;
+        Net access;
+        access.graph.build(s, RoadGraphParams{}, GroundSampler{});
+        access.lanes.build(access.graph, GroundSampler{});
+        const uint32_t access_junction = node_at(access.graph, {0.0f, 0.0f});
+        REQUIRE(access.lanes.junction_control(access_junction) ==
+                JunctionControl::None);
+
+        s[0].cls = RoadClass::Street;
+        s[1].cls = RoadClass::Street;
         s[1].points = {{0.0f, -100.0f}, {0.0f, 100.0f}};  // now a 4-way
         Net f;
         f.graph.build(s, RoadGraphParams{}, GroundSampler{});
@@ -302,6 +324,26 @@ void test_drive_on_left_mirrors_everything() {
     }
     REQUIRE(saw);
     pass("driving on the left mirrors lane offsets and swaps the yielding turn");
+}
+
+void test_default_lane_graph_drives_on_right() {
+    Net explicit_right = build(GroundSampler{}, true);
+    Net default_right;
+    default_right.graph.build(make_test_spines(), RoadGraphParams{},
+                              GroundSampler{});
+    default_right.lanes.build(default_right.graph, GroundSampler{});
+
+    REQUIRE(default_right.lanes.lane_count() == explicit_right.lanes.lane_count());
+    for (LaneRef r = 0; r < default_right.lanes.lane_count(); ++r) {
+        REQUIRE_NEAR(default_right.lanes.lane(r).lateral_offset_m,
+                     explicit_right.lanes.lane(r).lateral_offset_m, 1e-6f);
+    }
+
+    const LaneRef lane = lane_of_spine(default_right, 1, true);
+    REQUIRE(lane != kInvalidLane);
+    REQUIRE(default_right.lanes.lane(lane).lateral_offset_m > 0.0f);
+    REQUIRE(default_right.lanes.pose(lane, 100.0f).position.z > 0.0f);
+    pass("default lane graph puts traffic on the right side of the road");
 }
 
 void test_no_lane_is_a_dead_stop_where_a_way_out_exists() {
@@ -489,6 +531,51 @@ void test_build_is_deterministic() {
     pass("two lane-graph builds are bit-identical");
 }
 
+void test_auxiliary_lane_taper_preserves_through_lanes() {
+    std::vector<RoadSpine> spines(3);
+    spines[0].id = 70;
+    spines[0].cls = RoadClass::Freeway;
+    spines[0].points = {{0.0f, 0.0f}, {100.0f, 0.0f}};
+    spines[1].id = 71;
+    spines[1].cls = RoadClass::Freeway;
+    spines[1].points = {{100.0f, 0.0f}, {200.0f, 0.0f}};
+    spines[1].width_start_m = 30.0f;
+    spines[1].width_end_m = 40.0f;
+    spines[1].lanes_start_per_dir = 3;
+    spines[1].lanes_end_per_dir = 4;
+    spines[2].id = 72;
+    spines[2].cls = RoadClass::Freeway;
+    spines[2].points = {{200.0f, 0.0f}, {300.0f, 0.0f}};
+    spines[2].width_start_m = 40.0f;
+    spines[2].width_end_m = 40.0f;
+    spines[2].lanes_start_per_dir = 4;
+    spines[2].lanes_end_per_dir = 4;
+
+    Net n;
+    n.graph.build(spines, RoadGraphParams{}, GroundSampler{});
+    n.lanes.build(n.graph, GroundSampler{});
+    REQUIRE(n.lanes.lanes_of_edge(1).size() == 8);
+    for (uint8_t i = 0; i < 3; ++i) {
+        const Lane& lane = n.lanes.lane(indexed_lane_of_spine(n, 71, true, i));
+        REQUIRE(std::fabs(lane.lateral_offset_start_m -
+                          lane.lateral_offset_end_m) < 0.001f);
+    }
+    const LaneRef incoming = indexed_lane_of_spine(n, 70, true, 2);
+    const LaneRef through = indexed_lane_of_spine(n, 71, true, 2);
+    const LaneRef auxiliary = indexed_lane_of_spine(n, 71, true, 3);
+    bool reaches_through = false;
+    bool reaches_auxiliary = false;
+    for (const TurnLink& turn : n.lanes.outgoing(incoming)) {
+        reaches_through |= turn.to == through;
+        reaches_auxiliary |= turn.to == auxiliary;
+    }
+    REQUIRE(reaches_through && reaches_auxiliary);
+    const Lane& born = n.lanes.lane(auxiliary);
+    REQUIRE(std::fabs(born.lateral_offset_start_m - 12.5f) < 0.001f);
+    REQUIRE(std::fabs(born.lateral_offset_end_m - 17.5f) < 0.001f);
+    pass("a 3-to-4 auxiliary taper holds through lanes and opens at the shoulder");
+}
+
 }  // namespace
 
 int main() {
@@ -501,6 +588,7 @@ int main() {
     test_junction_control_follows_the_hierarchy();
     test_turn_kinds_and_priorities();
     test_drive_on_left_mirrors_everything();
+    test_default_lane_graph_drives_on_right();
     test_no_lane_is_a_dead_stop_where_a_way_out_exists();
     test_multi_lane_discipline();
     test_choose_next_is_pure_and_population_independent();
@@ -508,5 +596,6 @@ int main() {
     test_nearest_lane_and_the_heading_filter();
     test_approach_group_a_splits_the_crossing_streets();
     test_build_is_deterministic();
+    test_auxiliary_lane_taper_preserves_through_lanes();
     return apricot_test::done("lane_graph_tests");
 }

@@ -1,0 +1,39 @@
+{
+  "id": "11_johnny",
+  "kind": "Cutscene dialogue",
+  "title": "The lotto - line 11",
+  "character": "Johnny Mercer",
+  "voice": "cedar",
+  "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Scrappy, cocky working-class gas station clerk Johnny Mercer; same casting as the cedar getaway-driver audition. Relaxed conversational indoor volume, talking to your older manager across the checkout. Natural and understated, no narration. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: You have just realized he means a robbery. A quiet, slightly awkward acknowledgment.",
+  "text": "Right.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "11_johnny.wav",
+  "transcript": "Right.",
+  "transcript_matches": true,
+  "duration_seconds": 0.65,
+  "peak_dbfs": -6.13,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 372,
+    "input_tokens": 240,
+    "output_tokens": 132,
+    "input_token_details": {
+      "text_tokens": 240,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 119,
+      "audio_tokens": 13,
+      "reasoning_tokens": 109
+    }
+  },
+  "response_id": "resp_EKQyqQsqeHIlR1UaHKjeO"
+}

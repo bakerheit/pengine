@@ -247,6 +247,13 @@ struct VoiceHandle {
     bool valid() const { return generation != 0; }
 };
 
+struct OneShotHandle {
+    uint16_t slot = 0;
+    uint16_t generation = 0;
+
+    bool valid() const { return generation != 0; }
+};
+
 // ---------------------------------------------------------------------------
 //  The mixer
 // ---------------------------------------------------------------------------
@@ -336,16 +343,46 @@ public:
     // Fire a one-shot. No handle, no way to stop it, no failure to check: if
     // all 32 one-shot voices are busy the oldest is cut, which is what you
     // want from a rally car landing on gravel in the rain.
-    void play_oneshot(const PcmClip* clip, const VoiceParams& params) {
-        if (!clip || clip->empty()) return;
+    OneShotHandle play_oneshot(const PcmClip* clip,
+                               const VoiceParams& params) {
+        if (!clip || clip->empty()) return {};
+        const std::size_t slot = oneshot_cursor_;
+        if (++oneshot_generation_[slot] == 0) oneshot_generation_[slot] = 1;
         Command c{};
         c.kind = Command::Kind::Start;
-        c.slot = static_cast<uint16_t>(oneshot_cursor_);
+        c.slot = static_cast<uint16_t>(slot);
         c.clip = clip;
         c.params = params;
         c.params.looping = false;
         push_(c);
         oneshot_cursor_ = (oneshot_cursor_ + 1) % kOneShotVoices;
+        return OneShotHandle{static_cast<uint16_t>(slot),
+                             oneshot_generation_[slot]};
+    }
+
+    // Stop a managed one-shot early. Generation checking prevents a stale
+    // handle from cutting a newer sound after the round-robin slot wraps.
+    void stop_oneshot(OneShotHandle h) {
+        if (!h.valid() || h.slot >= kOneShotVoices ||
+            oneshot_generation_[h.slot] != h.generation) {
+            return;
+        }
+        Command c{};
+        c.kind = Command::Kind::Stop;
+        c.slot = h.slot;
+        push_(c);
+    }
+
+    // Move a managed one-shot with its emitter without replaying it.
+    void set_oneshot(OneShotHandle h, const VoiceParams& params) {
+        if (!h.valid() || h.slot >= kOneShotVoices ||
+            oneshot_generation_[h.slot] != h.generation) return;
+        Command c{};
+        c.kind = Command::Kind::Update;
+        c.slot = h.slot;
+        c.params = params;
+        c.params.looping = false;
+        push_(c);
     }
 
     // Open a looping voice. Returns an invalid handle when all loop slots are
@@ -657,6 +694,7 @@ private:
     Mixer gains_;
     std::array<bool, kLoopVoices> loop_taken_{};
     std::array<uint16_t, kLoopVoices> loop_generation_{};
+    std::array<uint16_t, kOneShotVoices> oneshot_generation_{};
     std::size_t oneshot_cursor_ = 0;
     bool silent_ = false;
 

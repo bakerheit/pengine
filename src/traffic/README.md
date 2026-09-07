@@ -192,11 +192,35 @@ would depend on the display.
   solve against a gathered neighbour list — is the work the real network will
   also demand.
 
-- **Junction negotiation is a signal phase and a stop-line hold, and nothing
-  more.** `city/traffic_ai.h` has the permissive-left yield kernel, the overtake
-  gap test, the recovery ladder and the emergency-yield classifier, and none of
-  them are wired here. This module exists to answer a scale question; wiring the
-  full decision stack is a different ticket and will move the per-car cost.
+- **Junction negotiation is local, frozen, and deterministic.** The app uses
+  the same signal phase for its visible bulbs and driver decisions. Cars make
+  profile-specific yellow choices, perform a real stop-sign dwell, choose one
+  right-of-way winner by commitment/priority/arrival/ETA/identity, and keep the
+  junction until their rear has cleared. The runtime also wires the lifted
+  player-hazard kernel and turn-speed caps. Player collisions split impulse
+  between both cars; the traffic body carries a deterministic world-space
+  shove/yaw, adopts longitudinal impacts as real route progress, then slows and
+  steers a forward arc back into its lane. The same contacts store persistent
+  six-region damage on both participants, so the host can dent the struck
+  corner or side without changing the shared traffic mesh. AI cars collide through a
+  deterministic spatial broadphase and planar oriented bodies. Junction claims
+  begin at a stop edge derived from the widest carriageway plus the car body,
+  and phantom promotion is excluded from that box, so a
+  newly active traffic bubble cannot materialise cars inside an intersection.
+  Drivers also reserve enough space on their chosen exit to clear the whole
+  body before entering. A moving leader on the exact same approach/exit is
+  projected conservatively to the follower's clear time, so one green can
+  discharge a platoon without treating its own lead car as cross traffic. A
+  stopped destination queue therefore stays behind the paint instead of
+  gridlocking the signal box; after a profile-specific patience
+  delay, the driver deterministically samples open alternate turns. Overtaking,
+  physical reverse/three-point jam recovery, emergency yielding, and the full
+  maneuver-state stack in `city/traffic_ai.h` remain for a later pass. A car
+  that has already committed uses a separate traversal state until its rear
+  clears the computed box: it ignores later junction signals, maintains a
+  minimum clear speed, suppresses low-speed contact yaw, quickly re-aligns to
+  its lane, and escalates to clearance throttle after one stalled second.
+  Parallel arrivals which merge into one exit are serialized before entry.
 
 ---
 

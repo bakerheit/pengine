@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include <glad/gl.h>
@@ -9,14 +10,8 @@
 
 namespace apricot {
 
-// A GL texture object.
-//
-// EVERY texture in this engine is generated in code. There is no image loader
-// and there are no image files on disk, which is not a limitation being worked
-// around — it is the point. A procedural texture cannot go missing from a
-// package, cannot be the wrong colour space because someone re-exported it, and
-// costs nothing to version. The generators below cover what a driving game
-// actually needs: ground, scenery, and a debug checker.
+// A GL texture object. World surfaces and debug art stay procedural; authored
+// models may load their matching PNG paint through load_file().
 //
 // Every generator tiles seamlessly. A texture with a visible seam laid over
 // terrain reads as a grid, and the grid is all anyone will see afterwards.
@@ -31,6 +26,10 @@ public:
     Texture(Texture&& other) noexcept;
     Texture& operator=(Texture&& other) noexcept;
 
+    // Authored model paint. The image is flipped into the UV convention used
+    // by the original vehicle sources and uploaded as RGBA with mipmaps.
+    bool load_file(const std::string& path);
+
     // --- procedural generators ----------------------------------------------
     // `size` is the side length in texels and must be a power of two so the
     // seamless wrapping maths and the mip chain both work out exactly.
@@ -43,6 +42,10 @@ public:
     // detail; `base_freq` is cells per edge at the first octave.
     bool make_noise(int size, int base_freq, int octaves, glm::vec3 low,
                     glm::vec3 high, uint64_t seed);
+
+    // Fine aggregate with sparse dark pebbles and pale wear flecks. Unlike
+    // make_noise(), this stays gritty when an 8 m road tile is viewed up close.
+    bool make_asphalt(int size, uint64_t seed);
 
     // Vertical gradient from `bottom` to `top`. Tiles horizontally; it does NOT
     // tile vertically, by definition, so use it on things with a clear up.

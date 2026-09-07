@@ -1,0 +1,39 @@
+{
+  "id": "16_lou",
+  "kind": "Cutscene dialogue",
+  "title": "The lotto - line 16",
+  "character": "Lou - Manager",
+  "voice": "ballad",
+  "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Start agreeing, then distinctly say they, hesitate and stop that thought for about half a second, then recover casually with that might not be a bad idea. Keep Ya as the natural spoken yeah. Do not complete the unfinished thought or add any words.",
+  "text": "Ya, actually, they... that might not be a bad idea.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "16_lou.wav",
+  "transcript": "Ya, actually, they... that might not be a bad idea.",
+  "transcript_matches": true,
+  "duration_seconds": 7.0,
+  "peak_dbfs": -14.57,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 470,
+    "input_tokens": 287,
+    "output_tokens": 183,
+    "input_token_details": {
+      "text_tokens": 287,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 43,
+      "audio_tokens": 140,
+      "reasoning_tokens": 13
+    }
+  },
+  "response_id": "resp_EKQz27AQj9OhYACvSCRUL"
+}

@@ -522,7 +522,7 @@ void test_roadblock_layout_spans_width_no_overlap() {
     // Rotated frame too — the layout must hold off-axis, not just along +x.
     const glm::vec2 fwds[2] = {{1.f, 0.f}, {0.6f, 0.8f}};
     for (const glm::vec2& fwd : fwds) {
-        const glm::vec2 right{fwd.y, -fwd.x};
+        const glm::vec2 right{-fwd.y, fwd.x};
         for (float width : {7.f, 8.f, 10.99f, 11.f, 12.f, 16.f}) {
             const glm::vec2 center{30.f, -12.f};
             RoadblockLayout lay =

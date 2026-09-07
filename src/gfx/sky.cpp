@@ -6,12 +6,44 @@
 namespace apricot {
 
 void apply_lighting(const Shader& shader, const SkyEnv& env,
-                    const glm::vec3& camera_position) {
+                    const glm::vec3& camera_position,
+                    const HeadlightRig& headlights,
+                    const CanopyLightRig& canopy_lights) {
     shader.set_vec3("u_light_dir", env.light_dir);
     shader.set_vec3("u_light_color", env.light_color);
     shader.set_vec3("u_ambient", env.ambient);
     shader.set_vec3("u_cam_pos", camera_position);
     shader.set_float("u_specular_strength", env.specular_strength);
+    shader.set_float("u_snow_cover", env.snow_cover);
+
+    shader.set_vec3("u_headlight_pos[0]", headlights.position[0]);
+    shader.set_vec3("u_headlight_pos[1]", headlights.position[1]);
+    shader.set_vec3("u_headlight_dir[0]", headlights.direction[0]);
+    shader.set_vec3("u_headlight_dir[1]", headlights.direction[1]);
+    shader.set_vec3("u_headlight_color", headlights.color);
+    shader.set_vec2("u_headlight_intensity", headlights.intensity);
+    shader.set_float("u_headlight_range", headlights.range);
+    shader.set_float("u_headlight_inner_cos", headlights.inner_cos);
+    shader.set_float("u_headlight_outer_cos", headlights.outer_cos);
+    shader.set_int("u_traffic_lights",4);
+    shader.set_int("u_traffic_cells",5);
+    shader.set_int("u_traffic_indices",6);
+    shader.set_int("u_traffic_columns",headlights.traffic.columns);
+    shader.set_int("u_traffic_rows",headlights.traffic.rows);
+    shader.set_vec4("u_traffic_depth_plane",headlights.traffic.depth_plane);
+
+    shader.set_vec3("u_canopy_light_pos[0]", canopy_lights.position[0]);
+    shader.set_vec3("u_canopy_light_pos[1]", canopy_lights.position[1]);
+    shader.set_vec3("u_canopy_light_pos[2]", canopy_lights.position[2]);
+    shader.set_vec3("u_canopy_light_pos[3]", canopy_lights.position[3]);
+    shader.set_vec3("u_canopy_light_pos[4]", canopy_lights.position[4]);
+    shader.set_vec3("u_canopy_light_pos[5]", canopy_lights.position[5]);
+    shader.set_vec3("u_canopy_light_dir", canopy_lights.direction);
+    shader.set_vec3("u_canopy_light_color", canopy_lights.color);
+    shader.set_float("u_canopy_light_intensity", canopy_lights.intensity);
+    shader.set_float("u_canopy_light_range", canopy_lights.range);
+    shader.set_float("u_canopy_light_inner_cos", canopy_lights.inner_cos);
+    shader.set_float("u_canopy_light_outer_cos", canopy_lights.outer_cos);
 
     // Fog is set unconditionally, including when it is off. The shader's
     // no-op test is `fog_end <= fog_start`, and leaving the previous frame's
@@ -74,6 +106,8 @@ void Sky::render(const Camera& camera, const SkyEnv& env, float anim_time) {
     shader_.set_float("u_time", anim_time);
     shader_.set_float("u_star_intensity", env.star_intensity);
     shader_.set_float("u_cloud_cover", env.cloud_cover);
+    shader_.set_vec3("u_fog_color", env.fog_color);
+    shader_.set_float("u_fog_density", env.fog_density);
 
     // No depth test and no depth write: the sky is a background, and letting it
     // write depth would make it occlude the world it is behind.

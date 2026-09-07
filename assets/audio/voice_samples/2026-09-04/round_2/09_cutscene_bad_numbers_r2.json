@@ -1,0 +1,40 @@
+{
+  "id": "09_cutscene_bad_numbers_r2",
+  "kind": "Cutscene",
+  "title": "Bad numbers",
+  "character": "Leon \u2014 panicked bookkeeper",
+  "voice": "verse",
+  "direction": "American man, early thirties, bright forward mid-range voice with a slight urban nasal edge. You have just discovered a mob accounting disaster and are urgently trying to make your distracted partner look at the ledger. Begin fast and insistent, audibly out of patience. Punch 'Our account!' with one genuinely panicked rise in pitch and volume, then take a short breath. 'Do you understand?' is an incredulous demand. Accelerate through the horrible implications; slow down on 'I have never wanted to look stupid' as you realize the absurdity. Finish 'so badly in my life' with defeated, dry self-disgust. Strong contrast between frantic reasoning and the flat final admission. Messy human energy, not a smooth recital. No extra filler words or stutters.",
+  "text": "I checked the books three times. The money didn't disappear. Somebody moved it into our account. Our account! Do you understand? Everybody who got robbed is about to think we're the clever ones. I have never wanted to look stupid so badly in my life.",
+  "source_take_id": "09_cutscene_bad_numbers",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "09_cutscene_bad_numbers_r2.wav",
+  "transcript": "I checked the books three times. The money didn't disappear. Somebody moved it into our account. Our account! Do you understand? Everybody who got robbed is about to think we're the clever ones. I have never wanted to look stupid so badly in my life.",
+  "transcript_matches": true,
+  "duration_seconds": 17.65,
+  "peak_dbfs": -5.51,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 812,
+    "input_tokens": 344,
+    "output_tokens": 468,
+    "input_token_details": {
+      "text_tokens": 344,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 115,
+      "audio_tokens": 353,
+      "reasoning_tokens": 37
+    }
+  },
+  "response_id": "resp_EKQMXE2KTef45dOkpJ6dY"
+}

@@ -1,0 +1,39 @@
+{
+  "id": "19_lou",
+  "kind": "Cutscene dialogue",
+  "title": "Lou recast \u2014 Ash \u2014 line 19",
+  "character": "Lou - Manager",
+  "voice": "ash",
+  "direction": "Lou is a middle-aged American gas station manager, an ex-crook who has settled into ordinary work. His voice has a light natural rasp and a rough working-class edge, but his manner is relaxed, warm and dryly amused. Speak plainly to Johnny, a coworker standing nearby. Easy everyday rhythm, clear words, small natural pauses. The texture is in the voice, not in exaggerated growling. Play the conversation casually and sincerely. Tell him who to ask for. Devon is pronounced DEV-un.",
+  "text": "Devon will be working in the bait and tackle shop, just let him know I sent you.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "19_lou.wav",
+  "transcript": "Devon will be working in the bait and tackle shop, just let him know I sent you.",
+  "transcript_matches": true,
+  "duration_seconds": 4.8,
+  "peak_dbfs": -9.35,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 418,
+    "input_tokens": 254,
+    "output_tokens": 164,
+    "input_token_details": {
+      "text_tokens": 254,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 68,
+      "audio_tokens": 96,
+      "reasoning_tokens": 32
+    }
+  },
+  "response_id": "resp_EKRm8PiCUGfrNUm9JNroc"
+}

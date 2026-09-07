@@ -34,6 +34,7 @@ struct SkyEnv {
     glm::vec3 light_color{1.0f, 0.95f, 0.85f};
     glm::vec3 ambient{0.18f, 0.22f, 0.28f};
     float specular_strength = 0.25f;
+    float snow_cover = 0.0f;        // 0..1 accumulated on exposed surfaces
 
     // Sky appearance.
     glm::vec3 sky_top{0.30f, 0.55f, 0.90f};
@@ -61,12 +62,30 @@ struct SkyEnv {
 // every time somebody tunes a storm and nobody can tell when it happened.
 struct WeatherParams {
     float rain = 0.0f;        // 0..1 precipitation intensity
+    float snow = 0.0f;        // 0..1 snow/blizzard intensity
+    float snow_cover = 0.0f;  // 0..1 accumulated on the surface
     float overcast = 0.0f;    // 0..1 extra cloud, dimmer sun, greyer light
     float fog = 0.0f;         // 0..1 haze density
 
     // Where the haze band sits when fog > 0. Ignored entirely at fog == 0.
     float fog_start_m = 120.0f;
     float fog_end_m = 900.0f;
+};
+
+// GTA-era draw-distance haze is not weather. Even a clear day owns a soft
+// atmospheric wall that hides the edge of the rendered world; bad weather
+// pulls that wall toward the camera and changes its colour through
+// apply_weather(). Keeping this separate preserves WeatherParams' exact-no-op
+// contract while giving the app an always-on world-scale tool.
+struct DistanceHazeParams {
+    float weather_fog = 0.0f;  // 0 = clear visibility, 1 = heavy fog
+    float clear_start_m = 550.0f;
+    float clear_end_m = 1000.0f;
+    float normal_weather_fog = 0.55f;
+    float normal_start_m = 100.0f;
+    float normal_end_m = 300.0f;
+    float foggy_start_m = 95.0f;
+    float foggy_end_m = 455.0f;
 };
 
 namespace detail {
@@ -79,7 +98,24 @@ inline float sky_smoothstep(float e0, float e1, float x) {
     return t * t * (3.0f - 2.0f * t);
 }
 
+inline glm::vec3 blizzard_grey(const glm::vec3& color, float brightness) {
+    const float luminance = glm::dot(color, glm::vec3{0.2126f, 0.7152f, 0.0722f});
+    return glm::vec3{luminance * brightness} *
+           glm::vec3{0.94f, 0.98f, 1.05f};
+}
+
 }  // namespace detail
+
+// Pure material-side coverage. Vertical and downward faces stay bare; shallow
+// ledges get only a dusting; upward surfaces can reach the full condition value.
+// The shader carries the same thresholds, while this copy makes the contract
+// testable without a GL context.
+inline float snow_accumulation(float snow_cover, float upward_normal) {
+    const float cover = std::clamp(snow_cover, 0.0f, 1.0f);
+    if (cover <= 0.0f) return 0.0f;
+    const float upward = std::clamp(upward_normal, 0.0f, 1.0f);
+    return cover * detail::sky_smoothstep(0.35f, 0.85f, upward);
+}
 
 // Pure: a normalised time of day to a full lighting environment. No clock, no
 // GL, no globals. Feeding it a value outside [0,1) wraps rather than clamping,
@@ -141,6 +177,7 @@ inline SkyEnv compute_sky_env(float time_of_day) {
     e.star_intensity = sky_smoothstep(0.10f, -0.12f, e.sun_dir.y);
 
     e.specular_strength = 0.25f;
+    e.snow_cover = 0.0f;
 
     // Fog is off in the base environment. Distance haze is a weather decision,
     // not a time-of-day one.
@@ -161,11 +198,14 @@ inline SkyEnv compute_sky_env(float time_of_day) {
 inline void apply_weather(SkyEnv& env, const WeatherParams& w) {
     const float overcast = std::clamp(w.overcast, 0.0f, 1.0f);
     const float rain = std::clamp(w.rain, 0.0f, 1.0f);
+    const float snow = std::clamp(w.snow, 0.0f, 1.0f);
+    const float snow_cover = std::clamp(w.snow_cover, 0.0f, 1.0f);
     const float fog = std::clamp(w.fog, 0.0f, 1.0f);
 
     // Rain implies cloud. A downpour under a clear blue sky is the single most
     // obvious way to make weather look bolted on.
-    const float cloud = std::clamp(overcast + rain * 0.6f, 0.0f, 1.0f);
+    const float cloud =
+        std::clamp(overcast + rain * 0.6f + snow * 0.72f, 0.0f, 1.0f);
 
     if (cloud > 0.0f) {
         env.cloud_cover = glm::mix(env.cloud_cover, 1.0f, cloud);
@@ -196,6 +236,62 @@ inline void apply_weather(SkyEnv& env, const WeatherParams& w) {
         env.fog_end = w.fog_end_m;
         env.fog_density = fog;
     }
+
+    if (snow > 0.0f) {
+        // Heavy snowfall used to blend toward a bright blue-white palette,
+        // undoing most of the overcast dimming. Square the intensity so ordinary
+        // snow stays readable, while a forced blizzard becomes a genuinely dark,
+        // low-saturation wall of weather. Deriving each target from its current
+        // luminance keeps night darker than day instead of forcing one flat tint.
+        const float blizzard = snow * snow;
+        env.light_color = glm::mix(
+            env.light_color, detail::blizzard_grey(env.light_color, 0.42f), blizzard);
+        env.ambient = glm::mix(
+            env.ambient, detail::blizzard_grey(env.ambient, 0.43f), blizzard);
+        env.sky_top = glm::mix(
+            env.sky_top, detail::blizzard_grey(env.sky_top, 0.42f), blizzard);
+        env.sky_bottom = glm::mix(
+            env.sky_bottom, detail::blizzard_grey(env.sky_bottom, 0.45f), blizzard);
+        env.sun_color = glm::mix(
+            env.sun_color, detail::blizzard_grey(env.sun_color, 0.30f), blizzard);
+        env.cloud_color = glm::mix(
+            env.cloud_color, detail::blizzard_grey(env.cloud_color, 0.42f), blizzard);
+        env.fog_color = glm::mix(
+            env.fog_color, detail::blizzard_grey(env.fog_color, 0.50f), blizzard);
+    }
+
+    if (snow_cover > 0.0f) env.snow_cover = snow_cover;
+}
+
+// Layer the world's visibility limit after weather. The far edge is fully
+// opaque on purpose: geometry can be culled just behind it without a skyline
+// pop, which is the practical trick that made older open worlds feel larger
+// than their draw distance.
+inline void apply_distance_haze(SkyEnv& env, const DistanceHazeParams& p) {
+    const float fog = std::clamp(p.weather_fog, 0.0f, 1.0f);
+    const float normal = std::clamp(p.normal_weather_fog, 0.0f, 1.0f);
+    float start = p.normal_start_m;
+    float end = p.normal_end_m;
+    if (fog < normal && normal > 0.0f) {
+        const float t = fog / normal;
+        start = glm::mix(p.clear_start_m, p.normal_start_m, t);
+        end = glm::mix(p.clear_end_m, p.normal_end_m, t);
+    } else if (fog > normal && normal < 1.0f) {
+        const float t = (fog - normal) / (1.0f - normal);
+        start = glm::mix(p.normal_start_m, p.foggy_start_m, t);
+        end = glm::mix(p.normal_end_m, p.foggy_end_m, t);
+    }
+    start = std::max(0.0f, start);
+    end = std::max(start + 1.0f, end);
+
+    // On clear days this stays close to the time-cycle horizon. Weather has
+    // already pushed env.fog_color toward grey, so increasing fog naturally
+    // inherits the storm palette rather than introducing a second colour model.
+    env.fog_color =
+        glm::mix(env.sky_bottom, env.fog_color, 0.35f + fog * 0.65f);
+    env.fog_start = start;
+    env.fog_end = end;
+    env.fog_density = 1.0f;
 }
 
 // Convenience: the whole environment for a moment, weather included. This is

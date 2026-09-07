@@ -46,9 +46,19 @@ inline constexpr std::size_t kMaxPropsPerChunk =
     static_cast<std::size_t>(kScatterCellsPerChunk);
 
 // Model variants per kind. The sim does not know what a variant looks like; it
-// picks an index and the renderer owns the meaning.
-inline constexpr uint8_t kTreeVariants = 4;
+// picks an index and the renderer owns the meaning. Keep the original four at
+// the front so O'Haven's existing scatter stays bit-for-bit stable; Florangia
+// uses the following four as its first palm family.
+inline constexpr uint8_t kTemperateTreeVariants = 4;
+inline constexpr uint8_t kPalmTreeVariants = 4;
+inline constexpr uint8_t kPalmTreeVariantBase = kTemperateTreeVariants;
+inline constexpr uint8_t kTreeVariants =
+    kTemperateTreeVariants + kPalmTreeVariants;
 inline constexpr uint8_t kRockVariants = 3;
+
+inline constexpr bool is_palm_tree_variant(uint8_t variant) {
+    return variant >= kPalmTreeVariantBase && variant < kTreeVariants;
+}
 
 struct ScatterProp {
     PropKind kind = PropKind::Tree;

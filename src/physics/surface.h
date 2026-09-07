@@ -51,8 +51,8 @@ struct TyreSurface {
 // the world. Append only, on both sides.
 inline constexpr TyreSurface kTyreSurfaceTable[kSurfaceCount] = {
     /* Rock   */ {1.15f, 0.82f, 1.00f},
-    /* Gravel */ {0.95f, 0.88f, 1.35f},
-    /* Grass  */ {0.72f, 0.46f, 1.60f},
+    /* Gravel */ {0.98f, 0.90f, 1.35f},
+    /* Grass  */ {0.84f, 0.58f, 1.60f},
     /* Sand   */ {0.55f, 0.48f, 3.20f},
 };
 

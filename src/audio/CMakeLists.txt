@@ -6,7 +6,11 @@
 # The split is the point: gain maths and waveform generation are headless-
 # testable and must never drag an audio device into the sim library.
 target_sources(apricot_sim PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/city_audio.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/player_car_assets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/synth.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/vehicle_audio.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/police_siren.cpp
 )
 
 target_sources(apricot_host PRIVATE

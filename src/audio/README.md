@@ -1,9 +1,15 @@
 # src/audio
 
-**Zero audio files on disk.** Every sound the game makes is PCM generated at
-init. Nothing to ship, nothing to license, nothing to go missing on a fresh
-clone. A WAV can be dropped in over any clip as an optional override, and its
-absence is a normal state, not a failure.
+The bank still builds deterministic PCM for tests and unfinished effects, but
+normal player-car playback is recorded-only. Procedural engine, road, tyre and
+impact placeholders are not connected to the live vehicle mix. A missing
+recording means silence, not a generated substitute.
+
+`CityAudio` owns one non-spatial `Category::World` loop made from the recorded
+O'Haven city ambience. It runs at 22% emitter gain beneath the engine and keeps
+playing behind title/pause overlays. The checked-in WAV rotates the source and
+crossfades its last three seconds into its first three seconds, so the original
+fade cannot pulse at the 33.86-second loop boundary.
 
 ---
 
@@ -17,6 +23,7 @@ than around it.
 |---|---|---|
 | `mixer.h` | `apricot_sim` | glm. Nothing else, ever. |
 | `synth.h` / `synth.cpp` | `apricot_sim` | glm, `core/`. Nothing else, ever. |
+| `vehicle_audio.h` / `.cpp` | `apricot_sim` | long-lived player voice control |
 | `device.h` / `device.cpp` | `apricot_host` | the playback backend |
 | `miniaudio_impl.c` | `apricot_host` | it *is* the backend |
 
@@ -90,9 +97,9 @@ then touches nothing but its own fixed arrays. **Keep it that way.** The first
 ### 2. Voices hold bare pointers into the bank
 
 `SfxBank` must outlive the mixer and must not be reallocated while the device
-is running. Build it once in `start()`, keep it for the process. Dropping a WAV
-in over a clip is safe **before `start()` or after `stop()`** — `ma_device_uninit`
-joins the audio thread, so after `stop()` returns nothing is reading it.
+is running. Build it once in `start()`, keep it for the process. Runtime WAV
+paths are passed into `start()` and applied before the host thread begins;
+`ma_device_uninit` joins that thread before `stop()` returns.
 
 ### 3. Silence is a supported outcome, and it needs `set_silent`
 
@@ -165,12 +172,80 @@ genuine tick in a quiet bed.
 
 ---
 
+## Runtime wiring
+
+`VehicleAudio` opens three persistent loops: the stereo five-second steady
+middle from the TanwerAman throttle recording, a real idle loop extracted from
+the supplied tbsounddesigns ignition recording, and a mono tyre screech loop
+from floraphonic's Pixabay rubber recording. Normal driving has no procedural
+engine bed, road roll, tyre squeal, or synthesized impact. `App` feeds it
+engine RPM, forward gear, drive-pedal state, speed, handbrake pull and rear-tyre
+slip. A pedal press plays the recorded rise, then crossfades into that stable
+held loop; release plays the recorded fall at 0.72x speed, stretching its
+2.05-second source to about 2.85 seconds. The held clip tracks the full rev
+range within a restrained 0.78-1.34x pitch window, and Apricot folds its final
+80 ms into the head while loading so repeated high-speed wraps cannot reach the
+original recording's release or quiet tail. A shift
+ends the free-running ramp, drops to the new gear's real RPM, cuts gain to 18%,
+and recovers over 180 ms. That gives the gearbox a clear lift-and-catch without
+adding a fake shift sample. Title, pause, map and developer screens stop the
+live throttle immediately.
+
+Successful entry into an unattended car plays the 2.925-second ignition once,
+then fades into the native-pitch idle during its last 150 ms. Taking an occupied
+traffic car skips ignition. Successful exit switches the engine audio off;
+failed entry/blocked exit do not alter it. Parked cars never run an idle voice.
+Pause/modal screens cancel startup without replaying it on resume. A held pedal
+catches the existing acceleration sequence when startup ends. Idle ducks under
+throttle and fades out between 900 and 2200 RPM; neutral/reverse can still idle.
+The tyre loop fades in from either handbrake pull at speed or rear slip above
+the tyre peak. Below parking-lot speed it stays silent even with the handbrake
+held.
+
+`TrafficIdleAudio` shares the same PCM across at most twelve nearby moving or
+stopped traffic cars, selected within 50 m of the camera. Lane+slot identity and
+a retention bias prevent list reordering from restarting voices. Traffic has
+no startup trigger. Its idle is quieter while moving; this is an idle bed, not
+a replacement for future full traffic acceleration audio. Voice selection has
+fixed storage and never decodes files on a frame or audio callback.
+
+Damaging player-to-traffic collisions play the dedicated real
+`runtime/car_collision.wav` recording. Impact speed scales it from 22% gain at
+a small hit to 95% at 15 m/s; retriggers replace the previous crash rather than
+stacking duplicate peaks. Terrain, walls and scenery do not use this clip.
+
+F1 -> Sound Testing -> Car exposes Accelerate, Brake, Crash, Tyres and Surface.
+Each group has five centred one-shot auditions loaded from short real-world
+recordings: five supplied per-gear acceleration sounds plus 20 CC0 clips.
+Auditions have no synth fallback: a missing file is silent instead of being
+misrepresented as a recorded option. The five older acceleration variations
+remain lab-only. The old generated vehicle clips stay disconnected from normal
+driving and from the lab.
+
+The unused CC0 engine files remain under `assets/audio/vehicles/player/` with
+their provenance, in case a recorded looping engine bed is revisited later.
+`AudioDevice::start()` still loads the bank before the playback thread can see
+it, but `VehicleAudio` does not open those clips.
+
 ## Not implemented yet
 
 - **Device reopen after loss.** Unplugging an interface is detected (the
   backend's stopped-notification sets a flag, and `stop()` reports it), but the
   session stays silent from there. Reopening properly needs a per-frame poll
   from the app layer, which nothing calls yet. See the TODO in `device.cpp`.
-- **Nothing calls this module.** `src/app/` does not yet construct an
-  `AudioDevice`; wiring it to the vehicle and weather state belongs to whoever
-  owns that integration.
+- **Full traffic rev recordings.** Nearby cars have spatial idle emitters, but
+  their acceleration/gear transitions do not yet use the player's throttle set.
+
+### Recorded rain
+
+`audio/world/light_rain_loop.wav` is Liecio's LIGHT RAIN from Pixabay, prepared
+with a one-second equal-power seam. The 103.359-second stereo recording is
+loaded once into `SfxBank::rain` and shared by the title's `IntroAudio` and
+gameplay's `RainAudio`. Source, license, hashes and conversion are recorded in
+`assets/audio/world/SOURCES.md`.
+
+`RainAudio` reads the rendered world's rain intensity each frame, including
+weather changes from the dev menu. It fades gain toward `weather_mix()` and
+closes its voice once clear weather reaches silence. Title/map-from-title
+screens fade gameplay rain away while the title stem plays. Both rain voices
+use the Weather category; the existing title score stays in Music.

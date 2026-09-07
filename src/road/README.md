@@ -86,24 +86,33 @@ same check over all 65,514 draped vertices of the shipped map, in
 `tests/city_roads_tests.cpp`, holds to a millimetre and fails if one vertex
 does not.
 
-Kerb risers are excluded from collision **by layer, not by testing a normal**.
-They are vertical faces; nothing rests on them, and letting one into a set whose
-contract is "the normal points up" is how that contract stops meaning anything.
+Kerb risers and paint are excluded from collision **by layer, not by testing a
+normal**. Kerbs are vertical faces; paint is a visual skin above the asphalt.
+Neither is a surface a wheel should climb onto.
+
+`World::set_roads()` installs that baked collision in `TerrainCollider` at the
+same time it uploads the meshes. Suspension probes query a chunk-keyed index of
+the triangles, so wheels rest on the 12 cm raised sidewalk instead of following
+the terrain hidden underneath it. The probe allows shallow penetration recovery
+but refuses a deck well above its origin, so a car under a bridge is not snapped
+onto the road overhead.
 
 ---
 
-## The six layers
+## The eight layers
 
 One per material the host layer has to bind.
 
 | Layer | Surface | In collision? |
 |---|---|---|
-| `Carriageway` | marked asphalt | yes |
+| `Carriageway` | gritty asphalt base | yes |
 | `Unpaved` | packed earth | yes |
 | `Walk` | raised concrete slabs | yes |
 | `Kerb` | the vertical faces closing those slabs | **no** |
 | `Plate` | junction asphalt, unmarked | yes |
-| `Crosswalk` | zebra bands | yes |
+| `Crosswalk` | zebra paint bars | **no** |
+| `WhiteMarking` | edge lines and lane dividers | **no** |
+| `YellowMarking` | opposing-traffic centre lines | **no** |
 
 A **plate is not the same thing as a junction**. Every crossing of three or more
 roads gets one, and so does every degree-2 node where the road actually changes
@@ -156,7 +165,7 @@ If unifying the two types is ever worth it, the move is `MeshData` **down** into
 - `outgoing()`, `choose_next()`, `plan_route()` — where it may go.
 - `junction_control()` and `TurnLink::priority` — whether it may go now.
 
-**One sign convention, everywhere.** `right` is `cross(up, tangent)`, positive
+**One sign convention, everywhere.** `right` is `cross(tangent, up)`, positive
 lateral is to the right of travel, and `pose()`, `project_onto()` and
 `Lane::lateral_offset_m` all use it. When two of them disagree, an overtake
 steers into the traffic it was avoiding — so it is pinned by a round-trip test
@@ -172,6 +181,23 @@ survives a rebuild and survives reordering the spine table.
 
 `LaneRef` is an index into one build and is not stable across a rebuild. Do not
 persist one; persist `Lane::key`.
+
+### Auxiliary lanes and tapers
+
+`RoadSpine` can carry `width_start_m`, `width_end_m`, and the matching lane
+counts per direction. `RoadGraph` keeps that linear profile on every edge;
+the ribbon, shoulder paint, bridge fascia, map, collision mesh, and lane graph
+all consume it. A 30 m / three-lane freeway widening to 40 m / four lanes keeps
+the original centres at 2.5, 7.5, and 12.5 m. The auxiliary lane begins at the
+old 15 m shoulder and opens to its 17.5 m centre. The reverse profile is the
+same geometry used as a merge taper.
+
+An offset ramp endpoint uses `lane_connect_start` or `lane_connect_end`. The
+lane graph welds only a coincident, aligned outer-lane endpoint within 0.75 m;
+it does not create a centreline junction or permit a ramp to cross the inner
+freeway lanes. An exit connector owns its auxiliary lane after the gore. Keep
+profiled tapers free of authored crossings: lane-count changes belong between
+junctions.
 
 ---
 
@@ -197,7 +223,7 @@ persist one; persist `Lane::key`.
 
 `city::map_spines()` — `src/city/roads.h` and `src/city/spines.cpp`. It is
 still a **parameter** to `RoadGraph::build()` and it must stay one: nothing in
-this module knows Pinatty exists, and that is what lets `tests/road_*.cpp` build
+this module knows O'Haven exists, and that is what lets `tests/road_*.cpp` build
 the graph out of a fixture instead of out of a city.
 
 Measured on the real network, in `tests/city_roads_tests.cpp`:

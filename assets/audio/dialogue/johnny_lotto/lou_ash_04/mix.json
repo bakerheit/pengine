@@ -1,0 +1,65 @@
+{
+  "processing": "Fresh Ash recordings; constant per-take volume adjustment only. No cuts, time stretching, pitch changes, or pause edits.",
+  "takes": [
+    {
+      "id": "02_lou",
+      "voice": "ash",
+      "seconds": 1.8,
+      "gain_db": 4.835674190053199
+    },
+    {
+      "id": "04_lou",
+      "voice": "ash",
+      "seconds": 3.2,
+      "gain_db": 3.1241257707854455
+    },
+    {
+      "id": "06_lou",
+      "voice": "ash",
+      "seconds": 2.45,
+      "gain_db": 2.6070125095901826
+    },
+    {
+      "id": "08_lou",
+      "voice": "ash",
+      "seconds": 3.3,
+      "gain_db": 4.474033470362768
+    },
+    {
+      "id": "10_lou",
+      "voice": "ash",
+      "seconds": 2.75,
+      "gain_db": 2.686663964619847
+    },
+    {
+      "id": "12_lou",
+      "voice": "ash",
+      "seconds": 2.95,
+      "gain_db": 4.200242630436225
+    },
+    {
+      "id": "14_lou",
+      "voice": "ash",
+      "seconds": 0.85,
+      "gain_db": 1.0588319663131234
+    },
+    {
+      "id": "16_lou",
+      "voice": "ash",
+      "seconds": 4.1,
+      "gain_db": 1.916570397425417
+    },
+    {
+      "id": "17_lou",
+      "voice": "ash",
+      "seconds": 5.15,
+      "gain_db": 1.297703512242002
+    },
+    {
+      "id": "19_lou",
+      "voice": "ash",
+      "seconds": 4.8,
+      "gain_db": 2.696658483212018
+    }
+  ]
+}

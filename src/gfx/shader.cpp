@@ -410,6 +410,13 @@ void Shader::set_vec4(const char* name, const glm::vec4& v) const {
     const GLint l = location(name);
     if (l >= 0) glUniform4fv(l, 1, &v[0]);
 }
+void Shader::set_vec4_array(const char* name, const glm::vec4* values,
+                            int count) const {
+    const GLint l = location(name);
+    if (l >= 0 && values != nullptr && count > 0) {
+        glUniform4fv(l, count, &values[0][0]);
+    }
+}
 void Shader::set_mat3(const char* name, const glm::mat3& v) const {
     const GLint l = location(name);
     if (l >= 0) glUniformMatrix3fv(l, 1, GL_FALSE, &v[0][0]);

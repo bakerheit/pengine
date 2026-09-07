@@ -1,0 +1,39 @@
+{
+  "id": "02_lou",
+  "kind": "Cutscene dialogue",
+  "title": "The lotto - line 02",
+  "character": "Lou - Manager",
+  "voice": "ballad",
+  "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Dismiss it without looking up. Familiar advice.",
+  "text": "Don't waste your money.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "02_lou.wav",
+  "transcript": "Don't waste your money.",
+  "transcript_matches": true,
+  "duration_seconds": 1.95,
+  "peak_dbfs": -12.82,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 348,
+    "input_tokens": 238,
+    "output_tokens": 110,
+    "input_token_details": {
+      "text_tokens": 238,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 71,
+      "audio_tokens": 39,
+      "reasoning_tokens": 54
+    }
+  },
+  "response_id": "resp_EKQyXapuPhDZRtUycJ4Gg"
+}

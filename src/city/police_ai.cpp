@@ -177,7 +177,7 @@ RoadblockLayout roadblock_layout(glm::vec2 center, glm::vec2 fwd, float width,
     float fl = glm::length(fwd);
     if (fl < 1e-4f || width <= 0.f) return out;
     fwd /= fl;
-    const glm::vec2 right{fwd.y, -fwd.x};   // XZ right-of-travel (drape conv.)
+    const glm::vec2 right{-fwd.y, fwd.x};   // XZ right-of-travel
 
     const int n = width >= t.wide_width_m ? 3 : 2;
     out.n_cars = n;
@@ -216,7 +216,7 @@ bool roadblock_breached(glm::vec2 player_xz, glm::vec2 center, glm::vec2 fwd,
     float fl = glm::length(fwd);
     if (fl < 1e-4f) return false;
     fwd /= fl;
-    const glm::vec2 right{fwd.y, -fwd.x};
+    const glm::vec2 right{-fwd.y, fwd.x};
     const glm::vec2 d = player_xz - center;
     if (glm::dot(d, fwd) < t.breach_pass_m) return false;   // not yet past
     return std::abs(glm::dot(d, right)) <=

@@ -1,10 +1,13 @@
 #include "app/overlay.h"
+#include "app/bug_report.h"
 
 #include <imgui.h>
 #include <backends/imgui_impl_opengl3.h>
 #include <backends/imgui_impl_sdl2.h>
 
 #include <SDL.h>
+
+#include <algorithm>
 
 #include "core/fixed_step.h"
 #include "core/log.h"
@@ -136,15 +139,29 @@ void draw(Window& window, const Stats& stats, Controls& controls) {
         ImGui::Separator();
         ImGui::Text("hud    %d quads in %d draw%s", stats.hud_quads,
                     stats.hud_draw_calls, stats.hud_draw_calls == 1 ? "" : "s");
-        ImGui::Text("rain   %d drops -> %d quads", stats.rain_drops,
+        ImGui::Text("precip %d particles -> %d quads", stats.rain_drops,
                     stats.rain_quads);
 
         ImGui::Separator();
         ImGui::Text("sky    t=%.3f", static_cast<double>(stats.time_of_day));
+        ImGui::Text("snowpack %.2f m", static_cast<double>(stats.snow_depth_m));
+        ImGui::Text("haze   %.0f -> %.0f m",
+                    static_cast<double>(stats.fog_start_m),
+                    static_cast<double>(stats.fog_end_m));
         ImGui::SliderFloat("sky speed", &controls.sky_speed, 0.0f, 20.0f, "%.1f");
         ImGui::SliderFloat("rain", &controls.rain, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("overcast", &controls.overcast, 0.0f, 1.0f, "%.2f");
-        ImGui::SliderFloat("fog", &controls.fog, 0.0f, 1.0f, "%.2f");
+        ImGui::SliderFloat("weather fog", &controls.fog, 0.0f, 1.0f, "%.2f");
+        bool automatic_snow = controls.snow_depth_override_m < 0.0f;
+        if (ImGui::Checkbox("automatic snowpack", &automatic_snow)) {
+            controls.snow_depth_override_m =
+                automatic_snow ? -1.0f : stats.snow_depth_m;
+        }
+        if (!automatic_snow) {
+            ImGui::SliderFloat("snow depth (m)",
+                               &controls.snow_depth_override_m,
+                               0.0f, 1.5f, "%.2f m");
+        }
 
         ImGui::Separator();
         if (stats.gl_errors > 0) {
@@ -156,7 +173,8 @@ void draw(Window& window, const Stats& stats, Controls& controls) {
             ImGui::TextDisabled("GL clean");
         }
         ImGui::Text("%dx%d", window.width(), window.height());
-        ImGui::TextDisabled("Esc or Ctrl+Q to quit");
+        ImGui::TextDisabled(
+            "F1 dev  F2 report bug  F3 hide stats  P pause  M map");
     }
     ImGui::End();
 
@@ -166,6 +184,69 @@ void draw(Window& window, const Stats& stats, Controls& controls) {
     // The UI backend binds its own program, VAO and texture behind the bind
     // cache's back, so everything the cache believes about GL state is now a
     // lie. Forget all of it — see gl_state.h.
+    gl_state::invalidate_all();
+}
+
+void draw_bug_report(Window& window, BugReportUi& report) {
+    if (!g_initialized || !report.open) return;
+
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplSDL2_NewFrame();
+    ImGui::NewFrame();
+
+    const float width = std::min(660.0f, static_cast<float>(window.width()) - 48.0f);
+    ImGui::SetNextWindowSize(ImVec2{width, 0.0f}, ImGuiCond_Always);
+    ImGui::SetNextWindowPos(
+        ImVec2{static_cast<float>(window.width()) * 0.5f,
+               static_cast<float>(window.height()) * 0.38f},
+        ImGuiCond_Always, ImVec2{0.5f, 0.5f});
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoMove;
+
+    if (ImGui::Begin("REPORT BUG", nullptr, flags)) {
+        ImGui::TextWrapped(
+            "Tell Codex what is wrong. Apricot will attach a clean screenshot "
+            "of this game window and the exact location below.");
+        ImGui::Spacing();
+        ImGui::Text("Position  %.3f, %.3f, %.3f",
+                    static_cast<double>(report.position.x),
+                    static_cast<double>(report.position.y),
+                    static_cast<double>(report.position.z));
+        ImGui::Text("Forward   %.4f, %.4f, %.4f",
+                    static_cast<double>(report.forward.x),
+                    static_cast<double>(report.forward.y),
+                    static_cast<double>(report.forward.z));
+        ImGui::Spacing();
+        ImGui::TextUnformatted("What happened?");
+        if (report.focus_input) {
+            ImGui::SetKeyboardFocusHere();
+            report.focus_input = false;
+        }
+        const bool enter = ImGui::InputText(
+            "##bug", report.message.data(), report.message.size(),
+            ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::Spacing();
+        const bool has_message = bug_report_has_message(report);
+        if (!has_message) ImGui::BeginDisabled();
+        const bool send_clicked =
+            ImGui::Button("SEND TO CODEX", ImVec2{170.0f, 34.0f});
+        if ((send_clicked || enter) && has_message) {
+            report.submit_requested = true;
+        }
+        if (!has_message) ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("CANCEL", ImVec2{110.0f, 34.0f}) ||
+            ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            report.cancel_requested = true;
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("Enter sends   Esc cancels");
+    }
+    ImGui::End();
+
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     gl_state::invalidate_all();
 }
 

@@ -1,0 +1,39 @@
+{
+  "id": "04_lou",
+  "kind": "Cutscene dialogue",
+  "title": "The lotto - line 04",
+  "character": "Lou - Manager",
+  "voice": "ballad",
+  "direction": "Older American man, resonant low voice with a restrained American accent. Lou, a worn-in gas station manager with a criminal past. Dry, matter-of-fact, casual working-man delivery. Normal quiet indoor conversation across the checkout. No grand villain speech, no ominous whisper, no theatrical reveal. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Casual recollection. A small beat after once. You are secretly referring to a robbery.",
+  "text": "I hit it once. Never played again.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "04_lou.wav",
+  "transcript": "I hit it once. Never played again.",
+  "transcript_matches": true,
+  "duration_seconds": 3.3,
+  "peak_dbfs": -11.57,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 401,
+    "input_tokens": 250,
+    "output_tokens": 151,
+    "input_token_details": {
+      "text_tokens": 250,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 85,
+      "audio_tokens": 66,
+      "reasoning_tokens": 62
+    }
+  },
+  "response_id": "resp_EKQycnGrpp5N9YPs0zd8M"
+}

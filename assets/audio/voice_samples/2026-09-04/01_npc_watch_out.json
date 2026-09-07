@@ -1,0 +1,39 @@
+{
+  "id": "01_npc_watch_out",
+  "kind": "NPC",
+  "title": "Watch out",
+  "character": "Startled pedestrian",
+  "voice": "cedar",
+  "direction": "Adult male, rough everyday American voice. A car nearly clips you. One sudden, sharp warning, startled then annoyed. Project across a street; do not scream into the mic.",
+  "text": "Hey watch out!",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "01_npc_watch_out.wav",
+  "transcript": "Hey watch out!",
+  "transcript_matches": true,
+  "duration_seconds": 1.9,
+  "peak_dbfs": -1.5,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 271,
+    "input_tokens": 172,
+    "output_tokens": 99,
+    "input_token_details": {
+      "text_tokens": 172,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 61,
+      "audio_tokens": 38,
+      "reasoning_tokens": 47
+    }
+  },
+  "response_id": "resp_EKQED3Hdiqq8JqQ104ZIj"
+}

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 #include <glm/glm.hpp>
 
@@ -9,7 +10,7 @@
 
 namespace apricot {
 
-// The pure maths behind the camera-locked rain field. GL-free and header-only
+// The pure maths behind the camera-locked precipitation field. GL-free and header-only
 // so the headless suite can hammer it with the inputs that actually break this
 // kind of code — a twenty-second lag spike, a camera teleport, a zero-size box
 // — none of which you can produce by looking at the game.
@@ -30,6 +31,42 @@ struct RainTuning {
 
     glm::vec3 color{0.62f, 0.68f, 0.78f};
 };
+
+enum class PrecipitationType : uint8_t {
+    Rain,
+    Snow,
+    Blizzard,
+};
+
+// Snow needs a much slower fall, broad readable flakes, and deterministic
+// lateral wander. Blizzard is the same particle shape with denser, faster,
+// wind-driven tuning; keeping it as a type makes the renderer choice explicit.
+struct SnowTuning {
+    int flake_count = 2400;
+    float fall_speed = 2.4f;
+    float half_size = 0.048f;
+    glm::vec2 wind{0.45f, 0.12f};  // world X/Z metres per second
+    float sway_amplitude = 0.42f;  // metres from the wind-centred path
+    float sway_rate = 1.35f;       // radians per second
+    float opacity = 0.82f;
+    glm::vec3 span{62.0f, 38.0f, 62.0f};
+    glm::vec3 color{0.94f, 0.97f, 1.0f};
+};
+
+inline SnowTuning default_snow_tuning(PrecipitationType type) {
+    SnowTuning t;
+    if (type == PrecipitationType::Blizzard) {
+        t.flake_count = 4200;
+        t.fall_speed = 5.8f;
+        t.half_size = 0.042f;
+        t.wind = {5.5f, 1.7f};
+        t.sway_amplitude = 0.72f;
+        t.sway_rate = 2.6f;
+        t.opacity = 0.9f;
+        t.span = {72.0f, 42.0f, 72.0f};
+    }
+    return t;
+}
 
 // Shift `value` by whole multiples of `span` until it lies in the half-open
 // window [centre - span/2, centre + span/2).
@@ -81,6 +118,12 @@ inline int rain_drop_count(const RainTuning& t, float intensity) {
     return std::max(1, static_cast<int>(n));
 }
 
+inline int snow_flake_count(const SnowTuning& t, float intensity) {
+    const float i = std::clamp(intensity, 0.0f, 1.0f);
+    if (i <= 0.0f) return 0;
+    return std::max(1, static_cast<int>(static_cast<float>(t.flake_count) * i));
+}
+
 // A drop's position after `dt` seconds, wrapped back into the field around
 // `camera_pos`. Pure in its arguments — the caller owns the drop array.
 inline glm::vec3 rain_advance(glm::vec3 pos, const RainTuning& t,
@@ -103,6 +146,57 @@ inline glm::vec3 rain_seed_position(const RainTuning& t, glm::vec3 camera_pos,
     return glm::vec3{centre.x + (r.next_float() - 0.5f) * t.span.x,
                      centre.y + (r.next_float() - 0.5f) * t.span.y,
                      centre.z + (r.next_float() - 0.5f) * t.span.z};
+}
+
+inline glm::vec3 snow_field_centre(const SnowTuning& t, glm::vec3 camera_pos) {
+    return camera_pos + glm::vec3{0.0f, t.span.y * 0.15f, 0.0f};
+}
+
+inline uint32_t snow_channel(PrecipitationType type) {
+    return type == PrecipitationType::Blizzard ? 0xB112u : 0x5A0Fu;
+}
+
+// Snow placement and motion are random-looking but pure in their arguments.
+// An analytic sine delta makes a flake arrive at the same point whether a
+// second was simulated as one update or sixty, apart from wrapping the box.
+inline glm::vec3 snow_seed_position(const SnowTuning& t, glm::vec3 camera_pos,
+                                    uint64_t seed, int index,
+                                    PrecipitationType type = PrecipitationType::Snow) {
+    Rng r = rng_at(seed, index, 0, snow_channel(type));
+    const glm::vec3 centre = snow_field_centre(t, camera_pos);
+    return glm::vec3{centre.x + (r.next_float() - 0.5f) * t.span.x,
+                     centre.y + (r.next_float() - 0.5f) * t.span.y,
+                     centre.z + (r.next_float() - 0.5f) * t.span.z};
+}
+
+inline glm::vec3 snow_displacement(const SnowTuning& t, uint64_t seed, int index,
+                                   float elapsed, float dt,
+                                   PrecipitationType type = PrecipitationType::Snow) {
+    const float step = std::max(dt, 0.0f);
+    if (step <= 0.0f) return glm::vec3{0.0f};
+
+    Rng r = rng_at(seed, index, 1, snow_channel(type));
+    const float phase_x = r.range(0.0f, 6.28318530718f);
+    const float phase_z = r.range(0.0f, 6.28318530718f);
+    const float rate_x = t.sway_rate * r.range(0.72f, 1.28f);
+    const float rate_z = t.sway_rate * r.range(0.72f, 1.28f);
+    const float begin = std::max(elapsed, 0.0f);
+    const float end = begin + step;
+
+    const float sway_x = t.sway_amplitude *
+        (std::sin(phase_x + rate_x * end) - std::sin(phase_x + rate_x * begin));
+    const float sway_z = t.sway_amplitude *
+        (std::cos(phase_z + rate_z * end) - std::cos(phase_z + rate_z * begin));
+    return glm::vec3{t.wind.x * step + sway_x, -t.fall_speed * step,
+                     t.wind.y * step + sway_z};
+}
+
+inline glm::vec3 snow_advance(glm::vec3 pos, const SnowTuning& t,
+                              glm::vec3 camera_pos, uint64_t seed, int index,
+                              float elapsed, float dt,
+                              PrecipitationType type = PrecipitationType::Snow) {
+    return wrap_into_box(pos + snow_displacement(t, seed, index, elapsed, dt, type),
+                         snow_field_centre(t, camera_pos), t.span);
 }
 
 }  // namespace apricot

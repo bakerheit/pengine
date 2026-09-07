@@ -78,8 +78,9 @@ bool Window::init(const WindowConfig& cfg) {
 
     AP_INFO("GL %d.%d core (%s)", major, minor,
             reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
-    AP_INFO("window %dx%d drawable, aspect %.4f, vsync=%d", width_, height_,
-            static_cast<double>(aspect_), cfg.vsync ? 1 : 0);
+    AP_INFO("window %dx%d drawable, aspect %.4f, swap interval=%d (requested %d)",
+            width_, height_, static_cast<double>(aspect_),
+            SDL_GL_GetSwapInterval(), cfg.vsync ? 1 : 0);
     return true;
 }
 
@@ -129,7 +130,7 @@ bool Window::set_vsync(bool on) {
                 SDL_GetError());
         return SDL_GL_GetSwapInterval() != 0;
     }
-    return on;
+    return SDL_GL_GetSwapInterval() != 0;
 }
 
 }  // namespace apricot

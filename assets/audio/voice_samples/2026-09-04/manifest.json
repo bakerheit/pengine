@@ -1,0 +1,469 @@
+{
+  "model": "gpt-realtime-2.1",
+  "date": "2026-09-04",
+  "format": "PCM 16-bit mono 24000 Hz",
+  "synthetic_voices": true,
+  "validation": "All ten API output transcripts match their scripts after punctuation normalization. All WAVs decode and contain zero clipped samples. No independent listening or speech-recognition review performed.",
+  "reels": "Reels are peak-normalized to -3 dBFS with one second between takes. Individual WAVs preserve API output.",
+  "usage": {
+    "input_text": 2188,
+    "output_text": 1152,
+    "output_audio": 2684
+  },
+  "estimated_usd": 0.2082,
+  "pricing_source": "https://developers.openai.com/api/docs/models/gpt-realtime-2.1",
+  "chapters": [
+    {
+      "reel": "npc_reel",
+      "start_seconds": 0,
+      "title": "Watch out",
+      "character": "Startled pedestrian"
+    },
+    {
+      "reel": "npc_reel",
+      "start_seconds": 2.9,
+      "title": "That smell",
+      "character": "Disgusted passerby"
+    },
+    {
+      "reel": "npc_reel",
+      "start_seconds": 6.4,
+      "title": "Swimming in money",
+      "character": "Cocky small-time crook"
+    },
+    {
+      "reel": "cutscene_reel",
+      "start_seconds": 0,
+      "title": "Last chance",
+      "character": "Eddie \u2014 hungry getaway driver"
+    },
+    {
+      "reel": "cutscene_reel",
+      "start_seconds": 16.85,
+      "title": "A clean job",
+      "character": "Mara \u2014 precise fixer"
+    },
+    {
+      "reel": "cutscene_reel",
+      "start_seconds": 32.4,
+      "title": "Probable cause",
+      "character": "Detective Rusk \u2014 exhausted investigator"
+    },
+    {
+      "reel": "cutscene_reel",
+      "start_seconds": 51.45,
+      "title": "The wrong car",
+      "character": "Nina \u2014 furious wheelwoman"
+    },
+    {
+      "reel": "cutscene_reel",
+      "start_seconds": 72.8,
+      "title": "The quiet threat",
+      "character": "Mr. Vale \u2014 courteous crime boss"
+    },
+    {
+      "reel": "cutscene_reel",
+      "start_seconds": 93.5,
+      "title": "Bad numbers",
+      "character": "Leon \u2014 panicked bookkeeper"
+    },
+    {
+      "reel": "cutscene_reel",
+      "start_seconds": 112.4,
+      "title": "Last drink",
+      "character": "Ruth \u2014 longtime neighborhood bartender"
+    }
+  ],
+  "takes": [
+    {
+      "id": "01_npc_watch_out",
+      "kind": "NPC",
+      "title": "Watch out",
+      "character": "Startled pedestrian",
+      "voice": "cedar",
+      "direction": "Adult male, rough everyday American voice. A car nearly clips you. One sudden, sharp warning, startled then annoyed. Project across a street; do not scream into the mic.",
+      "text": "Hey watch out!",
+      "requested_model": "gpt-realtime-2.1",
+      "actual_model": "gpt-realtime-2.1",
+      "file": "01_npc_watch_out.wav",
+      "transcript": "Hey watch out!",
+      "transcript_matches": true,
+      "duration_seconds": 1.9,
+      "peak_dbfs": -1.5,
+      "clipped_samples": 0,
+      "usage": {
+        "total_tokens": 271,
+        "input_tokens": 172,
+        "output_tokens": 99,
+        "input_token_details": {
+          "text_tokens": 172,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "cached_tokens": 0,
+          "cached_tokens_details": {
+            "text_tokens": 0,
+            "audio_tokens": 0,
+            "image_tokens": 0
+          }
+        },
+        "output_token_details": {
+          "text_tokens": 61,
+          "audio_tokens": 38,
+          "reasoning_tokens": 47
+        }
+      },
+      "response_id": "resp_EKQED3Hdiqq8JqQ104ZIj"
+    },
+    {
+      "id": "02_npc_that_smell",
+      "kind": "NPC",
+      "title": "That smell",
+      "character": "Disgusted passerby",
+      "voice": "coral",
+      "direction": "Adult woman, dry urban American delivery. You just walked into a truly foul smell. Start with disbelief, wrinkle your nose, put disgust into 'hell' and 'smell'. Comic irritation, fully natural.",
+      "text": "What the hell is that smell??",
+      "requested_model": "gpt-realtime-2.1",
+      "actual_model": "gpt-realtime-2.1",
+      "file": "02_npc_that_smell.wav",
+      "transcript": "What the hell is that smell??",
+      "transcript_matches": true,
+      "duration_seconds": 2.5,
+      "peak_dbfs": -6.97,
+      "clipped_samples": 0,
+      "usage": {
+        "total_tokens": 334,
+        "input_tokens": 183,
+        "output_tokens": 151,
+        "input_token_details": {
+          "text_tokens": 183,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "cached_tokens": 0,
+          "cached_tokens_details": {
+            "text_tokens": 0,
+            "audio_tokens": 0,
+            "image_tokens": 0
+          }
+        },
+        "output_token_details": {
+          "text_tokens": 101,
+          "audio_tokens": 50,
+          "reasoning_tokens": 82
+        }
+      },
+      "response_id": "resp_EKQEGnuLj5dZ110KxznmJ"
+    },
+    {
+      "id": "03_npc_swimming_in_money",
+      "kind": "NPC",
+      "title": "Swimming in money",
+      "character": "Cocky small-time crook",
+      "voice": "verse",
+      "direction": "Young adult American man with a light East Coast edge. A private, delighted boast to yourself. You're broke but convinced your big break is coming. Grin on 'swimming in the money'; cocky and a little ridiculous.",
+      "text": "Wait til they see me swimming in the money.",
+      "requested_model": "gpt-realtime-2.1",
+      "actual_model": "gpt-realtime-2.1",
+      "file": "03_npc_swimming_in_money.wav",
+      "transcript": "Wait til they see me swimming in the money.",
+      "transcript_matches": true,
+      "duration_seconds": 3.9,
+      "peak_dbfs": -7.35,
+      "clipped_samples": 0,
+      "usage": {
+        "total_tokens": 329,
+        "input_tokens": 191,
+        "output_tokens": 138,
+        "input_token_details": {
+          "text_tokens": 191,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "cached_tokens": 0,
+          "cached_tokens_details": {
+            "text_tokens": 0,
+            "audio_tokens": 0,
+            "image_tokens": 0
+          }
+        },
+        "output_token_details": {
+          "text_tokens": 60,
+          "audio_tokens": 78,
+          "reasoning_tokens": 36
+        }
+      },
+      "response_id": "resp_EKQEJ94CgNR7eVPZGgUsl"
+    },
+    {
+      "id": "04_cutscene_last_chance",
+      "kind": "Cutscene",
+      "title": "Last chance",
+      "character": "Eddie \u2014 hungry getaway driver",
+      "voice": "cedar",
+      "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Alone with your closest friend in a parked car. Begin quiet and honest, pause after 'Same rent', then let stubborn hope turn into resolve. Underplay it; no trailer narration.",
+      "text": "I been parking rich men's cars since I was sixteen. Same corner. Same rent. Tonight, I pull up to that hotel, and somebody else takes my keys. Just keep the engine running. Let me have this one.",
+      "requested_model": "gpt-realtime-2.1",
+      "actual_model": "gpt-realtime-2.1",
+      "file": "04_cutscene_last_chance.wav",
+      "transcript": "I been parking rich men's cars since I was sixteen. Same corner. Same rent. Tonight, I pull up to that hotel, and somebody else takes my keys. Just keep the engine running. Let me have this one.",
+      "transcript_matches": true,
+      "duration_seconds": 15.85,
+      "peak_dbfs": -4.54,
+      "clipped_samples": 0,
+      "usage": {
+        "total_tokens": 683,
+        "input_tokens": 233,
+        "output_tokens": 450,
+        "input_token_details": {
+          "text_tokens": 233,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "cached_tokens": 0,
+          "cached_tokens_details": {
+            "text_tokens": 0,
+            "audio_tokens": 0,
+            "image_tokens": 0
+          }
+        },
+        "output_token_details": {
+          "text_tokens": 133,
+          "audio_tokens": 317,
+          "reasoning_tokens": 64
+        }
+      },
+      "response_id": "resp_EKQELGIBR2pcuYvvUt3hE"
+    },
+    {
+      "id": "05_cutscene_clean_job",
+      "kind": "Cutscene",
+      "title": "A clean job",
+      "character": "Mara \u2014 precise fixer",
+      "voice": "marin",
+      "direction": "American woman, forties, low and composed, clear consonants, small dry smile. Giving a job to someone you like but don't fully trust. Businesslike opening, a deliberate pause before the last sentence, then unmistakable quiet warning.",
+      "text": "There's an envelope behind the counter at Halloway Gas. Bring it to me sealed. Don't count it, don't smell it, and for God's sake, don't ask the cashier what's inside. Last fellow asked questions. Now I'm hiring you.",
+      "requested_model": "gpt-realtime-2.1",
+      "actual_model": "gpt-realtime-2.1",
+      "file": "05_cutscene_clean_job.wav",
+      "transcript": "There's an envelope behind the counter at Halloway Gas. Bring it to me sealed. Don't count it, don't smell it, and for God's sake, don't ask the cashier what's inside. Last fellow asked questions. Now I'm hiring you.",
+      "transcript_matches": true,
+      "duration_seconds": 14.55,
+      "peak_dbfs": -6.52,
+      "clipped_samples": 0,
+      "usage": {
+        "total_tokens": 611,
+        "input_tokens": 229,
+        "output_tokens": 382,
+        "input_token_details": {
+          "text_tokens": 229,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "cached_tokens": 0,
+          "cached_tokens_details": {
+            "text_tokens": 0,
+            "audio_tokens": 0,
+            "image_tokens": 0
+          }
+        },
+        "output_token_details": {
+          "text_tokens": 91,
+          "audio_tokens": 291,
+          "reasoning_tokens": 19
+        }
+      },
+      "response_id": "resp_EKQEQEMWbjYEvIk5cPlIx"
+    },
+    {
+      "id": "06_cutscene_probable_cause",
+      "kind": "Cutscene",
+      "title": "Probable cause",
+      "character": "Detective Rusk \u2014 exhausted investigator",
+      "voice": "ash",
+      "direction": "Middle-aged American man, gravelly and sleep-deprived, understated urban accent. You're sitting across a table from a suspect you almost respect. Wry opening, patient interrogation rather than shouting, weariness peeking through at the end.",
+      "text": "Funny thing about your alibi. Everybody remembers you, but nobody remembers when. That's either a very friendly neighborhood or a very expensive one. Sit down. I've got cold coffee and nothing to lose until morning.",
+      "requested_model": "gpt-realtime-2.1",
+      "actual_model": "gpt-realtime-2.1",
+      "file": "06_cutscene_probable_cause.wav",
+      "transcript": "Funny thing about your alibi. Everybody remembers you, but nobody remembers when. That's either a very friendly neighborhood or a very expensive one. Sit down. I've got cold coffee and nothing to lose until morning.",
+      "transcript_matches": true,
+      "duration_seconds": 18.05,
+      "peak_dbfs": -9.54,
+      "clipped_samples": 0,
+      "usage": {
+        "total_tokens": 688,
+        "input_tokens": 225,
+        "output_tokens": 463,
+        "input_token_details": {
+          "text_tokens": 225,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "cached_tokens": 0,
+          "cached_tokens_details": {
+            "text_tokens": 0,
+            "audio_tokens": 0,
+            "image_tokens": 0
+          }
+        },
+        "output_token_details": {
+          "text_tokens": 102,
+          "audio_tokens": 361,
+          "reasoning_tokens": 32
+        }
+      },
+      "response_id": "resp_EKQEU8dU3TEad2excm6Th"
+    },
+    {
+      "id": "07_cutscene_wrong_car",
+      "kind": "Cutscene",
+      "title": "The wrong car",
+      "character": "Nina \u2014 furious wheelwoman",
+      "voice": "coral",
+      "direction": "American woman, early thirties, energetic, brisk and slightly breathless after a botched escape. Anger is covering panic. Bite off the short words. Take one calming breath before 'All right', then snap into practical focus. Dark comedy played straight.",
+      "text": "I said the blue sedan. That is a hearse. You stole a hearse, and you left the flowers in it. All right. Fine. Get in. If anybody asks, we're late for a funeral, and you're doing a wonderful job looking dead.",
+      "requested_model": "gpt-realtime-2.1",
+      "actual_model": "gpt-realtime-2.1",
+      "file": "07_cutscene_wrong_car.wav",
+      "transcript": "I said the blue sedan. That is a hearse. You stole a hearse, and you left the flowers in it. All right. Fine. Get in. If anybody asks, we're late for a funeral, and you're doing a wonderful job looking dead.",
+      "transcript_matches": true,
+      "duration_seconds": 20.35,
+      "peak_dbfs": -8.35,
+      "clipped_samples": 0,
+      "usage": {
+        "total_tokens": 766,
+        "input_tokens": 239,
+        "output_tokens": 527,
+        "input_token_details": {
+          "text_tokens": 239,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "cached_tokens": 0,
+          "cached_tokens_details": {
+            "text_tokens": 0,
+            "audio_tokens": 0,
+            "image_tokens": 0
+          }
+        },
+        "output_token_details": {
+          "text_tokens": 120,
+          "audio_tokens": 407,
+          "reasoning_tokens": 39
+        }
+      },
+      "response_id": "resp_EKQEYqKtSTCbxCDAqoQpt"
+    },
+    {
+      "id": "08_cutscene_quiet_threat",
+      "kind": "Cutscene",
+      "title": "The quiet threat",
+      "character": "Mr. Vale \u2014 courteous crime boss",
+      "voice": "ballad",
+      "direction": "Older adult man, resonant low voice, restrained cultivated American accent. Impeccably polite, dangerous without raising your voice. First sentence genuinely hospitable. A small pause after 'Good'. Let the last two sentences turn cold. Not a caricature or an imitation of any actor.",
+      "text": "My wife picked out those curtains. Awful things, aren't they? You can say it. Good. Now we know you're capable of telling the truth. Let's try again. Where is my money, and why did your friend leave town without you?",
+      "requested_model": "gpt-realtime-2.1",
+      "actual_model": "gpt-realtime-2.1",
+      "file": "08_cutscene_quiet_threat.wav",
+      "transcript": "My wife picked out those curtains. Awful things, aren't they? You can say it. Good. Now we know you're capable of telling the truth. Let's try again. Where is my money, and why did your friend leave town without you?",
+      "transcript_matches": true,
+      "duration_seconds": 19.7,
+      "peak_dbfs": -6.91,
+      "clipped_samples": 0,
+      "usage": {
+        "total_tokens": 869,
+        "input_tokens": 244,
+        "output_tokens": 625,
+        "input_token_details": {
+          "text_tokens": 244,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "cached_tokens": 0,
+          "cached_tokens_details": {
+            "text_tokens": 0,
+            "audio_tokens": 0,
+            "image_tokens": 0
+          }
+        },
+        "output_token_details": {
+          "text_tokens": 231,
+          "audio_tokens": 394,
+          "reasoning_tokens": 153
+        }
+      },
+      "response_id": "resp_EKQEe6E2ecKbhnlnKeqoF"
+    },
+    {
+      "id": "09_cutscene_bad_numbers",
+      "kind": "Cutscene",
+      "title": "Bad numbers",
+      "character": "Leon \u2014 panicked bookkeeper",
+      "voice": "echo",
+      "direction": "Adult American man, thin slightly nasal voice, quick precise speech. Trying to stay professional while frightened. Rush the opening explanation, catch your breath before 'Everybody', lower your voice for the final realization. No added stuttering words.",
+      "text": "I checked the books three times. The money didn't disappear. Somebody moved it into our account. Our account! Do you understand? Everybody who got robbed is about to think we're the clever ones. I have never wanted to look stupid so badly in my life.",
+      "requested_model": "gpt-realtime-2.1",
+      "actual_model": "gpt-realtime-2.1",
+      "file": "09_cutscene_bad_numbers.wav",
+      "transcript": "I checked the books three times. The money didn't disappear. Somebody moved it into our account. Our account! Do you understand? Everybody who got robbed is about to think we're the clever ones. I have never wanted to look stupid so badly in my life.",
+      "transcript_matches": true,
+      "duration_seconds": 17.9,
+      "peak_dbfs": -1.16,
+      "clipped_samples": 0,
+      "usage": {
+        "total_tokens": 738,
+        "input_tokens": 233,
+        "output_tokens": 505,
+        "input_token_details": {
+          "text_tokens": 233,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "cached_tokens": 0,
+          "cached_tokens_details": {
+            "text_tokens": 0,
+            "audio_tokens": 0,
+            "image_tokens": 0
+          }
+        },
+        "output_token_details": {
+          "text_tokens": 147,
+          "audio_tokens": 358,
+          "reasoning_tokens": 69
+        }
+      },
+      "response_id": "resp_EKQEkSUnlD9Pcgts2bKsb"
+    },
+    {
+      "id": "10_cutscene_last_drink",
+      "kind": "Cutscene",
+      "title": "Last drink",
+      "character": "Ruth \u2014 longtime neighborhood bartender",
+      "voice": "sage",
+      "direction": "Older American woman, warm worn-in lower register, gentle rasp and unhurried pace. Speaking privately while wiping down an empty bar. Affection under a hard-earned warning. Pause after 'Eyes on the door'. Finish simply, with concern, not melodrama.",
+      "text": "Your old man sat in that same chair the night he got his big idea. Same smile, too. Eyes on the door. Look, I won't tell you how to live. Just leave enough of yourself to come back through here when the money's gone.",
+      "requested_model": "gpt-realtime-2.1",
+      "actual_model": "gpt-realtime-2.1",
+      "file": "10_cutscene_last_drink.wav",
+      "transcript": "Your old man sat in that same chair the night he got his big idea. Same smile, too. Eyes on the door. Look, I won't tell you how to live. Just leave enough of yourself to come back through here when the money's gone.",
+      "transcript_matches": true,
+      "duration_seconds": 19.5,
+      "peak_dbfs": -13.84,
+      "clipped_samples": 0,
+      "usage": {
+        "total_tokens": 735,
+        "input_tokens": 239,
+        "output_tokens": 496,
+        "input_token_details": {
+          "text_tokens": 239,
+          "audio_tokens": 0,
+          "image_tokens": 0,
+          "cached_tokens": 0,
+          "cached_tokens_details": {
+            "text_tokens": 0,
+            "audio_tokens": 0,
+            "image_tokens": 0
+          }
+        },
+        "output_token_details": {
+          "text_tokens": 106,
+          "audio_tokens": 390,
+          "reasoning_tokens": 26
+        }
+      },
+      "response_id": "resp_EKQEp7CowwekGkgV2hfAp"
+    }
+  ]
+}

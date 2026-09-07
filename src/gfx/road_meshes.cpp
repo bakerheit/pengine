@@ -29,11 +29,42 @@ MeshData to_mesh_data(const RoadMesh& src) {
     return m;
 }
 
+// The ribbon baker keeps road collision and visible geometry physically
+// aligned. These offsets only pull coplanar-looking fragments toward the
+// camera after projection, where a distant road's 6 cm terrain clearance can
+// collapse to the same depth-buffer value as the ground underneath it.
+//
+// Paint gets a second tier so its smaller 18-30 mm lift still resolves over
+// the biased asphalt. Kerb walls and structures are real volume and must keep
+// ordinary depth behavior.
+constexpr Renderer::DepthBias road_depth_bias(RoadLayer layer) {
+    switch (layer) {
+        case RoadLayer::Carriageway:
+        case RoadLayer::Unpaved:
+        case RoadLayer::Walk:
+        case RoadLayer::Plate:
+            return {-1.0f, -1.0f};
+        case RoadLayer::Crosswalk:
+        case RoadLayer::WhiteMarking:
+        case RoadLayer::YellowMarking:
+            return {-2.0f, -2.0f};
+        case RoadLayer::Kerb:
+        case RoadLayer::Structure:
+            return {};
+    }
+    return {};
+}
+
+static_assert(road_depth_bias(RoadLayer::Carriageway).enabled());
+static_assert(road_depth_bias(RoadLayer::WhiteMarking).units <
+              road_depth_bias(RoadLayer::Carriageway).units);
+static_assert(!road_depth_bias(RoadLayer::Structure).enabled());
+
 }  // namespace
 
 bool RoadMeshes::init(Renderer& renderer, uint64_t seed) {
     // One material per layer, because the layer split IS the material split —
-    // that is what src/road/ribbon.h says the six layers are for. Kerb risers
+    // that is what src/road/ribbon.h says the eight layers are for. Kerb risers
     // are their own layer rather than part of the sidewalk precisely so the
     // vertical faces can bind something different from the slabs above them.
     struct LayerLook {
@@ -45,30 +76,48 @@ bool RoadMeshes::init(Renderer& renderer, uint64_t seed) {
         uint64_t salt;
     };
     const LayerLook looks[kRoadLayerCount] = {
-        {RoadLayer::Carriageway, {0.16f, 0.16f, 0.17f}, {0.31f, 0.31f, 0.33f},
-         128, 3, 0xA5F1A17ull},
+        {RoadLayer::Carriageway, {0.16f, 0.16f, 0.17f}, {0.27f, 0.27f, 0.29f},
+         256, 4, 0xA5F1A17ull},
         {RoadLayer::Unpaved, {0.29f, 0.23f, 0.16f}, {0.49f, 0.40f, 0.28f}, 128,
          4, 0xD127ull},
         {RoadLayer::Walk, {0.52f, 0.51f, 0.49f}, {0.72f, 0.71f, 0.68f}, 128, 3,
          0x5717Aull},
         {RoadLayer::Kerb, {0.44f, 0.43f, 0.41f}, {0.60f, 0.59f, 0.56f}, 64, 2,
          0x4E12Bull},
-        {RoadLayer::Plate, {0.18f, 0.18f, 0.19f}, {0.30f, 0.30f, 0.31f}, 128, 3,
+        {RoadLayer::Plate, {0.17f, 0.17f, 0.18f}, {0.27f, 0.27f, 0.29f}, 256, 4,
          0x914AEull},
-        {RoadLayer::Crosswalk, {0.70f, 0.70f, 0.68f}, {0.92f, 0.92f, 0.90f}, 64,
-         2, 0x2EB2Aull},
+        {RoadLayer::Crosswalk, {0.68f, 0.68f, 0.65f}, {0.92f, 0.92f, 0.88f}, 64,
+         3, 0x2EB2Aull},
+        {RoadLayer::WhiteMarking, {0.66f, 0.66f, 0.62f},
+         {0.92f, 0.92f, 0.86f}, 64, 3, 0xA11CEull},
+        {RoadLayer::YellowMarking, {0.68f, 0.49f, 0.05f},
+         {0.96f, 0.78f, 0.16f}, 64, 3, 0x7E110ull},
+        {RoadLayer::Structure, {0.34f, 0.33f, 0.31f},
+         {0.57f, 0.56f, 0.52f}, 64, 3, 0xB21D6Eull},
     };
 
     for (const LayerLook& look : looks) {
         Texture t;
-        if (!t.make_noise(look.size, 8, look.octaves, look.lo, look.hi,
-                          seed ^ look.salt)) {
+        const bool asphalt = look.layer == RoadLayer::Carriageway ||
+                             look.layer == RoadLayer::Plate;
+        const bool made = asphalt
+            ? t.make_asphalt(look.size, seed ^ look.salt)
+            : t.make_noise(look.size, 8, look.octaves, look.lo, look.hi,
+                           seed ^ look.salt);
+        if (!made) {
             AP_ERROR("road: texture generation failed for the %s layer",
                      road_layer_name(look.layer));
             return false;
         }
+        // Aggregate scatters highlights. Keep road paint a little brighter,
+        // while rain still raises the lighting environment's wet sheen.
+        const bool paint = look.layer == RoadLayer::Crosswalk ||
+                           look.layer == RoadLayer::WhiteMarking ||
+                           look.layer == RoadLayer::YellowMarking;
         layers_[road_layer_index(look.layer)].material =
-            renderer.add_material(std::move(t));
+            renderer.add_material(std::move(t), false,
+                                  asphalt ? 0.18f : (paint ? 0.30f : 1.0f),
+                                  road_depth_bias(look.layer));
     }
     return true;
 }

@@ -1,0 +1,39 @@
+{
+  "id": "05_johnny",
+  "kind": "Cutscene dialogue",
+  "title": "The lotto - line 05",
+  "character": "Johnny Mercer",
+  "voice": "cedar",
+  "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Scrappy, cocky working-class gas station clerk Johnny Mercer; same casting as the cedar getaway-driver audition. Relaxed conversational indoor volume, talking to your older manager across the checkout. Natural and understated, no narration. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Suddenly interested. You are surprised he won.",
+  "text": "You? How much?",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "05_johnny.wav",
+  "transcript": "You? How much?",
+  "transcript_matches": true,
+  "duration_seconds": 2.65,
+  "peak_dbfs": -6.11,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 351,
+    "input_tokens": 236,
+    "output_tokens": 115,
+    "input_token_details": {
+      "text_tokens": 236,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 62,
+      "audio_tokens": 53,
+      "reasoning_tokens": 45
+    }
+  },
+  "response_id": "resp_EKQyeOftFpHbeD92mkP13"
+}

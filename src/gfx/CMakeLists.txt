@@ -9,10 +9,17 @@ target_sources(apricot_host PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/shader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/texture.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/mesh.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/skinned_mesh.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/camera.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sky.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ocean.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tiled_lighting.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/precip.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tire_tracks.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/tornado.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/font_atlas.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/hud.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/loading_screen.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/renderer.cpp
     # The far side of src/road/'s seam (PENG-27/PENG-32). src/road/ bakes six
     # plain vertex arrays and stops; this is the only place a road becomes a GPU

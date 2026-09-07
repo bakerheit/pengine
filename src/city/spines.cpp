@@ -27,6 +27,9 @@ constexpr apricot::RoadClass to_road_class(RoadClass c) {
 constexpr apricot::RoadStructure to_road_structure(RoadStructure s) {
     return static_cast<apricot::RoadStructure>(static_cast<uint8_t>(s));
 }
+constexpr apricot::BridgeDetailStyle to_bridge_detail_style(BridgeDetailStyle s) {
+    return static_cast<apricot::BridgeDetailStyle>(static_cast<uint8_t>(s));
+}
 
 // The casts above are only sound if the enumerators line up.
 static_assert(to_road_class(RoadClass::Freeway) == apricot::RoadClass::Freeway, "");
@@ -44,6 +47,12 @@ static_assert(to_road_structure(RoadStructure::Tunnel) ==
 static_assert(to_road_structure(RoadStructure::Cut) == apricot::RoadStructure::Cut, "");
 static_assert(to_road_structure(RoadStructure::Fill) ==
                   apricot::RoadStructure::Fill, "");
+static_assert(to_bridge_detail_style(BridgeDetailStyle::None) ==
+                  apricot::BridgeDetailStyle::None, "");
+static_assert(to_bridge_detail_style(BridgeDetailStyle::Viaduct) ==
+                  apricot::BridgeDetailStyle::Viaduct, "");
+static_assert(to_bridge_detail_style(BridgeDetailStyle::Municipal) ==
+                  apricot::BridgeDetailStyle::Municipal, "");
 
 // The carriageway widths, and the sidewalk flags that go with them. THIS IS
 // THE ONE THAT MATTERS. city's copy drives the Grade corridor half width -- how
@@ -104,11 +113,17 @@ std::vector<RoadSpine> map_spines() {
         s.points.reserve(static_cast<std::size_t>(r.count));
         for (int p = 0; p < r.count; ++p) {
             s.points.push_back(glm::vec2{r.path[p].x, r.path[p].z});
+            if (r.deck_profile) s.deck_heights.push_back(r.path[p].y);
         }
 
         s.cls = to_road_class(r.cls);
         s.structure = to_road_structure(r.structure);
         s.deck_y_m = r.deck_y_m;
+        s.one_way = r.one_way;
+        s.bridge_detail_style = r.deck_profile
+            ? apricot::BridgeDetailStyle::Viaduct
+            : to_bridge_detail_style(r.bridge_detail_style);
+        s.curb_cut_tee = r.curb_cut_tee;
 
         // Passed through EXACTLY as authored, including zero. road_graph.h
         // reads "<= 0 means use the class table", and the class table is the
@@ -116,12 +131,19 @@ std::vector<RoadSpine> map_spines() {
         // override toward its class -- PCG-170 did and it turned every
         // hand-authored 8 m street into a 16 m one.
         s.width_m = r.width_m;
+        s.width_start_m = r.width_start_m;
+        s.width_end_m = r.width_end_m;
+        s.lanes_start_per_dir = r.lanes_start_per_dir;
+        s.lanes_end_per_dir = r.lanes_end_per_dir;
+        s.lane_connect_start = r.lane_connect_start;
+        s.lane_connect_end = r.lane_connect_end;
 
         s.block_quality = r.block_quality;
 
         const Density d = density_for(r.district);
         s.traffic_density = d.traffic;
         s.ped_density = d.ped;
+        if (r.one_way) s.ped_density = 0.0f;
 
         // The AUTHORED id, never the loop counter. Everything downstream keys
         // entropy on RoadSpine::id, so handing it an index would re-roll every

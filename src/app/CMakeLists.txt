@@ -11,6 +11,22 @@
 # to be deleted.
 target_sources(apricot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/app.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/app_cutscene.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/app_save.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cutscene_player.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/bank_interaction.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/boat_interaction.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/trailer_interaction.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/trailer_visual.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/character_visual.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/game_ui.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/house_check.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/signal_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/overlay.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/player_car_visual.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/traffic_visual.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/vehicle_effects.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/vehicle_interaction.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/weapon_visual.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/world.cpp
 )

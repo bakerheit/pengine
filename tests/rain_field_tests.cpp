@@ -143,6 +143,53 @@ void the_fall_direction_is_down_and_normalised() {
     apricot_test::pass("rain falls down, on a slant, at unit speed");
 }
 
+void snow_and_blizzard_are_explicitly_different() {
+    const SnowTuning snow = default_snow_tuning(PrecipitationType::Snow);
+    const SnowTuning blizzard = default_snow_tuning(PrecipitationType::Blizzard);
+    REQUIRE(blizzard.flake_count > snow.flake_count);
+    REQUIRE(blizzard.fall_speed > snow.fall_speed);
+    REQUIRE(glm::length(blizzard.wind) > glm::length(snow.wind));
+    REQUIRE(snow_flake_count(snow, 0.0f) == 0);
+    REQUIRE(snow_flake_count(snow, -2.0f) == 0);
+    REQUIRE(snow_flake_count(snow, 1.0f) == snow.flake_count);
+    REQUIRE(snow_flake_count(snow, 2.0f) == snow.flake_count);
+    apricot_test::pass("snow and blizzard have explicit tuning; dry still costs zero");
+}
+
+void snow_motion_is_deterministic_and_drifts() {
+    const SnowTuning t = default_snow_tuning(PrecipitationType::Snow);
+    const glm::vec3 a = snow_displacement(t, 0x51A0u, 17, 3.25f, 0.5f);
+    const glm::vec3 b = snow_displacement(t, 0x51A0u, 17, 3.25f, 0.5f);
+    REQUIRE(a == b);
+    REQUIRE(a.y < 0.0f);
+    REQUIRE(std::fabs(a.x) > 1e-5f || std::fabs(a.z) > 1e-5f);
+    REQUIRE(snow_displacement(t, 0x51A0u, 17, 3.25f, 0.0f) == glm::vec3{0.0f});
+    apricot_test::pass("snow movement is deterministic, downward, and laterally alive");
+}
+
+void snow_step_partition_preserves_analytic_motion() {
+    const SnowTuning t = default_snow_tuning(PrecipitationType::Snow);
+    const glm::vec3 whole = snow_displacement(t, 0xF1A4u, 8, 2.0f, 1.0f);
+    const glm::vec3 split = snow_displacement(t, 0xF1A4u, 8, 2.0f, 0.4f) +
+                            snow_displacement(t, 0xF1A4u, 8, 2.4f, 0.6f);
+    REQUIRE_NEAR(static_cast<double>(glm::length(whole - split)), 0.0, 1e-5);
+    apricot_test::pass("snow drift does not change when a frame is partitioned");
+}
+
+void snow_stays_camera_locked_after_large_steps() {
+    const SnowTuning t = default_snow_tuning(PrecipitationType::Blizzard);
+    const glm::vec3 cam{4200.0f, 85.0f, -9100.0f};
+    const glm::vec3 centre = snow_field_centre(t, cam);
+    glm::vec3 p = snow_seed_position(t, glm::vec3{0.0f}, 0xB112u, 4,
+                                     PrecipitationType::Blizzard);
+    p = snow_advance(p, t, cam, 0xB112u, 4, 0.0f, 600.0f,
+                     PrecipitationType::Blizzard);
+    REQUIRE(inside_half_open(p.x, centre.x, t.span.x));
+    REQUIRE(inside_half_open(p.y, centre.y, t.span.y));
+    REQUIRE(inside_half_open(p.z, centre.z, t.span.z));
+    apricot_test::pass("blizzard flakes survive lag and camera teleport together");
+}
+
 }  // namespace
 
 int main() {
@@ -153,5 +200,9 @@ int main() {
     a_dry_sky_costs_exactly_nothing();
     the_field_is_deterministic();
     the_fall_direction_is_down_and_normalised();
+    snow_and_blizzard_are_explicitly_different();
+    snow_motion_is_deterministic_and_drifts();
+    snow_step_partition_preserves_analytic_motion();
+    snow_stays_camera_locked_after_large_steps();
     return apricot_test::done("rain_field_tests");
 }

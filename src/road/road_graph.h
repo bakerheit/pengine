@@ -74,6 +74,14 @@ enum class RoadStructure : uint8_t {
     Fill = 4,
 };
 
+// Pure geometry profile carried from the authored city table. None keeps a
+// bridge as a bare deck; the other values opt into deliberately distinct kits.
+enum class BridgeDetailStyle : uint8_t {
+    None = 0,
+    Viaduct = 1,
+    Municipal = 2,
+};
+
 constexpr bool road_structure_is_decked(RoadStructure s) {
     return s == RoadStructure::Bridge || s == RoadStructure::Tunnel;
 }
@@ -103,6 +111,10 @@ struct RoadSpine {
     // A set value is used EXACTLY as given and is never snapped toward the
     // class width — see the PCG-170 note in road_class.h.
     float width_m = 0.0f;
+    float width_start_m = 0.0f;
+    float width_end_m = 0.0f;
+    uint8_t lanes_start_per_dir = 0;
+    uint8_t lanes_end_per_dir = 0;
 
     // Roadblock staging quality, straight from the authored edge. 0 means
     // never stage here (a tunnel, a blind junction); 255 means this is what
@@ -119,6 +131,16 @@ struct RoadSpine {
     // never on the spine's index in the input vector, which changes the moment
     // somebody inserts a road above it in the table.
     uint32_t id = 0;
+
+    // Optional per-point deck profile. Empty retains the legacy flat deck.
+    std::vector<float> deck_heights;
+    bool one_way = false;
+    bool lane_connect_start = false;
+    bool lane_connect_end = false;
+    BridgeDetailStyle bridge_detail_style = BridgeDetailStyle::None;
+    // Render a validated straight-road T as one local curb cut instead of a
+    // full junction plate. Connectivity and lane topology stay unchanged.
+    bool curb_cut_tee = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -153,6 +175,10 @@ struct RoadEdge {
     RoadStructure structure = RoadStructure::Ground;
     float deck_y_m = 0.0f;
     float width_m = 0.0f;  // resolved: the override if set, else the class width
+    float width_start_m = 0.0f;
+    float width_end_m = 0.0f;
+    uint8_t lanes_start_per_dir = 0;
+    uint8_t lanes_end_per_dir = 0;
     uint8_t block_quality = 128;
     float traffic_density = 1.0f;
     float ped_density = 1.0f;
@@ -167,6 +193,12 @@ struct RoadEdge {
     // that splits this one, as long as the author did not move this road.
     uint32_t spine_id = 0;
     uint32_t spine_run = 0;
+    std::vector<float> deck_heights;
+    bool one_way = false;
+    bool lane_connect_start = false;
+    bool lane_connect_end = false;
+    BridgeDetailStyle bridge_detail_style = BridgeDetailStyle::None;
+    bool curb_cut_tee = false;
 
     // The 64-bit key everything downstream should hash on. See pinatty §6:
     // every generated thing keys on a stable authored identity, never on an
@@ -178,6 +210,10 @@ struct RoadEdge {
 
     bool sidewalks() const { return road_class_def(cls).sidewalks; }
     float half_width_m() const { return width_m * 0.5f; }
+    float width_at(float t) const {
+        return width_start_m + (width_end_m - width_start_m) * t;
+    }
+    float half_width_at(float t) const { return width_at(t) * 0.5f; }
 };
 
 // Where a road's DRAWN surface sits above a point, for one edge.
@@ -189,14 +225,14 @@ struct RoadSurface {
     const GroundSampler* ground = nullptr;
     bool decked = false;
     float deck_y_m = 0.0f;
+    const std::vector<glm::vec2>* points = nullptr;
+    const std::vector<float>* heights = nullptr;
 
-    float at(glm::vec2 p) const {
-        if (decked) return deck_y_m;
-        return ground ? ground->at(p.x, p.y) : 0.0f;
-    }
+    float at(glm::vec2 p) const;
 
     static RoadSurface of(const RoadEdge& e, const GroundSampler& g) {
-        return RoadSurface{&g, road_structure_is_decked(e.structure), e.deck_y_m};
+        return RoadSurface{&g, road_structure_is_decked(e.structure), e.deck_y_m,
+                           &e.points, &e.deck_heights};
     }
 };
 

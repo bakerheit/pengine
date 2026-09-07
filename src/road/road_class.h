@@ -136,7 +136,7 @@ constexpr bool road_is_grade_separated(RoadClass c) {
 //
 //   paved   -> Rock   (1.15 dry / 0.82 wet, rolling 1.00) — the grippiest,
 //              lowest-drag row in the table, which is exactly what asphalt is.
-//   unpaved -> Gravel (0.95 / 0.88, rolling 1.35) — loose, draggy, and it
+//   unpaved -> Gravel (0.98 / 0.90, rolling 1.35) — loose, draggy, and it
 //              keeps its grip in the rain, which is what a dirt track does.
 //
 // A real Asphalt material is a terrain-module ticket (append to Surface, widen

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -11,6 +12,8 @@
 #include "terrain/chunk.h"
 
 namespace apricot {
+
+struct RoadCollision;
 
 // Collision against the world the player can actually see.
 //
@@ -45,6 +48,47 @@ inline constexpr float kTerrainVertexMetres =
 struct StaticBox {
     AABB bounds;
     Surface material = Surface::Rock;
+    // Keep broad bounds for culling, but retain the exact yaw for vehicle,
+    // character, support and camera-ray narrow-phase tests.
+    bool oriented = false;
+    AABB local_bounds{};
+    glm::vec3 centre{0.0f};
+    glm::vec2 axis_x{1.0f, 0.0f};
+    glm::vec2 axis_z{0.0f, 1.0f};
+    // Stable kinematic slots may be disabled while their car is player-driven.
+    bool enabled = true;
+    bool is_vehicle = false;  // parked vehicle, not a wall or other world prop
+    // Breakaway props report a hit through VehicleState. The owner disables
+    // this stable slot BETWEEN steps; step_vehicle remains const in the world.
+    float breakaway_speed = 0.0f;
+    uint32_t breakaway_id = UINT32_MAX;
+
+    const AABB& collision_bounds() const { return oriented ? local_bounds : bounds; }
+    glm::vec3 local_direction(glm::vec3 v) const {
+        if (!oriented) return v;
+        const glm::vec2 xz{v.x, v.z};
+        return {glm::dot(xz, axis_x), v.y, glm::dot(xz, axis_z)};
+    }
+    glm::vec3 local_point(glm::vec3 p) const {
+        return oriented ? local_direction(p - centre) : p;
+    }
+    glm::vec3 world_direction(glm::vec3 v) const {
+        if (!oriented) return v;
+        const glm::vec2 xz = axis_x * v.x + axis_z * v.z;
+        return {xz.x, v.y, xz.y};
+    }
+};
+
+// A thin authored ground plane, usually the visible top of a paved lot. Unlike
+// StaticBox this keeps its rotation in XZ, so a six-degree city plot does not
+// gain invisible axis-aligned corners that characters can stand on.
+struct StaticGroundRect {
+    glm::vec2 centre{0.0f};
+    glm::vec2 axis_x{1.0f, 0.0f};
+    glm::vec2 axis_z{0.0f, 1.0f};
+    glm::vec2 half_extents{0.5f};
+    float height = 0.0f;
+    Surface material = Surface::Rock;
 };
 
 // A stretch of stage painted with a material, overriding whatever the terrain
@@ -65,9 +109,9 @@ public:
 
     // --- the drivable surface -----------------------------------------------
 
-    // Ground height / surface normal in metres at a world XZ, ON THE MESHED
-    // SURFACE. Pure. Both delegate to terrain's own reconstruction
-    // (mesh_height_at / mesh_normal_at) rather than repeating it here.
+    // Ground height / surface normal in metres at a world XZ. At zero snow
+    // depth this is the meshed surface exactly; positive physical snow raises
+    // the contact height without changing the terrain face normal. Pure.
     //
     // The normal is the FACE normal of the drawn triangle, not a blend of its
     // three vertex normals. This header used to claim the opposite, and argued
@@ -87,13 +131,53 @@ public:
     float field_height(float x, float z) const;
     glm::vec3 field_normal(float x, float z) const;
 
+    // Uniform physical snow accumulated on walkable ground. This raises
+    // terrain, roads and authored ground slabs, but never static-box tops such
+    // as roofs, buildings or obstacles. Invalid/negative depths become zero.
+    void set_snow_collision_depth(float depth_metres);
+    float snow_collision_depth() const { return snow_collision_depth_metres_; }
+
     // --- props ---------------------------------------------------------------
     // Static geometry is registered ONCE at world setup and never touched
     // during a step. step_vehicle() takes this object by const reference and
     // is pure in it; anything that mutates the collider mid-run breaks replay.
     void add_static_box(const AABB& bounds, Surface material = Surface::Rock);
+    void add_static_oriented_box(glm::vec3 centre, glm::vec3 half_extents,
+                                 float yaw, Surface material = Surface::Rock);
     void clear_static_boxes();
     const std::vector<StaticBox>& static_boxes() const { return boxes_; }
+
+    // Stable slots for kinematic props. Publish their deterministic poses
+    // between sim steps, never during a vehicle/character query. Restore the
+    // same poses with game state when replaying a run.
+    std::size_t add_kinematic_box(const AABB& bounds);
+    bool set_kinematic_box(std::size_t id, const AABB& bounds);
+    bool set_kinematic_enabled(std::size_t id, bool enabled);
+    bool set_kinematic_vehicle(std::size_t id, bool is_vehicle);
+    bool set_kinematic_breakaway(std::size_t id, uint32_t owner_id, float speed);
+    std::size_t add_kinematic_oriented_box(glm::vec3 centre, glm::vec3 half_extents,
+                                           float yaw);
+    bool set_kinematic_oriented_box(std::size_t id, glm::vec3 centre,
+                                    glm::vec3 half_extents, float yaw);
+
+    // Register the exact horizontal top of a rotated authored slab. This is a
+    // support surface, not a body collider: walls still use StaticBox.
+    void add_static_ground_rect(glm::vec2 centre, float height,
+                                glm::vec2 half_extents, float yaw_radians,
+                                Surface material = Surface::Rock);
+    void clear_static_ground_rects();
+    const std::vector<StaticGroundRect>& static_ground_rects() const {
+        return ground_rects_;
+    }
+
+    // Install the horizontal collision surfaces produced from the exact baked
+    // road mesh. This includes raised sidewalk slabs and excludes vertical
+    // kerb faces by construction (build_road_collision owns that rule).
+    // Indexed by terrain chunk so four suspension probes do not scan the
+    // entire 129k-triangle city road bake every sim step.
+    void set_road_collision(const RoadCollision& road);
+    void clear_road_collision();
+    std::size_t road_triangle_count() const { return road_surfaces_.size(); }
 
     // --- surface materials ---------------------------------------------------
     void paint_surface(const AABB& region, Surface material);
@@ -145,6 +229,11 @@ public:
 
         // True when the surface found was a prop box rather than terrain.
         bool prop = false;
+
+        // True when the surface came from the baked road geometry. A sidewalk
+        // can therefore be distinguished from the terrain under it in tests
+        // without mislabelling it as a prop box.
+        bool road = false;
     };
 
     // Straight-down probe from `origin`. Analytic rather than marched: the
@@ -167,10 +256,26 @@ public:
     GroundHit raycast(glm::vec3 origin, glm::vec3 dir, float max_distance) const;
 
 private:
+    struct RoadSurface {
+        CollisionTri geom;
+        Surface material = Surface::Rock;
+    };
+
+    bool road_surface_at(float x, float z, float origin_y, float max_distance,
+                         float& out_y, glm::vec3& out_normal,
+                         Surface& out_material) const;
+
     uint64_t seed_;
     std::vector<StaticBox> boxes_;
+    std::vector<std::size_t> kinematic_boxes_;
+    std::vector<StaticGroundRect> ground_rects_;
+    std::vector<RoadSurface> road_surfaces_;
+    std::vector<std::size_t> road_solid_slots_;
+    std::unordered_map<ChunkCoord, std::vector<uint32_t>, ChunkCoordHash>
+        road_cells_;
     std::vector<SurfacePaint> paint_;
     float wetness_ = 0.0f;
+    float snow_collision_depth_metres_ = 0.0f;
 };
 
 }  // namespace apricot

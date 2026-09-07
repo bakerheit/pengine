@@ -6,6 +6,8 @@ cmake-build-*/
 # Tooling caches
 .cache/
 compile_commands.json
+__pycache__/
+*.py[cod]
 
 # Editor / OS litter
 .DS_Store

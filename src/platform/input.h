@@ -70,9 +70,27 @@ public:
     // least one sim step ran, after the last step.
     void consume_edges() { clear_edges(frame_); }
 
-    // True once the user has asked to quit: window close, Ctrl/Cmd+Q, or Esc
-    // while the mouse is NOT captured. Latched — it never un-sets.
+    // True once the user has asked to quit: window close, Ctrl/Cmd+Q, or a
+    // game menu action. Latched — it never un-sets.
     bool quit_requested() const { return quit_; }
+    void request_quit() { quit_ = true; }
+
+    // While a game screen owns the cursor, left click is a UI activation and
+    // never captures mouse-look. Absolute pointer data stays host-side; it is
+    // deliberately not part of the replay tape.
+    void set_ui_mode(bool on);
+    bool ui_mode() const { return ui_mode_; }
+    int pointer_x() const { return pointer_x_; }
+    int pointer_y() const { return pointer_y_; }
+    bool pointer_pressed() const { return pointer_pressed_; }
+    bool waypoint_pressed() const { return waypoint_pressed_; }
+    bool pointer_down() const { return pointer_down_; }
+    int pointer_dx() const { return pointer_dx_; }
+    int pointer_dy() const { return pointer_dy_; }
+    float ui_axis_x() const { return ui_axis_x_; }
+    float ui_axis_y() const { return ui_axis_y_; }
+    float ui_zoom_steps() const { return ui_zoom_steps_; }
+    float ui_wheel_zoom_steps() const { return ui_wheel_zoom_steps_; }
 
     // --- mouse capture -------------------------------------------------------
     //
@@ -105,6 +123,18 @@ private:
     std::array<bool, kKeyCount> key_down_{};
     bool quit_ = false;
     bool mouse_look_ = false;
+    bool ui_mode_ = false;
+    int pointer_x_ = 0;
+    int pointer_y_ = 0;
+    bool pointer_pressed_ = false;
+    bool waypoint_pressed_ = false;
+    bool pointer_down_ = false;
+    int pointer_dx_ = 0;
+    int pointer_dy_ = 0;
+    float ui_axis_x_ = 0.0f;
+    float ui_axis_y_ = 0.0f;
+    float ui_zoom_steps_ = 0.0f;
+    float ui_wheel_zoom_steps_ = 0.0f;
 
     // Set when Esc released the capture, so the matching key-up is ignored
     // rather than read as a fresh game input.

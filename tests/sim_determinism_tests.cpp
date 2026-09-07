@@ -21,7 +21,7 @@
 // So nothing below includes anything from game/, and nothing below ever
 // should. The claim belongs to step_vehicle, TerrainCollider, InputFrame,
 // hash_coord and FixedStep — all of which outlive any particular game — and
-// this suite is written against exactly those. Pinatty gets the guarantee for
+// this suite is written against exactly those. O'Haven gets the guarantee for
 // free.
 //
 // kReplayTapeVersion used to be excluded here, because it lived in
@@ -91,7 +91,7 @@ constexpr int kRecordSteps = 2400;
 // IT MOVED IN PENG-41, and the reason is worth stating because it would look
 // arbitrary otherwise. It used to sit near the world origin, inside the 380 m
 // spawn-lift dome the height field carried so that no seed could drop the car
-// in a lagoon. That dome is gone, and the origin is now the middle of Pinatty's
+// in a lagoon. That dome is gone, and the origin is now the middle of O'Haven's
 // financial district: an AUTHORED Flatten at full weight, which returns its
 // target height for every seed.
 //
@@ -276,6 +276,7 @@ bool same_wheel(const WheelState& a, const WheelState& b) {
            a.contact_normal.x == b.contact_normal.x &&
            a.contact_normal.y == b.contact_normal.y &&
            a.contact_normal.z == b.contact_normal.z &&
+           a.contact_material == b.contact_material &&       //
            a.suspension_length == b.suspension_length &&  //
            a.spin == b.spin &&                            //
            a.angular_velocity == b.angular_velocity &&    //
@@ -307,6 +308,32 @@ bool same_vehicle(const VehicleState& a, const VehicleState& b) {
     if (a.gear != b.gear) return false;
     if (a.shift_timer != b.shift_timer) return false;
     if (a.recovery_timer != b.recovery_timer) return false;
+    if (a.pitch_recovery_timer != b.pitch_recovery_timer) return false;
+    if (a.health != b.health) return false;
+    if (a.last_impact_speed != b.last_impact_speed) return false;
+    if (a.last_impact_damage != b.last_impact_damage) return false;
+    if (a.impact_count != b.impact_count) return false;
+    if (a.car_contact_speed != b.car_contact_speed) return false;
+    if (a.breakaway_id != b.breakaway_id || a.breakaway_velocity != b.breakaway_velocity) return false;
+    if (a.mechanical_key != b.mechanical_key ||
+        a.mechanical.oil_remaining != b.mechanical.oil_remaining ||
+        a.mechanical.fuel_remaining != b.mechanical.fuel_remaining ||
+        a.mechanical.oil_lifetime_s != b.mechanical.oil_lifetime_s ||
+        a.mechanical.fuel_lifetime_s != b.mechanical.fuel_lifetime_s ||
+        a.mechanical.engine_failed != b.mechanical.engine_failed) return false;
+    for (std::size_t i = 0; i < kVehicleDamageZoneCount; ++i) {
+        if (a.body_damage.zones[i] != b.body_damage.zones[i]) return false;
+    }
+    for (std::size_t i = 0; i < a.body_damage.stamps.size(); ++i) {
+        const VehicleDentStamp& x = a.body_damage.stamps[i];
+        const VehicleDentStamp& y = b.body_damage.stamps[i];
+        if (x.contact_xz.x != y.contact_xz.x ||
+            x.contact_xz.y != y.contact_xz.y || x.severity != y.severity ||
+            x.motion_angle != y.motion_angle || x.radius != y.radius ||
+            x.height != y.height || x.glancing != y.glancing) {
+            return false;
+        }
+    }
     for (int i = 0; i < kWheelCount; ++i) {
         const std::size_t w = static_cast<std::size_t>(i);
         if (!same_wheel(a.wheels[w], b.wheels[w])) return false;
@@ -355,7 +382,7 @@ static_assert(std::is_standard_layout_v<WheelState>, "same, for a wheel");
 // number. Do not just update the number.
 static_assert(sizeof(WheelState) == 48,
               "WheelState changed shape: update kWheelSpans and same_wheel()");
-static_assert(sizeof(VehicleState) == 264,
+static_assert(sizeof(VehicleState) == 440,
               "VehicleState changed shape: update vehicle_spans() and same_vehicle()");
 
 // Every declared member of a WheelState, in order.
@@ -369,6 +396,7 @@ std::vector<FieldSpan> wheel_spans(const WheelState& w) {
     add_span(out, w, "normal_force", w.normal_force);
     add_span(out, w, "slip", w.slip);
     add_span(out, w, "grounded", w.grounded);
+    add_span(out, w, "contact_material", w.contact_material);
     return out;
 }
 
@@ -385,6 +413,21 @@ std::vector<FieldSpan> vehicle_spans(const VehicleState& v) {
     add_span(out, v, "gear", v.gear);
     add_span(out, v, "shift_timer", v.shift_timer);
     add_span(out, v, "recovery_timer", v.recovery_timer);
+    add_span(out, v, "pitch_recovery_timer", v.pitch_recovery_timer);
+    add_span(out, v, "health", v.health);
+    add_span(out, v, "last_impact_speed", v.last_impact_speed);
+    add_span(out, v, "last_impact_damage", v.last_impact_damage);
+    add_span(out, v, "impact_count", v.impact_count);
+    add_span(out, v, "car_contact_speed", v.car_contact_speed);
+    add_span(out, v, "breakaway_id", v.breakaway_id);
+    add_span(out, v, "breakaway_velocity", v.breakaway_velocity);
+    add_span(out, v, "body_damage", v.body_damage);
+    add_span(out, v, "mechanical.oil_remaining", v.mechanical.oil_remaining);
+    add_span(out, v, "mechanical.fuel_remaining", v.mechanical.fuel_remaining);
+    add_span(out, v, "mechanical.oil_lifetime_s", v.mechanical.oil_lifetime_s);
+    add_span(out, v, "mechanical.fuel_lifetime_s", v.mechanical.fuel_lifetime_s);
+    add_span(out, v, "mechanical.engine_failed", v.mechanical.engine_failed);
+    add_span(out, v, "mechanical_key", v.mechanical_key);
 
     for (int i = 0; i < kWheelCount; ++i) {
         const std::size_t w = static_cast<std::size_t>(i);
@@ -621,6 +664,10 @@ void test_the_tape_format_is_a_flat_block_of_bytes(const Recording& rec,
     REQUIRE(kBtnAccept == 64u);
     REQUIRE(kBtnBack == 128u);
     REQUIRE(kBtnQuit == 256u);
+    REQUIRE(kBtnMap == 512u);
+    REQUIRE(kBtnMenuUp == 1024u);
+    REQUIRE(kBtnMenuDown == 2048u);
+    REQUIRE(kBtnTrailer == 4096u);
 
     // And the consequence: a tape written out as raw bytes and read back drives
     // the identical run. If InputFrame ever stops being a flat block, this is
@@ -661,7 +708,7 @@ void test_the_tape_format_is_a_flat_block_of_bytes(const Recording& rec,
 // now, next to the layout above that it versions.
 void test_the_tape_version_is_pinned(const Recording& rec,
                                      const TerrainCollider& collider) {
-    REQUIRE_MSG(kReplayTapeVersion == 3u,
+    REQUIRE_MSG(kReplayTapeVersion == 6u,
                 "kReplayTapeVersion changed; every recorded tape is now junk, "
                 "which is fine if you meant it",
                 "tape version");
@@ -964,7 +1011,7 @@ void test_terrain_generates_identically_from_one_seed() {
 
     // THE GRID WIDENED IN PENG-41, by a factor of ten in each axis, so it
     // spans the whole island rather than a 500 m square around the origin.
-    // That square is now Pinatty's downtown plate: an authored Flatten at full
+    // That square is now O'Haven's downtown plate: an authored Flatten at full
     // weight, identical on every seed, so `differed_from_other` counted zero
     // and the anti-vacuity control below failed -- correctly. The prime-ish
     // spacings are kept so the samples do not all land on the vertex lattice.

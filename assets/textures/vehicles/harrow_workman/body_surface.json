@@ -1,0 +1,39 @@
+{
+  "model": "harrow_workman",
+  "original_triangles": 948,
+  "triangles": 900,
+  "removed_components": [
+    3,
+    4,
+    10,
+    11,
+    12,
+    15,
+    16,
+    21,
+    22,
+    23,
+    26,
+    27,
+    31,
+    35,
+    36,
+    37,
+    38,
+    39,
+    40,
+    41
+  ],
+  "removed_triangles": 48,
+  "painted_source_triangles": 48,
+  "charts": 150,
+  "texels_per_source_unit": 12.255546569824219,
+  "unpainted_components": [],
+  "source_mesh_sha256": "a3cf1d8f6bde23451a445eea2af594b1d23dc7d79d0426f483c8228bcdf3034c",
+  "source_texture_sha256": "f7300c1e7471c58ef4731ccb9ca979b55031faade53026f2b069b3bf699ab656",
+  "atlas": [
+    256,
+    256,
+    "RGBA"
+  ]
+}

@@ -116,6 +116,10 @@ struct Lane {
     // constant for it, which under-shot every road wider than 8 m and left the
     // overtake scan looking at empty tarmac.
     float lateral_offset_m = 0.0f;
+    float lateral_offset_start_m = 0.0f;
+    float lateral_offset_end_m = 0.0f;
+    uint8_t lanes_at_start = 1;
+    uint8_t lanes_at_end = 1;
 
     float width_m = 0.0f;  // the road's full carriageway width
     float speed_limit_mps = 0.0f;
@@ -133,7 +137,7 @@ struct Lane {
 struct LanePose {
     glm::vec3 position{0.0f};
     glm::vec3 tangent{1.0f, 0.0f, 0.0f};  // unit, direction of travel
-    glm::vec3 right{0.0f, 0.0f, -1.0f};   // unit, cross(up, tangent)
+    glm::vec3 right{0.0f, 0.0f, 1.0f};   // unit, cross(tangent, up)
 };
 
 // Where a car IS on the network.
@@ -273,6 +277,7 @@ private:
     struct EdgeLanes {
         uint32_t base = 0;      // first LaneRef of this edge
         uint8_t per_dir = 0;    // lanes in each direction
+        bool one_way = false;
     };
 
     LaneRef add_lane(Lane&& lane);

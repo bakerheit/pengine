@@ -5,6 +5,7 @@
 namespace apricot {
 
 class Window;
+struct BugReportUi;
 
 // The debug overlay. Wraps the immediate-mode UI backends so their headers —
 // and their third-party warning profile — stay inside this one translation
@@ -78,6 +79,9 @@ struct Stats {
     int fill_steps = 0;
 
     float time_of_day = 0.5f;
+    float snow_depth_m = 0.0f;
+    float fog_start_m = 0.0f;
+    float fog_end_m = 0.0f;
 
     // GL errors drained since startup. Anything above zero means a call failed
     // and the frame you are looking at is not the frame that was asked for.
@@ -92,24 +96,36 @@ struct Stats {
 // does, and a replay that disagrees with the run it recorded is worse than no
 // replay at all.
 struct Controls {
+    // The performance panel is useful while profiling, but it should not cover
+    // the game during a normal drive. F3 toggles it from the host event loop.
+    bool stats_visible = false;
     bool instancing = true;
+
+    void toggle_stats() { stats_visible = !stats_visible; }
 
     // Weather, layered onto the sky env. Each is an exact no-op at zero.
     float rain = 0.0f;
     float overcast = 0.0f;
     float fog = 0.0f;
 
+    // Negative follows automatic weather accumulation. Non-negative pins the
+    // current physical snowpack depth for collision and visual QA.
+    float snow_depth_override_m = -1.0f;
+
     // Multiplier on `game/conditions.h`'s `kSecondsPerDay`. Zero freezes the sky.
     //
-    // Defaults to 5 so the demo runs a 240 s day against the game's 1200 s one:
-    // short enough that the sun visibly moves while you watch, which is the only
-    // way to tell the sky pass is live rather than a painted backdrop. A real
-    // session wants 1.
-    float sky_speed = 5.0f;
+    // Normal play uses the game clock directly: two real sim seconds per
+    // in-game minute. The debug slider can still accelerate or freeze it.
+    float sky_speed = 1.0f;
 };
 
 // Build and render the overlay. Call after the 3D pass, before the swap.
 void draw(Window& window, const Stats& stats, Controls& controls);
+
+// Draw the F2 report form. The app owns the state because it also owns the
+// framebuffer capture and Codex handoff. This only edits the form and raises
+// submit/cancel requests.
+void draw_bug_report(Window& window, BugReportUi& report);
 
 }  // namespace overlay
 }  // namespace apricot

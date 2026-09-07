@@ -119,6 +119,11 @@ std::vector<ScatterProp> scatter_chunk(uint64_t seed, ChunkCoord coord) {
             // where they sat before the road existed.
             if (city::road_corridor_weight(px, pz) > 0.0f) continue;
 
+            // Developed site plates clear their whole earthwork envelope, not
+            // just the visible slab. This keeps wild trunks out of buildings
+            // and leaves room for authored trees, walls and drainage planting.
+            if (city::authored_site_clearance_weight(px, pz) > 0.0f) continue;
+
             // Density from the blend, not from the dominant material alone. A
             // point that is 51% gravel and 49% grass should be nearly as
             // wooded as one that is 49/51, and taking the dominant material
@@ -155,10 +160,19 @@ std::vector<ScatterProp> scatter_chunk(uint64_t seed, ChunkCoord coord) {
             if (p.kind == PropKind::Tree) {
                 p.scale = kTreeScaleMin +
                           (kTreeScaleMax - kTreeScaleMin) * scale_roll;
+                // Florangia gets its own palm silhouette while the original
+                // four O'Haven variants keep the exact same roll mapping. The
+                // already-drawn variant_roll is reused: biome selection must
+                // not add an RNG pull and reshuffle every prop after it.
+                const bool florangia = florangia_mask(seed, px, pz) > 0.0f;
+                const uint8_t base =
+                    florangia ? kPalmTreeVariantBase : uint8_t{0};
+                const uint8_t count = florangia ? kPalmTreeVariants
+                                                : kTemperateTreeVariants;
                 p.variant = static_cast<uint8_t>(
-                    static_cast<int>(variant_roll *
-                                     static_cast<float>(kTreeVariants)) %
-                    kTreeVariants);
+                    base + static_cast<uint8_t>(
+                        static_cast<int>(variant_roll *
+                                         static_cast<float>(count)) % count));
             } else {
                 p.scale = kRockScaleMin +
                           (kRockScaleMax - kRockScaleMin) * scale_roll;

@@ -22,7 +22,7 @@ namespace apricot::gl_state {
 
 // Bind if not already bound. `unit` is the texture unit index, not the
 // GL_TEXTURE0 enum.
-void bind_texture(GLuint unit, GLuint texture);
+void bind_texture(GLuint unit, GLuint texture, GLenum target = GL_TEXTURE_2D);
 void use_program(GLuint program);
 void bind_vertex_array(GLuint vao);
 void bind_buffer(GLenum target, GLuint buffer);

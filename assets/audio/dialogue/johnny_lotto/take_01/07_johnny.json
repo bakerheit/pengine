@@ -1,0 +1,39 @@
+{
+  "id": "07_johnny",
+  "kind": "Cutscene dialogue",
+  "title": "The lotto - line 07",
+  "character": "Johnny Mercer",
+  "voice": "cedar",
+  "direction": "American man, late twenties, textured mid-low voice with a light East Coast accent. Scrappy, cocky working-class gas station clerk Johnny Mercer; same casting as the cedar getaway-driver audition. Relaxed conversational indoor volume, talking to your older manager across the checkout. Natural and understated, no narration. This scene is an ordinary conversation about the lotto that hints Lou once robbed a bank truck, then Johnny volunteers for a delivery. For this line only: Genuinely impressed, curious with a small amused smile.",
+  "text": "No shit. What'd you do, pick birthdays?",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "07_johnny.wav",
+  "transcript": "No shit. What'd you do, pick birthdays?",
+  "transcript_matches": true,
+  "duration_seconds": 3.7,
+  "peak_dbfs": -5.68,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 406,
+    "input_tokens": 245,
+    "output_tokens": 161,
+    "input_token_details": {
+      "text_tokens": 245,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 87,
+      "audio_tokens": 74,
+      "reasoning_tokens": 62
+    }
+  },
+  "response_id": "resp_EKQyij3cdjPSkehSI4QPt"
+}

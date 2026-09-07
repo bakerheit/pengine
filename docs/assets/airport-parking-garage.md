@@ -1,0 +1,11 @@
+# O'Haven public parking garage
+
+Converts the existing public parking directly across from airport drop-off. The upper floors follow the same stepped footprint: airport-local x[-200,130], z[189,211], plus x[-150,80], z[211,240]. Ground pads and the original two road entrances remain. The aircraft apron, terminal loop, and three terminal walking axes (-110,-35,40) stay intact.
+
+[Blueprint](airport-parking-garage-blueprint.svg)
+
+Three parking levels have surface heights 0.13, 4.13 and 8.13m above the 6m airport plate. Concrete decks are 0.30m thick, leaving 3.70m of clear height. Two stacked, two-way ramps have an 8m clear width and a 50m run, with 6m eased transitions and a peak grade of 9.09%. Ramp endpoints are x-95 and x-45, centred at z198. Open intermediate circulation supports 10m-radius turns. Public stairs occupy x[-120,-116], z[192,205], with 24 real 16.7cm risers per flight, 50cm treads and a connected return path.
+
+`bake_airport_parking_garage()` supplies ordinary authored pieces, exact ramp quads, and world-space collision triangles. Append its triangles to the existing road collision before installation; render ramp tops from those same quads. Ordinary solid slabs, stair treads, columns and barriers register through the existing box-collider path. Ramp/slab openings prevent support queries from catching a ceiling as the floor. Remove only the old parking islands and parking stripes using `airport_garage_replaces`; preserve the old ground pads and terminal walks. Existing airport concrete/metal textures apply; no new generated assets.
+
+Focused standalone validation uses the actual TerrainCollider, step_vehicle and CharacterController. It checks correct floor selection and overhead clearance; an uninterrupted drive beneath both upper decks; all three terminal walking axes; both ramps uphill and downhill; deterministic duplicate runs; stair traversal through both flights; and a single continuous driving trip from ground, around the intermediate return aisle, to the top level. Each ramp trip travels 62m, changes elevation by exactly 4m, and records no impacts. The continuous trip uses 10m-radius bends and also records no impacts. Runtime visual review remains an integration step.

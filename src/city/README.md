@@ -1,9 +1,9 @@
-# `src/city/` — Pinatty's map, its roads, and its decision layers
+# `src/city/` — O'Haven, Florangia, and the city decision layers
 
 A sim-side module (`apricot_sim`) holding two things that arrived from different
 directions.
 
-**The MAP AND THE ROADS** — `map.h`, `districts.h`, `landmarks.h`,
+**THE STATES, MAP, AND ROADS** — `states.h`, `map.h`, `districts.h`, `landmarks.h`,
 `terrain_ops.h`, `roads.h`, `spines.{h,cpp}` — are authored `constexpr` tables
 and the argument for compiling them rather than loading them is in `map.h`.
 
@@ -12,12 +12,21 @@ landed by **PENG-29** as a lift out of
 [`probablecause`](../../../probablecause). Roughly 5,000 lines of source and
 4,300 lines of tests, all of it free functions over plain-data view structs.
 
-**The MAP and the ROADS are wired into the app; the DECISION LAYERS are not.**
+**The MAP, ROADS, and first traffic layer are wired into the app.**
 `App::init()` calls `city::map_spines()` and the road network bakes, uploads and
-draws on every launch. The traffic, police and pedestrian code below is what
-PENG-29 landed and stopped at: every file compiles, every test runs headless,
-and no `src/app/` code calls any of it yet. Do not read the lower half of this
-README as a description of a running city.
+draws on every launch. `traffic::Crowd` now promotes nearby lane phantoms into
+moving cars and applies follow gaps, profile-aware signals and stops,
+deterministic junction right of way, turn-speed planning, and player-hazard
+braking. Intersection entry is claimed at a geometry-derived stop edge that
+keeps the whole car outside the widest crossing road, and nearby AI traffic
+uses deterministic body collision rather than ghosting. Destination-lane
+storage and deterministic alternate-turn planning keep queues out of the
+intersection box. Committed cars ignore later signals until their rear clears
+that computed box and use fast contact recovery, merge reservations, and an
+intersection-clearance watchdog rather than returning to ordinary queue
+behavior halfway through a turn. The deeper physical recovery/overtake/emergency maneuver
+stack, police, and pedestrians still compile and test headlessly but are not
+connected to the running city yet.
 
 | File | What it decides |
 |---|---|
@@ -31,11 +40,30 @@ README as a description of a running city.
 | `objective_runtime.{h,cpp}` | Sphere triggers and the tracked-objective state machine |
 | `mission_def.h` | The authored-mission data contract |
 | `road_author.{h,cpp}` + `road_types.h` | The authoring node/edge road graph and the road-type registry |
-| `roads.h` | **Pinatty's road network.** 92 authored spines, and the table every `Grade` terrain operator is derived from |
+| `building_creator.{h,cpp}` | Renderer-free Sims-style walls, openings, roofs, fixtures and stairs, baked into render/collision pieces |
+| `start_area.h` | Complete creator documents for Halloway Gas, Causeway Court Motel, Halloway Flats, Cloggers, and the enterable O'Haven Savings bank |
+| `tacomaco.h` | Second site for the copied Cloggers fast-food shell, with independent parcel and brand identity |
+| `bank_vault_layout.h` | Hinged bank-vault geometry and the shared world/local transform for interactions and moving collision |
+| `roads.h` | **O'Haven's road network.** 99 authored spines, and the table every `Grade` terrain operator is derived from |
 | `spines.{h,cpp}` | `map_spines()` — the one file here that includes from `src/road/`, and the static_asserts that keep the two modules' width, sidewalk, class and structure tables from drifting |
 | `city_rng.h` | How this module draws randomness, and the channel list |
 
 ---
+
+## Bank vault
+
+On foot, use **E / controller A** beside the manager's desk to read the note,
+then use the same button at the vault keypad. Enter four digits and press
+**Enter** (or click the keypad / use D-pad and A); **Esc / B** cancels.
+The right code opens the vault and keeps it unlocked for the current session.
+Use E / A at either side's control to open or close it again. The hinged leaf
+and its collision update together on fixed steps; movement pauses while the
+player or player car occupies the swing area. A fresh launch starts locked.
+
+Bank body collisions retain each piece's yaw, including the moving vault
+leaf. Character overlap, support probes and camera rays use those exact
+rotated footprints rather than the enclosing world-axis boxes. This keeps
+the teller and vault aisles clear without disabling the visible furniture.
 
 ## The roads and the ground under them are ONE table
 

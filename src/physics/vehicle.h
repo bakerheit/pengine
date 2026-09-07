@@ -9,6 +9,8 @@
 
 #include "core/input_frame.h"
 #include "physics/terrain_collider.h"
+#include "physics/vehicle_damage.h"
+#include "physics/vehicle_mechanical.h"
 
 namespace apricot {
 
@@ -56,12 +58,18 @@ struct WheelState {
     // question a test and a debug overlay both need to ask.
     float normal_force = 0.0f;
 
-    // Slip magnitude normalised so that 1.0 is the peak of the tyre curve.
-    // Below 1 the tyre is gripping harder the more it slips; above 1 it is
-    // giving up. That crossover is the whole feel of the car.
+    // Slip magnitude normalised so that 1.0 is the edge of the tyre's full
+    // grip region. Above 1 it starts giving up. That crossover is the whole
+    // feel of the car.
     float slip = 0.0f;
 
     bool grounded = false;
+
+    // Material from the exact GroundHit that produced this contact. Roads,
+    // parking slabs and authored overlays can sit above a different raw
+    // terrain material, so presentation must not re-query underneath them.
+    // Kept beside grounded so it uses the struct's existing tail padding.
+    Surface contact_material = Surface::Rock;
 };
 
 // Everything the car IS at an instant. Plain data on purpose: this is what a
@@ -91,6 +99,28 @@ struct VehicleState {
     // nudge only starts once this passes VehicleTuning::recovery_delay, so a
     // car that is merely airborne and cartwheeling is left alone to land.
     float recovery_timer = 0.0f;
+    // Kept separate from rollover recovery so briefly touching a bumper on a
+    // normal landing cannot put the broader side/roof hysteresis into effect.
+    float pitch_recovery_timer = 0.0f;
+
+    // Crash damage is authoritative vehicle state, not a renderer guess. That
+    // keeps replay/checkpoint restores exact and gives future car-vs-car
+    // collision the same event contract as today's static world impacts.
+    float health = 100.0f;
+    float last_impact_speed = 0.0f;
+    float last_impact_damage = 0.0f;
+    uint32_t impact_count = 0u;
+    // Strongest car-to-car contact this tick (parked or AI-driven). Reset by
+    // step_vehicle, then accumulated by the traffic solver. Not a lifetime
+    // counter: swapping cars must not suppress or replay a previous crash.
+    float car_contact_speed = 0.0f;
+    // One released prop per tick; other contacts remain solid. Transient,
+    // consumed by the world owner immediately after the vehicle step.
+    uint32_t breakaway_id = UINT32_MAX;
+    glm::vec3 breakaway_velocity{0.0f};
+    VehicleDamageState body_damage{};
+    VehicleMechanicalState mechanical{};
+    uint64_t mechanical_key = 0;
 
     std::array<WheelState, kWheelCount> wheels{};
 };
@@ -120,12 +150,22 @@ struct VehicleTuning {
     float chassis_floor = -0.34f;
     float chassis_roof = 0.85f;
 
+    // Road-plane car-car footprint, fitted to the scaled Car 5 body rather
+    // than just its wheel rectangle. This is intentionally separate from the
+    // inertia/ground-guard chassis above: extending that box to the bumpers
+    // makes ordinary terrain crests catch the car's invisible corners.
+    float car_collision_half_width = 1.045f;
+    float car_collision_half_length = 2.445f;
+
     // Multipliers on the uniform-box inertia. A uniform box makes a car far
     // too eager to roll, because real mass sits low and inboard. Raise
     // roll_inertia_scale to make the car lazier side-to-side;
     // pitch_inertia_scale does the same for dive and squat.
     float pitch_inertia_scale = 1.0f;
-    float roll_inertia_scale = 1.4f;
+    // Extra-heavy around the length of the car. This is the old crime-game
+    // trick: a kerb can still lean the body, but it cannot give a 1250 kg car
+    // bicycle-like roll acceleration in one physics step.
+    float roll_inertia_scale = 1.8f;
     float yaw_inertia_scale = 1.0f;
 
     // Height of the centre of mass above the wheel mounts. Small on purpose —
@@ -144,6 +184,14 @@ struct VehicleTuning {
     float spring_k = 51000.0f;    // N/m per corner
     float damper_c = 6400.0f;     // N.s/m per corner (~0.55 critical)
     float bumpstop_k = 320000.0f; // N/m, the stiff bit past full travel
+
+    // Axle anti-roll bars, N/m of left/right suspension-length difference.
+    // They add load to the compressed outside tyre and remove the same load
+    // from the inside tyre, so they resist body roll without making a landing
+    // as harsh as stiffer springs would. A little less rear bar keeps the car
+    // stable on turn-in while the rear-biased drivetrain can still rotate it.
+    float anti_roll_front = 11000.0f;
+    float anti_roll_rear = 3500.0f;
 
     // Sanity caps on the strut. Without them a spawn inside a hillside or a
     // landing off a cliff produces a single frame of impossible force and the
@@ -175,11 +223,20 @@ struct VehicleTuning {
     float engine_inertia = 0.22f;
 
     // --- steering -----------------------------------------------------------
-    float max_steer = 0.58f;   // radians at full lock (~33 degrees)
-    float steer_rate = 4.0f;   // radians/second toward the target
+    // A small arcade-forward bump: sharper turn-in and a little more lock make
+    // city corners feel deliberate without defeating the speed-sensitive cap.
+    float max_steer = 0.62f;   // radians at full lock (~36 degrees)
+    float steer_rate = 4.5f;   // radians/second toward the target
+    // Returning to centre should be quicker than winding lock on. This is most
+    // noticeable on keys: release A/D and the car settles instead of carrying
+    // steering input for another beat.
+    float steer_return_rate = 6.0f;
+    // >1 softens the middle of the input while preserving full lock. It gives
+    // both a stick and the keyboard ramp useful fine control near centre.
+    float steer_input_exponent = 1.35f;
     // Lock is scaled by 1 / (1 + speed * this). At 0 the car has full lock at
     // 200 km/h, which is undriveable; raise it for a calmer car on straights.
-    float steer_speed_falloff = 0.035f;
+    float steer_speed_falloff = 0.055f;
 
     // --- engine and gearbox -------------------------------------------------
     float engine_peak_torque = 420.0f;  // N.m
@@ -205,6 +262,20 @@ struct VehicleTuning {
     float engine_free_rev_rate = 6.0f;
 
     bool auto_gearbox = true;
+    // Crime-game two-pedal direction control. When enabled, brake input stops
+    // forward motion and becomes reverse throttle once the car is nearly
+    // stationary; throttle does the mirror image while reversing. Kept opt-in
+    // because AI drivers use brake as a pure brake and choose gears directly.
+    bool arcade_reverse = false;
+    float arcade_direction_change_speed = 0.65f;  // horizontal m/s
+    // Holding both player pedals from a standstill is a brake stand, not two
+    // inputs cancelling each other. The front axle holds the car while engine
+    // torque is routed to the rear so the independently animated rear wheels
+    // can spin. These biases apply only during the burnout.
+    float burnout_max_speed = 1.0f;          // horizontal m/s
+    float burnout_min_pedal = 0.35f;         // minimum W and S input
+    float burnout_front_drive_bias = 0.0f;   // 0 = rear wheels get the power
+    float burnout_brake_bias_front = 1.0f;   // 1 = front wheels hold the car
     float shift_up_rpm = 6600.0f;
     float shift_down_rpm = 2600.0f;
     // The automatic refuses to upshift while the driven wheels are slipping
@@ -217,8 +288,9 @@ struct VehicleTuning {
     float shift_cooldown = 0.35f;
 
     // 0 = rear wheel drive, 1 = front wheel drive, 0.5 = even four wheel drive.
-    // A rally car wants a rear bias so it rotates on the throttle.
-    float front_drive_bias = 0.40f;
+    // Even AWD is the pilot-car baseline: power should pull it through a turn,
+    // not light the rear tyres every time a keyboard driver holds W and D.
+    float front_drive_bias = 0.50f;
 
     // How hard the differentials tie the driven wheels together, 1/s. 0 is a
     // fully open diff; large is welded solid; a rally car runs close to locked.
@@ -231,12 +303,42 @@ struct VehicleTuning {
     float differential_coupling = 40.0f;
 
     // --- brakes -------------------------------------------------------------
-    float brake_torque = 5200.0f;      // N.m total across all four wheels
+    // Strong arcade service brakes. Enough torque to reach the tyres' useful
+    // grip quickly without changing the handbrake's separate drift behavior.
+    float brake_torque = 18000.0f;     // N.m total across all four wheels
     float brake_bias_front = 0.62f;    // fraction of that going to the front
-    float handbrake_torque = 3000.0f;  // N.m total, rear wheels only
-    // What the handbrake does to REAR lateral grip at full pull. This, not the
-    // torque, is what makes the back end come round.
-    float handbrake_grip_scale = 0.42f;
+    // Normalised longitudinal slip the service-brake ABS aims for. The tyre
+    // curve peaks at 1.0; <= 0 disables ABS. This never touches the handbrake.
+    float service_abs_target_slip = 1.0f;
+    // GTA-era brake assist: extra LONGITUDINAL tyre authority only while the
+    // service brake is pressed. It shortens the stop without multiplying
+    // lateral grip and tripping the car during a hard brake-turn.
+    float service_brake_grip_boost = 3.0f;
+    // At high speed, full brake plus full steering is softened toward this
+    // fraction of the normal speed-sensitive lock. The assist fades in over
+    // the speed band below, leaving parking and city-corner steering alone.
+    // 1 disables it.
+    float service_brake_steer_scale = 1.0f;
+    float service_brake_steer_start_speed = 18.0f; // horizontal m/s
+    float service_brake_steer_full_speed = 34.0f;  // horizontal m/s
+    // Arcade stability assist while using the service brake, in 1/s. These
+    // gather lateral velocity and yaw without touching forward speed. Zero
+    // disables either assist; the handbrake bypasses both.
+    float service_brake_lateral_damping = 150.0f;
+    float service_brake_yaw_damping = 0.0f;
+    float handbrake_torque = 2300.0f;  // N.m total, rear wheels only
+    // Rear lateral grip retained at full pull. The wheel brake already creates
+    // slip, so this is only a modest assist to rotation, not an instant
+    // traction-off switch.
+    float handbrake_grip_scale = 0.72f;
+
+    // A hard hit around a wheel arch can bend that corner. Damage is derived
+    // from the same regional body state as the visible dent: the affected tyre
+    // loses some grip, adds rolling drag, and a damaged front corner pulls the
+    // steering slightly toward itself. The floors keep a wreck driveable.
+    float wheel_damage_grip_floor = 0.68f;
+    float wheel_damage_rolling_resistance = 0.055f;
+    float wheel_damage_steer_pull = 0.055f;  // radians at full corner damage
 
     // --- tyres --------------------------------------------------------------
     // The slip curve. `slip` is the speed difference between the contact patch
@@ -250,21 +352,16 @@ struct VehicleTuning {
     // Grip retained a long way past the peak, as a fraction of peak grip.
     // THIS NUMBER IS THE DIFFERENCE between a car that snaps and a car you can
     // catch. Near 1.0 the tail never really lets go; near 0.3 a slide is
-    // unrecoverable. Around 0.55 the back steps out and comes back.
-    float tyre_tail_grip = 0.55f;
+    // unrecoverable. The pilot car keeps a generous floor so an ordinary turn
+    // scrubs speed instead of becoming a long drift; the handbrake still has
+    // its own rear-grip cut below.
+    float tyre_tail_grip = 0.68f;
     // How fast grip decays past the peak. Bigger = a sharper edge.
-    float tyre_falloff = 1.0f;
-
-    // Slip speed below which the tyre is treated as STUCK rather than sliding,
-    // in m/s. Inside this window grip ramps up to full peak instead of
-    // following the curve down to zero.
-    //
-    // Without it the model is silently wrong at rest: the curve says a tyre
-    // with no slip makes no force, so a parked car creeps down any slope
-    // forever at whatever tiny slip balances gravity, and "the car never quite
-    // stops" gets blamed on the brakes. Real static friction is at least as
-    // strong as sliding friction, which is exactly what this restores.
-    float tyre_static_slip = 0.30f;
+    float tyre_falloff = 0.65f;
+    // Multiplier on the lateral axis of the friction ellipse. 1 is a round
+    // friction circle. Values above 1 let a handling profile corner harder
+    // without also shortening its braking distance or improving launches.
+    float lateral_grip_scale = 1.0f;
 
     // Where tyre forces enter the chassis, as a fraction of the way from the
     // wheel mount (0) down to the contact patch (1).
@@ -275,7 +372,9 @@ struct VehicleTuning {
     // transfer worth the name. At 1 the full arm applies and the car rolls and
     // tips like the free body diagram says it should. Real suspensions land in
     // between because they feed load into the body through their links.
-    float tyre_force_height = 0.90f;
+    // The pilot car sits near the middle: 0.90 let the 3x arcade brake grip
+    // trip the chassis over its outside tyres during a brake-and-turn.
+    float tyre_force_height = 0.55f;
 
     // --- resistance ---------------------------------------------------------
     float drag = 0.42f;                // quadratic, N per (m/s)^2
@@ -291,7 +390,19 @@ struct VehicleTuning {
     // the same frame experience different weather from the same tape, which is
     // a desync that looks exactly like a physics bug.
     float grip_scale = 1.0f;
-    float angular_drag = 1.2f;         // 1/s, exponential decay on spin
+    float angular_drag = 1.6f;         // 1/s, exponential decay on body rotation
+
+    // Extra damping for violent roll only while at least two tyres are on the
+    // ground. Ordinary suspension movement stays below the threshold, so the
+    // car still follows rough ground; a kerb trip gets gathered quickly. Yaw,
+    // pitch and airborne rotation are untouched. Zero damping disables it.
+    float grounded_roll_damping = 5.0f;       // 1/s
+    float grounded_roll_damping_threshold = 0.75f; // rad/s
+    // Last-resort cap for a one-step outside-wheel trip. Point contacts can
+    // otherwise inject a barrel-roll rate before damping gets another frame.
+    // Applied only while tyres are down or the chassis is still grazing the
+    // ground, so real airborne spins and jump rotation remain untouched.
+    float grounded_roll_rate_limit = 4.0f;    // rad/s around chassis forward
 
     // --- rollover recovery --------------------------------------------------
     // Above this much chassis-up the car counts as the right way up and the
@@ -311,6 +422,12 @@ struct VehicleTuning {
     // stops has to be past the point it starts, or the force switches itself
     // off the instant it begins working.
     float recovery_release_dot = 0.75f;
+    // A car can also become stuck standing on its nose or tail while still
+    // having enough world-up component to miss recovery_up_dot. When fewer
+    // than four tyres are down, this much vertical component in chassis-forward
+    // starts the same delayed nudge. At 0.72 the pose is steeper than about 46
+    // degrees, well outside ordinary hill following and suspension pitch.
+    float recovery_pitch_sine = 0.72f;
     // Seconds upside down before the nudge starts.
     float recovery_delay = 1.5f;
     // How close the chassis has to be to the ground for the timer to run at
@@ -336,6 +453,16 @@ struct VehicleTuning {
     // Deliberately a cylinder and not the real box — a rally car brushing a
     // rock wants a forgiving kerb, not a corner to snag on.
     float chassis_collision_radius = 1.15f;
+    // Normal speed below this is a parking bump and does no damage.
+    float impact_safe_speed = 3.0f;
+    // Health points removed per m/s above the safe threshold.
+    float impact_damage_per_mps = 3.2f;
+    // Model-specific dent accumulation, after the per-hit cap. This changes
+    // how many impacts reach full deformation, not the maximum wreck shape.
+    float body_damage_gain = 1.0f;
+    // A little bounce sells the hit. Kept low so walls do not become pinball
+    // bumpers and so a glancing strike sheds only its normal speed.
+    float collision_restitution = 0.08f;
 
     // --- safety net ---------------------------------------------------------
     // Minimum gap kept between the chassis box and the ground by the last
@@ -367,6 +494,13 @@ float static_suspension_length(const VehicleTuning& tuning);
 // car does not drop, and does not launch.
 float static_ride_height(const VehicleTuning& tuning);
 
+// Ackermann-correct angle for one wheel from the bicycle-model steering angle
+// stored in VehicleState. The inside front wheel turns further than the
+// outside one so both point around the same corner instead of scrubbing.
+// Rear wheels always return zero.
+float wheel_steer_angle(const VehicleTuning& tuning, float central_angle,
+                        int wheel_index);
+
 // --- queries -----------------------------------------------------------------
 
 inline glm::vec3 vehicle_forward(const VehicleState& s) {
@@ -393,6 +527,12 @@ inline bool vehicle_airborne(const VehicleState& s) {
     }
     return true;
 }
+
+// Restore the repairable parts of a live car without moving it or rewriting
+// its driving history. Position, velocity, orientation, gear, wheel motion and
+// impact_count are deliberately preserved; damage presentation and the bent-
+// wheel handling derived from it clear immediately.
+void repair_vehicle(VehicleState& state);
 
 // Place a car on the ground at a world XZ, facing `yaw` radians about +Y,
 // settled on its springs and aligned to the slope it is standing on.

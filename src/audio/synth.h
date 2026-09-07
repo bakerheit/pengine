@@ -12,9 +12,9 @@ namespace apricot {
 // audio module is pure maths that turns parameters into samples, which is why
 // it lives in the sim library and is testable with no sound hardware.
 //
-// apricot has no audio assets. Every sound is synthesised at load, so there is
-// nothing to ship, nothing to license and nothing to go missing on a fresh
-// clone.
+// Every sound has a deterministic synthesised fallback. Selected clips may be
+// replaced by licensed WAV assets at load time; a missing override is never a
+// startup failure.
 //
 // TWO KINDS OF FUNCTION LIVE HERE and the difference matters:
 //
@@ -106,24 +106,24 @@ PcmClip synth_engine_loop(float hz, float seconds,
 // What the tyres are rolling on. Plain data crossing no boundary: the terrain
 // module classifies ground however it likes and hands audio one of these, so
 // neither module has to include the other's headers.
-enum class Surface : int {
-    Tarmac = 0,
+enum class AudioSurface : int {
+    Rock = 0,
     Gravel,
-    Dirt,
-    Snow,
+    Grass,
+    Sand,
     kCount,
 };
 
-inline constexpr std::size_t kSurfaceCount =
-    static_cast<std::size_t>(Surface::kCount);
+inline constexpr std::size_t kAudioSurfaceCount =
+    static_cast<std::size_t>(AudioSurface::kCount);
 
-constexpr const char* surface_name(Surface s) {
+constexpr const char* audio_surface_name(AudioSurface s) {
     switch (s) {
-        case Surface::Tarmac: return "tarmac";
-        case Surface::Gravel: return "gravel";
-        case Surface::Dirt:   return "dirt";
-        case Surface::Snow:   return "snow";
-        case Surface::kCount: break;
+        case AudioSurface::Rock:   return "rock";
+        case AudioSurface::Gravel: return "gravel";
+        case AudioSurface::Grass:  return "grass";
+        case AudioSurface::Sand:   return "sand";
+        case AudioSurface::kCount: break;
     }
     return "?";
 }
@@ -135,10 +135,10 @@ constexpr const char* surface_name(Surface s) {
 PcmClip synth_tyre_scrub(float seconds,
                          uint32_t sample_rate = kDefaultSampleRate);
 
-// The rolling bed under the car: the texture of `surface` at speed. Tarmac is
-// a thin hiss, gravel is a loose rattle, dirt sits between them, snow is a
-// muffled squeak with almost no top end.
-PcmClip synth_surface_roll(Surface surface, float seconds,
+// The rolling bed under the car: the texture of `surface` at speed. Rock and
+// paved roads are a thin hiss, gravel is a loose rattle, grass sits between
+// them, and sand is a muffled scrub with almost no top end.
+PcmClip synth_surface_roll(AudioSurface surface, float seconds,
                            uint32_t sample_rate = kDefaultSampleRate);
 
 // ---------------------------------------------------------------------------
@@ -193,6 +193,19 @@ PcmClip synth_lap_record_stinger(uint32_t sample_rate = kDefaultSampleRate);
 // worth being clever to save that.
 inline constexpr std::size_t kEngineLayerCount = 7;
 
+enum class CarSoundUse : uint8_t {
+    Accelerate,
+    Brake,
+    Crash,
+    Tyres,
+    Surface,
+    kCount,
+};
+
+inline constexpr std::size_t kCarSoundUseCount =
+    static_cast<std::size_t>(CarSoundUse::kCount);
+inline constexpr int kCarSoundVariantCount = 5;
+
 // Every sound in the game, generated once. Held by value and never mutated
 // after synth_bank() returns — the audio thread holds bare pointers into these
 // clips, so a bank that is reassigned, resized or destroyed while the device is
@@ -206,7 +219,7 @@ struct SfxBank {
     std::array<PcmClip, kEngineLayerCount> engine_overrun{}; // trailing / off
 
     PcmClip tyre_scrub;
-    std::array<PcmClip, kSurfaceCount> surface_roll{};
+    std::array<PcmClip, kAudioSurfaceCount> surface_roll{};
 
     // Light / medium / heavy landings. Discrete because an impact is discrete:
     // there is no crossfade to do, the runtime just picks one and pitches it.
@@ -218,6 +231,32 @@ struct SfxBank {
 
     PcmClip checkpoint;
     PcmClip lap_record;
+
+    // Real recordings used only by the F1 sound lab. These intentionally have
+    // no synthesised fallback: a missing audition should be silent instead of
+    // pretending a generated clip is one of the recorded choices.
+    std::array<std::array<PcmClip, kCarSoundVariantCount>,
+               kCarSoundUseCount>
+        car_sound_audition{};
+
+    // Recorded-only live throttle set. These have no procedural fallback: a
+    // missing file must stay silent instead of reviving the rejected synth bed.
+    PcmClip player_throttle_attack;
+    PcmClip player_throttle_hold;
+    PcmClip player_throttle_release;
+    PcmClip player_car_collision;
+    PcmClip player_drift_tyres;
+    PcmClip player_burnout;
+    PcmClip engine_start;
+    PcmClip engine_idle;
+
+    // Recorded non-spatial background bed. No generated fallback: if the file
+    // is missing, the city is quiet instead of reverting to synthetic noise.
+    PcmClip city_ambience;
+
+    // Musical mission-complete sting. Recorded-only and non-spatial so it
+    // reads as game feedback rather than a sound coming from Devon's body.
+    PcmClip mission_success;
 };
 
 // Generate the whole bank. FULLY DETERMINISTIC: identical samples on every
@@ -269,7 +308,7 @@ VoiceMix tyre_scrub_mix(const SfxBank& bank, float lateral_slip,
 
 // The roll bed for the surface under the car at this speed.
 VoiceMix surface_roll_mix(const SfxBank& bank, float speed_mps,
-                          Surface surface);
+                          AudioSurface surface);
 
 // Which thump, how loud, how low. `impact_mps` is the closing speed at
 // touchdown; below a few m/s this returns a silent mix rather than a quiet
@@ -303,6 +342,42 @@ WeatherMix weather_mix(const SfxBank& bank, float rain_intensity,
 // compressed formats, on purpose — a decoder is a dependency, and the whole
 // point of this module is that it does not need one.
 bool override_clip_from_wav(PcmClip& clip, const std::string& path);
+
+// Optional runtime asset paths. Empty entries leave their deterministic
+// synthesised clips alone. Paths are applied after synth_bank() and before the
+// playback thread starts, so voice pointers never observe a bank mutation.
+struct SfxOverridePaths {
+    std::array<std::string, kEngineLayerCount> engine_power{};
+    std::array<std::string, kEngineLayerCount> engine_overrun{};
+    // Equivalent four-cylinder RPM measured in each source file. Zero keeps
+    // the WAV's native rate. A positive value retunes playback so the source
+    // periodicity lands on the bank anchor instead of flattening the rev sweep.
+    std::array<float, kEngineLayerCount> engine_power_source_rpm{};
+    std::array<float, kEngineLayerCount> engine_overrun_source_rpm{};
+    std::array<std::array<std::string, kCarSoundVariantCount>,
+               kCarSoundUseCount>
+        car_sound_audition{};
+    std::string player_throttle_attack;
+    std::string player_throttle_hold;
+    // True when the authoring tool already folded the loop seam. Applying the
+    // runtime fold again would shorten and smear a finished asset.
+    bool player_throttle_hold_is_loop_ready = false;
+    std::string player_throttle_release;
+    std::string player_car_collision;
+    std::string player_drift_tyres;
+    std::string player_burnout;
+    std::string engine_start;
+    std::string engine_idle;
+    std::string city_ambience;
+    // Prepared seamless loop; no additional runtime seam folding.
+    std::string rain;
+    std::string mission_success;
+};
+
+// Apply every non-empty override and return how many WAVs were accepted.
+// A bad path changes nothing and does not count as loaded.
+std::size_t override_bank_from_wavs(SfxBank& bank,
+                                    const SfxOverridePaths& paths);
 
 // The raw loader behind it. Leaves `out` untouched and returns false on any
 // problem. Exposed for tests; prefer override_clip_from_wav() in engine code.

@@ -55,34 +55,6 @@ inline constexpr Landmark kLandmarks[] = {
      .lit = true},  // island-tier for burning, not for height
 
     // ---- District tier: which district am I in ---------------------------
-    {.name = "Ostend gantry crane 1",
-     .pos = {-1480.0f, -800.0f},
-     .height_m = 42.0f,
-     .tier = LandmarkTier::District,
-     .kind = LandmarkKind::Crane,
-     .district = DistrictId::OstendDocks},
-
-    {.name = "Ostend gantry crane 2",
-     .pos = {-1520.0f, -680.0f},
-     .height_m = 42.0f,
-     .tier = LandmarkTier::District,
-     .kind = LandmarkKind::Crane,
-     .district = DistrictId::OstendDocks},
-
-    {.name = "Ostend gantry crane 3",
-     .pos = {-1560.0f, -560.0f},
-     .height_m = 42.0f,
-     .tier = LandmarkTier::District,
-     .kind = LandmarkKind::Crane,
-     .district = DistrictId::OstendDocks},
-
-    {.name = "Ostend gantry crane 4",
-     .pos = {-1600.0f, -450.0f},
-     .height_m = 42.0f,
-     .tier = LandmarkTier::District,
-     .kind = LandmarkKind::Crane,
-     .district = DistrictId::OstendDocks},
-
     {.name = "Halloway courthouse dome",
      .pos = {-70.0f, 760.0f},
      .height_m = 38.0f,
@@ -121,11 +93,12 @@ inline constexpr Landmark kLandmarks[] = {
      .lit = true},
 
     {.name = "Camber control tower",
-     .pos = {110.0f, 2170.0f},
-     .height_m = 24.0f,
+     .pos = {340.0f, 2182.0f},
+     .height_m = 30.2f,
      .tier = LandmarkTier::District,
      .kind = LandmarkKind::ControlTower,
-     .district = DistrictId::CamberPoint},
+     .district = DistrictId::CamberPoint,
+     .lit = true},
 
     {.name = "Marrow quarry face",
      .pos = {-1480.0f, 1300.0f},
@@ -189,7 +162,7 @@ inline constexpr Landmark kLandmarks[] = {
      .kind = LandmarkKind::Pier,
      .district = DistrictId::TheStrand},
 
-    // Six authored murals. Cheap, fixed forever, and the thing a player
+    // Five authored murals. Cheap, fixed forever, and the thing a player
     // actually says out loud when giving directions.
     {.name = "Mural: the diver",
      .pos = {-870.0f, -180.0f},
@@ -219,13 +192,6 @@ inline constexpr Landmark kLandmarks[] = {
      .kind = LandmarkKind::Mural,
      .district = DistrictId::KeplerFlats},
 
-    {.name = "Mural: the crane operator",
-     .pos = {-1660.0f, -520.0f},
-     .height_m = 10.0f,
-     .tier = LandmarkTier::Corner,
-     .kind = LandmarkKind::Mural,
-     .district = DistrictId::OstendDocks},
-
     {.name = "Mural: the last summer",
      .pos = {1620.0f, 1480.0f},
      .height_m = 12.0f,
@@ -243,6 +209,14 @@ inline constexpr Landmark kLandmarks[] = {
      .kind = LandmarkKind::Windbreak,
      .district = DistrictId::Count},
 
+    {.name = "Westmere Estates",
+     .pos = {-655.0f, -438.0f},
+     .height_m = 4.8f,
+     .tier = LandmarkTier::Corner,
+     .kind = LandmarkKind::Steps,
+     .district = DistrictId::Count,
+     .lit = true},
+
     {.name = "Windbreak: the south line",
      .pos = {-620.0f, 1420.0f},
      .height_m = 13.0f,
@@ -259,9 +233,9 @@ inline constexpr int kLandmarkCount =
 // ---------------------------------------------------------------------------
 
 // A landmark that claims a district must actually STAND in it. This is the
-// invariant that catches the copy-paste where the fourth gantry crane keeps
-// district three's coordinates and ends up half a kilometre out to sea, still
-// labelled "Ostend Docks" on a minimap that has no way to know better.
+// invariant that catches a copy-paste where a landmark keeps another
+// district's coordinates and ends up half a kilometre out to sea, still
+// labelled with a district that has no way to know better.
 constexpr bool landmarks_stand_in_their_district() {
     for (int i = 0; i < kLandmarkCount; ++i) {
         const Landmark& l = kLandmarks[i];

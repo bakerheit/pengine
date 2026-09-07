@@ -1,4 +1,5 @@
 #include "physics/vehicle.h"
+#include "physics/breakaway_contact.h"
 
 #include <algorithm>
 #include <cmath>
@@ -128,20 +129,24 @@ float gear_ratio(const VehicleTuning& t, int32_t gear) {
     return t.gear_ratios[idx];
 }
 
-bool front_is_driven(const VehicleTuning& t) { return t.front_drive_bias > 0.001f; }
-bool rear_is_driven(const VehicleTuning& t) { return t.front_drive_bias < 0.999f; }
+bool front_is_driven(float front_drive_bias) { return front_drive_bias > 0.001f; }
+bool rear_is_driven(float front_drive_bias) { return front_drive_bias < 0.999f; }
+bool wheel_is_driven(float front_drive_bias, int i) {
+    return wheel_is_front(i) ? front_is_driven(front_drive_bias)
+                             : rear_is_driven(front_drive_bias);
+}
 bool wheel_is_driven(const VehicleTuning& t, int i) {
-    return wheel_is_front(i) ? front_is_driven(t) : rear_is_driven(t);
+    return wheel_is_driven(t.front_drive_bias, i);
 }
 
 // Mean rotation rate of the driven wheels. Signed, so reverse reads negative
 // and the engine still sees positive revs once the negative gear ratio is
 // applied.
-float driven_wheel_rate(const VehicleTuning& t, const VehicleState& s) {
+float driven_wheel_rate(float front_drive_bias, const VehicleState& s) {
     float sum = 0.0f;
     int n = 0;
     for (int i = 0; i < kWheelCount; ++i) {
-        if (!wheel_is_driven(t, i)) continue;
+        if (!wheel_is_driven(front_drive_bias, i)) continue;
         sum += s.wheels[static_cast<std::size_t>(i)].angular_velocity;
         ++n;
     }
@@ -152,7 +157,8 @@ float driven_wheel_rate(const VehicleTuning& t, const VehicleState& s) {
 // Engine speed implied by the wheels through the current gear. In neutral there
 // are no wheels to read, so the revs chase the throttle instead.
 float engine_rpm_for(const VehicleTuning& t, const VehicleState& s,
-                     float throttle, float previous_rpm, float dt) {
+                     float front_drive_bias, float throttle, float previous_rpm,
+                     float dt) {
     const float ratio = gear_ratio(t, s.gear) * t.final_drive;
     if (std::fabs(ratio) < kEpsilon) {
         const float target =
@@ -160,7 +166,8 @@ float engine_rpm_for(const VehicleTuning& t, const VehicleState& s,
         const float blend = clampf(t.engine_free_rev_rate * dt, 0.0f, 1.0f);
         return previous_rpm + (target - previous_rpm) * blend;
     }
-    const float rpm = std::fabs(driven_wheel_rate(t, s) * ratio) * kRadPerSecToRpm;
+    const float rpm =
+        std::fabs(driven_wheel_rate(front_drive_bias, s) * ratio) * kRadPerSecToRpm;
     // Floored at idle because the engine does not stop turning when the car
     // does, and the audio module pitches straight off this number.
     return clampf(rpm, t.engine_idle_rpm, t.engine_redline_rpm * 1.05f);
@@ -181,39 +188,58 @@ float engine_torque_at(const VehicleTuning& t, float rpm) {
 
 // Fraction of peak grip available at a normalised slip of `u`.
 //
-// Below 1 the tyre bites harder the more it slips, peaking at exactly 1. Past
-// that it gives up toward tyre_tail_grip, and THAT is the whole handling model:
-// a rear tyre pushed past the peak makes less force, which lets it slip more,
-// which makes less force again. The car steps out. It is catchable because the
-// tail is a floor and not a cliff — back off, slip falls, grip returns.
+// Up to 1 the tyre has its full friction budget. The impulse it WANTS is already
+// proportional to slip, so scaling the budget down as well creates a bogus
+// low-slip grip hole: the tyre falls from static grip to roughly 20% grip just
+// as the car starts moving sideways, which feels exactly like ice. Past 1 it
+// gives up toward tyre_tail_grip; that post-limit falloff is what lets a
+// deliberate handbrake pull rotate the car.
 float slip_response(const VehicleTuning& t, float u) {
     if (!(u > 0.0f)) return 1.0f;  // no slip at all: static, see below
-    float kinetic;
-    if (u <= 1.0f) {
-        kinetic = u * (2.0f - u);
-    } else {
-        const float over = u - 1.0f;
-        kinetic = t.tyre_tail_grip +
-                  (1.0f - t.tyre_tail_grip) / (1.0f + t.tyre_falloff * over * over);
-    }
-    return kinetic;
+    if (u <= 1.0f) return 1.0f;
+
+    const float over = u - 1.0f;
+    return t.tyre_tail_grip +
+           (1.0f - t.tyre_tail_grip) /
+               (1.0f + t.tyre_falloff * over * over);
 }
 
 // --- validity ----------------------------------------------------------------
 
 bool state_is_finite(const VehicleState& s) {
     if (!is_finite(s.position) || !is_finite(s.velocity) ||
-        !is_finite(s.angular_velocity)) {
+        !is_finite(s.angular_velocity) || !is_finite(s.breakaway_velocity)) {
         return false;
     }
     if (!is_finite(s.orientation.w) || !is_finite(s.orientation.x) ||
         !is_finite(s.orientation.y) || !is_finite(s.orientation.z)) {
         return false;
     }
-    if (!is_finite(s.engine_rpm)) return false;
+    if (!is_finite(s.engine_rpm) || !is_finite(s.health) ||
+        !is_finite(s.pitch_recovery_timer) ||
+        !is_finite(s.last_impact_speed) || !is_finite(s.last_impact_damage) ||
+        !is_finite(s.car_contact_speed) ||
+        !is_finite(s.mechanical.oil_remaining) ||
+        !is_finite(s.mechanical.fuel_remaining) ||
+        !is_finite(s.mechanical.oil_lifetime_s) ||
+        !is_finite(s.mechanical.fuel_lifetime_s)) {
+        return false;
+    }
+    for (float damage : s.body_damage.zones) {
+        if (!is_finite(damage)) return false;
+    }
+    for (const VehicleDentStamp& stamp : s.body_damage.stamps) {
+        if (!is_finite(stamp.contact_xz.x) ||
+            !is_finite(stamp.contact_xz.y) || !is_finite(stamp.severity) ||
+            !is_finite(stamp.motion_angle) || !is_finite(stamp.radius) ||
+            !is_finite(stamp.height) || !is_finite(stamp.glancing)) {
+            return false;
+        }
+    }
     for (const WheelState& w : s.wheels) {
         if (!is_finite(w.angular_velocity) || !is_finite(w.suspension_length) ||
-            !is_finite(w.normal_force) || !is_finite(w.contact_point)) {
+            !is_finite(w.normal_force) || !is_finite(w.contact_point) ||
+            surface_index(w.contact_material) >= kSurfaceCount) {
             return false;
         }
     }
@@ -228,6 +254,7 @@ struct WheelContact {
     glm::vec3 mount_world{0.0f};
     glm::vec3 point{0.0f};
     glm::vec3 normal{0.0f, 1.0f, 0.0f};
+    Surface material = Surface::Rock;
     float suspension_length = 0.0f;
     float normal_force = 0.0f;
     float grip = 1.0f;
@@ -249,6 +276,35 @@ float static_suspension_length(const VehicleTuning& tuning) {
 float static_ride_height(const VehicleTuning& tuning) {
     return static_suspension_length(tuning) + tuning.wheel_radius +
            tuning.com_height_above_mount;
+}
+
+void repair_vehicle(VehicleState& state) {
+    state.health = 100.0f;
+    state.last_impact_speed = 0.0f;
+    state.last_impact_damage = 0.0f;
+    state.car_contact_speed = 0.0f;
+    state.breakaway_id = UINT32_MAX;
+    state.breakaway_velocity = glm::vec3{0.0f};
+    state.body_damage = {};
+    state.mechanical = {};
+}
+
+float wheel_steer_angle(const VehicleTuning& tuning, float central_angle,
+                        int wheel_index) {
+    if (!wheel_is_front(wheel_index)) return 0.0f;
+
+    const float magnitude = std::fabs(central_angle);
+    if (magnitude < kEpsilon) return central_angle;
+
+    const float wheelbase = std::max(2.0f * tuning.half_wheelbase, 0.01f);
+    const float half_track = std::max(tuning.half_track, 0.0f);
+    const float radius = wheelbase / std::max(std::tan(magnitude), kEpsilon);
+    const bool inside =
+        (central_angle > 0.0f && wheel_index == kWheelFrontRight) ||
+        (central_angle < 0.0f && wheel_index == kWheelFrontLeft);
+    const float wheel_radius = std::max(radius + (inside ? -half_track : half_track),
+                                        0.01f);
+    return std::copysign(std::atan(wheelbase / wheel_radius), central_angle);
 }
 
 // --- spawn -------------------------------------------------------------------
@@ -312,10 +368,12 @@ VehicleState spawn_vehicle(const VehicleTuning& tuning,
         w.contact_point =
             glm::vec3{mount.x, collider.height(mount.x, mount.z), mount.z};
         w.contact_normal = collider.normal(mount.x, mount.z);
+        w.contact_material = collider.material(mount.x, mount.z);
     }
 
     s.gear = 1;
     s.engine_rpm = tuning.engine_idle_rpm;
+    s.mechanical_key = vehicle_mechanical_key(collider.seed(), x, z);
     return s;
 }
 
@@ -329,9 +387,15 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
     // caller. Returning the state unchanged keeps a replay in lockstep with
     // whatever produced it instead of integrating garbage.
     if (!(dt > 0.0f) || !std::isfinite(dt)) return next;
+    next.car_contact_speed = 0.0f;
+    next.breakaway_id = UINT32_MAX;
+    next.breakaway_velocity = glm::vec3{0.0f};
+    step_vehicle_mechanical(next.mechanical, state.body_damage, dt,
+                             state.mechanical_key);
+    const bool engine_running = !vehicle_engine_failed(next.mechanical);
 
-    const float throttle = clampf(input.throttle, 0.0f, 1.0f);
-    const float brake = clampf(input.brake, 0.0f, 1.0f);
+    float throttle = clampf(input.throttle, 0.0f, 1.0f);
+    float brake = clampf(input.brake, 0.0f, 1.0f);
     const float handbrake = clampf(input.handbrake, 0.0f, 1.0f);
     const float steer_in = clampf(input.steer, -1.0f, 1.0f);
 
@@ -362,10 +426,55 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
     // Lock shrinks with speed. Full lock at 200 km/h is not a rally car, it is
     // a spin, and no amount of tyre tuning rescues it.
     const float speed = glm::length(body.velocity);
-    const float lock =
-        tuning.max_steer / (1.0f + speed * std::max(tuning.steer_speed_falloff, 0.0f));
-    const float steer_target = steer_in * lock;
-    const float steer_delta = tuning.steer_rate * dt;
+    const float horizontal_speed =
+        glm::length(glm::vec2{body.velocity.x, body.velocity.z});
+    const float burnout_pedal =
+        clampf(tuning.burnout_min_pedal, 0.0f, 1.0f);
+    const bool burnout_requested =
+        tuning.auto_gearbox && tuning.arcade_reverse &&
+        horizontal_speed <= std::max(tuning.burnout_max_speed, 0.0f) &&
+        throttle >= burnout_pedal && brake >= burnout_pedal;
+    const float base_lock =
+        tuning.max_steer /
+        (1.0f + speed * std::max(tuning.steer_speed_falloff, 0.0f));
+    const float brake_steer_start =
+        std::max(tuning.service_brake_steer_start_speed, 0.0f);
+    const float brake_steer_full =
+        std::max(tuning.service_brake_steer_full_speed,
+                 brake_steer_start + 0.01f);
+    const float brake_speed_blend = clampf(
+        (horizontal_speed - brake_steer_start) /
+            (brake_steer_full - brake_steer_start),
+        0.0f, 1.0f);
+    // Read the raw brake here because arcade direction selection happens
+    // below. Only a forward gear at road speed can be a service-brake turn;
+    // S while reversing is throttle and must retain normal steering lock.
+    const float brake_steer_input =
+        state.gear >= 1 ? brake * brake * brake : 0.0f;
+    const float brake_steer_floor =
+        clampf(tuning.service_brake_steer_scale, 0.05f, 1.0f);
+    const float brake_steer_scale =
+        1.0f - brake_steer_input * brake_speed_blend *
+                   (1.0f - brake_steer_floor);
+    const float lock = base_lock * brake_steer_scale;
+    const float steer_exponent = std::max(tuning.steer_input_exponent, 0.01f);
+    const float shaped_steer =
+        std::copysign(std::pow(std::fabs(steer_in), steer_exponent), steer_in);
+    const float front_left_damage =
+        vehicle_wheel_damage(state.body_damage, kWheelFrontLeft);
+    const float front_right_damage =
+        vehicle_wheel_damage(state.body_damage, kWheelFrontRight);
+    // A bent front corner drags the rack toward that side. Keep the pull
+    // inside the current speed-sensitive lock so damage cannot ask the tyre
+    // model for an impossible angle at speed.
+    const float damage_pull =
+        (front_right_damage - front_left_damage) *
+        std::max(tuning.wheel_damage_steer_pull, 0.0f);
+    const float steer_target = clampf(shaped_steer * lock + damage_pull,
+                                      -lock, lock);
+    const bool returning = std::fabs(steer_target) < std::fabs(state.steer_angle);
+    const float steer_speed = returning ? tuning.steer_return_rate : tuning.steer_rate;
+    const float steer_delta = std::max(steer_speed, 0.0f) * dt;
     next.steer_angle =
         state.steer_angle +
         clampf(steer_target - state.steer_angle, -steer_delta, steer_delta);
@@ -385,30 +494,83 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
     } else if (was_pressed(input, kBtnShiftDown) && next.shift_timer <= 0.0f) {
         next.gear = std::max(next.gear - 1, kGearReverse);
         next.shift_timer = tuning.shift_cooldown;
-    } else if (tuning.auto_gearbox && next.shift_timer <= 0.0f &&
-               next.gear >= 1) {
-        float driven_slip = 0.0f;
-        for (int i = 0; i < kWheelCount; ++i) {
-            if (!wheel_is_driven(tuning, i)) continue;
-            driven_slip =
-                std::max(driven_slip, state.wheels[static_cast<std::size_t>(i)].slip);
+    } else if (tuning.auto_gearbox) {
+        const bool nearly_stopped =
+            horizontal_speed <=
+            std::max(tuning.arcade_direction_change_speed, 0.0f);
+
+        if (tuning.arcade_reverse) {
+            if (burnout_requested) {
+                // W+S from rest is intentional wheelspin. Put the player in
+                // drive and leave both pedals alive for the axle split below.
+                next.gear = 1;
+            } else if (next.gear == kGearReverse) {
+                if (throttle > 0.05f) {
+                    if (nearly_stopped) {
+                        // W takes the car back into drive after it has braked
+                        // the reverse motion away.
+                        next.gear = 1;
+                    } else {
+                        brake = std::max(brake, throttle);
+                        throttle = 0.0f;
+                    }
+                } else {
+                    // In reverse, the player's S/brake axis is the accelerator.
+                    throttle = brake;
+                    brake = 0.0f;
+                }
+            } else if (brake > 0.05f) {
+                if (nearly_stopped && throttle <= 0.05f) {
+                    next.gear = kGearReverse;
+                    throttle = brake;
+                    brake = 0.0f;
+                } else {
+                    // Still rolling forward: S remains a service brake. Brake
+                    // wins if both pedals are down.
+                    throttle = 0.0f;
+                }
+            } else if (next.gear <= kGearNeutral && throttle > 0.05f &&
+                       nearly_stopped) {
+                next.gear = 1;
+            }
         }
-        const bool traction = driven_slip <= tuning.shift_up_max_slip;
-        if (traction && state.engine_rpm > tuning.shift_up_rpm &&
-            next.gear < top_gear) {
-            ++next.gear;
-            next.shift_timer = tuning.shift_cooldown;
-        } else if (state.engine_rpm < tuning.shift_down_rpm && next.gear > 1) {
-            --next.gear;
-            next.shift_timer = tuning.shift_cooldown;
+
+        if (!burnout_requested && next.shift_timer <= 0.0f && next.gear >= 1) {
+            float driven_slip = 0.0f;
+            for (int i = 0; i < kWheelCount; ++i) {
+                if (!wheel_is_driven(tuning, i)) continue;
+                driven_slip = std::max(
+                    driven_slip, state.wheels[static_cast<std::size_t>(i)].slip);
+            }
+            const bool traction = driven_slip <= tuning.shift_up_max_slip;
+            if (traction && state.engine_rpm > tuning.shift_up_rpm &&
+                next.gear < top_gear) {
+                ++next.gear;
+                next.shift_timer = tuning.shift_cooldown;
+            } else if (state.engine_rpm < tuning.shift_down_rpm && next.gear > 1) {
+                --next.gear;
+                next.shift_timer = tuning.shift_cooldown;
+            }
         }
     }
 
+    // Preserve useful analogue modulation below full pedal. The player-facing
+    // keyboard ramp reaches 1 quickly, while AI and controller half-brake
+    // inputs remain gentle instead of receiving half of an enormous arcade
+    // stop. Full brake is unchanged. Calculated AFTER arcade direction control
+    // because S is throttle, not a service brake, once reverse engages.
+    const float service_brake_input = brake * brake * brake;
+    const float active_front_drive_bias = clampf(
+        burnout_requested ? tuning.burnout_front_drive_bias
+                          : tuning.front_drive_bias,
+        0.0f, 1.0f);
+
     // --- engine -------------------------------------------------------------
-    const float rpm =
-        engine_rpm_for(tuning, next, throttle, state.engine_rpm, dt);
+    const float rpm = engine_running
+        ? engine_rpm_for(tuning, next, active_front_drive_bias, throttle,
+                         state.engine_rpm, dt) : 0.0f;
     const float ratio = gear_ratio(tuning, next.gear) * tuning.final_drive;
-    const float crank_torque = engine_torque_at(tuning, rpm);
+    const float crank_torque = engine_running ? engine_torque_at(tuning, rpm) : 0.0f;
 
     // Axle torque, split front/rear by the drive bias and then between the two
     // wheels of each axle. There is no torque cut across a shift: the gearbox
@@ -417,9 +579,13 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
     const float axle_torque =
         crank_torque * throttle * ratio * tuning.drivetrain_efficiency;
     const float front_share =
-        front_is_driven(tuning) ? tuning.front_drive_bias * 0.5f : 0.0f;
+        front_is_driven(active_front_drive_bias)
+            ? active_front_drive_bias * 0.5f
+            : 0.0f;
     const float rear_share =
-        rear_is_driven(tuning) ? (1.0f - tuning.front_drive_bias) * 0.5f : 0.0f;
+        rear_is_driven(active_front_drive_bias)
+            ? (1.0f - active_front_drive_bias) * 0.5f
+            : 0.0f;
 
     // Engine braking, referred to the axle. Kept alive at low revs rather than
     // fading to nothing, because the whole point of it is holding the car back
@@ -427,7 +593,7 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
     const float rev_frac = clampf(rpm / std::max(tuning.engine_peak_rpm, 1.0f),
                                   0.0f, 2.0f);
     const float engine_brake_axle =
-        tuning.engine_brake_torque * (0.35f + 0.65f * rev_frac) *
+        (engine_running ? tuning.engine_brake_torque : 0.0f) * (0.35f + 0.65f * rev_frac) *
         std::fabs(ratio) * tuning.drivetrain_efficiency * (1.0f - throttle);
 
     // --- suspension ---------------------------------------------------------
@@ -475,6 +641,7 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
         c.grounded = true;
         c.point = hit.point;
         c.normal = hit.normal;
+        c.material = hit.material;
         c.grip = hit.grip * tuning.grip_scale;
         c.rolling_scale = surface_rolling_scale(hit.material);
         c.suspension_length =
@@ -509,6 +676,31 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
         c.normal_force = std::max(0.0f, strut);
     }
 
+    // --- anti-roll bars ----------------------------------------------------
+    // Each axle couples its two struts. Equal and opposite forces add no net
+    // lift; they only oppose roll. Clamp the transfer so the bar cannot invent
+    // a negative tyre load and make an inside wheel pull on the road.
+    const auto apply_anti_roll = [&](int left_index, int right_index,
+                                     float stiffness) {
+        WheelContact& left = contacts[static_cast<std::size_t>(left_index)];
+        WheelContact& right_contact =
+            contacts[static_cast<std::size_t>(right_index)];
+        if (!left.grounded || !right_contact.grounded || !(stiffness > 0.0f)) return;
+
+        const float travel_delta =
+            right_contact.suspension_length - left.suspension_length;
+        const float raw = travel_delta * stiffness;
+        const float transfer =
+            clampf(raw, -left.normal_force, right_contact.normal_force);
+
+        body.add_force_at(up * transfer, left.mount_world);
+        body.add_force_at(-up * transfer, right_contact.mount_world);
+        left.normal_force += transfer;
+        right_contact.normal_force -= transfer;
+    };
+    apply_anti_roll(kWheelFrontLeft, kWheelFrontRight, tuning.anti_roll_front);
+    apply_anti_roll(kWheelRearLeft, kWheelRearRight, tuning.anti_roll_rear);
+
     // --- gravity and aero ---------------------------------------------------
     body.force += glm::vec3{0.0f, -tuning.gravity * body.mass, 0.0f};
     if (speed > kEpsilon) {
@@ -532,12 +724,45 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
     const float engage_dot = (state.recovery_timer > 0.0f)
                                  ? tuning.recovery_release_dot
                                  : tuning.recovery_up_dot;
+    int recovery_grounded_wheels = 0;
+    for (const WheelContact& contact : contacts) {
+        if (contact.grounded) ++recovery_grounded_wheels;
+    }
+    bool chassis_near_ground = false;
+    {
+        glm::vec3 corners[8];
+        chassis_corners(tuning, corners);
+        for (const glm::vec3& local : corners) {
+            const glm::vec3 p = body.to_world(local);
+            const float clearance =
+                p.y - collider.height(p.x, p.z) - tuning.ground_skin;
+            if (clearance < 0.08f) {
+                chassis_near_ground = true;
+                break;
+            }
+        }
+    }
+    // Nose/tail balancing is a separate dead state from rolling onto a side.
+    // At roughly sixty degrees the chassis still counts as upright, so the
+    // suspension stays alive, one axle keeps driving, and the translation-only
+    // ground guard can let the bumper skate forever. Detect pitch directly
+    // from chassis-forward. Requiring an incomplete tyre set and a body corner
+    // almost touching terrain keeps this off ordinary crest jumps and
+    // all-four-wheel steep climbs.
+    const bool bumper_balanced =
+        recovery_grounded_wheels < kWheelCount &&
+        chassis_near_ground &&
+        std::fabs(glm::dot(forward, world_up)) >
+            std::max(tuning.recovery_pitch_sine, 0.0f);
     const bool inverted =
         up_dot < engage_dot &&
         collider.probe_down(body.position, tuning.recovery_ground_reach).hit;
     next.recovery_timer = inverted ? state.recovery_timer + dt : 0.0f;
+    next.pitch_recovery_timer =
+        bumper_balanced ? state.pitch_recovery_timer + dt : 0.0f;
 
-    if (next.recovery_timer > tuning.recovery_delay) {
+    if (next.recovery_timer > tuning.recovery_delay ||
+        next.pitch_recovery_timer > tuning.recovery_delay) {
         const glm::vec3 cross_up = glm::cross(up, world_up);
         const float sin_tilt = glm::length(cross_up);
         // Exactly inverted has no unique righting axis, so pick the car's own
@@ -566,10 +791,10 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
     // ratio, and shared out between whichever wheels are actually driven.
     int driven_count = 0;
     for (int i = 0; i < kWheelCount; ++i) {
-        if (wheel_is_driven(tuning, i)) ++driven_count;
+        if (wheel_is_driven(active_front_drive_bias, i)) ++driven_count;
     }
     const float reflected_inertia =
-        (driven_count > 0)
+        (engine_running && driven_count > 0)
             ? tuning.engine_inertia * ratio * ratio / static_cast<float>(driven_count)
             : 0.0f;
 
@@ -577,12 +802,15 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
         const std::size_t wi = static_cast<std::size_t>(i);
         const WheelContact& c = contacts[wi];
         WheelState& w = next.wheels[wi];
+        const float wheel_damage =
+            vehicle_wheel_damage(state.body_damage, i);
 
         // What this wheel actually has to spin up. A driven wheel is dragging
         // the engine round with it; an undriven one is not.
         const float wheel_inertia =
             std::max(tuning.wheel_inertia, 0.01f) +
-            (wheel_is_driven(tuning, i) ? reflected_inertia : 0.0f);
+            (wheel_is_driven(active_front_drive_bias, i) ? reflected_inertia
+                                                         : 0.0f);
 
         // Reduced mass of the coupled wheel-and-corner system. An impulse along
         // the contact patch has to change BOTH the car's speed and the wheel's
@@ -595,6 +823,31 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
 
         float omega = state.wheels[wi].angular_velocity;
 
+        // Contact axes are needed before braking so the service-brake ABS can
+        // compare road speed with rim speed. They are reused by the tyre force
+        // calculation below; the handbrake deliberately bypasses this logic.
+        glm::vec3 fwd_g = forward;
+        glm::vec3 lat_g = right;
+        float v_long = 0.0f;
+        float v_lat = 0.0f;
+        if (c.grounded) {
+            const float wheel_angle =
+                wheel_steer_angle(tuning, next.steer_angle, i);
+            const glm::vec3 wheel_forward =
+                forward * std::cos(wheel_angle) + right * std::sin(wheel_angle);
+            fwd_g = normalise_or(
+                wheel_forward - c.normal * glm::dot(wheel_forward, c.normal),
+                forward);
+            lat_g = normalise_or(glm::cross(c.normal, fwd_g), right);
+            const glm::vec3 v_contact = body.point_velocity(c.point);
+            v_long = glm::dot(v_contact, fwd_g);
+            v_lat = glm::dot(v_contact, lat_g);
+        }
+        const float slip_ref =
+            std::max(tuning.tyre_peak_slip +
+                         tuning.tyre_peak_slip_ratio * std::fabs(v_long),
+                     kEpsilon);
+
         // --- torques into the wheel ---------------------------------------
         const float share = wheel_is_front(i) ? front_share : rear_share;
         omega += axle_torque * share / wheel_inertia * dt;
@@ -602,15 +855,44 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
         // Everything that resists rotation is applied as a torque that cannot
         // push omega past zero within the step. Letting it overshoot is how a
         // braked wheel ends up spinning backwards under the car.
-        float resist = engine_brake_axle * (wheel_is_driven(tuning, i) ? share : 0.0f);
-        resist += tuning.brake_torque * brake *
-                  (wheel_is_front(i) ? tuning.brake_bias_front * 0.5f
-                                     : (1.0f - tuning.brake_bias_front) * 0.5f);
+        float resist =
+            engine_brake_axle *
+            (wheel_is_driven(active_front_drive_bias, i) ? share : 0.0f);
+        const float brake_bias_front = clampf(
+            burnout_requested ? tuning.burnout_brake_bias_front
+                              : tuning.brake_bias_front,
+            0.0f, 1.0f);
+        const float service_brake_share =
+            wheel_is_front(i) ? brake_bias_front * 0.5f
+                              : (1.0f - brake_bias_front) * 0.5f;
+        float service_brake =
+            tuning.brake_torque * service_brake_input * service_brake_share;
+
+        // Service-brake ABS: cap this step's brake torque at the wheel speed
+        // that puts longitudinal slip on the peak of the tyre curve. More
+        // pedal still reaches that peak sooner, but cannot lock the wheel and
+        // throw away roughly a third of its available grip. The handbrake is
+        // added afterwards and stays free to lock the rear wheels for a slide.
+        if (!burnout_requested && c.grounded && service_brake > 0.0f &&
+            tuning.service_abs_target_slip > 0.0f) {
+            const float target_patch_speed =
+                std::max(0.0f, std::fabs(v_long) -
+                                   slip_ref * tuning.service_abs_target_slip);
+            const float target_omega = target_patch_speed / tuning.wheel_radius;
+            const float torque_to_target =
+                std::max(0.0f, (std::fabs(omega) - target_omega) *
+                                   wheel_inertia / dt);
+            service_brake = std::min(service_brake,
+                                     std::max(0.0f, torque_to_target - resist));
+        }
+        resist += service_brake;
         if (!wheel_is_front(i)) {
             resist += tuning.handbrake_torque * handbrake * 0.5f;
         }
         resist += tuning.rolling_resistance * c.rolling_scale * c.normal_force *
                   tuning.wheel_radius;
+        resist += std::max(tuning.wheel_damage_rolling_resistance, 0.0f) *
+                  wheel_damage * c.normal_force * tuning.wheel_radius;
 
         // Torque this resistance would need just to bring the wheel to a stop
         // within the step. Whatever is left over is spare capacity: torque the
@@ -631,26 +913,13 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
             w.grounded = false;
             w.contact_point = c.mount_world;
             w.contact_normal = world_up;
+            w.contact_material = Surface::Rock;
             w.suspension_length = c.suspension_length;
             w.normal_force = 0.0f;
             w.slip = 0.0f;
             w.angular_velocity = omega;
             continue;
         }
-
-        // --- contact axes -------------------------------------------------
-        glm::vec3 wheel_forward = forward;
-        if (wheel_is_front(i)) {
-            wheel_forward = forward * std::cos(next.steer_angle) +
-                            right * std::sin(next.steer_angle);
-        }
-        const glm::vec3 fwd_g = normalise_or(
-            wheel_forward - c.normal * glm::dot(wheel_forward, c.normal), forward);
-        const glm::vec3 lat_g = normalise_or(glm::cross(c.normal, fwd_g), right);
-
-        const glm::vec3 v_contact = body.point_velocity(c.point);
-        const float v_long = glm::dot(v_contact, fwd_g);
-        const float v_lat = glm::dot(v_contact, lat_g);
 
         // Slip is the contact patch's velocity RELATIVE TO THE GROUND: how fast
         // the rubber is being dragged across it.
@@ -661,17 +930,29 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
         // sits at a roughly constant slip ANGLE. A fixed slip speed would put
         // the car permanently past the peak on a straight and permanently
         // under it in a car park.
-        const float slip_ref =
-            std::max(tuning.tyre_peak_slip +
-                         tuning.tyre_peak_slip_ratio * std::fabs(v_long),
-                     kEpsilon);
         const float u = slip_mag / slip_ref;
 
-        // Static friction floor: see VehicleTuning::tyre_static_slip.
-        const float static_ramp =
-            clampf(1.0f - slip_mag / std::max(tuning.tyre_static_slip, kEpsilon),
-                   0.0f, 1.0f);
-        float mu = c.grip * std::max(slip_response(tuning, u), static_ramp);
+        float mu = c.grip * slip_response(tuning, u);
+        mu *= 1.0f - wheel_damage *
+                         (1.0f - clampf(tuning.wheel_damage_grip_floor,
+                                        0.05f, 1.0f));
+
+        // Classic crime-game service brakes get extra LONGITUDINAL authority
+        // from the tyre, not a larger lateral budget. Multiplying the whole
+        // friction circle let a hard brake-turn generate several g sideways;
+        // when a wall removed the remaining travel, that impossible grip
+        // tripped the chassis onto its edge. A wider longitudinal axis keeps
+        // the short stop while the normal lateral tyre limit still decides
+        // whether the car carves or scrubs.
+        // The unbraked burnout axle must stay allowed to spin. Giving those
+        // tyres the normal 3x stopping grip would turn the brake stand into a
+        // launch even though the wheel torques are split correctly.
+        float service_brake_grip_scale = 1.0f;
+        if (!burnout_requested || service_brake_share > 0.001f) {
+            service_brake_grip_scale =
+                1.0f + service_brake_input *
+                           (std::max(tuning.service_brake_grip_boost, 1.0f) - 1.0f);
+        }
 
         // The handbrake's job is not the extra torque, it is this: the rear
         // tyres stop being able to hold a line.
@@ -707,9 +988,18 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
         // would ring.
         const float want_long = -slip_long * longitudinal_mass;
         const float want_lat = -v_lat * corner_mass;
-        const float want_mag =
-            std::sqrt(want_long * want_long + want_lat * want_lat);
         const float budget = mu * c.normal_force * dt;
+        const float lateral_scale =
+            std::max(tuning.lateral_grip_scale, 0.05f);
+
+        // An ellipse lets profiles tune braking and cornering independently.
+        // Scale both demands into the base friction-circle space for clipping,
+        // then apply one fraction to the real impulse so its direction stays
+        // honest and combined braking/cornering still shares finite grip.
+        const float scaled_long = want_long / service_brake_grip_scale;
+        const float scaled_lat = want_lat / lateral_scale;
+        const float want_mag =
+            std::sqrt(scaled_long * scaled_long + scaled_lat * scaled_lat);
 
         float j_long = want_long;
         float j_lat = want_lat;
@@ -735,6 +1025,7 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
         w.grounded = true;
         w.contact_point = c.point;
         w.contact_normal = c.normal;
+        w.contact_material = c.material;
         w.suspension_length = c.suspension_length;
         w.normal_force = c.normal_force;
         w.slip = u;
@@ -749,15 +1040,69 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
     if (driven_count > 1 && tuning.differential_coupling > 0.0f) {
         float sum = 0.0f;
         for (int i = 0; i < kWheelCount; ++i) {
-            if (!wheel_is_driven(tuning, i)) continue;
+            if (!wheel_is_driven(active_front_drive_bias, i)) continue;
             sum += next.wheels[static_cast<std::size_t>(i)].angular_velocity;
         }
         const float mean = sum / static_cast<float>(driven_count);
         const float blend = clampf(tuning.differential_coupling * dt, 0.0f, 1.0f);
         for (int i = 0; i < kWheelCount; ++i) {
-            if (!wheel_is_driven(tuning, i)) continue;
+            if (!wheel_is_driven(active_front_drive_bias, i)) continue;
             float& w = next.wheels[static_cast<std::size_t>(i)].angular_velocity;
             w += (mean - w) * blend;
+        }
+    }
+
+    // Old-school arcade stability under the SERVICE brake. The tyre model
+    // still owns stopping distance and surface response; this gathers the
+    // sideways motion and yaw left after the contact impulses, which is the
+    // part a player reads as a long skid. Keeping it off the handbrake
+    // preserves deliberate slides.
+    if (service_brake_input > 0.0f) {
+        const float lateral_blend =
+            1.0f - std::exp(-std::max(tuning.service_brake_lateral_damping, 0.0f) *
+                            service_brake_input * dt);
+        body.velocity -= right * glm::dot(body.velocity, right) * lateral_blend;
+
+        const float yaw_blend =
+            1.0f - std::exp(-std::max(tuning.service_brake_yaw_damping, 0.0f) *
+                            service_brake_input * dt);
+        body.angular_velocity -=
+            up * glm::dot(body.angular_velocity, up) * yaw_blend;
+    }
+
+    // A low, wide car should not turn a kerb strike into an instant barrel
+    // roll. Damp only the rotation around the car's nose, and only while the
+    // suspension has a real pair of contacts to push against. This keeps
+    // airborne spins honest and does not interfere with handbrake yaw.
+    int grounded_wheels = 0;
+    for (const WheelContact& contact : contacts) {
+        if (contact.grounded) ++grounded_wheels;
+    }
+    if (grounded_wheels >= 2 || chassis_near_ground) {
+        const float roll_rate = glm::dot(body.angular_velocity, forward);
+        const float threshold =
+            std::max(tuning.grounded_roll_damping_threshold, 0.0f);
+        const float excess = std::max(std::fabs(roll_rate) - threshold, 0.0f);
+        const float roll_blend =
+            1.0f - std::exp(-std::max(tuning.grounded_roll_damping, 0.0f) * dt);
+        if (excess > 0.0f) {
+            body.angular_velocity -=
+                forward * std::copysign(excess * roll_blend, roll_rate);
+        }
+
+        // A sharp terrain edge can deliver its whole angular impulse in one
+        // fixed step, then leave the tyres airborne before exponential
+        // damping gets a second chance. Cap only that roll component while
+        // the car is still supported or grazing the ground. Yaw, pitch and
+        // genuinely airborne rotation are unchanged.
+        const float damped_roll_rate =
+            glm::dot(body.angular_velocity, forward);
+        const float roll_limit =
+            std::max(tuning.grounded_roll_rate_limit, 0.0f);
+        if (roll_limit > 0.0f && std::fabs(damped_roll_rate) > roll_limit) {
+            body.angular_velocity -=
+                forward * (damped_roll_rate -
+                           std::copysign(roll_limit, damped_roll_rate));
         }
     }
 
@@ -788,6 +1133,13 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
     // and buzz the car on every kerb.
     {
         const float r = std::max(tuning.chassis_collision_radius, 0.0f);
+        float strongest_impact_speed = 0.0f;
+        glm::vec3 strongest_contact_local{0.0f, 0.0f,
+                                          -tuning.chassis_half_length};
+        glm::vec2 strongest_motion_local{0.0f, -1.0f};
+        float strongest_contact_height = 0.45f;
+        float strongest_contact_radius = 0.25f;
+        float strongest_glancing = 0.0f;
         // The chassis' own vertical extent, not just its centre of mass. A wall
         // taller than the car has to block it, and a kerb shorter than the
         // floor pan has to be driven over — testing the CoM point alone gets
@@ -797,18 +1149,33 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
         const float chassis_high = body.position.y + tuning.chassis_roof;
 
         for (const StaticBox& b : collider.static_boxes()) {
+            if (!b.enabled) continue;
             if (b.bounds.max.y <= chassis_low || b.bounds.min.y >= chassis_high) {
                 continue;
             }
-            const float nx = clampf(body.position.x, b.bounds.min.x, b.bounds.max.x);
-            const float nz = clampf(body.position.z, b.bounds.min.z, b.bounds.max.z);
-            float dx = body.position.x - nx;
-            float dz = body.position.z - nz;
+            // The enclosing AABB is only a broad bound. Test the chassis in
+            // the prop's actual frame so rotated restaurant walls do not
+            // create invisible solid wedges in the forecourt.
+            const glm::vec3 local_body = b.local_point(body.position);
+            const AABB& bounds = b.collision_bounds();
+            const float nx = clampf(local_body.x, bounds.min.x, bounds.max.x);
+            const float nz = clampf(local_body.z, bounds.min.z, bounds.max.z);
+            float dx = local_body.x - nx;
+            float dz = local_body.z - nz;
             const float d2 = dx * dx + dz * dz;
-            if (d2 >= r * r) continue;
+            BreakawayContact pole_contact;
+            if (b.breakaway_speed > 0.0f) {
+                pole_contact=breakaway_contact(body.position,body.orientation,
+                    {tuning.car_collision_half_width,tuning.car_collision_half_length},
+                    b.bounds.center(),std::max(b.bounds.extents().x,b.bounds.extents().z));
+                if (!pole_contact.hit) continue;
+            } else if (d2 >= r * r) continue;
 
             float push;
-            if (d2 > kEpsilon) {
+            if (pole_contact.hit) {
+                const auto local=b.local_direction(pole_contact.normal);
+                dx=local.x;dz=local.z;push=pole_contact.penetration;
+            } else if (d2 > kEpsilon) {
                 const float d = std::sqrt(d2);
                 dx /= d;
                 dz /= d;
@@ -817,10 +1184,10 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
                 // Centre is inside the footprint. Leave by the nearest face,
                 // which is the only exit that does not shove the car through
                 // the whole prop.
-                const float to_min_x = body.position.x - b.bounds.min.x;
-                const float to_max_x = b.bounds.max.x - body.position.x;
-                const float to_min_z = body.position.z - b.bounds.min.z;
-                const float to_max_z = b.bounds.max.z - body.position.z;
+                const float to_min_x = local_body.x - bounds.min.x;
+                const float to_max_x = bounds.max.x - local_body.x;
+                const float to_min_z = local_body.z - bounds.min.z;
+                const float to_max_z = bounds.max.z - local_body.z;
                 const float best =
                     std::min(std::min(to_min_x, to_max_x), std::min(to_min_z, to_max_z));
                 dx = 0.0f;
@@ -832,13 +1199,92 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
                 push = best + r;
             }
 
-            body.position.x += dx * push;
-            body.position.z += dz * push;
+            const glm::vec3 local_normal{dx, 0.0f, dz};
+            const glm::vec3 world_normal = b.world_direction(local_normal);
+            dx = world_normal.x;
+            dz = world_normal.z;
             const float closing = body.velocity.x * dx + body.velocity.z * dz;
-            if (closing < 0.0f) {
-                body.velocity.x -= dx * closing;
-                body.velocity.z -= dz * closing;
+            const bool release = b.breakaway_speed > 0.0f &&
+                -closing >= b.breakaway_speed && b.breakaway_id != UINT32_MAX &&
+                next.breakaway_id == UINT32_MAX;
+            if (release) {
+                next.breakaway_id = b.breakaway_id;
+                next.breakaway_velocity = body.velocity;
+            } else {
+                body.position.x += dx * push;
+                body.position.z += dz * push;
             }
+            if (closing < 0.0f) {
+                const float impact_speed = -closing;
+                if (b.is_vehicle)
+                    next.car_contact_speed=std::max(next.car_contact_speed,impact_speed);
+                if (impact_speed > strongest_impact_speed) {
+                    strongest_impact_speed = impact_speed;
+                    const float contact_y = clampf(
+                        body.position.y, b.bounds.min.y, b.bounds.max.y);
+                    const glm::vec3 contact_offset_world = pole_contact.hit
+                        ? glm::vec3{b.bounds.center().x-body.position.x,
+                            contact_y-body.position.y,b.bounds.center().z-body.position.z}
+                        : glm::vec3{-dx * r, contact_y - body.position.y, -dz * r};
+                    strongest_contact_local =
+                        glm::conjugate(body.orientation) * contact_offset_world;
+                    const glm::vec3 local_motion3 =
+                        glm::conjugate(body.orientation) * body.velocity;
+                    strongest_motion_local =
+                        glm::vec2{local_motion3.x, local_motion3.z};
+                    strongest_contact_height = clampf(
+                        (strongest_contact_local.y - tuning.chassis_floor) /
+                            std::max(tuning.chassis_roof -
+                                         tuning.chassis_floor,
+                                     0.01f),
+                        0.0f, 1.0f);
+                    const float box_width =
+                        std::max(bounds.max.x - bounds.min.x, 0.0f);
+                    const float box_depth =
+                        std::max(bounds.max.z - bounds.min.z, 0.0f);
+                    const float tangent_span =
+                        std::fabs(local_normal.z) * box_width +
+                        std::fabs(local_normal.x) * box_depth;
+                    strongest_contact_radius = clampf(
+                        tangent_span /
+                            std::max(2.0f * tuning.chassis_half_width, 0.01f),
+                        0.05f, 1.0f);
+                    const float horizontal = glm::length(
+                        glm::vec2{body.velocity.x, body.velocity.z});
+                    strongest_glancing = horizontal > kEpsilon
+                        ? clampf(1.0f - impact_speed / horizontal, 0.0f, 1.0f)
+                        : 0.0f;
+                }
+
+                // A sheared mounting takes a little momentum, not the whole
+                // car. Keep the usual dent/impact event for crash feedback.
+                const float response = release ? 0.18f :
+                    1.0f + clampf(tuning.collision_restitution, 0.0f, 0.5f);
+                body.velocity.x -= dx * closing * response;
+                body.velocity.z -= dz * closing * response;
+            }
+        }
+
+        // One event per step, even at a building corner where two authored
+        // boxes overlap. Both faces still resolve velocity; health takes only
+        // the strongest normal hit instead of charging twice for one crash.
+        const float damage =
+            std::max(strongest_impact_speed -
+                         std::max(tuning.impact_safe_speed, 0.0f),
+                     0.0f) *
+            std::max(tuning.impact_damage_per_mps, 0.0f);
+        if (damage > 0.0f) {
+            next.health = clampf(next.health - damage, 0.0f, 100.0f);
+            apply_vehicle_impact(next.body_damage, strongest_contact_local,
+                                 damage, tuning.chassis_half_width,
+                                 tuning.chassis_half_length,
+                                 strongest_motion_local,
+                                 strongest_contact_height,
+                                 strongest_contact_radius,
+                                 strongest_glancing, tuning.body_damage_gain);
+            next.last_impact_speed = strongest_impact_speed;
+            next.last_impact_damage = damage;
+            ++next.impact_count;
         }
     }
 
@@ -847,8 +1293,9 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
     // holds the car up; this only refuses to let a step END with the bodywork
     // below the TERRAIN — a landing that outruns the strut travel, a spawn
     // inside a hill, a car on its roof with the suspension switched off.
-    // Translation only, so the roll angle survives and the car does not get
-    // silently straightened out.
+    // Correct overlap without changing orientation directly. The contact
+    // impulse must act at the bodywork, however: cancelling CoM vertical speed
+    // alone supports a nose-high car forever without letting it pivot down.
     //
     // Terrain only, deliberately: prop boxes are NOT consulted here. When they
     // were, the guard lifted the car the instant any chassis corner overhung
@@ -868,10 +1315,33 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
             deepest = std::max(deepest, ground + tuning.ground_skin - p.y);
         }
         if (deepest > 0.0f) {
+            // Average the deepest corners so a flat bumper/floor contact has
+            // a centred support point and cannot invent a left/right kick.
+            glm::vec3 support{0.0f};
+            int support_count = 0;
+            for (const glm::vec3& local : corners) {
+                const glm::vec3 p = body.position + pose * local;
+                const float depth =
+                    collider.height(p.x, p.z) + tuning.ground_skin - p.y;
+                if (depth > 0.0f &&
+                    depth >= deepest - std::max(tuning.ground_skin, 0.0f)) {
+                    support += p;
+                    ++support_count;
+                }
+            }
+            support /= static_cast<float>(support_count);
+            const float closing_speed = glm::dot(body.point_velocity(support), world_up);
+            if (closing_speed < 0.0f) {
+                // The pose has advanced since the suspension force pass.
+                body.inv_inertia_world = pose * inv_i_local * glm::transpose(pose);
+                const glm::vec3 lever = glm::cross(support - body.position, world_up);
+                const float inverse_mass = body.inv_mass +
+                    glm::dot(lever, body.inv_inertia_world * lever);
+                body.add_impulse_at(world_up * (-closing_speed / inverse_mass), support);
+            }
             const float lift =
                 std::min(deepest, std::max(tuning.ground_correction_rate, 0.0f) * dt);
             body.position.y += lift;
-            if (body.velocity.y < 0.0f) body.velocity.y = 0.0f;
         }
     }
 
@@ -880,7 +1350,9 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
     next.orientation = body.orientation;
     next.velocity = body.velocity;
     next.angular_velocity = body.angular_velocity;
-    next.engine_rpm = engine_rpm_for(tuning, next, throttle, rpm, dt);
+    next.engine_rpm = engine_running
+        ? engine_rpm_for(tuning, next, active_front_drive_bias,
+                         throttle, rpm, dt) : 0.0f;
 
     for (int i = 0; i < kWheelCount; ++i) {
         WheelState& w = next.wheels[static_cast<std::size_t>(i)];

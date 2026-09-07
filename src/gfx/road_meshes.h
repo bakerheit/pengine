@@ -10,7 +10,7 @@ namespace apricot {
 
 // The host-side owner of a baked road ribbon.
 //
-// src/road/ bakes six RoadMesh — plain vertices, indices and bounds over the
+// src/road/ bakes eight RoadMesh — plain vertices, indices and bounds over the
 // engine's TerrainVertex — and deliberately stops there. Its own header says
 // why, at length: probablecause's road network held five uploaded meshes, five
 // textures and a render() method, so its geometry and its hardware handles were
@@ -22,7 +22,7 @@ namespace apricot {
 // a width or a lane, the seam has been crossed from the wrong side.
 class RoadMeshes {
 public:
-    // Procedural materials for the six layers. Call once, after the renderer.
+    // Procedural materials for the eight layers. Call once, after the renderer.
     bool init(Renderer& renderer, uint64_t seed);
 
     // Upload a bake, replacing whatever was uploaded before.

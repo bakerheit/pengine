@@ -2,5 +2,7 @@
 # fixed-step clock and the InputFrame POD that every other module speaks.
 target_sources(apricot_sim PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/asset_root.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/emesh_reader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/fixed_step.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/skeletal_animation.cpp
 )

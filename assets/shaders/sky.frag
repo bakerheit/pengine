@@ -18,6 +18,8 @@ uniform vec3  u_cloud_color;
 uniform float u_time;             // seconds; cloud drift and star twinkle
 uniform float u_star_intensity;   // 0 by day, 1 at night
 uniform float u_cloud_cover;      // 0..1
+uniform vec3  u_fog_color;
+uniform float u_fog_density;
 
 // --- cheap hash / value noise. No textures, so the sky costs zero VRAM. ------
 float hash21(vec2 p) {
@@ -96,6 +98,14 @@ void main() {
         float clouds = smoothstep(thresh, thresh + 0.22, n) * smoothstep(0.0, 0.25, up);
         col = mix(col, u_cloud_color, clouds * 0.9);
     }
+
+    // Meet the world fog at the horizon. Without this, fully fogged terrain
+    // ends against a differently coloured sky strip and advertises the draw
+    // distance more clearly than drawing the terrain would have.
+    float horizon_haze =
+        1.0 - smoothstep(0.0, 0.32, abs(up));
+    col = mix(col, u_fog_color,
+              horizon_haze * clamp(u_fog_density, 0.0, 1.0));
 
     frag_color = vec4(col, 1.0);
 }

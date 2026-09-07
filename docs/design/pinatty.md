@@ -1,11 +1,12 @@
-# Pinatty — the map
+# O'Haven — the original state map
 
-The city for the pilot game on `pengine-apricot`. A rebuild of *Probable Cause*'s
-world, not a port: the old design and algorithms are reference, the old code is
-not coming across.
+The original city and state for the pilot game on `pengine-apricot`. This file
+keeps its legacy filename so old design links remain valid. O'Haven is a rebuild
+of *Probable Cause*'s world, not a port: the old design and algorithms are
+reference, the old code is not coming across.
 
 **The one idea this document exists to defend.** Apricot has no asset pipeline
-and ships no asset files, and Pinatty is a specific authored place you can learn
+and ships no asset files, and O'Haven is a specific authored place you can learn
 by heart. Those look like they contradict. They do not, because the map is
 authored as a **skeleton** — district polygons, road spines, terrain operators,
 landmark placements, character parameters — and every building, kerb, lamp post
@@ -99,7 +100,7 @@ The land distribution is deliberate and it is the map's whole personality:
 
 Apricot's `height_at()` already does fbm + gated ridged fbm + a radial falloff,
 which gives land bounded by sea for free. It is tuned for a rally island a fifth
-of Pinatty's size. Here is what it measured before and after a candidate retune,
+of O'Haven's size. Here is what it measured before and after a candidate retune,
 run on a scratch copy — the real repo was not touched:
 
 ```
@@ -110,7 +111,7 @@ slope  p50/p90/p99 3.0 / 11.4 / 36.6 deg   max 68.8 deg
 land slope <5deg   73.1%   <10deg 87.7%   >25deg 3.2%
 ```
 
-| Constant | Today | Pinatty | Reason |
+| Constant | Today | O'Haven | Reason |
 |---|---|---|---|
 | `kIslandRadiusMetres` | 1400 | **2750** | The 16 km² target. Everything else follows from this one |
 | `kContinentMetres` | 900 | **1850** | The header states the ratio: roughly a third of island diameter. Leave it at 900 against a 5.5 km island and you get six separate highland lumps instead of one backbone — the exact failure its own comment warns about |
@@ -135,7 +136,7 @@ land slope <5deg   73.1%   <10deg 87.7%   >25deg 3.2%
 > side.
 
 **`kHomeRadiusMetres` must go.** It lifts a 380 m dome of terrain at the world
-origin so a random seed cannot drop the car in a lagoon. Pinatty's origin is
+origin so a random seed cannot drop the car in a lagoon. O'Haven's origin is
 downtown, so that dome would not be a safety net — it would *be* the terrain
 under the financial district, a 42%-of-headroom bulge nobody authored. An
 authored map does not need a spawn guarantee, because the spawn is authored.
@@ -272,7 +273,7 @@ should not be in the map.
 6. **Ferrone Hill — vertical.** Switchbacks turn a chase into a series of
    commitments; a missed hairpin is a 30 m drop, not a scrape. One paved road in
    makes it the best roadblock in the game — and the unmarked fire road out is the
-   single most valuable piece of local knowledge Pinatty has to teach. It is also
+   single most valuable piece of local knowledge O'Haven has to teach. It is also
    the observation deck: from the mast you can see every other landmark, which is
    how the player builds their mental map.
 7. **Nickel Heights — dead ends punish panic.** Wide, fast, inviting, and about a
@@ -350,7 +351,7 @@ speed. The gap in the ring is the design.
 **What this means for police.** *Probable Cause*'s roadblock system already walks
 up to 12 hops forward along the straightest continuation of the player's lane and
 stages 2–3 cars at 120–200 m ahead (`RoadblockTuning` in `police_ai.h`). That
-logic transfers directly and gets much better here, because Pinatty has real
+logic transfers directly and gets much better here, because O'Haven has real
 topology: on the Kessel Bridge or the Causeway a block is genuinely
 unavoidable, in Vellum Row it is a suggestion, and in Saltmarsh the site
 selector will usually fail to find a wide-enough span at all — which is the
@@ -447,7 +448,7 @@ src/game/pinatty/
 **Estimated total: ~1200 lines, ~45 KB of data.** The worked example below is 32
 lines, counted, which is where the district figure comes from; the rest are
 proportional estimates and not measurements. For scale, that is smaller than *Probable
-Cause*'s `road_network.cpp` alone (1038 lines), and the whole of Pinatty fits in
+Cause*'s `road_network.cpp` alone (1038 lines), and the whole of O'Haven fits in
 less text than one of its systems.
 
 ### 5.3 A district entry, written out
@@ -526,7 +527,7 @@ inline constexpr SpineEdge kEdges[] = {
 An edge is: two node ids, a class, a shape (`Straight` / `Arc` with one bulge /
 `Poly` with up to four interior points), a structure (`Ground` / `Bridge` /
 `Tunnel` / `Cut` / `Fill`), a maximum grade, and a `block_quality`. That is
-enough to express every road in Pinatty that a human should be deciding, and
+enough to express every road in O'Haven that a human should be deciding, and
 short enough that ninety of them fit on two screens.
 
 Terrain ops are the same shape — a polygon or a swept corridor, a kind, a target
@@ -591,8 +592,8 @@ be merged for tidiness.
 
 **Surface classification cannot be rasterised at startup.** *Probable Cause*'s
 `SidewalkField` bakes a coverage grid from the drawn road triangles, which is a
-sound answer at its world size and impossible at Pinatty's: 6144 m at the ~0.5 m
-resolution a kerb needs is 12288² ≈ 151 million cells. Pinatty answers the same
+sound answer at its world size and impossible at O'Haven's: 6144 m at the ~0.5 m
+resolution a kerb needs is 12288² ≈ 151 million cells. O'Haven answers the same
 question analytically — "how far is this point from the nearest road segment, and
 which side of the kerb line is it on" — through the same static spine index the
 terrain ops use. Same single source of truth, no bake, no memory, and it works in
@@ -614,7 +615,7 @@ the ordering hazard (a stale eviction meeting a fresh reload) already reasoned
 about in the header. `architecture.md` still refers to `pending_evictions()`,
 `mark_evicted()`, `mark_resident()` and `max_loads_per_update`, none of which
 exist in `streamer.h` today. **The doc is stale, not the code.** Someone should
-fix the doc; it is not a Pinatty ticket, but it will mislead whoever reads it
+fix the doc; it is not a O'Haven ticket, but it will mislead whoever reads it
 next.
 
 **Measured costs.** Real `build_chunk` and `scatter_chunk` out of
@@ -642,7 +643,7 @@ What those numbers say:
   ms/s of meshing — about 1.3% of one core. The instance budget has similar
   headroom: 384 instances/step at 120 Hz is 46,000/s against a demand near 900/s.
   **Steady state is not the problem and should not be optimised.**
-- **View distance is the problem.** `load_radius = 4` is 256 m. Pinatty's whole
+- **View distance is the problem.** `load_radius = 4` is 256 m. O'Haven's whole
   legibility argument rests on seeing a landmark 2–4 km away. A 2.5 km
   full-detail ring is **4794 chunks** — at 294 KB and 2.317 ms each, that is
   **1.34 GB of vertex data and 11.1 seconds of single-threaded meshing.** Not a
@@ -671,7 +672,7 @@ What those numbers say:
   of meshing at startup and again on every mission warp or respawn across the
   island. There is no "fill before resume" path today, so a warp drops the player
   into void for a fraction of a second and then hitches. This needs an explicit
-  mode, and it is a Pinatty blocker in a way steady-state streaming is not.
+  mode, and it is a O'Haven blocker in a way steady-state streaming is not.
 
 **Honest caveats.** All three benchmarks are one machine (Apple silicon, `-O2`),
 single-threaded, with synthetic node layouts and no dirty transforms. `build_chunk`
@@ -748,7 +749,7 @@ lose.
 
 **Cap and radii, first pass:** 120 vehicles and 150 pedestrians active, vehicles
 in a 220 m ring despawning at 320 m, peds 110 m / 160 m. Larger than the
-reference because Pinatty's sight lines are longer and an empty arterial reads as
+reference because O'Haven's sight lines are longer and an empty arterial reads as
 broken. These are guesses to be tuned, and they are the numbers I would least
 trust in this document.
 
@@ -769,7 +770,7 @@ finding out the sim was never deterministic:
 Hz fits the frame budget alongside terrain streaming — apricot has no vehicle
 model beyond gravity and a terrain rest, so there is no per-car cost to
 extrapolate from. Whether the phantom schedule *looks* right, which is a
-feel-check with a controller and not a test. And the lane count: Pinatty's
+feel-check with a controller and not a test. And the lane count: O'Haven's
 urbanised area is roughly 5.5 km², which at typical block pitch is on the order
 of 5,000–10,000 directed lanes — an estimate from block geometry, not a measured
 figure, and the design should not depend on which end of that range it lands.
@@ -786,7 +787,7 @@ seed... Nothing about the world needs to be serialised because nothing about the
 world is authored."*
 
 **For the pilot game that stops being true**, and pretending otherwise will cause
-a confusing bug later. Pinatty splits one seed into two:
+a confusing bug later. O'Haven splits one seed into two:
 
 - **`kMapSeed`** — a pinned constant in the map tables. It selects the noise
   detail *under* the authored skeleton. Changing it changes the city, which

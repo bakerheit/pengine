@@ -1,0 +1,39 @@
+{
+  "id": "07_cutscene_wrong_car",
+  "kind": "Cutscene",
+  "title": "The wrong car",
+  "character": "Nina \u2014 furious wheelwoman",
+  "voice": "coral",
+  "direction": "American woman, early thirties, energetic, brisk and slightly breathless after a botched escape. Anger is covering panic. Bite off the short words. Take one calming breath before 'All right', then snap into practical focus. Dark comedy played straight.",
+  "text": "I said the blue sedan. That is a hearse. You stole a hearse, and you left the flowers in it. All right. Fine. Get in. If anybody asks, we're late for a funeral, and you're doing a wonderful job looking dead.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "07_cutscene_wrong_car.wav",
+  "transcript": "I said the blue sedan. That is a hearse. You stole a hearse, and you left the flowers in it. All right. Fine. Get in. If anybody asks, we're late for a funeral, and you're doing a wonderful job looking dead.",
+  "transcript_matches": true,
+  "duration_seconds": 20.35,
+  "peak_dbfs": -8.35,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 766,
+    "input_tokens": 239,
+    "output_tokens": 527,
+    "input_token_details": {
+      "text_tokens": 239,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 120,
+      "audio_tokens": 407,
+      "reasoning_tokens": 39
+    }
+  },
+  "response_id": "resp_EKQEYqKtSTCbxCDAqoQpt"
+}

@@ -19,9 +19,18 @@ function(apricot_add_suite name)
     target_link_libraries(${name} PRIVATE apricot_sim)
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
+apricot_add_suite(route1_elevation_tests)
+apricot_add_suite(route1_traffic_tests)
+apricot_add_suite(ostend_road_tests)
+apricot_add_suite(traffic_signal_damage_tests)
+apricot_add_suite(house_door_tests)
 
 apricot_add_suite(rng_determinism_tests)
 apricot_add_suite(fixed_step_tests)
+apricot_add_suite(vehicle_interaction_tests)
+apricot_add_suite(aircraft_tests)
+apricot_add_suite(boat_tests)
+apricot_add_suite(boat_driver_pose_tests)
 
 # The engine's central claim: a recorded InputFrame tape replays bit for bit.
 # Written against step_vehicle, TerrainCollider, InputFrame and FixedStep and
@@ -33,22 +42,44 @@ apricot_add_suite(sim_determinism_tests)
 # game/ (PENG-23). What survived the rally: session conditions, which are a
 # pure function of (seed, sim step) and feed VehicleTuning::grip_scale.
 apricot_add_suite(conditions_tests)
+apricot_add_suite(snowpack_tests)
+apricot_add_suite(dev_weather_menu_tests)
+apricot_add_suite(weather_hazards_tests)
+apricot_add_suite(character_controller_tests)
+apricot_add_suite(ui_flow_tests)
+apricot_add_suite(minimap_tests)
+apricot_add_suite(road_name_tests)
+apricot_add_suite(audio_intro_runtime_tests)
+apricot_add_suite(audio_rain_runtime_tests)
+apricot_add_suite(cutscene_document_tests)
+apricot_add_suite(cutscene_playback_tests)
+apricot_add_suite(save_game_tests)
+apricot_add_suite(cutscene_action_tests)
+apricot_add_suite(delivery_mission_tests)
+apricot_add_suite(delivery_cutscene_tests)
 
 # gfx (PENG-5). These reach into src/gfx/ headers that are deliberately GL-free
 # and header-only -- sky_env.h, rain_field.h, glyph_atlas.h, primitives.h,
 # instance.h -- so the real generators the renderer uploads get exercised here
 # rather than a hand-written copy of them. Nothing below needs a context.
 apricot_add_suite(sky_env_tests)
+apricot_add_suite(tiled_light_grid_tests)
 apricot_add_suite(rain_field_tests)
+apricot_add_suite(tire_track_field_tests)
+apricot_add_suite(tornado_geometry_tests)
 apricot_add_suite(glyph_atlas_tests)
 apricot_add_suite(render_geometry_tests)
 apricot_add_suite(render_batch_contract_tests)
+apricot_add_suite(emesh_reader_tests)
+apricot_add_suite(skeletal_animation_tests)
 apricot_add_suite(math_tests)
+apricot_add_suite(chase_camera_tests)
 apricot_add_suite(input_latch_tests)
 apricot_add_suite(rng_distribution_tests)
 apricot_add_suite(terrain_determinism_tests)
+apricot_add_suite(state_terrain_tests)
 
-# city (PENG-41). Pinatty's map: district polygons, character parameters,
+# city (PENG-41). O'Haven's map: district polygons, character parameters,
 # landmarks and the terrain operators height_at() evaluates. The structural
 # invariants are static_asserts in src/city/ -- that is the point of the map
 # being compiled data -- so this suite pins the things a compiler cannot see:
@@ -57,6 +88,33 @@ apricot_add_suite(terrain_determinism_tests)
 # its measurements, because a map that passes every assertion can still be
 # boring and only the numbers will tell you.
 apricot_add_suite(city_map_tests)
+apricot_add_suite(building_creator_tests)
+apricot_add_suite(start_area_tests)
+apricot_add_suite(authored_city_layout_tests)
+apricot_add_suite(miandi_layout_tests)
+apricot_add_suite(miandi_streets_tests)
+apricot_add_suite(miandi_calle_ocho_tests)
+apricot_add_suite(miandi_bayfront_tests)
+apricot_add_suite(miandi_calle_noche_tests)
+apricot_add_suite(miandi_context_tests)
+apricot_add_suite(miandi_presentation_tests)
+apricot_add_suite(miandi_resort_frontage_tests)
+apricot_add_suite(miandi_mariposa_motel_tests)
+apricot_add_suite(miandi_night_lighting_tests)
+apricot_add_suite(miandi_ocean_drive_tests)
+apricot_add_suite(miandi_port_sol_tests)
+apricot_add_suite(miandi_prism_works_tests)
+apricot_add_suite(miandi_sunwave_hotel_tests)
+apricot_add_suite(miandi_integration_tests)
+apricot_add_suite(tidewater_farm_tests)
+apricot_add_suite(vellum_infill_tests)
+apricot_add_suite(marina_tests)
+apricot_add_suite(bank_vault_tests)
+apricot_add_suite(construction_site_tests)
+apricot_add_suite(construction_neighbor_materials_tests)
+apricot_add_suite(construction_neighbor_equipment_tests)
+apricot_add_suite(construction_street_detail_tests)
+apricot_add_suite(hospital_campus_tests)
 
 # The road network (roads.h, spines.cpp) and whether it is a place you can
 # drive. This suite runs the REAL chain end to end -- map_spines() into a real
@@ -64,6 +122,7 @@ apricot_add_suite(city_map_tests)
 # drape-at-every-LOD measurement lives, because that measurement is only worth
 # anything taken over the vertices the baker actually emitted.
 apricot_add_suite(city_roads_tests)
+apricot_add_suite(florangia_highway_tests)
 apricot_add_suite(terrain_mesh_tests)
 # LOD (PENG-27). The coarse lattice is a strict subset of the fine one, so the
 # same-level seam is untouched; the DIFFERENT-level crack is real, and this
@@ -78,6 +137,10 @@ apricot_add_suite(streamer_tests)
 apricot_add_suite(streamer_lod_tests)
 apricot_add_suite(terrain_collision_tests)
 apricot_add_suite(vehicle_tests)
+# Characterization matrix for extreme player inputs across every live handling
+# profile. Outcome labels are intentionally observational until a human accepts
+# them; determinism and finite state are hard requirements from day one.
+apricot_add_suite(driving_extremes_tests)
 
 # road (PENG-32). The road graph, the ribbon bake and the lane graph, all
 # sim-side: the bake emits plain vertex arrays and owns no GPU resource, which
@@ -94,8 +157,10 @@ apricot_add_suite(lane_graph_tests)
 apricot_add_suite(audio_mixer_tests)
 apricot_add_suite(audio_synth_tests)
 apricot_add_suite(audio_engine_tone_tests)
+apricot_add_suite(audio_vehicle_runtime_tests)
+apricot_add_suite(audio_city_runtime_tests)
 
-# city (PENG-29). The Pinatty decision layers lifted out of probablecause, with
+# city (PENG-29). The O'Haven decision layers lifted out of probablecause, with
 # the tests that were pinning them there. They came across because a lifted
 # algorithm with no test is a liability: these are the only thing that says the
 # behaviour survived the move.
@@ -105,10 +170,17 @@ apricot_add_suite(character_punch_tests)
 apricot_add_suite(character_getup_tests)
 apricot_add_suite(traffic_ai_tests)
 apricot_add_suite(police_ai_tests)
+apricot_add_suite(wanted_system_tests)
 apricot_add_suite(weather_tests)
 apricot_add_suite(lightning_tests)
 apricot_add_suite(objective_runtime_tests)
 apricot_add_suite(road_author_tests)
+apricot_add_suite(road_fixture_tests)
+apricot_add_suite(vehicle_driver_pose_tests)
+apricot_add_suite(emergency_lighting_tests)
+apricot_add_suite(island_coast_tests)
+apricot_add_suite(building_access_tests)
+apricot_add_suite(police_siren_tests)
 
 # traffic (PENG-26). The ambient population: whether a city's worth of agents
 # fits in a 120 Hz step, and whether sub-rate scheduling survives contact with
@@ -116,4 +188,68 @@ apricot_add_suite(road_author_tests)
 # the index-keyed sub-rate schedule is required to DIVERGE -- and
 # traffic_bench measures. tests/traffic_harness.h is the rig both drive.
 apricot_add_suite(traffic_determinism_tests)
+apricot_add_suite(traffic_runtime_tests)
+apricot_add_suite(police_runtime_tests)
+apricot_add_suite(traffic_junction_tests)
 apricot_add_suite(traffic_bench)
+
+# Full-size commercial bus asset and selectable catalog contract.
+apricot_add_suite(harrow_cityliner_tests)
+
+# Terminal furnishings preserve clear entrance routes and readable signage.
+apricot_add_suite(airport_terminal_tests)
+apricot_add_suite(airport_circulation_tests)
+apricot_add_suite(florangia_airport_tests)
+
+# Quickbite drive-through turning and pedestrian clearances.
+apricot_add_suite(quickbite_tests)
+apricot_add_suite(quickbite_door_tests)
+apricot_add_suite(tacomaco_tests)
+
+# Real on-foot movement through the authored restaurant threshold and doorway.
+apricot_add_suite(quickbite_interior_tests)
+apricot_add_suite(interior_streaming_tests)
+
+# Persistent leak depletion and engine failure.
+apricot_add_suite(vehicle_mechanical_tests)
+
+# Actual controller routes through the convenience-store entrance and aisles.
+apricot_add_suite(gas_store_interior_tests)
+
+apricot_add_suite(weapon_wheel_tests)
+
+# New pawn-shop parcel clearance and actual customer/staff walking routes.
+apricot_add_suite(pawn_shop_tests)
+apricot_add_suite(gun_store_tests)
+
+apricot_add_suite(repair_shop_tests)
+
+# Nearby skyline landmarks preserve authored streets and foot access.
+apricot_add_suite(neighborhood_towers_tests)
+apricot_add_suite(construction_expansion_tests)
+apricot_add_suite(skyscraper_window_lighting_tests)
+
+# Emergency stations use real lowered curbs, vehicle bays and public entrances.
+apricot_add_suite(emergency_stations_tests)
+
+apricot_add_suite(neighborhood_bar_tests)
+apricot_add_suite(east_arm_plaza_tests)
+apricot_add_suite(drunk_tests)
+apricot_add_suite(alder_pip_tests)
+apricot_add_suite(fang_venom_tests)
+
+apricot_add_suite(vehicle_leak_warning_tests)
+
+# Distinct sports/limo mass, lamps, body/door assets and actual driving.
+apricot_add_suite(new_vehicle_models_tests)
+apricot_add_suite(municipal_cruiser_91_tests)
+apricot_add_suite(vehicle_model_tuning_tests)
+apricot_add_suite(airport_parking_garage_tests)
+apricot_add_suite(vehicle_sound_volume_tests)
+apricot_add_suite(residential_neighborhood_tests)
+apricot_add_suite(luxury_neighborhood_tests)
+apricot_add_suite(westmere_streetscape_tests)
+apricot_add_suite(traffic_signal_mesh_tests)
+apricot_add_suite(sycamore_freeway_tests)
+
+apricot_add_suite(tractor_trailer_tests)

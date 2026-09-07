@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "audio/synth.h"
+#include "audio/player_car_assets.h"
 #include "audio_analysis.h"
 #include "test_assert.h"
 
@@ -142,8 +143,8 @@ void every_clip_in_the_bank_is_playable() {
     check_playable("tyre_scrub", bank.tyre_scrub);
     check_loop_seam("tyre_scrub", bank.tyre_scrub);
 
-    for (std::size_t i = 0; i < kSurfaceCount; ++i) {
-        const char* sn = surface_name(static_cast<Surface>(i));
+    for (std::size_t i = 0; i < kAudioSurfaceCount; ++i) {
+        const char* sn = audio_surface_name(static_cast<AudioSurface>(i));
         check_playable(sn, bank.surface_roll[i]);
         check_loop_seam(sn, bank.surface_roll[i]);
     }
@@ -177,7 +178,7 @@ void the_bank_is_deterministic() {
     REQUIRE(a.tyre_scrub.samples == b.tyre_scrub.samples);
     REQUIRE(a.rain.samples == b.rain.samples);
     REQUIRE(a.wind.samples == b.wind.samples);
-    for (std::size_t i = 0; i < kSurfaceCount; ++i) {
+    for (std::size_t i = 0; i < kAudioSurfaceCount; ++i) {
         REQUIRE(a.surface_roll[i].samples == b.surface_roll[i].samples);
     }
     for (std::size_t i = 0; i < kEngineLayerCount; ++i) {
@@ -192,26 +193,26 @@ void surfaces_sound_different_from_each_other() {
     // every health check above. Brightness ordering is the cheapest number
     // that says they are actually different materials.
     const SfxBank bank = synth_bank(kRate);
-    double centroid[kSurfaceCount];
-    for (std::size_t i = 0; i < kSurfaceCount; ++i) {
+    double centroid[kAudioSurfaceCount];
+    for (std::size_t i = 0; i < kAudioSurfaceCount; ++i) {
         centroid[i] = spectral_centroid(bank.surface_roll[i].samples, kRate);
         std::printf("      (%-6s centroid %7.1f Hz)\n",
-                    surface_name(static_cast<Surface>(i)), centroid[i]);
+                    audio_surface_name(static_cast<AudioSurface>(i)), centroid[i]);
     }
-    const std::size_t tarmac = static_cast<std::size_t>(Surface::Tarmac);
-    const std::size_t gravel = static_cast<std::size_t>(Surface::Gravel);
-    const std::size_t dirt = static_cast<std::size_t>(Surface::Dirt);
-    const std::size_t snow = static_cast<std::size_t>(Surface::Snow);
+    const std::size_t rock = static_cast<std::size_t>(AudioSurface::Rock);
+    const std::size_t gravel = static_cast<std::size_t>(AudioSurface::Gravel);
+    const std::size_t grass = static_cast<std::size_t>(AudioSurface::Grass);
+    const std::size_t sand = static_cast<std::size_t>(AudioSurface::Sand);
 
-    REQUIRE_MSG(centroid[tarmac] > centroid[gravel],
-                "tarmac should be brighter than gravel", "surfaces");
-    REQUIRE_MSG(centroid[gravel] > centroid[dirt],
-                "gravel should be brighter than dirt", "surfaces");
-    REQUIRE_MSG(centroid[dirt] > centroid[snow],
-                "dirt should be brighter than snow", "surfaces");
-    REQUIRE_MSG(centroid[tarmac] > 2.0 * centroid[snow],
-                "tarmac and snow are barely distinguishable", "surfaces");
-    pass("the four surfaces are ordered tarmac > gravel > dirt > snow");
+    REQUIRE_MSG(centroid[rock] > centroid[gravel],
+                "rock should be brighter than gravel", "surfaces");
+    REQUIRE_MSG(centroid[gravel] > centroid[grass],
+                "gravel should be brighter than grass", "surfaces");
+    REQUIRE_MSG(centroid[grass] > centroid[sand],
+                "grass should be brighter than sand", "surfaces");
+    REQUIRE_MSG(centroid[rock] > 2.0 * centroid[sand],
+                "rock and sand are barely distinguishable", "surfaces");
+    pass("the four surfaces are ordered rock > gravel > grass > sand");
 }
 
 void tyre_scrub_brightness_tracks_slip() {
@@ -253,27 +254,27 @@ void surface_roll_tracks_speed_and_surface() {
     // demanding strict monotonicity beyond saturation would be testing the
     // test rather than the code. Saturation is checked separately below.
     constexpr float kFlatOut = 35.0f;
-    for (std::size_t s = 0; s < kSurfaceCount; ++s) {
-        const Surface surface = static_cast<Surface>(s);
+    for (std::size_t s = 0; s < kAudioSurfaceCount; ++s) {
+        const AudioSurface surface = static_cast<AudioSurface>(s);
         float previous_gain = -1.0f;
         float previous_cut = -1.0f;
         for (int i = 0; i <= 10; ++i) {
             const float speed = kFlatOut * static_cast<float>(i) / 10.0f;
             const VoiceMix v = surface_roll_mix(bank, speed, surface);
             REQUIRE_MSG(v.clip != nullptr, "no roll clip for a surface",
-                        surface_name(surface));
+                        audio_surface_name(surface));
             REQUIRE_MSG(v.gain >= previous_gain, "roll gain is not monotonic "
-                                                 "in speed", surface_name(surface));
+                                                 "in speed", audio_surface_name(surface));
             REQUIRE_MSG(v.lp_cutoff_hz > previous_cut,
                         "roll brightness is not monotonic in speed",
-                        surface_name(surface));
+                        audio_surface_name(surface));
             REQUIRE_MSG(v.pitch > 0.0f, "roll pitch is not positive",
-                        surface_name(surface));
+                        audio_surface_name(surface));
             previous_gain = v.gain;
             previous_cut = v.lp_cutoff_hz;
         }
         REQUIRE_MSG(surface_roll_mix(bank, 0.0f, surface).gain == 0.0f,
-                    "a stationary car still rolls", surface_name(surface));
+                    "a stationary car still rolls", audio_surface_name(surface));
 
         // Past flat out it holds rather than running away — a downhill stage
         // must not drive the cutoff past Nyquist or the gain past full scale.
@@ -282,17 +283,17 @@ void surface_roll_tracks_speed_and_surface() {
         REQUIRE_MSG(beyond.gain == at_limit.gain &&
                         beyond.lp_cutoff_hz == at_limit.lp_cutoff_hz,
                     "roll parameters kept climbing past flat out",
-                    surface_name(surface));
+                    audio_surface_name(surface));
         REQUIRE_MSG(beyond.gain <= 1.0f, "roll gain exceeded full scale",
-                    surface_name(surface));
+                    audio_surface_name(surface));
     }
-    // Gravel is the loud one; snow is the quiet one. That is the identity of a
+    // Gravel is the loud one; sand is the quiet one. That is the identity of a
     // rally stage and it should be visible in the numbers.
-    REQUIRE(surface_roll_mix(bank, 30.0f, Surface::Gravel).gain >
-            surface_roll_mix(bank, 30.0f, Surface::Snow).gain);
+    REQUIRE(surface_roll_mix(bank, 30.0f, AudioSurface::Gravel).gain >
+            surface_roll_mix(bank, 30.0f, AudioSurface::Sand).gain);
 
     // An out-of-range surface must be silent, not read past the array.
-    REQUIRE(surface_roll_mix(bank, 30.0f, Surface::kCount).clip == nullptr);
+    REQUIRE(surface_roll_mix(bank, 30.0f, AudioSurface::kCount).clip == nullptr);
 
     pass("roll gain, brightness and pitch track speed for every surface");
 }
@@ -493,6 +494,86 @@ void a_real_wav_replaces_the_synthesised_clip() {
     pass("a real WAV loads, keeps its pitch, and replaces the synth clip");
 }
 
+void the_shipped_recorded_vehicle_audio_loads() {
+    SfxBank bank = synth_bank(kRate);
+    const PcmClip untouched_power = bank.engine_power.front();
+    const PcmClip untouched_overrun = bank.engine_overrun.front();
+    const SfxOverridePaths paths = player_car_audio_overrides();
+
+    REQUIRE(override_bank_from_wavs(bank, paths) ==
+            11u + kCarSoundUseCount * // Eight vehicle roles, ambience, rain and mission sting.
+                     static_cast<std::size_t>(kCarSoundVariantCount));
+    REQUIRE(bank.engine_power.front().samples == untouched_power.samples);
+    REQUIRE(bank.engine_overrun.front().samples == untouched_overrun.samples);
+
+    const PcmClip* one_shots[] = {
+        &bank.player_throttle_attack,
+        &bank.player_throttle_release,
+    };
+    for (const PcmClip* clip : one_shots) {
+        REQUIRE(clip->sample_rate == 48000u);
+        REQUIRE(clip->channels == 2u);
+        REQUIRE(clip->frame_count() > 90000u);
+        REQUIRE(all_finite(clip->samples));
+        REQUIRE(peak(clip->samples) <= 1.0f);
+        REQUIRE(rms(clip->samples) > 0.005);
+    }
+    REQUIRE(paths.player_throttle_hold.find("throttle_hold.wav") !=
+            std::string::npos);
+    REQUIRE(!paths.player_throttle_hold_is_loop_ready);
+    REQUIRE(bank.player_throttle_hold.sample_rate == 48000u);
+    REQUIRE(bank.player_throttle_hold.channels == 2u);
+    // The selected five-second steady section loses only its 80 ms tail when
+    // the loader folds it into a seamless held-throttle loop.
+    REQUIRE(bank.player_throttle_hold.frame_count() == 236160u);
+    REQUIRE(all_finite(bank.player_throttle_hold.samples));
+    REQUIRE(peak(bank.player_throttle_hold.samples) <= 1.0f);
+    REQUIRE(rms(bank.player_throttle_hold.samples) > 0.005);
+    check_loop_seam("recorded held throttle", bank.player_throttle_hold);
+    REQUIRE(bank.player_car_collision.sample_rate == 48000u);
+    REQUIRE(bank.player_car_collision.channels == 2u);
+    REQUIRE(bank.player_car_collision.frame_count() > 70000u);
+    REQUIRE(all_finite(bank.player_car_collision.samples));
+    REQUIRE(peak(bank.player_car_collision.samples) <= 1.0f);
+    REQUIRE(rms(bank.player_car_collision.samples) > 0.005);
+    REQUIRE(bank.player_drift_tyres.sample_rate == 48000u);
+    REQUIRE(bank.player_drift_tyres.channels == 1u);
+    REQUIRE(bank.player_drift_tyres.duration_seconds() > 4.7f);
+    REQUIRE(bank.player_drift_tyres.duration_seconds() < 5.0f);
+    REQUIRE(all_finite(bank.player_drift_tyres.samples));
+    REQUIRE(peak(bank.player_drift_tyres.samples) <= 1.0f);
+    REQUIRE(rms(bank.player_drift_tyres.samples) > 0.005);
+    check_loop_seam("recorded drift tyres", bank.player_drift_tyres);
+    check_playable("recorded city ambience", bank.city_ambience, 0.005);
+    REQUIRE(bank.city_ambience.channels == 2u);
+    REQUIRE(bank.city_ambience.duration_seconds() > 33.0f);
+    REQUIRE(bank.city_ambience.duration_seconds() < 34.0f);
+    check_loop_seam("recorded city ambience", bank.city_ambience);
+    check_playable("mission success", bank.mission_success, 0.01);
+    REQUIRE(bank.mission_success.sample_rate == 48000u);
+    REQUIRE(bank.mission_success.channels == 2u);
+    REQUIRE(bank.mission_success.frame_count() == 432000u);
+    REQUIRE(std::fabs(bank.mission_success.samples.back()) < 0.001f);
+    for (std::size_t use = 0; use < kCarSoundUseCount; ++use) {
+        for (int variant = 0; variant < kCarSoundVariantCount; ++variant) {
+            const PcmClip& clip = bank.car_sound_audition[use]
+                                                          [static_cast<std::size_t>(variant)];
+            const bool supplied_acceleration =
+                use == static_cast<std::size_t>(CarSoundUse::Accelerate);
+            REQUIRE(clip.sample_rate ==
+                    (supplied_acceleration ? 44100u : 48000u));
+            REQUIRE(clip.channels == (supplied_acceleration ? 2u : 1u));
+            REQUIRE(clip.duration_seconds() >= 0.2f);
+            REQUIRE(clip.duration_seconds() <=
+                    (supplied_acceleration ? 1.75f : 3.01f));
+            REQUIRE(all_finite(clip.samples));
+            REQUIRE(peak(clip.samples) <= 1.0f);
+            REQUIRE(rms(clip.samples) > 0.005);
+        }
+    }
+    pass("live throttle, collision, drift, ambience and 25 auditions all load");
+}
+
 }  // namespace
 
 int main() {
@@ -508,5 +589,6 @@ int main() {
     weather_layers_are_independent();
     a_missing_file_never_breaks_anything();
     a_real_wav_replaces_the_synthesised_clip();
+    the_shipped_recorded_vehicle_audio_loads();
     return done("audio_synth_tests");
 }

@@ -1,0 +1,39 @@
+{
+  "id": "10_lou",
+  "kind": "Cutscene dialogue",
+  "title": "Lou full performance - line 10",
+  "character": "Lou - Manager",
+  "voice": "ballad",
+  "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. Just an ordinary fact. No dramatic reveal.",
+  "text": "Had the bank's name on the side.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "10_lou.wav",
+  "transcript": "Had the bank's name on the side.",
+  "transcript_matches": true,
+  "duration_seconds": 3.1,
+  "peak_dbfs": -12.07,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 387,
+    "input_tokens": 254,
+    "output_tokens": 133,
+    "input_token_details": {
+      "text_tokens": 254,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 71,
+      "audio_tokens": 62,
+      "reasoning_tokens": 48
+    }
+  },
+  "response_id": "resp_EKRbhF0lPQzBv0gcjgmG4"
+}

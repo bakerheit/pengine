@@ -1,0 +1,39 @@
+{
+  "id": "06_cutscene_probable_cause",
+  "kind": "Cutscene",
+  "title": "Probable cause",
+  "character": "Detective Rusk \u2014 exhausted investigator",
+  "voice": "ash",
+  "direction": "Middle-aged American man, gravelly and sleep-deprived, understated urban accent. You're sitting across a table from a suspect you almost respect. Wry opening, patient interrogation rather than shouting, weariness peeking through at the end.",
+  "text": "Funny thing about your alibi. Everybody remembers you, but nobody remembers when. That's either a very friendly neighborhood or a very expensive one. Sit down. I've got cold coffee and nothing to lose until morning.",
+  "requested_model": "gpt-realtime-2.1",
+  "actual_model": "gpt-realtime-2.1",
+  "file": "06_cutscene_probable_cause.wav",
+  "transcript": "Funny thing about your alibi. Everybody remembers you, but nobody remembers when. That's either a very friendly neighborhood or a very expensive one. Sit down. I've got cold coffee and nothing to lose until morning.",
+  "transcript_matches": true,
+  "duration_seconds": 18.05,
+  "peak_dbfs": -9.54,
+  "clipped_samples": 0,
+  "usage": {
+    "total_tokens": 688,
+    "input_tokens": 225,
+    "output_tokens": 463,
+    "input_token_details": {
+      "text_tokens": 225,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 0,
+      "cached_tokens_details": {
+        "text_tokens": 0,
+        "audio_tokens": 0,
+        "image_tokens": 0
+      }
+    },
+    "output_token_details": {
+      "text_tokens": 102,
+      "audio_tokens": 361,
+      "reasoning_tokens": 32
+    }
+  },
+  "response_id": "resp_EKQEU8dU3TEad2excm6Th"
+}

@@ -1,7 +1,9 @@
 #include "road/ribbon.h"
+#include "road/sidewalk_clipping.h"
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace apricot {
 
@@ -13,6 +15,9 @@ const char* road_layer_name(RoadLayer l) {
         case RoadLayer::Kerb: return "kerb";
         case RoadLayer::Plate: return "plate";
         case RoadLayer::Crosswalk: return "crosswalk";
+        case RoadLayer::WhiteMarking: return "white-mark";
+        case RoadLayer::YellowMarking: return "yellow-mark";
+        case RoadLayer::Structure: return "structure";
     }
     return "?";
 }
@@ -108,13 +113,24 @@ void push_tri_up(RoadMesh& m, uint32_t i0, uint32_t i1, uint32_t i2) {
 // the very first / last cross-section with a shared bisector, so two ribbons
 // meeting at a bend land on the same line instead of leaving a notch on the
 // outside of the corner.
-void bake_band(RoadMesh& m, const RoadSurface& d, const std::vector<glm::vec2>& pts,
-               float off_a, float off_b, float lift, float tile, glm::vec4 w,
-               float step_m, const glm::vec2* miter_first,
-               const glm::vec2* miter_last) {
+void bake_band_profiled(RoadMesh& m, const RoadSurface& d,
+               const std::vector<glm::vec2>& pts,
+               float off_a_start, float off_a_end,
+               float off_b_start, float off_b_end,
+               float lift, float tile, glm::vec4 w, float step_m,
+               const glm::vec2* miter_first, const glm::vec2* miter_last) {
     bool have_prev = false;
-    uint32_t prev_a = 0;
-    uint32_t prev_b = 0;
+    float total = 0.0f;
+    for (std::size_t i = 1; i < pts.size(); ++i)
+        total += glm::length(pts[i] - pts[i - 1]);
+    total = std::max(total, 1e-6f);
+    float run = 0.0f;
+    const float widest = std::max(std::fabs(off_b_start - off_a_start),
+                                  std::fabs(off_b_end - off_a_end));
+    const int lateral_steps = std::max(
+        1, static_cast<int>(std::ceil(widest / step_m)));
+    std::vector<uint32_t> previous(static_cast<std::size_t>(lateral_steps + 1));
+    std::vector<uint32_t> current(static_cast<std::size_t>(lateral_steps + 1));
 
     for (std::size_t s = 0; s + 1 < pts.size(); ++s) {
         const glm::vec2 a = pts[s];
@@ -131,31 +147,50 @@ void bake_band(RoadMesh& m, const RoadSurface& d, const std::vector<glm::vec2>& 
         const int s0 = (s == 0) ? 0 : 1;
         for (int i = s0; i <= steps; ++i) {
             const float t = static_cast<float>(i) / static_cast<float>(steps);
+            const float profile_t = (run + seg_len * t) / total;
             const glm::vec2 p = a + delta * t;
             glm::vec2 ncs = n;
             if (miter_first && s == 0 && i == 0) ncs = *miter_first;
             else if (miter_last && s + 2 == pts.size() && i == steps) ncs = *miter_last;
 
-            const glm::vec2 pa = p + ncs * off_a;
-            const glm::vec2 pb = p + ncs * off_b;
-            const uint32_t ia = push_flat(m, d, pa, lift, pa / tile, w);
-            const uint32_t ib = push_flat(m, d, pb, lift, pb / tile, w);
-            if (have_prev) {
-                push_tri_up(m, prev_a, prev_b, ib);
-                push_tri_up(m, prev_a, ib, ia);
+            for (int lateral = 0; lateral <= lateral_steps; ++lateral) {
+                const float u = static_cast<float>(lateral) /
+                                static_cast<float>(lateral_steps);
+                const float off_a = glm::mix(off_a_start, off_a_end, profile_t);
+                const float off_b = glm::mix(off_b_start, off_b_end, profile_t);
+                const glm::vec2 q = p + ncs * glm::mix(off_a, off_b, u);
+                current[static_cast<std::size_t>(lateral)] =
+                    push_flat(m, d, q, lift, q / tile, w);
             }
-            prev_a = ia;
-            prev_b = ib;
+            if (have_prev) {
+                for (int lateral = 0; lateral < lateral_steps; ++lateral) {
+                    const std::size_t left = static_cast<std::size_t>(lateral);
+                    const std::size_t right = left + 1u;
+                    push_tri_up(m, previous[left], previous[right], current[right]);
+                    push_tri_up(m, previous[left], current[right], current[left]);
+                }
+            }
+            previous.swap(current);
             have_prev = true;
         }
+        run += seg_len;
     }
+}
+
+void bake_band(RoadMesh& m, const RoadSurface& d, const std::vector<glm::vec2>& pts,
+               float off_a, float off_b, float lift, float tile, glm::vec4 w,
+               float step_m, const glm::vec2* miter_first,
+               const glm::vec2* miter_last) {
+    bake_band_profiled(m, d, pts, off_a, off_a, off_b, off_b, lift, tile, w,
+                       step_m, miter_first, miter_last);
 }
 
 // The vertical face closing one edge of a raised slab. Stepped and mitered
 // exactly like bake_band so its top edge coincides with the slab's edge — a
 // riser baked on a different subdivision leaves a gap at every bend.
-void bake_kerb(RoadMesh& m, const RoadSurface& d, const std::vector<glm::vec2>& pts,
-               float off, float top_lift, float foot, float outward_sign,
+void bake_kerb_profiled(RoadMesh& m, const RoadSurface& d,
+               const std::vector<glm::vec2>& pts, float off_start, float off_end,
+               float top_lift, float foot, float outward_sign,
                float slab_m, float step_m, const glm::vec2* miter_first,
                const glm::vec2* miter_last) {
     const float v_top = (top_lift - foot) / slab_m;
@@ -163,6 +198,10 @@ void bake_kerb(RoadMesh& m, const RoadSurface& d, const std::vector<glm::vec2>& 
     bool have_prev = false;
     uint32_t prev_b = 0;
     uint32_t prev_t = 0;
+    float total = 0.0f;
+    for (std::size_t i = 1; i < pts.size(); ++i)
+        total += glm::length(pts[i] - pts[i - 1]);
+    total = std::max(total, 1e-6f);
 
     for (std::size_t s = 0; s + 1 < pts.size(); ++s) {
         const glm::vec2 a = pts[s];
@@ -177,12 +216,13 @@ void bake_kerb(RoadMesh& m, const RoadSurface& d, const std::vector<glm::vec2>& 
         const int s0 = (s == 0) ? 0 : 1;
         for (int i = s0; i <= steps; ++i) {
             const float t = static_cast<float>(i) / static_cast<float>(steps);
+            const float profile_t = (run + seg_len * t) / total;
             const glm::vec2 p = a + delta * t;
             glm::vec2 ncs = n;
             if (miter_first && s == 0 && i == 0) ncs = *miter_first;
             else if (miter_last && s + 2 == pts.size() && i == steps) ncs = *miter_last;
 
-            const glm::vec2 pe = p + ncs * off;
+            const glm::vec2 pe = p + ncs * glm::mix(off_start, off_end, profile_t);
             const float base = d.at(pe);
             const float along = run + seg_len * t;
             const glm::vec2 od = safe_normalize(ncs) * outward_sign;
@@ -206,6 +246,14 @@ void bake_kerb(RoadMesh& m, const RoadSurface& d, const std::vector<glm::vec2>& 
     }
 }
 
+void bake_kerb(RoadMesh& m, const RoadSurface& d, const std::vector<glm::vec2>& pts,
+               float off, float top_lift, float foot, float outward_sign,
+               float slab_m, float step_m, const glm::vec2* miter_first,
+               const glm::vec2* miter_last) {
+    bake_kerb_profiled(m, d, pts, off, off, top_lift, foot, outward_sign,
+                       slab_m, step_m, miter_first, miter_last);
+}
+
 // A flat quad, wound upward, world-UV'd.
 void push_quad_up(RoadMesh& m, const RoadSurface& d, glm::vec2 p0, glm::vec2 p1,
                   glm::vec2 p2, glm::vec2 p3, float lift, float tile,
@@ -216,6 +264,44 @@ void push_quad_up(RoadMesh& m, const RoadSurface& d, glm::vec2 p0, glm::vec2 p1,
     const uint32_t i3 = push_flat(m, d, p3, lift, p3 / tile, w);
     push_tri_up(m, i0, i1, i2);
     push_tri_up(m, i0, i2, i3);
+}
+
+// A junction plate can be tens of metres wide. One triangle from its centre
+// to each hull edge is only correct over a planar ground field; over a shaped
+// grade that chord cuts straight through the terrain and the ground wins the
+// depth test in large green islands. Tessellate the fan and sample the same
+// terrain mesh at every small cell, just like the road ribbons do.
+void push_draped_triangle(RoadMesh& m, const RoadSurface& d, glm::vec2 centre,
+                          glm::vec2 p0, glm::vec2 p1, float lift, float tile,
+                          glm::vec4 w, float step_m) {
+    const float longest = std::max({glm::length(p0 - centre),
+                                    glm::length(p1 - centre),
+                                    glm::length(p1 - p0)});
+    const int steps = std::max(1, static_cast<int>(std::ceil(longest / step_m)));
+    std::vector<uint32_t> previous;
+    std::vector<uint32_t> current;
+    for (int row = 0; row <= steps; ++row) {
+        current.clear();
+        current.reserve(static_cast<std::size_t>(row + 1));
+        const float edge = static_cast<float>(row) / static_cast<float>(steps);
+        for (int column = 0; column <= row; ++column) {
+            const float across = row > 0
+                ? static_cast<float>(column) / static_cast<float>(row)
+                : 0.0f;
+            const glm::vec2 q = glm::mix(centre, glm::mix(p0, p1, across), edge);
+            current.push_back(push_flat(m, d, q, lift, q / tile, w));
+        }
+        if (row > 0) {
+            for (int column = 0; column < row; ++column) {
+                const std::size_t left = static_cast<std::size_t>(column);
+                const std::size_t right = left + 1u;
+                push_tri_up(m, previous[left], current[left], current[right]);
+                if (column + 1 < row)
+                    push_tri_up(m, previous[left], current[right], previous[right]);
+            }
+        }
+        previous.swap(current);
+    }
 }
 
 // A vertical face from p0 to p1, from `foot` to `top_lift` above the surface,
@@ -282,6 +368,119 @@ std::vector<glm::vec2> trim_polyline(const std::vector<glm::vec2>& pts,
     return out;
 }
 
+float polyline_length(const std::vector<glm::vec2>& pts) {
+    float total = 0.0f;
+    for (std::size_t i = 0; i + 1 < pts.size(); ++i)
+        total += glm::length(pts[i + 1] - pts[i]);
+    return total;
+}
+
+// Exact arc-length slice, used for paint dashes. trim_polyline intentionally
+// preserves a sliver when cuts consume most of a road; a dash needs the
+// opposite rule or the last gap in a short edge gets accidentally painted.
+std::vector<glm::vec2> slice_polyline(const std::vector<glm::vec2>& pts,
+                                      float from_m, float to_m) {
+    if (pts.size() < 2 || to_m - from_m < 1e-3f) return {};
+    const float total = polyline_length(pts);
+    from_m = std::clamp(from_m, 0.0f, total);
+    to_m = std::clamp(to_m, from_m, total);
+    if (to_m - from_m < 1e-3f) return {};
+
+    auto point_at = [&](float arc) {
+        float run = 0.0f;
+        for (std::size_t i = 0; i + 1 < pts.size(); ++i) {
+            const float seg = glm::length(pts[i + 1] - pts[i]);
+            if (run + seg >= arc) {
+                const float t = seg > 1e-6f ? (arc - run) / seg : 0.0f;
+                return pts[i] + (pts[i + 1] - pts[i]) * t;
+            }
+            run += seg;
+        }
+        return pts.back();
+    };
+
+    std::vector<glm::vec2> out{point_at(from_m)};
+    float run = 0.0f;
+    for (std::size_t i = 0; i + 1 < pts.size(); ++i) {
+        run += glm::length(pts[i + 1] - pts[i]);
+        if (run > from_m + 1e-3f && run < to_m - 1e-3f)
+            out.push_back(pts[i + 1]);
+    }
+    out.push_back(point_at(to_m));
+    return out;
+}
+
+void bake_solid_marking(RoadMesh& m, const RoadSurface& d,
+                        const std::vector<glm::vec2>& pts, float offset,
+                        float width, float lift, float step_m, glm::vec4 w,
+                        const glm::vec2* miter_first = nullptr,
+                        const glm::vec2* miter_last = nullptr) {
+    bake_band(m, d, pts, offset - width * 0.5f, offset + width * 0.5f,
+              lift, 1.0f, w, step_m, miter_first, miter_last);
+}
+
+void bake_solid_marking_profiled(RoadMesh& m, const RoadSurface& d,
+                        const std::vector<glm::vec2>& pts,
+                        float offset_start, float offset_end,
+                        float width, float lift, float step_m, glm::vec4 w,
+                        const glm::vec2* miter_first = nullptr,
+                        const glm::vec2* miter_last = nullptr) {
+    bake_band_profiled(m, d, pts,
+        offset_start - width * 0.5f, offset_end - width * 0.5f,
+        offset_start + width * 0.5f, offset_end + width * 0.5f,
+        lift, 1.0f, w, step_m, miter_first, miter_last);
+}
+
+void bake_dashed_marking(RoadMesh& m, const RoadSurface& d,
+                         const std::vector<glm::vec2>& pts, float offset,
+                         float width, float lift, float dash_m, float gap_m,
+                         float step_m, glm::vec4 w) {
+    const float total = polyline_length(pts);
+    const float period = dash_m + gap_m;
+    if (dash_m <= 0.0f || period <= 0.0f) return;
+
+    // Centre the pattern's leftover distance so neither road end gets a tiny
+    // accidental paint chip. The phase is deterministic for this edge.
+    const int count = std::max(1, static_cast<int>(
+        std::floor((total + gap_m) / period)));
+    const float painted_span = static_cast<float>(count) * dash_m +
+                               static_cast<float>(count - 1) * gap_m;
+    const float phase = std::max(0.0f, (total - painted_span) * 0.5f);
+    for (int i = 0; i < count; ++i) {
+        const float start = phase + static_cast<float>(i) * period;
+        const float end = std::min(start + dash_m, total);
+        const std::vector<glm::vec2> dash = slice_polyline(pts, start, end);
+        if (dash.size() >= 2)
+            bake_solid_marking(m, d, dash, offset, width, lift, step_m, w);
+    }
+}
+
+void bake_dashed_marking_profiled(RoadMesh& m, const RoadSurface& d,
+                         const std::vector<glm::vec2>& pts,
+                         float offset_start, float offset_end,
+                         float width, float lift, float dash_m, float gap_m,
+                         float step_m, glm::vec4 w) {
+    const float total = polyline_length(pts);
+    const float period = dash_m + gap_m;
+    if (dash_m <= 0.0f || period <= 0.0f || total <= 1e-6f) return;
+    const int count = std::max(1, static_cast<int>(
+        std::floor((total + gap_m) / period)));
+    const float painted_span = static_cast<float>(count) * dash_m +
+                               static_cast<float>(count - 1) * gap_m;
+    const float phase = std::max(0.0f, (total - painted_span) * 0.5f);
+    for (int i = 0; i < count; ++i) {
+        const float start = phase + static_cast<float>(i) * period;
+        const float end = std::min(start + dash_m, total);
+        const std::vector<glm::vec2> dash = slice_polyline(pts, start, end);
+        if (dash.size() < 2) continue;
+        bake_solid_marking_profiled(
+            m, d, dash,
+            glm::mix(offset_start, offset_end, start / total),
+            glm::mix(offset_start, offset_end, end / total),
+            width, lift, step_m, w);
+    }
+}
+
 // 2D convex hull, monotone chain, without the duplicated closing point.
 std::vector<glm::vec2> convex_hull(std::vector<glm::vec2> p) {
     std::sort(p.begin(), p.end(), [](glm::vec2 a, glm::vec2 b) {
@@ -338,6 +537,29 @@ void smooth_normals(RoadMesh& m) {
     }
 }
 
+// The same oriented box goes to the renderer and body collider.
+void solid_box(RibbonBake& bake, glm::vec3 centre, glm::vec3 half, float yaw) {
+    bake.solids.push_back({centre, half, yaw});
+    RoadMesh& mesh = bake.layer(RoadLayer::Structure);
+    const float c = std::cos(yaw), s = std::sin(yaw);
+    const uint32_t base = static_cast<uint32_t>(mesh.vertices.size());
+    for (int i = 0; i < 8; ++i) {
+        const glm::vec3 p{(i & 1) ? half.x : -half.x,
+                          (i & 2) ? half.y : -half.y,
+                          (i & 4) ? half.z : -half.z};
+        push_vertex(mesh, centre + glm::vec3{c*p.x+s*p.z,p.y,-s*p.x+c*p.z},
+                    {0,1,0}, {p.x,p.z}, splat_for(Surface::Rock));
+    }
+    const uint32_t faces[][4] = {{0,4,6,2},{1,3,7,5},{0,1,5,4},
+                                 {2,6,7,3},{0,2,3,1},{4,5,7,6}};
+    for (const auto& face : faces) {
+        const glm::vec3 mid = (mesh.vertices[base+face[0]].position +
+                              mesh.vertices[base+face[2]].position)*0.5f;
+        push_tri_facing(mesh,base+face[0],base+face[1],base+face[2],mid-centre);
+        push_tri_facing(mesh,base+face[0],base+face[2],base+face[3],mid-centre);
+    }
+}
+
 void finalise(RoadMesh& m) {
     m.bounds = AABB{};
     for (const TerrainVertex& v : m.vertices) m.bounds.expand(v.position);
@@ -355,6 +577,16 @@ struct Approach {
     float angle = 0.0f;
 };
 
+// A narrow access road terminating on one side of a straight sidewalk road.
+// The main road stays whole; only this short throat replaces the near walk.
+struct CurbCutTee {
+    uint32_t node = 0;
+    Approach spur;
+    Approach main;
+    float inner_distance_m = 0.0f;
+    float outer_distance_m = 0.0f;
+};
+
 }  // namespace
 
 RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
@@ -370,16 +602,16 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
         const RoadEdge& e = graph.edge(ei);
         const std::size_t n = e.points.size();
         const bool walk = e.sidewalks();
-        const float hw = e.half_width_m();
-        const float ext = walk ? hw + kSidewalkWidthM : hw;
+        const float front_hw = e.half_width_at(0.0f);
+        const float back_hw = e.half_width_at(1.0f);
         const bool paved = road_is_paved(e.cls);
 
         Approach front;
         front.edge = ei;
         front.at_front = true;
         front.dir = safe_normalize(e.points[1] - e.points[0]);
-        front.hw = hw;
-        front.ext = ext;
+        front.hw = front_hw;
+        front.ext = walk ? front_hw + kSidewalkWidthM : front_hw;
         front.walk = walk;
         front.paved = paved;
         front.angle = std::atan2(front.dir.y, front.dir.x);
@@ -388,6 +620,8 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
         Approach back = front;
         back.at_front = false;
         back.dir = safe_normalize(e.points[n - 2] - e.points[n - 1]);
+        back.hw = back_hw;
+        back.ext = walk ? back_hw + kSidewalkWidthM : back_hw;
         back.angle = std::atan2(back.dir.y, back.dir.x);
         app[e.node_b].push_back(back);
     }
@@ -401,6 +635,7 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
     std::vector<uint8_t> has_mb(ecount, 0);
     std::vector<uint32_t> plate_nodes;
     std::vector<float> plate_trim(ncount, 0.0f);
+    std::vector<CurbCutTee> curb_cut_tees;
 
     for (uint32_t n = 0; n < ncount; ++n) {
         std::vector<Approach>& a = app[n];
@@ -409,6 +644,46 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
         float max_hw = 0.0f;
         for (const Approach& ap : a) max_hw = std::max(max_hw, ap.hw);
         float trim = max_hw + params.junction_margin_m;
+
+        // A private access meeting the side of a straight through-road is a
+        // curb cut, not a full three-way crossing. The old convex-hull plate
+        // pulled both halves of the main sidewalk back by a full road width,
+        // erased the opposite frontage, and left triangular grass gores at
+        // the mouth. Honor the authored hint only when the topology proves it
+        // is safe: one narrow no-walk spur and two matching, straight, paved
+        // sidewalk approaches.
+        if (a.size() == 3) {
+            int spur_index = -1;
+            for (int i = 0; i < 3; ++i) {
+                if (graph.edge(a[static_cast<std::size_t>(i)].edge).curb_cut_tee)
+                    spur_index = spur_index == -1 ? i : -2;
+            }
+            if (spur_index >= 0) {
+                const Approach& spur = a[static_cast<std::size_t>(spur_index)];
+                const Approach& m0 = a[static_cast<std::size_t>((spur_index + 1) % 3)];
+                const Approach& m1 = a[static_cast<std::size_t>((spur_index + 2) % 3)];
+                glm::vec2 normal = perp(m0.dir);
+                if (glm::dot(normal, spur.dir) < 0.0f) normal = -normal;
+                const float facing = glm::dot(normal, spur.dir);
+                const bool straight = glm::dot(m0.dir, m1.dir) < -0.985f;
+                const bool matching = std::fabs(m0.hw - m1.hw) < 0.25f &&
+                                      m0.walk && m1.walk && m0.paved && m1.paved;
+                const bool narrow_spur = !spur.walk && spur.paved &&
+                                         spur.hw + 0.5f < m0.hw;
+                const bool ground_level =
+                    !road_structure_is_decked(graph.edge(spur.edge).structure) &&
+                    !road_structure_is_decked(graph.edge(m0.edge).structure) &&
+                    !road_structure_is_decked(graph.edge(m1.edge).structure);
+                if (straight && matching && narrow_spur && ground_level && facing > 0.94f) {
+                    const float inner = m0.hw / facing;
+                    const float outer = m0.ext / facing;
+                    if (spur.at_front) trim_front[spur.edge] = outer;
+                    else trim_back[spur.edge] = outer;
+                    curb_cut_tees.push_back({n, spur, m0, inner, outer});
+                    continue;
+                }
+            }
+        }
 
         if (a.size() == 2) {
             // Outward dirs: dot -1 is a straight continuation, 0 a right
@@ -444,6 +719,27 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
             trim = max_hw;
         }
 
+        if(a.size()>=3) {
+            // A narrow street can meet a freeway at an acute angle. Half the
+            // widest road is enough at 90 degrees, but not there: its raised
+            // sidewalk otherwise continues several metres into a freeway lane
+            // (Route 1 / Kestrel Close). Pull back to the actual intersection
+            // of the sidewalk outer edge and the freeway carriageway edge.
+            // Keep ordinary street junctions and degree-two bends unchanged.
+            float limit=4.f*max_hw;
+            for(const Approach& ap:a)
+                limit=std::min(limit,std::max(trim,graph.edge(ap.edge).length_m*.45f));
+            for(const Approach& walk:a) if(walk.walk)
+                for(const Approach& freeway:a) {
+                    if(graph.edge(freeway.edge).cls!=RoadClass::Freeway) continue;
+                    const float cosine=glm::dot(walk.dir,freeway.dir);
+                    const float sine=std::fabs(walk.dir.x*freeway.dir.y-walk.dir.y*freeway.dir.x);
+                    if(cosine<=0.f || sine<1e-4f) continue;
+                    const float meet=(freeway.hw+walk.ext*cosine)/sine;
+                    trim=std::max(trim,std::min(meet+params.junction_margin_m,limit));
+                }
+        }
+
         for (const Approach& ap : a) {
             if (ap.at_front) trim_front[ap.edge] = trim;
             else trim_back[ap.edge] = trim;
@@ -462,11 +758,38 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
 
     // --- bake the trimmed ribbons -----------------------------------------
     const float walk_lift = kDrapeEpsM + kKerbHeightM;
+    std::vector<uint32_t> road_owners,walk_owners,kerb_owners;
     for (uint32_t ei = 0; ei < ecount; ++ei) {
         const RoadEdge& e = graph.edge(ei);
-        const std::vector<glm::vec2> pts =
+        std::vector<glm::vec2> pts =
             trim_polyline(e.points, trim_front[ei], trim_back[ei]);
         if (pts.size() < 2) continue;
+
+        // Paint starts at the authored traffic seam. Only the asphalt and its
+        // collision need to overlap the freeway; extending the ramp's edge
+        // lines as well draws a long white wedge across the auxiliary lane.
+        const std::vector<glm::vec2> marking_pts = pts;
+
+        // lane_connect_* joins traffic at a freeway lane endpoint away from
+        // the road-centre graph node. The authored point is therefore the SIM
+        // seam, not the visible end of the ramp. A normal ribbon caps there
+        // with a square cross-section; its outside corner sticks past the
+        // freeway shoulder and reads as a detached rectangular platform. Run
+        // the visual/collision ribbon into the broad auxiliary deck instead,
+        // burying that cap under same-height asphalt. Parapet placement already
+        // rejects pieces overlapping another road, so the throat stays open.
+        const float overlap = std::max(0.0f, params.lane_connect_overlap_m);
+        if (e.one_way && overlap > 0.0f && e.lane_connect_start &&
+            trim_front[ei] <= 1e-4f) {
+            const glm::vec2 dir = safe_normalize(pts[1] - pts[0]);
+            pts.insert(pts.begin(), pts.front() - dir * overlap);
+        }
+        if (e.one_way && overlap > 0.0f && e.lane_connect_end &&
+            trim_back[ei] <= 1e-4f) {
+            const std::size_t last = pts.size() - 1;
+            const glm::vec2 dir = safe_normalize(pts[last] - pts[last - 1]);
+            pts.push_back(pts.back() + dir * overlap);
+        }
 
         const RoadSurface d = RoadSurface::of(e, ground);
 
@@ -491,12 +814,249 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
             pmb = &mb;
         }
 
-        const float hw = e.half_width_m();
+        const float profile_start = e.length_m > 1e-6f
+            ? std::clamp(trim_front[ei] / e.length_m, 0.0f, 1.0f) : 0.0f;
+        const float profile_end = e.length_m > 1e-6f
+            ? std::clamp(1.0f - trim_back[ei] / e.length_m, 0.0f, 1.0f) : 1.0f;
+        const float hw_start = e.half_width_at(profile_start);
+        const float hw_end = e.half_width_at(profile_end);
+        const float hw = std::max(hw_start, hw_end);
         const glm::vec4 w = splat_for(road_surface(e.cls));
         RoadMesh& surf = road_is_paved(e.cls) ? out.layer(RoadLayer::Carriageway)
                                               : out.layer(RoadLayer::Unpaved);
-        bake_band(surf, d, pts, -hw, hw, kDrapeEpsM, params.uv_tile_m, w,
-                  params.step_m, pmf, pmb);
+        bake_band_profiled(surf, d, pts, -hw_start, -hw_end, hw_start, hw_end,
+                  kDrapeEpsM, params.uv_tile_m, w, params.step_m, pmf, pmb);
+        road_owners.resize(out.layer(RoadLayer::Carriageway).triangle_count(),ei);
+
+        if (e.structure == RoadStructure::Bridge &&
+            e.bridge_detail_style != BridgeDetailStyle::None) {
+            const bool municipal =
+                e.bridge_detail_style == BridgeDetailStyle::Municipal;
+            const float deck_depth = municipal ? 1.15f : 0.9f;
+            // Close the deck: a bridge is not a one-sided floating decal.
+            RoadMesh& concrete = out.layer(RoadLayer::Structure);
+            const std::size_t first_index = concrete.indices.size();
+            const std::size_t first_vertex = concrete.vertices.size();
+            bake_band_profiled(concrete, d, pts, -hw_start, -hw_end,
+                      hw_start, hw_end, kDrapeEpsM - deck_depth,
+                      params.uv_tile_m, w, params.step_m, pmf, pmb);
+            for (std::size_t i = first_index; i + 2 < concrete.indices.size(); i += 3)
+                std::swap(concrete.indices[i + 1], concrete.indices[i + 2]);
+            for (std::size_t i = first_vertex; i < concrete.vertices.size(); ++i)
+                concrete.vertices[i].normal = {0.0f, -1.0f, 0.0f};
+            bake_kerb_profiled(concrete, d, pts, -hw_start, -hw_end, kDrapeEpsM,
+                      kDrapeEpsM - deck_depth,
+                      -1.0f, params.slab_m, params.step_m, pmf, pmb);
+            bake_kerb_profiled(concrete, d, pts, hw_start, hw_end, kDrapeEpsM,
+                      kDrapeEpsM - deck_depth,
+                      1.0f, params.slab_m, params.step_m, pmf, pmb);
+            float bridge_run = 0.0f;
+            const float bridge_length = std::max(polyline_length(pts), 1e-6f);
+            for (std::size_t si = 1; si < pts.size(); ++si) {
+                const glm::vec2 delta = pts[si] - pts[si - 1];
+                const float len = glm::length(delta);
+                if (len < 1.0f) continue;
+                const glm::vec2 tangent = delta / len, side = perp(tangent);
+                const float yaw = std::atan2(tangent.x, tangent.y);
+                // The creek bridge uses a small-town public-works kit: a low
+                // concrete crash wall, regular steel posts and one slim upper
+                // rail. It is maintained and credible without reading as a
+                // landmark. The viaduct keeps its heavier solid parapet.
+                const float rail_step = municipal
+                    ? 5.5f
+                    : (e.deck_heights.empty() ? 12.0f : 2.0f);
+                const int pieces = std::max(1, static_cast<int>(std::ceil(len / rail_step)));
+                const float pitch = len / static_cast<float>(pieces);
+                const float end_clearance = municipal ? 2.5f : 22.0f;
+                for (int k = 0; k < pieces; ++k) {
+                    const float along = (static_cast<float>(k) + 0.5f) * pitch;
+                    const float local_t = (bridge_run + along) / bridge_length;
+                    const float local_hw = glm::mix(hw_start, hw_end, local_t);
+                    // Keep merge mouths open, including the shallow-angle gore.
+                    if ((si == 1 && along < end_clearance) ||
+                        (si + 1 == pts.size() &&
+                         len - along < end_clearance)) continue;
+                    const glm::vec2 p = pts[si - 1] + tangent * along;
+                    for (float sign : {-1.0f, 1.0f}) {
+                        const float rail_offset = local_hw +
+                                                  (municipal ? 0.28f : 0.35f);
+                        const glm::vec2 q = p + side * (sign * rail_offset);
+                        bool merge = false;
+                        for (const RoadEdge& other : graph.edges()) {
+                            if (&other == &e ||
+                                std::fabs(RoadSurface::of(other,ground).at(q)-d.at(q))>1.0f) continue;
+                            for (std::size_t j=1;j<other.points.size();++j) {
+                                const glm::vec2 a=other.points[j-1], v=other.points[j]-a;
+                                const float t=std::clamp(glm::dot(q-a,v)/glm::dot(v,v),0.0f,1.0f);
+                                if (glm::length(q-a-v*t)<other.half_width_m()+pitch*0.5f+1.0f)
+                                    merge=true;
+                            }
+                        }
+                        if (merge) continue;
+                        if (municipal) {
+                            solid_box(out, {q.x, d.at(q) + 0.34f, q.y},
+                                      {0.28f, 0.34f, pitch * 0.5f + 0.04f},
+                                      yaw);
+                            solid_box(out, {q.x, d.at(q) + 1.02f, q.y},
+                                      {0.10f, 0.09f, pitch * 0.5f + 0.04f},
+                                      yaw);
+                            solid_box(out, {q.x, d.at(q) + 0.78f, q.y},
+                                      {0.13f, 0.50f, 0.13f}, yaw);
+                        } else {
+                            solid_box(out, {q.x,d.at(q)+0.55f,q.y},
+                                      {0.35f,0.55f,pitch*0.5f+0.05f},yaw);
+                        }
+                    }
+                }
+                if (!e.deck_heights.empty()) continue;
+                const glm::vec2 mid = (pts[si]+pts[si-1])*0.5f;
+                // Volume beneath the already-drawn asphalt and fascia.
+                out.solids.push_back(
+                    {{mid.x, d.at(mid) + kDrapeEpsM - deck_depth * 0.5f,
+                      mid.y},
+                     {glm::mix(hw_start, hw_end,
+                               (bridge_run + len * 0.5f) / bridge_length),
+                      deck_depth * 0.5f, len * 0.5f}, yaw});
+                const int piers = municipal
+                    ? std::max(1, static_cast<int>(len / 110.0f))
+                    : static_cast<int>(len / 65.0f);
+                for (int k = 0; k < piers; ++k) {
+                    const glm::vec2 at = pts[si-1] + tangent *
+                        (len * (static_cast<float>(k)+0.5f)/static_cast<float>(piers));
+                    const float at_t = (bridge_run + len *
+                        (static_cast<float>(k)+0.5f)/static_cast<float>(piers)) /
+                        bridge_length;
+                    const float at_hw = glm::mix(hw_start, hw_end, at_t);
+                    bool placed_pier = false;
+                    for (float sign : {-1.0f,1.0f}) {
+                        const glm::vec2 q = at + side*(sign*at_hw*0.62f);
+                        const float bottom = ground.at(q.x,q.y);
+                        const float top = d.at(q) - deck_depth;
+                        if (top-bottom < 3.0f) continue;
+                        bool blocked = false;
+                        for (const RoadEdge& lower : graph.edges()) {
+                            if (RoadSurface::of(lower,ground).at(q) > top-3.0f) continue;
+                            for (std::size_t j=1;j<lower.points.size();++j) {
+                                const glm::vec2 a=lower.points[j-1], v=lower.points[j]-a;
+                                const float t=std::clamp(glm::dot(q-a,v)/glm::dot(v,v),0.0f,1.0f);
+                                if (glm::length(q-a-v*t) < lower.half_width_m()+7.0f) blocked=true;
+                            }
+                        }
+                        if (!blocked) {
+                            const glm::vec3 pier_half = municipal
+                                ? glm::vec3{1.05f, (top-bottom)*0.5f, 1.45f}
+                                : glm::vec3{0.9f, (top-bottom)*0.5f, 1.2f};
+                            solid_box(out, {q.x,(top+bottom)*0.5f,q.y},
+                                      pier_half, yaw);
+                            placed_pier = true;
+                        }
+                    }
+                    if (municipal && placed_pier) {
+                        const float underside = d.at(at) - deck_depth;
+                        solid_box(out, {at.x, underside - 0.28f, at.y},
+                                  {at_hw * 0.72f, 0.28f, 0.72f}, yaw);
+                    }
+                }
+                if (municipal) {
+                    // Shallow end diaphragms read as abutment seats from the
+                    // creek without filling the channel or touching traffic.
+                    for (float along : {1.2f, len - 1.2f}) {
+                        const glm::vec2 at = pts[si-1] + tangent * along;
+                        const float underside = d.at(at) - deck_depth;
+                        solid_box(out, {at.x, underside - 0.30f, at.y},
+                                  {hw * 0.94f, 0.30f, 0.65f}, yaw);
+                    }
+                }
+                bridge_run += len;
+            }
+        }
+
+        if (e.one_way) {
+            const float edge = hw - 0.25f;
+            for (float side : {-edge, edge})
+                bake_solid_marking(out.layer(RoadLayer::WhiteMarking), d,
+                                   marking_pts,
+                                   side, params.marking_width_m,
+                                   kDrapeEpsM + params.marking_lift_m,
+                                   params.step_m, w, pmf, pmb);
+        }
+
+        if (road_is_paved(e.cls) && e.cls != RoadClass::Alley) {
+            RoadMesh& white = out.layer(RoadLayer::WhiteMarking);
+            RoadMesh& yellow = out.layer(RoadLayer::YellowMarking);
+            const glm::vec4 paint_w = splat_for(Surface::Rock);
+            const float lift = kDrapeEpsM + params.marking_lift_m;
+            const float paint_step = std::min(params.step_m, 1.5f);
+            const int lanes_per_dir = std::max<int>(
+                e.lanes_start_per_dir, e.lanes_end_per_dir);
+            // A same-count width profile is shoulder/gore space, matching the
+            // lane graph. Keep its paint on the narrower live carriageway so
+            // the shoulder line does not sweep across an entry/exit ramp and
+            // draw a giant X through the gore.
+            const bool shoulder_profile =
+                e.lanes_start_per_dir == e.lanes_end_per_dir;
+            const float paint_hw = std::min(hw_start, hw_end);
+            const float paint_hw_start = shoulder_profile ? paint_hw : hw_start;
+            const float paint_hw_end = shoulder_profile ? paint_hw : hw_end;
+
+            // Major roads get solid white shoulders. Local streets use the
+            // kerb itself as their edge, which is cleaner and less highway-ish.
+            if (road_is_major(e.cls)) {
+                const float edge_start = std::max(0.0f, paint_hw_start - 0.30f);
+                const float edge_end = std::max(0.0f, paint_hw_end - 0.30f);
+                bake_solid_marking_profiled(white, d, pts, -edge_start,
+                                   -edge_end, params.marking_width_m, lift,
+                                   paint_step, paint_w, pmf, pmb);
+                bake_solid_marking_profiled(white, d, pts, edge_start,
+                                   edge_end, params.marking_width_m, lift,
+                                   paint_step, paint_w, pmf, pmb);
+            }
+
+            // Same-direction lane boundaries are white and broken. Their
+            // offsets come from the same equal half-road shares as LaneGraph.
+            const auto divider_at = [](float half_width, int count, int i) {
+                count = std::max(1, count);
+                if (i < count)
+                    return half_width * static_cast<float>(i) /
+                           static_cast<float>(count);
+                // The extra boundary converges on the old outer lane centre,
+                // matching the born/dying lane rather than the parapet edge.
+                return half_width *
+                       (static_cast<float>(count) - 0.5f) /
+                       static_cast<float>(count);
+            };
+            for (int i = 1; i < lanes_per_dir; ++i) {
+                const float divider_start = divider_at(
+                    paint_hw_start, std::max<int>(1, e.lanes_start_per_dir), i);
+                const float divider_end = divider_at(
+                    paint_hw_end, std::max<int>(1, e.lanes_end_per_dir), i);
+                bake_dashed_marking_profiled(
+                    white, d, pts, -divider_start, -divider_end,
+                    params.marking_width_m, lift, params.dash_length_m,
+                    params.dash_gap_m, paint_step, paint_w);
+                bake_dashed_marking_profiled(
+                    white, d, pts, divider_start, divider_end,
+                    params.marking_width_m, lift, params.dash_length_m,
+                    params.dash_gap_m, paint_step, paint_w);
+            }
+
+            if (road_is_major(e.cls)) {
+                // Two solid yellows make the opposing-flow boundary obvious
+                // on wide roads without pretending the thin plate is a median.
+                const float split = params.marking_width_m * 1.15f;
+                bake_solid_marking(yellow, d, pts, -split,
+                                   params.marking_width_m, lift, paint_step,
+                                   paint_w, pmf, pmb);
+                bake_solid_marking(yellow, d, pts, split,
+                                   params.marking_width_m, lift, paint_step,
+                                   paint_w, pmf, pmb);
+            } else {
+                bake_dashed_marking(yellow, d, pts, 0.0f,
+                                    params.marking_width_m, lift,
+                                    params.dash_length_m, params.dash_gap_m,
+                                    paint_step, paint_w);
+            }
+        }
 
         if (!e.sidewalks()) continue;
         // The inner edge overlaps the asphalt by a few centimetres so no strip
@@ -520,6 +1080,8 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
                   params.slab_m, params.step_m, pmf, pmb);
         bake_kerb(kerb, d, pts, outer, walk_lift, params.kerb_foot_m, 1.0f,
                   params.slab_m, params.step_m, pmf, pmb);
+        walk_owners.resize(walk.triangle_count(),ei);
+        kerb_owners.resize(kerb.triangle_count(),ei);
     }
 
     // --- plates, sidewalk corners and crosswalks --------------------------
@@ -531,10 +1093,12 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
 
         bool all_unpaved = true;
         bool any_walk = false;
+        bool all_walk = true;
         bool all_decked = true;
         for (const Approach& ap : a) {
             if (ap.paved) all_unpaved = false;
             if (ap.walk) any_walk = true;
+            if (!ap.walk) all_walk = false;
             if (!road_structure_is_decked(graph.edge(ap.edge).structure))
                 all_decked = false;
         }
@@ -574,8 +1138,17 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
                     const float t = (dd.x * y.dir.y - dd.y * y.dir.x) / den;
                     return p0 + x.dir * t;
                 };
-                corners.push_back(isect(centre + px * x.hw, centre + py * y.hw));
-                corners.push_back(isect(centre - px * x.hw, centre - py * y.hw));
+                // Nearly parallel edges at a width change can intersect far
+                // outside this junction. Keep those as a bevel between the
+                // trimmed ends: an unlimited miter made the West Ramp plate
+                // stretch 500 m and form a raised collision wedge on Route 1.
+                const float max_miter_m = 4.0f * trim;
+                for (float side : {-1.0f, 1.0f}) {
+                    const glm::vec2 p = isect(centre + px * (side * x.hw),
+                                              centre + py * (side * y.hw));
+                    if (glm::length(p - centre) <= max_miter_m)
+                        corners.push_back(p);
+                }
             }
         }
 
@@ -587,16 +1160,11 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
             glm::vec2 c{0.0f};
             for (glm::vec2 v : hull) c += v;
             c /= static_cast<float>(hull.size());
-            const uint32_t ci =
-                push_flat(plate, flat, c, kDrapeEpsM, c / params.uv_tile_m, pw);
             for (std::size_t i = 0; i < hull.size(); ++i) {
                 const glm::vec2 p0 = hull[i];
                 const glm::vec2 p1 = hull[(i + 1) % hull.size()];
-                const uint32_t i0 = push_flat(plate, flat, p0, kDrapeEpsM,
-                                              p0 / params.uv_tile_m, pw);
-                const uint32_t i1 = push_flat(plate, flat, p1, kDrapeEpsM,
-                                              p1 / params.uv_tile_m, pw);
-                push_tri_up(plate, ci, i0, i1);
+                push_draped_triangle(plate, flat, c, p0, p1, kDrapeEpsM,
+                                     params.uv_tile_m, pw, params.step_m);
             }
         }
 
@@ -646,7 +1214,7 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
 
         // Zebra bands. Only a real crossing gets them: a two-road bend is not
         // a pedestrian crossing and stripes there read as a mistake.
-        if (a.size() < 3 || !any_walk) continue;
+        if (a.size() < 3 || !all_walk) continue;
         RoadMesh& cross = out.layer(RoadLayer::Crosswalk);
         const float lift = kDrapeEpsM + 0.03f;
         const glm::vec4 xw = splat_for(Surface::Rock);
@@ -654,21 +1222,112 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
             const glm::vec2 pp = perp(ap.dir);
             const glm::vec2 base = centre + ap.dir * trim;
             const glm::vec2 far = base + ap.dir * params.crosswalk_depth_m;
-            const float u = (2.0f * ap.hw) / params.crosswalk_tile_m;
-            const uint32_t i0 = push_flat(cross, flat, base - pp * ap.hw, lift,
-                                          {0.0f, 0.0f}, xw);
-            const uint32_t i1 = push_flat(cross, flat, base + pp * ap.hw, lift,
-                                          {u, 0.0f}, xw);
-            const uint32_t i2 = push_flat(cross, flat, far + pp * ap.hw, lift,
-                                          {u, 1.0f}, xw);
-            const uint32_t i3 = push_flat(cross, flat, far - pp * ap.hw, lift,
-                                          {0.0f, 1.0f}, xw);
-            push_tri_up(cross, i0, i1, i2);
-            push_tri_up(cross, i0, i2, i3);
+            // Individual paint bars, not a pale rectangle with stripes hidden
+            // in its texture. This keeps the asphalt between bars continuous
+            // with the plate and reads correctly from a moving chase camera.
+            constexpr float kBarWidthM = 0.55f;
+            constexpr float kBarGapM = 0.55f;
+            const float inner_hw = std::max(0.0f, ap.hw - 0.45f);
+            for (float across = -inner_hw; across < inner_hw;
+                 across += kBarWidthM + kBarGapM) {
+                const float next = std::min(across + kBarWidthM, inner_hw);
+                const glm::vec2 p0 = base + pp * across;
+                const glm::vec2 p1 = base + pp * next;
+                const glm::vec2 p2 = far + pp * next;
+                const glm::vec2 p3 = far + pp * across;
+                push_quad_up(cross, flat, p0, p1, p2, p3, lift,
+                             params.crosswalk_tile_m, xw);
+            }
             ++out.crosswalks_baked;
         }
     }
 
+    // Compact curb-cut T throats. Short trapezoids replace only the
+    // entrance-side sidewalk strip. Their eased-width progression gives the
+    // near kerbs a readable return radius without an asphalt plate spreading
+    // across the through lanes or the opposite frontage.
+    for (const CurbCutTee& tee : curb_cut_tees) {
+        ++out.plates_baked;
+        RoadSurface flat;
+        flat.ground = &ground;
+        flat.deck_y_m = graph.node(tee.node).y_m;
+        const glm::vec2 centre = graph.node(tee.node).pos;
+        const glm::vec2 away = tee.spur.dir;
+        const glm::vec2 side = tee.main.dir;
+        glm::vec2 spur_side = perp(away);
+        if (glm::dot(spur_side, side) < 0.0f) spur_side = -spur_side;
+        const float flare = std::min(2.0f, kSidewalkWidthM * 0.67f);
+        constexpr int kReturnSections = 6;
+        const auto cross_section=[&](float t) {
+            const float eased=t*t*(3.0f-2.0f*t);
+            return std::pair{
+                glm::mix(tee.outer_distance_m,tee.inner_distance_m,t),
+                tee.spur.hw+flare*eased};
+        };
+        const auto cross_direction=[&](float t) {
+            const float eased=t*t*(3.0f-2.0f*t);
+            return safe_normalize(glm::mix(spur_side,side,eased),side);
+        };
+        RoadMesh& plate = out.layer(RoadLayer::Plate);
+        const glm::vec4 asphalt = splat_for(Surface::Rock);
+        for (int i=0;i<kReturnSections;++i) {
+            const float t0=static_cast<float>(i)/kReturnSections;
+            const float t1=static_cast<float>(i+1)/kReturnSections;
+            const auto [d0,h0]=cross_section(t0);
+            const auto [d1,h1]=cross_section(t1);
+            const glm::vec2 s0=cross_direction(t0);
+            const glm::vec2 s1=cross_direction(t1);
+            const glm::vec2 a = centre + away * d0;
+            const glm::vec2 b = centre + away * d1;
+            push_quad_up(plate, flat,
+                         a + s0 * h0, a - s0 * h0,
+                         b - s1 * h1, b + s1 * h1,
+                         kDrapeEpsM, params.uv_tile_m, asphalt);
+        }
+    }
+
+    detail::clip_walks_from_roads(out,road_owners,walk_owners,kerb_owners,ground);
+
+    // Add the two exposed concrete cheek faces after clipping. If these were
+    // present during subtraction, their zero-width XZ projection could be
+    // consumed by the throat that they are meant to border.
+    for (const CurbCutTee& tee : curb_cut_tees) {
+        RoadSurface flat;
+        flat.ground = &ground;
+        flat.deck_y_m = graph.node(tee.node).y_m;
+        const glm::vec2 centre = graph.node(tee.node).pos;
+        const glm::vec2 away = tee.spur.dir;
+        const glm::vec2 side = tee.main.dir;
+        glm::vec2 spur_side = perp(away);
+        if (glm::dot(spur_side, side) < 0.0f) spur_side = -spur_side;
+        const float flare = std::min(2.0f, kSidewalkWidthM * 0.67f);
+        constexpr int kReturnSections = 6;
+        const auto cross_section=[&](float t) {
+            const float eased=t*t*(3.0f-2.0f*t);
+            return std::pair{
+                glm::mix(tee.outer_distance_m,tee.inner_distance_m,t),
+                tee.spur.hw+flare*eased};
+        };
+        const auto cross_direction=[&](float t) {
+            const float eased=t*t*(3.0f-2.0f*t);
+            return safe_normalize(glm::mix(spur_side,side,eased),side);
+        };
+        RoadMesh& kerb = out.layer(RoadLayer::Kerb);
+        for (float sign : {-1.0f, 1.0f}) {
+            for (int i=0;i<kReturnSections;++i) {
+                const float t0=static_cast<float>(i)/kReturnSections;
+                const float t1=static_cast<float>(i+1)/kReturnSections;
+                const auto [d0,h0]=cross_section(t0);
+                const auto [d1,h1]=cross_section(t1);
+                const glm::vec2 p0 = centre + away*d0 +
+                                     cross_direction(t0)*(sign*h0);
+                const glm::vec2 p1 = centre + away*d1 +
+                                     cross_direction(t1)*(sign*h1);
+                push_kerb_quad(kerb, flat, p0, p1, -side * sign, walk_lift,
+                               params.kerb_foot_m, params.slab_m);
+            }
+        }
+    }
     for (std::size_t i = 0; i < kRoadLayerCount; ++i) {
         if (static_cast<RoadLayer>(i) != RoadLayer::Kerb)
             smooth_normals(out.layers[i]);
@@ -678,16 +1337,23 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
 }
 
 RoadCollision build_road_collision(const RibbonBake& bake) {
+    auto collidable = [](RoadLayer layer) {
+        return layer != RoadLayer::Kerb && layer != RoadLayer::Structure &&
+               layer != RoadLayer::Crosswalk &&
+               layer != RoadLayer::WhiteMarking &&
+               layer != RoadLayer::YellowMarking;
+    };
     RoadCollision out;
+    out.solids = bake.solids;
     std::size_t reserve = 0;
     for (std::size_t i = 0; i < kRoadLayerCount; ++i)
-        if (static_cast<RoadLayer>(i) != RoadLayer::Kerb)
+        if (collidable(static_cast<RoadLayer>(i)))
             reserve += bake.layers[i].triangle_count();
     out.triangles.reserve(reserve);
 
     for (std::size_t li = 0; li < kRoadLayerCount; ++li) {
         const RoadLayer layer = static_cast<RoadLayer>(li);
-        if (layer == RoadLayer::Kerb) continue;  // vertical: nothing rests on it
+        if (!collidable(layer)) continue;  // paint is visual; kerbs are vertical
         const Surface mat =
             layer == RoadLayer::Unpaved ? Surface::Gravel : Surface::Rock;
 

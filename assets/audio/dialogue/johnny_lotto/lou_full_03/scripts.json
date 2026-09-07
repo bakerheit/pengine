@@ -1,0 +1,92 @@
+[
+  {
+    "id": "02_lou",
+    "kind": "Cutscene dialogue",
+    "title": "Lou full performance - line 02",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. Brief, casual advice.",
+    "text": "Don't waste your money."
+  },
+  {
+    "id": "04_lou",
+    "kind": "Cutscene dialogue",
+    "title": "Lou full performance - line 04",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. A quick matter-of-fact recollection. A small natural break between the two sentences.",
+    "text": "I hit it once. Never played again."
+  },
+  {
+    "id": "06_lou",
+    "kind": "Cutscene dialogue",
+    "title": "Lou full performance - line 06",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. Simple answer, not a boast.",
+    "text": "Enough to buy this place."
+  },
+  {
+    "id": "08_lou",
+    "kind": "Cutscene dialogue",
+    "title": "Lou full performance - line 08",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. Dry correction. Keep both short sentences connected and brisk.",
+    "text": "Didn't pick numbers. Picked a truck."
+  },
+  {
+    "id": "10_lou",
+    "kind": "Cutscene dialogue",
+    "title": "Lou full performance - line 10",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. Just an ordinary fact. No dramatic reveal.",
+    "text": "Had the bank's name on the side."
+  },
+  {
+    "id": "12_lou",
+    "kind": "Cutscene dialogue",
+    "title": "Lou full performance - line 12",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. Move on to the errand at a normal energetic pace.",
+    "text": "Anyway. I gotta go make a delivery."
+  },
+  {
+    "id": "14_lou",
+    "kind": "Cutscene dialogue",
+    "title": "Lou full performance - line 14",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. One short, alert question.",
+    "text": "You?"
+  },
+  {
+    "id": "16_lou",
+    "kind": "Cutscene dialogue",
+    "title": "Lou full performance - line 16",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. Say Ya naturally as yeah. Clearly speak they, catch yourself with ONE short pause of about a third of a second, then recover with that might not be a bad idea. Do not draw out any syllables or slow the whole line.",
+    "text": "Ya, actually, they... that might not be a bad idea."
+  },
+  {
+    "id": "17_lou",
+    "kind": "Cutscene dialogue",
+    "title": "Lou full performance - line 17",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. Give familiar directions while walking. Ostend is OSS-tend. Speak north west smoothly as one direction.",
+    "text": "You just need to take this to the Ostend docks up north west a bit."
+  },
+  {
+    "id": "19_lou",
+    "kind": "Cutscene dialogue",
+    "title": "Lou full performance - line 19",
+    "character": "Lou - Manager",
+    "voice": "ballad",
+    "direction": "Lou is a practical American shop manager speaking to Johnny at arm's length. Use a clear, alert, middle-register speaking voice, crisp consonants, fully formed vowels, and a brisk everyday conversational pace around 185 words per minute. Direct and matter-of-fact, with energy and forward momentum. Short natural phrase breaks only. No drawl, slurring, mumbling, sleepy tone, exaggerated bass, breathy gravel, theatrical pauses, or stretched final syllables. Read the exact dialogue as one connected thought. Explain who to ask for. Devon is DEV-un. Keep bait and tackle shop crisp.",
+    "text": "Devon will be working in the bait and tackle shop, just let him know I sent you."
+  }
+]
