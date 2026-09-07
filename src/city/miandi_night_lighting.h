@@ -44,18 +44,24 @@ inline constexpr std::array<MiandiNightLight, 28> kMiandiNightLights{{
     // first pass pointed four of them down and NORTH, away from the building,
     // so they lit empty paving and left a brick shed black — the same mistake
     // the Ocean Drive lights were moved out and turned around to fix.
+    //
+    // They also ran at roughly 60% of the power Ocean Drive uses, with cones
+    // half as wide, which is the whole of why the hotels read at midnight and
+    // this club did not. Sign, threshold, facade and mural now sit at or near
+    // the suite's ceiling; only the back-of-house loading edge stays dim, and
+    // it stays dim on purpose.
     {"club mirage roof sign wash", {7215.0f, 27.5f, 8456.0f},
-     {0.0f, -0.735150f, 0.677905f}, {0.74f, 0.30f, 1.00f}, 14.0f, 4.4f, 0.66f},
+     {0.0f, -0.735150f, 0.677905f}, {0.74f, 0.30f, 1.00f}, 18.0f, 6.4f, 0.56f},
     {"club mirage club door", {7215.0f, 13.6f, 8455.0f}, {0.0f, -1.0f, 0.0f},
-     {0.12f, 0.88f, 1.00f}, 11.0f, 4.6f, 0.68f},
+     {0.12f, 0.88f, 1.00f}, 14.0f, 6.2f, 0.60f},
     {"club mirage north facade wash", {7157.0f, 15.0f, 8452.0f},
-     {0.0f, -0.498220f, 0.867051f}, {0.42f, 0.20f, 1.00f}, 16.0f, 4.6f, 0.60f},
+     {0.0f, -0.498220f, 0.867051f}, {0.42f, 0.20f, 1.00f}, 22.0f, 7.4f, 0.50f},
     {"club mirage mural court", {7136.0f, 15.5f, 8500.0f},
-     {0.832050f, -0.554700f, 0.0f}, {0.66f, 0.28f, 1.00f}, 18.0f, 5.0f, 0.56f},
+     {0.832050f, -0.554700f, 0.0f}, {0.66f, 0.28f, 1.00f}, 20.0f, 7.4f, 0.50f},
     {"club mirage food yard", {7169.0f, 14.0f, 8535.0f}, {0.0f, -1.0f, 0.0f},
-     {1.00f, 0.74f, 0.38f}, 15.0f, 4.2f, 0.60f},
+     {1.00f, 0.74f, 0.38f}, 18.0f, 5.6f, 0.56f},
     {"club mirage loading edge", {7260.0f, 13.0f, 8550.0f}, {0.0f, -1.0f, 0.0f},
-    {0.32f, 0.76f, 0.92f}, 10.0f, 3.0f, 0.72f},
+    {0.32f, 0.76f, 0.92f}, 12.0f, 3.6f, 0.66f},
 
     {"mariposa motor court", {7800.0f, 14.0f, 8514.0f}, {0.0f, -1.0f, 0.0f},
      {0.16f, 0.92f, 1.00f}, 18.0f, 5.0f, 0.58f},

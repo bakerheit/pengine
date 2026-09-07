@@ -1706,13 +1706,21 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
             r.material = prototype.material;
             r.tint.a = 4.5f;
             if (part_name_has(part, "80s")) {
-                const bool pink = part.finish == city::StartFinish::RedTrim;
+                // Violet is Club Mirage's, and it needs the saturated palette
+                // to exist at all: outside it, a tube takes its pastel finish
+                // tint times an emissive 4.5 and blows out to white, which is
+                // how the club's "violet" trim rendered as plain strip light.
+                const bool violet = part_name_has(part, "violet");
+                const bool pink = !violet &&
+                                  part.finish == city::StartFinish::RedTrim;
                 const bool core = part_name_has(part, "core");
-                r.tint = pink ? glm::vec4{1.0f, .015f, .32f, 2.0f}
-                              : glm::vec4{.015f, .75f, 1.0f, 2.0f};
+                r.tint = violet ? glm::vec4{.42f, .05f, 1.0f, 2.0f}
+                       : pink   ? glm::vec4{1.0f, .015f, .32f, 2.0f}
+                                : glm::vec4{.015f, .75f, 1.0f, 2.0f};
                 if (core)
-                    r.tint = pink ? glm::vec4{1.0f, .48f, .73f, 2.0f}
-                                  : glm::vec4{.48f, 1.0f, 1.0f, 2.0f};
+                    r.tint = violet ? glm::vec4{.76f, .55f, 1.0f, 2.0f}
+                           : pink   ? glm::vec4{1.0f, .48f, .73f, 2.0f}
+                                    : glm::vec4{.48f, 1.0f, 1.0f, 2.0f};
             } else if (part_name_has(part, "amber") &&
                        part_name_has(part, "lettering")) {
                 r.tint = part_name_has(part, "core")

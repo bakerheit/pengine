@@ -159,8 +159,8 @@ Four levels, one authored source each, in this order: **sign, threshold,
 facade, incidental.** Mirage's six lights are now roof sign wash, club door,
 north facade wash, mural court, food yard, loading edge.
 
-Two rules learned the hard way, both already learned once on Ocean Drive and
-then not applied here:
+Four rules learned the hard way, the first two already learned once on Ocean
+Drive and then not applied here:
 
 - **Mount outside the face and aim back at it.** Four of these lights pointed
   away from the building and lit bare ground.
@@ -168,6 +168,26 @@ then not applied here:
   the gallery *door* and shone straight through the gap into the building. It
   was moved to x=-43 so its cone lands on brick, a pilaster and the base
   course, and only grazes the door reveal.
+- **Match the district's power envelope or lose to it.** Side by side with the
+  Maravelle at midnight this club was still invisible after the two fixes
+  above. Ocean Drive's hotel lights run at `range 22 / power 7.6 / cone 0.50` —
+  the ceiling the suite allows on all three. Mirage's ran at `10..18 / 3.0..5.0
+  / 0.56..0.72`, roughly 60% of the power through cones half as wide. Sign,
+  threshold, facade and mural now sit at or near that ceiling; only the
+  back-of-house loading edge stays dim, and it stays dim on purpose.
+- **Tube follows the architecture, at the architecture's length.** The
+  Maravelle carries three ~46 m horizontal strokes plus corner outlines and a
+  crown. Mirage's longest run was 13 m. It now traces what layer 3 built: a
+  110 m cornice line, string-course runs, six of the bay pilasters, and the
+  entrance attic outlined. This is why layer 3 comes before the light — there
+  was nothing worth tracing until the relief existed.
+
+One renderer note that only shows up at night. **Outside the saturated `80s`
+palette a tube takes its pastel finish tint times an emissive 4.5 and blows
+out to white.** Club Mirage's "violet" trim was rendering as plain strip light
+for exactly that reason. `world.cpp` now carries a violet alongside the
+existing hot pink and electric cyan, keyed on the piece name, so the club has
+a colour of its own instead of borrowing the hotels'.
 
 ---
 
@@ -175,19 +195,20 @@ then not applied here:
 
 | | Before | After |
 |---|---:|---:|
-| Baked pieces | 239 | 508 |
+| Baked pieces | 239 | 521 |
 | Collision solids | 44 | 159 |
 | Tallest point | 9.95 m | 16.88 m (cap 18 m) |
 | Authored night lights | 6 | 6 |
-| Visible scene nodes, club front | 798 | 988 |
-| **Draw calls, club front** | **300** | **298** |
+| Longest neon run | 13 m | 110 m |
+| Visible scene nodes, club front | 798 | ~1000 |
+| **Draw calls, club front** | **300** | **~298** |
 
 The draw count did not move, and slightly fell. Every added piece is one more
 instance on the shared unit-box mesh, so they merge into the existing batches
 (9 instanced batches became 12). Streaming spikes over 4 ms per 150-frame run
 were 4 before and 4 after. **This layer is cheap in draw calls and expensive in
 scene nodes**, and that is the trade the piece budget in
-`miandi_prism_works_tests.cpp` guards: 300..560, currently 508.
+`miandi_prism_works_tests.cpp` guards: 300..560, currently 521.
 
 ---
 
@@ -211,7 +232,9 @@ silently rot:
 - every wall of the shell carries at least one opening;
 - anything named as facade relief is at least `kMiandiMirageReliefDepthM` deep;
 - the threshold sequence — queue canopy, portal, attic, gantry — is present;
-- the building breaks 13 m so it still has a silhouette.
+- the building breaks 13 m so it still has a silhouette;
+- neon stays thin — under 0.35 m in section — and at least one run spans 100 m,
+  so the architectural lines cannot quietly shrink back to trim.
 
 **What this pass does not claim.** No interior exists behind either public
 door; the baffle is a baffle. Pedestrians, traffic and any club activity are
@@ -225,6 +248,10 @@ mismatch and the road-flicker report from the previous pass are untouched.
 Two shared changes were needed to make one venue work, and they are the
 prerequisite for the rest, not part of the per-venue cost:
 
+0. A violet in the saturated `80s` neon palette in
+   [`world.cpp`](../../src/app/world.cpp), keyed on the piece name. Any venue
+   wanting a colour outside hot pink and electric cyan needs the same one-line
+   addition, or its tube renders white.
 1. `MiandiSurface::Brick` in
    [`miandi_presentation.h`](../../src/city/miandi_presentation.h), mapped to
    the existing brick material at a 1.8 m tile. This also affects the two
