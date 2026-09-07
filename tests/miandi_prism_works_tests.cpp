@@ -4,6 +4,7 @@
 #include <string_view>
 
 #include "city/miandi_prism_works.h"
+#include "city/miandi_presentation.h"
 #include "test_assert.h"
 
 using namespace apricot;
@@ -45,7 +46,12 @@ void site_plan_and_bake_are_pinned() {
     REQUIRE(city::valid_building_plan(city::kMiandiPrismWorksPlan));
     const auto a = city::bake_miandi_prism_works();
     const auto b = city::bake_miandi_prism_works();
-    REQUIRE(a.size() >= 65u && a.size() <= 400u);  // bounded two-layer club name
+    // The detail pass took the bake from 239 to 508 instanced boxes. The
+    // ceiling is a real budget, not a formality: every piece here is one
+    // scene node on the shared unit-box mesh, and the whole Miandi set has to
+    // fit alongside the road ribbons in the same frame. Rolling this pass out
+    // to the other five venues is what this number is really guarding.
+    REQUIRE(a.size() >= 300u && a.size() <= 560u);
     REQUIRE(a.size() == b.size());
     for (std::size_t i = 0; i < a.size(); ++i) {
         REQUIRE(std::strcmp(a[i].name, b[i].name) == 0);
@@ -124,6 +130,7 @@ void mural_neon_and_height_contracts_hold() {
     const auto parts = city::bake_miandi_prism_works();
     int mural = 0;
     int street_detail = 0;
+    int relief = 0;
     bool violet = false;
     bool aqua = false;
     bool warm_white = false;
@@ -131,9 +138,23 @@ void mural_neon_and_height_contracts_hold() {
     for (const auto& piece : parts) {
         top = std::max(top, piece.bottom_m + piece.height_m);
         if (named(piece, "mural")) { ++mural; REQUIRE(!piece.solid); REQUIRE(piece.width_m <= .11f); }
-        if (named(piece, "front brick pier") || named(piece, "food yard stool") ||
-            named(piece, "loading dock bumper") || named(piece, "monitor glazed end"))
+        if (named(piece, "food yard stool") || named(piece, "loading dock bumper") ||
+            named(piece, "monitor glazed end") || named(piece, "alley bike rack") ||
+            named(piece, "east pallet stack") || named(piece, "south keg") ||
+            named(piece, "lot wheel stop") || named(piece, "roof drain hopper"))
             ++street_detail;
+        // Facade relief is measured in the shadow it casts. The first pass's
+        // 0.14 m piers were invisible from the far kerb and gone entirely from
+        // a moving car; anything calling itself articulation now has to be at
+        // least kMiandiMirageReliefDepthM proud of its wall.
+        if (named(piece, "brick pilaster") || named(piece, "base course") ||
+            named(piece, "cornice") || named(piece, "string course") ||
+            named(piece, "entrance attic") || named(piece, "portal jamb")) {
+            ++relief;
+            REQUIRE_MSG(std::min(piece.width_m, piece.depth_m) >=
+                            city::kMiandiMirageReliefDepthM,
+                        "facade relief is too shallow to read", piece.name);
+        }
         if (named(piece, "miandi neon")) {
             REQUIRE(!piece.solid);
             violet |= named(piece, "violet");
@@ -149,9 +170,71 @@ void mural_neon_and_height_contracts_hold() {
     }
     REQUIRE(mural >= 4);
     REQUIRE(street_detail >= 16);
+    REQUIRE(relief >= 20);
     REQUIRE(violet && aqua && warm_white);
-    REQUIRE(top <= 18.0f);
-    apricot_test::pass("N2 uses mural panels, reuse details, non-solid miandi neon, parcel bounds, and 18 m cap");
+    // The shell is 8 m and the roof parapet tops out under 10. Something has
+    // to break that line or the club has no silhouette from Bayfront; the
+    // entrance attic and the roof sign gantry are that something.
+    REQUIRE(top > 13.0f && top <= 18.0f);
+    apricot_test::pass("N2 uses mural panels, reuse details, deep facade relief, non-solid miandi neon, parcel bounds, and 18 m cap");
+}
+
+
+// The two layers the first pass skipped entirely, pinned so a later edit
+// cannot quietly put the club back on a lawn or blank a street frontage.
+void the_block_is_paved_and_every_street_face_has_a_job() {
+    const auto parts = city::bake_miandi_prism_works();
+    struct Quarter { const char* name; float x0, x1, z0, z1; bool found; };
+    Quarter quarters[] = {
+        {"Mirage north forecourt paving", -90.f, 90.f, -55.f, -43.f, false},
+        {"Mirage north kerbside lot paving", -90.f, 90.f, -86.f, -55.f, false},
+        {"Mirage west alley paving", -90.f, -59.f, -43.f, 29.f, false},
+        {"Mirage east yard paving", 53.f, 90.f, -43.f, 29.f, false},
+        {"Mirage south yard paving", -90.f, 90.f, 29.f, 90.f, false},
+    };
+    for (const auto& piece : parts) {
+        for (auto& q : quarters) {
+            if (std::strcmp(piece.name, q.name) != 0) continue;
+            q.found = true;
+            REQUIRE_MSG(!piece.solid, "block paving must not be a collision box",
+                        piece.name);
+            REQUIRE_NEAR(piece.centre.x - half_x(piece), q.x0, 1e-4f);
+            REQUIRE_NEAR(piece.centre.x + half_x(piece), q.x1, 1e-4f);
+            REQUIRE_NEAR(piece.centre.z - half_z(piece), q.z0, 1e-4f);
+            REQUIRE_NEAR(piece.centre.z + half_z(piece), q.z1, 1e-4f);
+            // The paving kit only recognises ground pieces under 0.35 m that
+            // name a surface; miss that and the player drives on raw terrain
+            // through geometry that looks like a car park.
+            REQUIRE_MSG(city::miandi_ground_piece(piece),
+                        "block paving is not firm ground", piece.name);
+        }
+    }
+    for (const auto& q : quarters)
+        REQUIRE_MSG(q.found, "a quarter of the block has no authored surface",
+                    q.name);
+
+    // Four streets, four faces, four jobs. Every wall of the shell carries at
+    // least one real opening: the north front, the east loading facade, the
+    // rear onto the food yard and loading court, and the Solana alley.
+    for (const auto& wall : city::kMiandiPrismWorksWalls)
+        REQUIRE_MSG(wall.opening_count > 0u,
+                    "a street-facing wall has no opening at all", wall.name);
+    bool alley_door = false, crew_door = false, kitchen_door = false;
+    bool attic = false, gantry = false, portal = false, queue_canopy = false;
+    for (const auto& piece : parts) {
+        alley_door |= named(piece, "alley fire door");
+        crew_door |= named(piece, "crew door");
+        kitchen_door |= named(piece, "kitchen door");
+        attic |= named(piece, "entrance attic coping");
+        gantry |= named(piece, "roof sign gantry rail");
+        portal |= named(piece, "club portal head");
+        queue_canopy |= named(piece, "queue canopy");
+    }
+    REQUIRE(alley_door && crew_door && kitchen_door);
+    // The threshold is a sequence, not a doorway: queue canopy, portal, attic
+    // over it, sign gantry above that.
+    REQUIRE(queue_canopy && portal && attic && gantry);
+    apricot_test::pass("N2 paves its whole block and gives all four street faces an opening and a job");
 }
 
 }  // namespace
@@ -161,5 +244,6 @@ int main() {
     industrial_shell_openings_and_roof_rhythm_are_real();
     public_loading_and_yard_circulation_stay_clear();
     mural_neon_and_height_contracts_hold();
+    the_block_is_paved_and_every_street_face_has_a_job();
     return apricot_test::done("miandi_prism_works_tests");
 }

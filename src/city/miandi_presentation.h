@@ -8,7 +8,10 @@
 
 namespace apricot::city {
 
-enum class MiandiSurface { Plain, Stucco, Concrete, Metal, Asphalt };
+// Brick arrived with Club Mirage's detail pass. Before it, every masonry
+// finish resolved to stucco, so a reused garment warehouse and a Deco hotel
+// were painted from the same tin and the reuse story had nowhere to land.
+enum class MiandiSurface { Plain, Stucco, Concrete, Metal, Asphalt, Brick };
 
 struct MiandiPresentation {
     MiandiSurface surface = MiandiSurface::Plain;
@@ -29,7 +32,7 @@ inline MiandiPresentation miandi_presentation(const BuildingPiece& p,
                                  : std::array<float, 4>{1.f, .93f, .78f, 1.f};
             break;
         case BuildingFinish::Brick:
-            r.surface = MiandiSurface::Stucco;
+            r.surface = MiandiSurface::Brick;
             r.tint = {.97f, .72f, .60f, 1.f};
             break;
         case BuildingFinish::White:
@@ -72,7 +75,9 @@ inline MiandiPresentation miandi_presentation(const BuildingPiece& p,
             break;
     }
     const bool flat = p.height_m < .35f;
-    const float tile_m = r.surface == MiandiSurface::Asphalt ? 6.f : 2.4f;
+    const float tile_m = r.surface == MiandiSurface::Asphalt ? 6.f
+                       : r.surface == MiandiSurface::Brick   ? 1.8f
+                                                             : 2.4f;
     r.u_tiles = (flat ? p.width_m : std::max(p.width_m, p.depth_m)) / tile_m;
     r.v_tiles = (flat ? p.depth_m : p.height_m) / tile_m;
     return r;

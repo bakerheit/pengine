@@ -952,8 +952,14 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
     const bool residential=count>0 && part_name_has(parts[0],"house ");
     const bool natural_yard = residential || &site == &city::kTidewaterFarmSite;
     const bool tacomaco_site=&site==&city::kTacomacoSite;
+    // Sites on Miandi's physical-scale paint kit. Club Mirage joined with its
+    // detail pass: on the Plain path its walls took a flat finish tint at no
+    // texture scale, so the same brick shed read maroon from Bayfront, grey
+    // from Solana and black from Mango. The kit also turns its authored
+    // paving into firm ground the player can walk and drive on.
     const bool miandi_detailed_site = &site == &city::kMiandiOceanDriveSite ||
-                                      &site == &city::kMiandiContextSite;
+                                      &site == &city::kMiandiContextSite ||
+                                      &site == &city::kMiandiPrismWorksSite;
     for (std::size_t i = 0; i < count; ++i) {
         const city::StartPart& part = parts[i];
         if (city::building_access_replaces_pavement(site,part)) continue;
@@ -1678,6 +1684,8 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
                     r.material = materials.finish[finish_index(city::StartFinish::Steel)]; break;
                 case MiandiSurface::Asphalt:
                     r.material = materials.finish[finish_index(city::StartFinish::Asphalt)]; break;
+                case MiandiSurface::Brick:
+                    r.material = materials.finish[finish_index(city::StartFinish::Brick)]; break;
                 case MiandiSurface::Plain: break;
             }
             if (part_name_has(part, "resort planter soil")) {
@@ -1686,7 +1694,6 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
             }
         }
         if (miandi_detailed_site || &site == &city::kMiandiSunwaveHotelSite ||
-            &site == &city::kMiandiPrismWorksSite ||
             &site == &city::kMiandiCalleNocheSite) {
             const auto tint = city::miandi_venue_tint(
                 part, {r.tint.r, r.tint.g, r.tint.b, r.tint.a});
