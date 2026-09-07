@@ -9,6 +9,7 @@
 #include "app/traffic_visual_layout.h"
 #include "city/airport.h"
 #include "road/lane_graph.h"
+#include "traffic/crowd.h"
 
 namespace apricot {
 
@@ -92,6 +93,103 @@ struct TrafficSignalFixtureLayout {
     LaneRef incoming = kInvalidLane;
     TrafficSignalLayout layout;
 };
+
+struct RoadControlLayout {
+    LaneRef incoming = kInvalidLane;
+    JunctionControl control = JunctionControl::None;
+    bool all_way = false;
+    bool painted = false;
+    glm::vec3 pole_ground{0.0f};
+    glm::vec3 marking_centre{0.0f};
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+    glm::quat marking_rotation{1.0f, 0.0f, 0.0f, 0.0f};
+    float marking_width_m = 0.0f;
+};
+
+inline bool road_control_pole_clear(const LaneGraph& lanes, uint32_t junction,
+                                    glm::vec3 position) {
+    for (const auto* refs : {&lanes.junction(junction).incoming,
+                             &lanes.junction(junction).outgoing}) {
+        for (LaneRef r : *refs) {
+            const auto& lane = lanes.lane(r);
+            const auto projection = lanes.project_onto(r, {position.x, position.z});
+            const auto pose = lanes.pose(r, projection.dist_along_m);
+            // A clamped endpoint is not a continuation of the asphalt.
+            if (std::fabs(glm::dot(position - pose.position, pose.tangent)) > 0.5f)
+                continue;
+            const float t = projection.dist_along_m / std::max(0.01f, lane.length_m);
+            const float offset = glm::mix(lane.lateral_offset_start_m,
+                                         lane.lateral_offset_end_m, t);
+            const float width = glm::mix(lane.departure_width_m, lane.approach_width_m, t);
+            if (std::fabs(projection.lateral_m + offset) < width * 0.5f + 0.45f)
+                return false;
+        }
+    }
+    return true;
+}
+
+inline std::vector<RoadControlLayout> build_road_control_layouts(
+    const LaneGraph& lanes, const CrowdTuning& tuning = {}) {
+    std::vector<RoadControlLayout> result;
+    for (uint32_t j = 0; j < lanes.junction_count(); ++j) {
+        std::map<uint32_t, bool> seen_edges;
+        const float clear = traffic_junction_clearance(lanes, j, tuning);
+        for (LaneRef r : lanes.junction(j).incoming) {
+            const Lane& lane = lanes.lane(r);
+            const auto control = lanes.approach_control(r);
+            if ((control != JunctionControl::Stop && control != JunctionControl::Yield) ||
+                !seen_edges.emplace(lane.edge, true).second) continue;
+            const float station = std::max(0.0f, lane.length_m - clear +
+                tuning.traffic_half_length_m + 0.15f);
+            const auto pose = lanes.pose(r, station);
+            const float t = std::clamp(station / std::max(0.01f, lane.length_m), 0.0f, 1.0f);
+            const float offset = glm::mix(lane.lateral_offset_start_m,
+                                         lane.lateral_offset_end_m, t);
+            const glm::vec3 centre = pose.position - pose.right * offset;
+            const float side = offset < 0.0f ? -1.0f : 1.0f;
+            const float width = glm::mix(lane.departure_width_m, lane.approach_width_m, t);
+            RoadControlLayout layout;
+            layout.incoming = r;
+            layout.control = control;
+            layout.all_way = lanes.junction_control(j) == JunctionControl::Stop;
+            layout.painted = road_is_paved(lane.cls);
+            layout.pole_ground = centre + pose.right * side * (width * 0.5f + 0.8f);
+            // At a skewed merge, the side-road shoulder can still be a live
+            // motorway lane. Move the sign upstream until its post clears
+            // every connected carriageway, while keeping the yield line at
+            // the driver's actual gate.
+            for (int back = 0; back <= 48 &&
+                    !road_control_pole_clear(lanes, j, layout.pole_ground); ++back) {
+                const float pole_station = std::max(0.0f, station - static_cast<float>(back));
+                const auto pole_pose = lanes.pose(r, pole_station);
+                const float pole_t = pole_station / std::max(0.01f, lane.length_m);
+                const float pole_offset = glm::mix(lane.lateral_offset_start_m,
+                                                  lane.lateral_offset_end_m, pole_t);
+                const float pole_width = glm::mix(lane.departure_width_m,
+                                                  lane.approach_width_m, pole_t);
+                for (int verge = 0; verge < 5; ++verge) {
+                    layout.pole_ground = pole_pose.position + pole_pose.right *
+                        (side * (pole_width * 0.5f + 0.8f +
+                                 static_cast<float>(verge) * 0.5f) - pole_offset);
+                    if (road_control_pole_clear(lanes, j, layout.pole_ground)) break;
+                }
+            }
+            layout.marking_centre = centre + pose.right *
+                (lane.one_way ? 0.0f : side * width * 0.25f);
+            layout.marking_width_m = std::max(0.5f,
+                width * (lane.one_way ? 1.0f : 0.5f) - 0.65f);
+            glm::vec3 facing = -pose.tangent;
+            facing.y = 0.0f; facing = glm::normalize(facing);
+            layout.rotation = glm::normalize(glm::quat_cast(
+                glm::mat3{pose.right, glm::vec3{0, 1, 0}, facing}));
+            layout.marking_rotation = glm::normalize(glm::quat_cast(glm::mat3{
+                pose.right, glm::normalize(glm::cross(-pose.tangent, pose.right)),
+                -pose.tangent}));
+            result.push_back(layout);
+        }
+    }
+    return result;
+}
 
 inline bool traffic_signal_fixtures_overlap(
     const TrafficSignalFixtureLayout& a,

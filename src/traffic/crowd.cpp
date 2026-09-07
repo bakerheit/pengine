@@ -686,10 +686,12 @@ float traffic_junction_clearance(const LaneGraph& graph, uint32_t junction,
     std::vector<Arm> arms;
     float widest = 0.0f;
     float shortest = kInf;
+    bool all_sidewalks = true;
     const auto& node = graph.junction(junction);
     auto add_arm = [&](LaneRef ref, bool incoming) {
         const Lane& lane = graph.lane(ref);
         widest = std::max(widest, lane.width_m);
+        all_sidewalks = all_sidewalks && lane.sidewalks;
         shortest = std::min(shortest, lane.length_m);
         const LanePose pose = graph.pose(ref, incoming ? lane.length_m : 0.0f);
         arms.push_back({{pose.position.x, pose.position.z},
@@ -698,17 +700,27 @@ float traffic_junction_clearance(const LaneGraph& graph, uint32_t junction,
     };
     for (LaneRef ref : node.incoming) add_arm(ref, true);
     for (LaneRef ref : node.outgoing) add_arm(ref, false);
+    const float front_margin = node.degree >= 3 && all_sidewalks
+        ? std::max(tuning.junction_storage_margin_m,
+            kRoadJunctionMarginM + kRoadCrosswalkDepthM + 0.75f)
+        : tuning.junction_storage_margin_m;
     const float base = traffic_junction_clearance(widest,
-        tuning.traffic_half_length_m, tuning.junction_storage_margin_m, minimum);
+        tuning.traffic_half_length_m, front_margin, minimum);
     float clearance = base;
     auto cross = [](glm::vec2 a, glm::vec2 b) { return a.x*b.y - a.y*b.x; };
-    // Acute road mouths can overlap well before an ordinary square stop box.
+    // Angled road mouths can overlap beyond an ordinary square stop box.
     // Find where their lane corridors cross and reserve that whole merge area,
     // so two queues cannot park through one another while obeying their lights.
     for (std::size_t a = 0; a < arms.size(); ++a) {
         for (std::size_t b = a + 1; b < arms.size(); ++b) {
             const float alignment = glm::dot(arms[a].outward, arms[b].outward);
-            if (alignment < 0.8660254f || alignment > 0.9999f) continue;
+            // Yield/stop approaches can wait beside live priority traffic.
+            // Their full angled mouths need clearance even at a 60-degree
+            // merge. Signals already serialize those crossing directions;
+            // retain their established box except for acute overlapping arms.
+            const float alignment_floor = node.control == JunctionControl::Signal
+                ? 0.8660254f : -0.8660254f;
+            if (alignment < alignment_floor || alignment > 0.9999f) continue;
             const float sine = cross(arms[a].outward, arms[b].outward);
             const glm::vec2 delta = arms[b].point - arms[a].point;
             const float along_a = cross(delta, arms[b].outward) / sine;
@@ -771,6 +783,35 @@ TrafficStopDecision traffic_stop_decision(float slack_to_line_m,
     return out;
 }
 
+DriverProfile traffic_driver_after_wait(const DriverProfile& profile,
+                                        float delay_seconds) {
+    DriverProfile out = profile;
+    const float frustration = std::clamp(
+        delay_seconds / std::max(1.0f, profile.patience_seconds * 3.0f), 0.0f, 1.0f);
+    out.headway *= 1.0f - frustration * 0.15f;
+    out.accel *= 1.0f + frustration * 0.15f;
+    return out;
+}
+
+float traffic_gap_margin_seconds(const DriverProfile& profile, float delay_seconds) {
+    const float comfort = std::max(1.25f, profile.headway * 1.6f);
+    const float frustration = std::clamp(
+        delay_seconds / std::max(1.0f, profile.patience_seconds * 3.0f), 0.0f, 1.0f);
+    return std::max(0.9f, comfort * (1.0f - frustration * 0.35f));
+}
+
+float traffic_travel_seconds(float distance_m, float speed_mps,
+                             float acceleration_mps2, float speed_cap_mps) {
+    const float distance = std::max(0.0f, distance_m);
+    const float cap = std::max(0.5f, speed_cap_mps);
+    const float speed = std::clamp(speed_mps, 0.0f, cap);
+    const float accel = std::max(0.1f, acceleration_mps2);
+    const float ramp_distance = (cap * cap - speed * speed) / (2.0f * accel);
+    if (distance <= ramp_distance)
+        return (std::sqrt(speed * speed + 2.0f * accel * distance) - speed) / accel;
+    return (cap - speed) / accel + (distance - ramp_distance) / cap;
+}
+
 bool traffic_approach_yields(const TrafficApproachView& mine,
                              const TrafficApproachView& other,
                              bool all_way_stop, float eta_tie_seconds) {
@@ -793,7 +834,8 @@ bool traffic_approach_yields(const TrafficApproachView& mine,
     }
 
     if (mine.priority != other.priority)
-        return mine.priority < other.priority;
+        return mine.priority < other.priority &&
+               other.eta_seconds <= mine.clearance_seconds;
     const float tie = std::max(0.0f, eta_tie_seconds);
     if (std::fabs(mine.eta_seconds - other.eta_seconds) > tie)
         return mine.eta_seconds > other.eta_seconds;
@@ -1537,7 +1579,7 @@ void Crowd::rebuild_buckets() {
             v.committed_exit_lane,
             agent_planned_exit(*graph_, v, map_seed_),
             active_turn(*graph_, v),
-            vehicle_engine_failed(v.mechanical)};
+            vehicle_engine_failed(v.mechanical), v.delay_seconds};
         if (!graph_->valid(v.lane)) continue;
         std::vector<BucketEntry>& b = lane_buckets_[v.lane];
         if (b.empty()) touched_lanes_.push_back(v.lane);
@@ -1569,6 +1611,15 @@ void Crowd::rebuild_buckets() {
             const Lane& lane = graph_->lane(v.lane);
             const float to_end = lane.length_m - head.dist;
             float head_lookahead = tuning_.junction_lookahead_m;
+            const auto control = graph_->junction_control(lane.junction_to);
+            if (control == JunctionControl::Yield ||
+                control == JunctionControl::PriorityStop) {
+                // A minor-road driver needs to see a usable gap several
+                // seconds away, including fast traffic beyond the old 18 m
+                // stop-line scan. Still only one frozen head per lane.
+                head_lookahead = std::max(head_lookahead,
+                    std::max(v.speed_mps, lane.speed_limit_mps) * 12.0f);
+            }
             if (lane.speed_limit_mps > 20.0f) {
                 head_lookahead = std::max(
                     head_lookahead,
@@ -1863,6 +1914,22 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         }
         const float remaining = std::max(0.0f, approach.length_m - s.dist_along_m);
         out.eta_seconds = remaining / std::max(s.speed_mps, 1.0f);
+        const auto control = graph_->junction_control(junction);
+        if (control == JunctionControl::Yield ||
+            control == JunctionControl::PriorityStop) {
+            const auto driver = traffic_driver_after_wait(a.profile, s.delay_seconds);
+            const float clear = junction_clearance(junction);
+            // Predict priority traffic accelerating, not holding its current
+            // low speed. Otherwise a stopped lead looks falsely far away.
+            out.eta_seconds = traffic_travel_seconds(remaining - clear,
+                s.speed_mps, driver.accel, std::max(a.cruise_mps, s.speed_mps));
+            const float cap = std::min(std::max(0.5f, a.cruise_mps),
+                turn ? turn_speed_limit(turn->kind) : 6.0f);
+            out.clearance_seconds = out.eta_seconds +
+                traffic_travel_seconds(clear * 2.0f + tuning_.car_length_m,
+                    s.speed_mps, driver.accel, cap) +
+                traffic_gap_margin_seconds(a.profile, s.delay_seconds);
+        }
         return out;
     };
 
@@ -1959,7 +2026,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
 
         // --- what would slow me down ---------------------------------------
         const float gap = leader_gap_[i] - tuning_.car_length_m;
-        DriverProfile prof = v.profile;
+        DriverProfile prof = traffic_driver_after_wait(v.profile, v.delay_seconds);
         prof.min_gap = effective_min_gap(prof, min_gap_floor);
         const float pursuit_cruise = std::min(
             24.0f, lane.speed_limit_mps * 1.18f);
@@ -2154,6 +2221,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         // approach logic resumes on the first step after the rear clears.
         if (!clearing_intersection && jn < graph_->junction_count()) {
             const JunctionControl ctrl = graph_->junction_control(jn);
+            const JunctionControl facing = graph_->approach_control(v.lane);
             if (ctrl == JunctionControl::Signal) {
                 if (v.stop_junction != jn) {
                     v.stop_junction = jn;
@@ -2173,7 +2241,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                         std::max(0.0f, slack), v.speed_mps, prof) ||
                         (slack <= 0.0f && v.speed_mps < 0.35f);
                 }
-            } else if (ctrl == JunctionControl::Stop) {
+            } else if (facing == JunctionControl::Stop) {
                 if (v.stop_junction != jn) {
                     v.stop_junction = jn;
                     v.stop_wait_steps = 0;
@@ -2197,12 +2265,18 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                 v.stop_arrival_step = -1;
                 v.stop_completed = false;
             }
+            if (facing == JunctionControl::Yield) {
+                // Look before merging. With an open gap this is a rolling
+                // approach, with no synthetic stop-sign dwell.
+                const float rolling_cap = lane.speed_limit_mps > 20.0f ? 12.0f : 6.0f;
+                target = std::min(target, rolling_cap + std::max(0.0f, slack) * 0.3f);
+            }
 
             // Cross-traffic negotiation uses the frozen head car on each
             // approach. Signals admit only the active phase; all-way stops use
             // completed-stop arrival order; uncontrolled junctions and left
             // turns use movement priority, ETA, then stable identity.
-            const bool eligible = ctrl != JunctionControl::Stop ||
+            const bool eligible = facing != JunctionControl::Stop ||
                                   v.stop_completed;
             float conflict_lookahead = tuning_.junction_lookahead_m;
             if (lane.speed_limit_mps > 20.0f) {
@@ -2276,7 +2350,8 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                     }
 
                     int64_t other_arrival = os.stop_arrival_step;
-                    if (ctrl == JunctionControl::Stop && !other_committed) {
+                    if (!other_committed &&
+                        graph_->approach_control(os.lane) == JunctionControl::Stop) {
                         const Lane& ol = graph_->lane(os.lane);
                         const float other_slack =
                             ol.length_m - os.dist_along_m -
@@ -2323,6 +2398,11 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
             ++stats_.junction_box_holds;
         }
         if (vehicle_engine_failed(v.mechanical)) target=0.f;
+        if (!vehicle_engine_failed(v.mechanical) &&
+            v.speed_mps < 0.5f && target < 0.5f)
+            v.delay_seconds = std::min(60.0f, v.delay_seconds + dt);
+        else if (v.speed_mps > 2.0f)
+            v.delay_seconds = std::max(0.0f, v.delay_seconds - dt * 0.5f);
         const bool perturbed = target < v.cruise_mps - 1e-4f;
 
         if (v.mode == AgentMode::Analytic && !perturbed) {
@@ -2994,6 +3074,7 @@ uint64_t Crowd::population_hash() const {
         h = mix_f32(h, v.dist_along_m);
         h = mix_f32(h, v.speed_mps);
         h = mix_bits(h, v.stop_junction);
+        h = mix_f32(h, v.delay_seconds);
         h = mix_bits(h, static_cast<uint64_t>(v.stop_wait_steps));
         h = mix_bits(h, static_cast<uint64_t>(v.stop_arrival_step));
         h = mix_bits(h, v.stop_completed ? 1u : 0u);

@@ -217,11 +217,11 @@ void test_junction_control_follows_the_hierarchy() {
 
     REQUIRE(n.lanes.junction_control(four_way) == JunctionControl::Signal);
     REQUIRE(n.lanes.junction_control(t_street) == JunctionControl::Signal);
-    // Dirt takes stop signs, and the stop wins even against an arterial.
-    REQUIRE(n.lanes.junction_control(t_dirt) == JunctionControl::Stop);
+    // Dirt stops at the arterial; through traffic retains priority.
+    REQUIRE(n.lanes.junction_control(t_dirt) == JunctionControl::PriorityStop);
     REQUIRE(n.lanes.junction_control(bend) == JunctionControl::None);
 
-    // A four-way of plain streets is signalled; a T of plain streets is not.
+    // Local four-ways use all-way stops; T side roads yield.
     {
         std::vector<RoadSpine> s;
         RoadSpine a;
@@ -239,7 +239,7 @@ void test_junction_control_follows_the_hierarchy() {
         t.lanes.build(t.graph, GroundSampler{});
         const uint32_t j = node_at(t.graph, {0.0f, 0.0f});
         REQUIRE(t.graph.node(j).edges.size() == 3);
-        REQUIRE(t.lanes.junction_control(j) == JunctionControl::None);
+        REQUIRE(t.lanes.junction_control(j) == JunctionControl::Yield);
 
         s[0].cls = RoadClass::Arterial;
         s[1].cls = RoadClass::Alley;
@@ -248,7 +248,7 @@ void test_junction_control_follows_the_hierarchy() {
         access.lanes.build(access.graph, GroundSampler{});
         const uint32_t access_junction = node_at(access.graph, {0.0f, 0.0f});
         REQUIRE(access.lanes.junction_control(access_junction) ==
-                JunctionControl::None);
+                JunctionControl::PriorityStop);
 
         s[0].cls = RoadClass::Street;
         s[1].cls = RoadClass::Street;
@@ -258,9 +258,9 @@ void test_junction_control_follows_the_hierarchy() {
         f.lanes.build(f.graph, GroundSampler{});
         const uint32_t k = node_at(f.graph, {0.0f, 0.0f});
         REQUIRE(f.graph.node(k).edges.size() == 4);
-        REQUIRE(f.lanes.junction_control(k) == JunctionControl::Signal);
+        REQUIRE(f.lanes.junction_control(k) == JunctionControl::Stop);
     }
-    pass("signal / stop / none follow the class table, not the degree alone");
+    pass("signals, all-way stops, side-road stops and yields follow the road hierarchy");
 }
 
 void test_turn_kinds_and_priorities() {

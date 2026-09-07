@@ -191,6 +191,7 @@ apricot_add_suite(traffic_determinism_tests)
 apricot_add_suite(traffic_runtime_tests)
 apricot_add_suite(police_runtime_tests)
 apricot_add_suite(traffic_junction_tests)
+apricot_add_suite(traffic_behavior_tests)
 apricot_add_suite(traffic_bench)
 
 # Full-size commercial bus asset and selectable catalog contract.

@@ -180,6 +180,8 @@ constexpr float lane_centre_offset_m(RoadClass c, int lane_index) {
 // numbers so the walkable line is always on the drawn slab.
 inline constexpr float kSidewalkWidthM = 3.0f;
 inline constexpr float kKerbHeightM = 0.12f;
+inline constexpr float kRoadJunctionMarginM = 0.6f;
+inline constexpr float kRoadCrosswalkDepthM = 2.5f;
 
 // Every drawn road surface sits this far ABOVE the terrain mesh, so it never
 // z-fights the ground it drapes onto. A raised sidewalk slab sits one kerb

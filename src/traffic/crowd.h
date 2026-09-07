@@ -182,6 +182,9 @@ struct VehicleAgent {
     // driver look for a different turn.
     int64_t blocked_exit_steps = 0;
     int64_t intersection_stall_steps = 0;
+    // Frustration builds while stuck and fades after traffic starts moving.
+    // It changes comfort gaps and launch acceleration, never legal controls.
+    float delay_seconds = 0.0f;
 
     // World-space reaction layered over the lane pose. Traffic normally stays
     // cheap and lane-constrained, but a player impact gives it linear and
@@ -443,6 +446,12 @@ TrafficStopDecision traffic_stop_decision(float slack_to_line_m, float speed_mps
                                           int64_t required_steps,
                                           float capture_m);
 
+DriverProfile traffic_driver_after_wait(const DriverProfile& profile,
+                                        float delay_seconds);
+float traffic_gap_margin_seconds(const DriverProfile& profile, float delay_seconds);
+float traffic_travel_seconds(float distance_m, float speed_mps,
+                             float acceleration_mps2, float speed_cap_mps);
+
 struct TrafficApproachView {
     bool valid = false;
     bool committed = false;
@@ -451,10 +460,14 @@ struct TrafficApproachView {
     int64_t arrival_step = -1;
     uint64_t lane_key = 0;
     uint32_t slot = 0;
+    // Includes travel to the gate, the whole vehicle clearing, and the
+    // driver's comfort margin. Infinity disables gap acceptance.
+    float clearance_seconds = std::numeric_limits<float>::infinity();
 };
 
-// Strict, antisymmetric right-of-way pick. A committed car wins first, then
-// movement priority, then arrival/ETA, then stable agent identity.
+// A committed car wins. Otherwise a lower-priority driver needs enough time
+// to clear before priority traffic arrives; competing arrivals use a stable
+// priority / arrival / identity order.
 bool traffic_approach_yields(const TrafficApproachView& mine,
                              const TrafficApproachView& other,
                              bool all_way_stop, float eta_tie_seconds);
@@ -603,6 +616,7 @@ private:
         LaneRef planned_exit_lane = kInvalidLane;
         bool active_turn = false;
         bool engine_failed = false;
+        float delay_seconds = 0.0f;
     };
 
     void build_lane_index();

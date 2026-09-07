@@ -43,6 +43,8 @@ enum class JunctionControl : uint8_t {
     None = 0,  // uncontrolled: proceed on priority
     Signal,    // traffic lights, two phases (see approach_group_a)
     Stop,      // all-way stop signs
+    PriorityStop, // minor approaches stop; the through road keeps priority
+    Yield,     // minor approaches yield, without a mandatory stop
 };
 
 const char* junction_control_name(JunctionControl c);
@@ -122,7 +124,15 @@ struct Lane {
     uint8_t lanes_at_end = 1;
 
     float width_m = 0.0f;  // the road's full carriageway width
+    float departure_width_m = 0.0f;
+    float approach_width_m = 0.0f;
+    bool one_way = false;
+    bool sidewalks = false;
     float speed_limit_mps = 0.0f;
+
+    // The control facing THIS driver at junction_to. PriorityStop junctions
+    // expose Stop on the side road and None on the through road.
+    JunctionControl approach_control = JunctionControl::None;
 
     // Carried straight off the authored spine. Nothing here interprets them.
     float traffic_density = 1.0f;
@@ -251,6 +261,10 @@ public:
     JunctionControl junction_control(uint32_t i) const {
         return junctions_[i].control;
     }
+    JunctionControl approach_control(LaneRef incoming) const {
+        return valid(incoming) ? lanes_[incoming].approach_control
+                               : JunctionControl::None;
+    }
 
     // Which half of a two-phase signal cycle an approach belongs to.
     // Approaches are clustered by road AXIS (heading folded to a half circle)
@@ -281,6 +295,7 @@ private:
     };
 
     LaneRef add_lane(Lane&& lane);
+    void assign_approach_controls(const RoadGraph& graph);
     void link_junctions(const RoadGraph& graph, bool drive_on_right);
     void build_index(float cell_m);
     void gather_candidates(glm::vec2 xz, float radius_m,

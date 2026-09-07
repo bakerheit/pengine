@@ -63,6 +63,7 @@ public:
     std::size_t car_count() const { return rigs_.size(); }
     std::size_t signal_head_count() const { return signals_.size(); }
     std::size_t street_lamp_count() const { return street_lamps_.size(); }
+    std::size_t road_sign_count() const { return road_sign_count_; }
     const std::vector<TrafficSpotLight>& headlights() const { return headlights_; }
 
 private:
@@ -133,6 +134,8 @@ private:
                        TerrainCollider& collider);
     void build_street_lamps(Scene& scene, const LaneGraph& lanes,
                             TerrainCollider& collider);
+    void build_road_controls(Scene& scene, const LaneGraph& lanes,
+                             TerrainCollider& collider);
 
     std::array<Model, 8> models_{};
     MeshId wheel_mesh_ = kInvalidId;
@@ -151,6 +154,12 @@ private:
     std::size_t vehicle_headlight_count_ = 0;
     std::vector<SignalRig> signals_;
     std::vector<StreetLampRig> street_lamps_;
+    std::array<std::array<MeshId, 3>, 3> road_sign_meshes_{};
+    std::array<std::array<AABB, 3>, 3> road_sign_bounds_{};
+    MeshId yield_marking_mesh_ = kInvalidId;
+    AABB yield_marking_bounds_;
+    std::vector<NodeId> road_control_nodes_;
+    std::size_t road_sign_count_ = 0;
 };
 
 }  // namespace apricot
