@@ -26,6 +26,8 @@ const char* junction_control_name(JunctionControl c) {
         case JunctionControl::None: return "none";
         case JunctionControl::Signal: return "signal";
         case JunctionControl::Stop: return "stop";
+        case JunctionControl::PriorityStop: return "side-road stop";
+        case JunctionControl::Yield: return "yield";
     }
     return "?";
 }
@@ -176,23 +178,19 @@ JunctionControl control_for(const RoadGraph& g, uint32_t n) {
         if (c != RoadClass::Alley) all_alley = false;
     }
 
-    // Order matters, and each step is a rule from pinatty.md §3:
-    //  * freeway ramp merges are uncontrolled. The authored Rimway terminal
-    //    at Apron Spine is the one freeway/arterial surface junction and must
-    //    be signalled or the six motorway lanes cross dock traffic at speed.
-    //  * dirt takes stop signs, never lights, and the stop wins even against
-    //    an arterial.
-    //  * alleys are uncontrolled at any degree.
-    //  * an arterial or better in the mix makes it a signalled crossing.
-    //  * a four-way of plain streets is signalled; a T of plain streets is not.
+    // Busy surface crossings keep signals. A ramp yields to the motorway;
+    // dirt/access roads stop at the paved road without stopping its traffic.
+    // Local four-ways use all-way stops, and local T junctions yield to the
+    // continuing road. These controls also drive the roadside fixtures.
     if (any_freeway) return any_arterial ? JunctionControl::Signal
-                                        : JunctionControl::None;
-    if (any_unpaved) return JunctionControl::Stop;
+                                        : JunctionControl::Yield;
+    if (any_unpaved) return road_uses_stop_signs(g.dominant_class(n))
+        ? JunctionControl::Stop : JunctionControl::PriorityStop;
     if (all_alley) return JunctionControl::None;
-    if (any_alley && nd.edges.size() == 3) return JunctionControl::None;
+    if (any_alley && nd.edges.size() == 3) return JunctionControl::PriorityStop;
     if (any_major) return JunctionControl::Signal;
-    if (nd.edges.size() >= 4) return JunctionControl::Signal;
-    return JunctionControl::None;
+    if (nd.edges.size() >= 4) return JunctionControl::Stop;
+    return JunctionControl::Yield;
 }
 
 int64_t cell_key(int32_t cx, int32_t cz) {
@@ -305,6 +303,10 @@ void LaneGraph::build(const RoadGraph& graph, const GroundSampler& ground,
                 l.lanes_at_start = lanes_at_start;
                 l.lanes_at_end = lanes_at_end;
                 l.width_m = e.width_m;
+                l.departure_width_m = forward ? e.width_start_m : e.width_end_m;
+                l.approach_width_m = forward ? e.width_end_m : e.width_start_m;
+                l.one_way = e.one_way;
+                l.sidewalks = e.sidewalks();
                 l.speed_limit_mps = e.one_way ? 13.9f : def.speed_limit_mps;
                 l.traffic_density = e.traffic_density;
                 l.ped_density = e.ped_density;
@@ -319,8 +321,67 @@ void LaneGraph::build(const RoadGraph& graph, const GroundSampler& ground,
         junctions_[lanes_[r].junction_to].incoming.push_back(r);
     }
 
+    assign_approach_controls(graph);
     link_junctions(graph, params.drive_on_right);
     build_index(index_cell_m_);
+}
+
+void LaneGraph::assign_approach_controls(const RoadGraph& graph) {
+    for (uint32_t j = 0; j < junctions_.size(); ++j) {
+        const auto& junction = junctions_[j];
+        const auto control = junction.control;
+        if (control != JunctionControl::Yield &&
+            control != JunctionControl::PriorityStop) {
+            for (LaneRef r : junction.incoming) lanes_[r].approach_control = control;
+            continue;
+        }
+        const RoadClass dominant = graph.dominant_class(j);
+        std::vector<LaneRef> main_roads;
+        // Include outgoing-only roads when finding the continuing axis: an
+        // off-ramp has no incoming lane, but is still part of the junction.
+        for (const auto* refs : {&junction.incoming, &junction.outgoing}) {
+            for (LaneRef r : *refs) {
+                if (lanes_[r].cls != dominant) continue;
+                if (std::none_of(main_roads.begin(), main_roads.end(),
+                        [&](LaneRef p) { return lanes_[p].edge == lanes_[r].edge; }))
+                    main_roads.push_back(r);
+            }
+        }
+        std::sort(main_roads.begin(), main_roads.end(), [&](LaneRef a, LaneRef b) {
+            return lanes_[a].key < lanes_[b].key;
+        });
+        auto outward = [&](LaneRef r) {
+            return lanes_[r].junction_from == j ? lane_start_dir(lanes_[r])
+                                                : -lane_end_dir(lanes_[r]);
+        };
+        LaneRef first = main_roads.empty() ? kInvalidLane : main_roads.front();
+        LaneRef second = kInvalidLane;
+        float best_dot = 2.0f;
+        bool best_continuation = false;
+        for (std::size_t a = 0; a < main_roads.size(); ++a)
+            for (std::size_t b = a + 1; b < main_roads.size(); ++b) {
+                const bool continuation =
+                    graph.edge(lanes_[main_roads[a]].edge).spine_id ==
+                    graph.edge(lanes_[main_roads[b]].edge).spine_id;
+                const float alignment = glm::dot(outward(main_roads[a]),
+                                                  outward(main_roads[b]));
+                // A named road can bend through a T. A straighter dead-end
+                // spur must not steal its priority (Marlow / Aldermans End).
+                if ((continuation && !best_continuation) ||
+                    (continuation == best_continuation && alignment < best_dot - 1e-5f)) {
+                    best_dot = alignment;
+                    best_continuation = continuation;
+                    first = main_roads[a]; second = main_roads[b];
+                }
+            }
+        for (LaneRef r : junction.incoming) {
+            const bool through = (valid(first) && lanes_[r].edge == lanes_[first].edge) ||
+                                 (valid(second) && lanes_[r].edge == lanes_[second].edge);
+            lanes_[r].approach_control = through ? JunctionControl::None
+                : (control == JunctionControl::PriorityStop ? JunctionControl::Stop
+                                                            : JunctionControl::Yield);
+        }
+    }
 }
 
 void LaneGraph::link_junctions(const RoadGraph& graph, bool drive_on_right) {
@@ -390,6 +451,15 @@ void LaneGraph::link_junctions(const RoadGraph& graph, bool drive_on_right) {
 
             auto prio = [&](TurnKind k) {
                 if (k == TurnKind::UTurn) return TurnPriority::Yield;
+                const bool priority_junction = jn.control == JunctionControl::Yield ||
+                                               jn.control == JunctionControl::PriorityStop;
+                if (priority_junction) {
+                    // A priority-road left turn still precedes the side road,
+                    // but yields to opposing priority-road through traffic.
+                    if (in_l.approach_control != JunctionControl::None)
+                        return TurnPriority::Yield;
+                    if (k == crossing) return TurnPriority::Minor;
+                }
                 if (k == crossing) return TurnPriority::Yield;
                 if (in_l.cls != dominant) return TurnPriority::Minor;
                 if (k == TurnKind::Straight) return TurnPriority::Major;

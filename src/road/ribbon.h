@@ -113,10 +113,10 @@ struct RibbonParams {
     // How far past the widest incident half-width a ribbon is pulled back at a
     // junction, so approaches stop at the plate instead of piling into the
     // centre and z-fighting each other.
-    float junction_margin_m = 0.6f;
+    float junction_margin_m = kRoadJunctionMarginM;
 
     // Depth of a zebra band along its approach.
-    float crosswalk_depth_m = 2.5f;
+    float crosswalk_depth_m = kRoadCrosswalkDepthM;
 
     // World metres per texture repeat: asphalt, one concrete slab, and the
     // span of one crosswalk bar pair.

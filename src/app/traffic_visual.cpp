@@ -13,6 +13,7 @@
 #include "app/vehicle_headlight_profile.h"
 #include "app/emergency_lighting.h"
 #include "app/road_fixture_layout.h"
+#include "app/road_sign_mesh.h"
 #include "app/traffic_signal_mesh.h"
 #include "city/interior_streaming.h"
 #include "core/asset_root.h"
@@ -217,12 +218,26 @@ bool TrafficVisual::init(Renderer& renderer, Scene& scene,
     if(!signal_white.make_white())return false;
     signal_material_=renderer.add_material(std::move(signal_white),false,.16f);
 
+    for (std::size_t kind = 0; kind < road_sign_meshes_.size(); ++kind) {
+        const auto meshes = make_road_sign_mesh(kind == 2u, kind == 1u);
+        for (std::size_t part = 0; part < meshes.size(); ++part) {
+            road_sign_meshes_[kind][part] = renderer.add_mesh(meshes[part]);
+            road_sign_bounds_[kind][part] = meshes[part].bounds;
+            if (road_sign_meshes_[kind][part] == kInvalidId) return false;
+        }
+    }
+    const auto teeth = make_yield_marking();
+    yield_marking_mesh_ = renderer.add_mesh(teeth);
+    yield_marking_bounds_ = teeth.bounds;
+    if (yield_marking_mesh_ == kInvalidId) return false;
+
     tuning_ = tuning;
     build_signals(scene, lanes, collider);
     build_street_lamps(scene, lanes, collider);
+    build_road_controls(scene, lanes, collider);
     AP_INFO("traffic visual: 8 bodies, shared moving wheels, %zu signal "
-            "heads, %zu street lamps ready",
-            signals_.size(), street_lamps_.size());
+            "heads, %zu street lamps, %zu stop/yield signs ready",
+            signals_.size(), street_lamps_.size(), road_sign_count_);
     return true;
 }
 
@@ -680,6 +695,51 @@ void TrafficVisual::build_street_lamps(Scene& scene, const LaneGraph& lanes,
     }
 }
 
+void TrafficVisual::build_road_controls(Scene& scene, const LaneGraph& lanes,
+                                       TerrainCollider& collider) {
+    for (const auto& layout : build_road_control_layouts(lanes, tuning_)) {
+        const std::size_t kind = layout.control == JunctionControl::Yield
+            ? 2u : (layout.all_way ? 1u : 0u);
+        Transform sign;
+        sign.position = layout.pole_ground;
+        const float ground_y = collider.height(sign.position.x, sign.position.z);
+        // Ground-mounted signs follow the roadside; elevated merges use the
+        // same deck height as their lane instead of planting a pole below it.
+        if (std::fabs(ground_y - sign.position.y) < 1.0f) sign.position.y = ground_y;
+        sign.rotation = layout.rotation;
+        const std::array<glm::vec4, 3> colors{
+            glm::vec4{0.40f, 0.43f, 0.45f, 1},
+            glm::vec4{0.95f, 0.95f, 0.89f, 1},
+            glm::vec4{0.72f, 0.025f, 0.018f, 1}};
+        for (std::size_t part = 0; part < colors.size(); ++part) {
+            Renderable renderable;
+            renderable.mesh = road_sign_meshes_[kind][part];
+            renderable.material = flat_material_;
+            renderable.tint = colors[part];
+            const auto node = scene.create(renderable, sign, road_sign_bounds_[kind][part]);
+            set_draw_distance(scene, node, 220.0f);
+            road_control_nodes_.push_back(node);
+        }
+        ++road_sign_count_;
+        collider.add_static_box(AABB{sign.position + glm::vec3{-0.04f, 0, -0.04f},
+            sign.position + glm::vec3{0.04f, 2.6f, 0.04f}}, Surface::Rock);
+        if (!layout.painted) continue;
+        Renderable paint;
+        paint.material = flat_material_;
+        paint.tint = colors[1];
+        paint.mesh = kind == 2u ? yield_marking_mesh_ : box_mesh_;
+        Transform marking;
+        marking.position = layout.marking_centre + glm::vec3{0, 0.035f, 0};
+        marking.rotation = layout.marking_rotation;
+        marking.scale = kind == 2u ? glm::vec3{layout.marking_width_m, 1, 1}
+                                  : glm::vec3{layout.marking_width_m, 0.012f, 0.40f};
+        const auto node = scene.create(paint, marking,
+            kind == 2u ? yield_marking_bounds_ : box_bounds_);
+        set_draw_distance(scene, node, 180.0f);
+        road_control_nodes_.push_back(node);
+    }
+}
+
 void TrafficVisual::sync_street_lights(Scene& scene, glm::vec3 camera_position,
                                       float night_level) {
     // Rendering can run more than once between simulation updates.
@@ -705,6 +765,9 @@ void TrafficVisual::clear_vehicles(Scene& scene) {
 
 void TrafficVisual::destroy(Scene& scene) {
     clear_vehicles(scene);
+    for (NodeId node : road_control_nodes_) scene.remove(node);
+    road_control_nodes_.clear();
+    road_sign_count_ = 0;
     for (SignalRig& signal : signals_) {
         for (NodeId id : signal.all) scene.remove(id);
     }

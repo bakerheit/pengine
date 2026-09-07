@@ -1083,7 +1083,9 @@ void signal_box_admits_a_bounded_number_of_cars() {
                 escape_steps,
                 static_cast<double>(max_intersection_stall_steps) / 120.0);
     REQUIRE(candidate_pairs > 0u);
-    REQUIRE(contacts_resolved > 0u);
+    // This fixture injects no impact. Good junction negotiation should avoid
+    // contacts; the explicit collision tests above exercise solver response.
+    REQUIRE(contacts_resolved == 0u);
     REQUIRE(box_holds > 0u);
     REQUIRE(reroutes > 0u);
     REQUIRE(max_claimed <= 8u);
