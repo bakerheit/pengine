@@ -154,8 +154,8 @@ inline constexpr BuildingPiece kMiandiPrismWorksFixtures[] = {
     {"Mirage mural aqua shard", {-58.24f, -10.0f}, 1.1f, 0.10f, 5.2f, 10.0f, BuildingFinish::TealDoor, false, 0.0f, 0.0f, 19.0f},
     {"Mirage mural warm panel", {-58.26f, 4.0f}, 2.5f, 0.10f, 3.4f, 14.0f, BuildingFinish::Yellow, false, 0.0f, 0.0f, -16.0f},
     {"Mirage mural violet bar", {-58.28f, 17.0f}, 4.6f, 0.10f, 1.5f, 11.0f, BuildingFinish::RedTrim, false, 0.0f, 0.0f, 28.0f},
-    {"miandi neon violet gallery blade", {-39.0f, -43.0f}, 4.8f, 6.0f, 0.16f, 0.32f, BuildingFinish::RedTrim, false},
-    {"miandi neon aqua club band", {15.0f, -46.12f}, 5.68f, 10.4f, 0.14f, 0.16f, BuildingFinish::TealDoor, false},
+    {"miandi neon 80s violet gallery blade", {-39.0f, -43.0f}, 4.8f, 6.0f, 0.16f, 0.32f, BuildingFinish::RedTrim, false},
+    {"miandi neon 80s aqua club band", {15.0f, -46.12f}, 5.68f, 10.4f, 0.14f, 0.16f, BuildingFinish::TealDoor, false},
     {"miandi neon warm-white canopy line", {-31.0f, 34.8f}, 4.9f, 30.0f, 0.16f, 0.28f, BuildingFinish::White, false},
     {"Mirage roof HVAC west", {-47.0f, 10.0f}, 8.3f, 4.0f, 1.3f, 3.0f, BuildingFinish::Steel, true},
     {"Mirage roof HVAC east", {33.0f, 10.0f}, 8.3f, 5.0f, 1.3f, 3.0f, BuildingFinish::Steel, true},
@@ -542,13 +542,13 @@ inline std::vector<BuildingPiece> bake_miandi_prism_works() {
     // Neon last, so it follows shapes that already exist. Tubes never carry
     // collision and never stand in for the authored venue lights.
     // -------------------------------------------------------------------
-    box("miandi neon violet monitor edge", {-39.0f, -42.35f}, 9.5f, 12.0f, .12f,
+    box("miandi neon 80s violet monitor edge", {-39.0f, -42.35f}, 9.5f, 12.0f, .12f,
         .12f, F::RedTrim);
-    box("miandi neon aqua monitor edge", {13.0f, -42.35f}, 9.5f, 12.0f, .12f,
+    box("miandi neon 80s aqua monitor edge", {13.0f, -42.35f}, 9.5f, 12.0f, .12f,
         .12f, F::TealDoor);
     box("miandi neon warm-white food-yard string", {-31.0f, 34.5f}, 5.2f, 28.0f,
         .10f, .10f, F::Yellow);
-    box("miandi neon aqua portal edge", {15.0f, -46.06f}, 4.20f, 10.0f, .10f,
+    box("miandi neon 80s aqua portal edge", {15.0f, -46.06f}, 4.20f, 10.0f, .10f,
         .10f, F::TealDoor);
     for (float z : {-24.0f, 0.0f, 24.0f}) {
         box("miandi neon warm-white alley string", {-67.1f, z}, 4.95f, 17.8f,
@@ -557,13 +557,36 @@ inline std::vector<BuildingPiece> bake_miandi_prism_works() {
             box("miandi neon warm-white alley bulb", {x, z}, 4.72f, .26f, .26f,
                 .26f, F::White);
     }
+    // Tube follows the architecture, and the architecture is now worth
+    // following. Ocean Drive's hotels carry three full-width strokes plus
+    // corner outlines and read from the far kerb at midnight; Mirage's longest
+    // run was 13 m and the club went black four metres from its own door.
+    // Same idea, warehouse vocabulary: the cornice, the string courses, six of
+    // the bay pilasters and the entrance attic each get their own line.
+    box("miandi neon 80s cyan cornice line", {-3.0f, -42.82f}, 7.62f, 110.0f,
+        .14f, .14f, F::TealDoor);
+    box("miandi neon 80s violet string course line west", {-33.0f, -42.62f}, 5.02f,
+        50.0f, .14f, .14f, F::RedTrim);
+    box("miandi neon 80s violet string course line inner", {5.0f, -42.62f}, 5.02f,
+        10.0f, .14f, .14f, F::RedTrim);
+    box("miandi neon 80s violet string course line east", {36.0f, -42.62f}, 5.02f,
+        32.0f, .14f, .14f, F::RedTrim);
+    for (float x : {-56.0f, -42.0f, -29.0f, -7.0f, 27.5f, 49.5f})
+        box("miandi neon 80s cyan pilaster tube", {x, -42.70f}, 1.10f, .14f,
+            6.52f, .14f, F::TealDoor);
+    box("miandi neon 80s cyan attic outline head", {15.0f, -42.80f}, 11.54f,
+        26.0f, .14f, .14f, F::TealDoor);
+    for (float x : {2.1f, 27.9f})
+        box("miandi neon 80s cyan attic outline post", {x, -42.80f}, 8.28f,
+            .14f, 3.40f, .14f, F::TealDoor);
+
     // The roof mark is a prism outline: a base and two legs, no lettering. A
     // shape reads from Biscayne Boulevard where a second copy of the name
     // would not, and it does not cost seventy glyph strokes to draw.
-    box("miandi neon violet roof mark base", {15.0f, -38.42f}, 12.30f, 7.80f,
+    box("miandi neon 80s violet roof mark base", {15.0f, -38.42f}, 12.30f, 7.80f,
         .16f, .16f, F::RedTrim);
     for (float side : {-1.0f, 1.0f})
-        out.push_back({"miandi neon violet roof mark leg",
+        out.push_back({"miandi neon 80s violet roof mark leg",
                        {15.0f + side * 1.95f, -38.42f}, 11.51f, .16f, 5.37f,
                        .16f, F::RedTrim, false, 0.0f, 0.0f, side * 45.0f});
     return out;

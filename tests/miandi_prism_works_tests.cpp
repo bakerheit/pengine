@@ -135,6 +135,7 @@ void mural_neon_and_height_contracts_hold() {
     bool aqua = false;
     bool warm_white = false;
     float top = 0.0f;
+    float longest_tube = 0.0f;
     for (const auto& piece : parts) {
         top = std::max(top, piece.bottom_m + piece.height_m);
         if (named(piece, "mural")) { ++mural; REQUIRE(!piece.solid); REQUIRE(piece.width_m <= .11f); }
@@ -146,10 +147,13 @@ void mural_neon_and_height_contracts_hold() {
         // Facade relief is measured in the shadow it casts. The first pass's
         // 0.14 m piers were invisible from the far kerb and gone entirely from
         // a moving car; anything calling itself articulation now has to be at
-        // least kMiandiMirageReliefDepthM proud of its wall.
-        if (named(piece, "brick pilaster") || named(piece, "base course") ||
-            named(piece, "cornice") || named(piece, "string course") ||
-            named(piece, "entrance attic") || named(piece, "portal jamb")) {
+        // least kMiandiMirageReliefDepthM proud of its wall. Tube that traces
+        // that articulation is exempt and has to stay thin: it is the line on
+        // the shape, not the shape.
+        if (!named(piece, "miandi neon") &&
+            (named(piece, "brick pilaster") || named(piece, "base course") ||
+             named(piece, "cornice") || named(piece, "string course") ||
+             named(piece, "entrance attic") || named(piece, "portal jamb"))) {
             ++relief;
             REQUIRE_MSG(std::min(piece.width_m, piece.depth_m) >=
                             city::kMiandiMirageReliefDepthM,
@@ -157,9 +161,16 @@ void mural_neon_and_height_contracts_hold() {
         }
         if (named(piece, "miandi neon")) {
             REQUIRE(!piece.solid);
+            REQUIRE_MSG(std::min(piece.width_m, piece.depth_m) <= .35f,
+                        "neon tube is too fat to be a tube", piece.name);
             violet |= named(piece, "violet");
             aqua |= named(piece, "aqua");
             warm_white |= named(piece, "warm-white");
+            // A club whose longest tube is 13 m goes black at midnight beside
+            // Ocean Drive's 46 m strokes. The architectural runs trace the
+            // cornice and the string courses for the full length of the shell.
+            longest_tube = std::max(longest_tube,
+                                    std::max(piece.width_m, piece.height_m));
         }
         if (piece.solid) {
             REQUIRE(piece.centre.x - half_x(piece) >= -80.001f);
@@ -172,6 +183,7 @@ void mural_neon_and_height_contracts_hold() {
     REQUIRE(street_detail >= 16);
     REQUIRE(relief >= 20);
     REQUIRE(violet && aqua && warm_white);
+    REQUIRE(longest_tube >= 100.0f);
     // The shell is 8 m and the roof parapet tops out under 10. Something has
     // to break that line or the club has no silhouette from Bayfront; the
     // entrance attic and the roof sign gantry are that something.
