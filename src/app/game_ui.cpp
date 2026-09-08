@@ -1697,6 +1697,24 @@ void GameUi::draw(Hud& hud, const UiFlow& flow,
     }
 }
 
+void GameUi::draw_arrested(Hud& hud, float remaining_s, glm::vec2 vp) const {
+    if (remaining_s <= 0.0f || vp.x <= 0.0f || vp.y <= 0.0f) return;
+    const float alpha = glm::smoothstep(0.0f, 1.0f, remaining_s);
+    const float centre = vp.x * 0.5f;
+    const float top = vp.y * 0.29f;
+    const float height = std::min(92.0f, vp.x * 0.12f);
+    const float half = hud.measure_title_text("ARRESTED", height) * 0.5f + 54.0f;
+    hud.quad({centre-half-14.0f, top}, {centre+half, top},
+             {centre+half+14.0f, top+height+48.0f},
+             {centre-half, top+height+48.0f}, {0.012f,0.025f,0.04f,0.84f*alpha});
+    hud.rect({centre-half+26.0f, top+height+21.0f},
+             {centre+half-26.0f, top+height+26.0f}, {0.3f,0.66f,0.86f,alpha});
+    hud.title_text_centered("ARRESTED", centre+4.0f, top+15.0f, height,
+                            {0.0f,0.0f,0.0f,0.9f*alpha});
+    hud.title_text_centered("ARRESTED", centre, top+11.0f, height,
+                            {0.88f,0.94f,0.98f,alpha});
+}
+
 void GameUi::draw_dev_menu(Hud& hud, const DevMenu& menu,
                            glm::vec2 viewport_px) const {
     if (menu.open()) draw_dev_rows(hud, menu, viewport_px);

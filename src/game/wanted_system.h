@@ -16,6 +16,8 @@ public:
         Assault,
         VehicularAssault,
         OfficerAssault,
+        TrafficViolation,
+        PoliceVehicleCollision,
     };
 
     void add_heat(float amount, Crime crime = Crime::Other);

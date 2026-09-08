@@ -25,6 +25,8 @@
 
 namespace apricot {
 
+class TrafficVisual;
+
 // Player and ambient-person presentation using the original Pengine skeletal
 // path: one bind mesh, continuously sampled bone tracks, and dual-quaternion
 // skinning. Simulation stays in PlayerCharacterState/Crowd; this class only
@@ -46,6 +48,11 @@ public:
     void sync_boat_transition(const Transform* body,const BoatTransitionState& state,float alpha);
     void sync_transition(PlayerCarId car, const Transform* body,
                          const VehicleTransitionState& state, float alpha);
+    // Uses the exact fitted traffic body that drives the cruiser's door.
+    // One stable officer rig follows its unit through every occupancy phase.
+    void sync_police(const Crowd& crowd, const TrafficVisual& traffic,
+                     float alpha, int64_t step, glm::vec3 focus,
+                     float presentation_radius_m = 0.0f);
     void render(const Camera& camera, const SkyEnv& environment,
                 const HeadlightRig& headlights,
                 const CanopyLightRig& canopy_lights) const;
@@ -55,10 +62,14 @@ public:
     // follows the sampled hand pose, never a guessed player-root offset.
     bool player_right_hand_transform(glm::mat4& out) const;
 
-    std::size_t npc_count() const { return rigs_.size() + staff_rigs_.size(); }
+    std::size_t npc_count() const {
+        return rigs_.size() + staff_rigs_.size() + police_rigs_.size();
+    }
     std::size_t ambient_npc_count() const { return rigs_.size(); }
     std::size_t staff_count() const { return staff_rigs_.size(); }
+    std::size_t police_count() const { return police_rigs_.size(); }
     int last_draw_count() const { return last_draw_count_; }
+    int last_police_draw_count() const { return last_police_draw_count_; }
 
 private:
     struct Pose {
@@ -92,6 +103,11 @@ private:
         Pose pose;
     };
 
+    struct PoliceRig {
+        Rig character;
+        bool in_vehicle = true;
+    };
+
     bool load_model(const std::string& root, float height_m, Model& out);
     static void sample_pose(const Model& model, const Animation& animation,
                             float time, Pose& out);
@@ -103,11 +119,13 @@ private:
     void sync_staff(int64_t step, float alpha, glm::vec3 focus,
                     float presentation_radius_m);
     bool draw_model(const Model& model, const Pose& pose,
-                    const Transform& world, const Camera& camera) const;
+                    const Transform& world, const Camera& camera,
+                    bool cull_bind_bounds = true) const;
 
     Shader shader_;
     Model player_model_;
     std::array<Model, 18> npc_models_{};
+    std::array<Model, 2> police_models_{};
     Pose player_pose_;
     Transform player_world_;
     float player_walk_time_ = 0.0f;
@@ -121,7 +139,9 @@ private:
     bool driver_visible_ = false;
     std::vector<Rig> rigs_;
     std::vector<Rig> staff_rigs_;
+    std::vector<PoliceRig> police_rigs_;
     mutable int last_draw_count_ = 0;
+    mutable int last_police_draw_count_ = 0;
 };
 
 }  // namespace apricot

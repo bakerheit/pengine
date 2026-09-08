@@ -35,6 +35,7 @@ void print_usage() {
         "  --aircraft-check run bounded boarding/flight regression\n"
         "  --boat-check     run bounded boarding/boat regression\n"
         "  --police-check capture real siren/light toggle, red/blue/off phases\n"
+        "  --police-officer-check test witnessed red light, cruiser impact, officer exit/return (6000+ frames)\n"
         "  --wanted N      start with wanted level 1-5 for pursuit QA\n"
         "  --no-instancing start on the naive per-node draw path\n"
         "  --warp-every N  teleport across the island every N frames\n"
@@ -110,6 +111,7 @@ int main(int argc, char** argv) {
     bool trailer_check=false;
     bool tire_track_check=false;
     bool police_check=false;
+    bool police_officer_check=false;
     int start_wanted=0;
     bool weapon_check=false;
     bool house_check=false;
@@ -167,6 +169,7 @@ int main(int argc, char** argv) {
         if (std::strcmp(a,"--trailer-check")==0) { trailer_check=true; continue; }
         if (std::strcmp(a,"--boat-check")==0) { boat_check=true; continue; }
         if (std::strcmp(a,"--police-check")==0) { police_check=true; continue; }
+        if (std::strcmp(a,"--police-officer-check")==0) { police_officer_check=true; continue; }
         if (std::strcmp(a,"--wanted")==0) {
             if (++i>=argc) { std::fprintf(stderr,"--wanted needs a level from 1 to 5\n"); return 2; }
             start_wanted=std::atoi(argv[i]);
@@ -309,6 +312,19 @@ int main(int argc, char** argv) {
     }
 
     apricot::App app;
+    if (police_officer_check) {
+        if (frame_limit<6000 || house_check || signal_check || tire_track_check ||
+            vehicle_entry_check || driver_transition_check || aircraft_check || boat_check ||
+            trailer_check || police_check || weapon_check || lighting_benchmark || warp_every ||
+            opening_preview || delivery_preview || delivery_check) {
+            std::fprintf(stderr,"--police-officer-check needs --frames 6000 or more and no other checks/previews/warps\n");
+            return 2;
+        }
+        clear_weather=true;daylight_qa=true;start_driving=true;road_start_qa=true;
+        if (!start_position_set) start_position={950,40};
+        if (!screenshot_path) screenshot_path="build/police-officer-check";
+        app.set_police_officer_check(true);
+    }
     if(signal_check) {
         if(frame_limit<700 || house_check || tire_track_check || vehicle_entry_check || driver_transition_check ||
             aircraft_check || boat_check || police_check || weapon_check || lighting_benchmark || warp_every || opening_preview) {
@@ -437,6 +453,9 @@ int main(int argc, char** argv) {
     }
 
     int rc = app.run();
+    if (police_officer_check && !app.police_officer_check_passed()) {
+        AP_ERROR("police officer gameplay regression did not complete");rc=1;
+    }
     if(delivery_check && !app.delivery_check_passed()) {
         AP_ERROR("delivery cutscene regression did not complete");rc=1;
     }

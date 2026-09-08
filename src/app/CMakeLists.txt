@@ -24,6 +24,7 @@ target_sources(apricot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signal_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/overlay.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/player_car_visual.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/police_gameplay.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/traffic_visual.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/vehicle_effects.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/vehicle_interaction.cpp

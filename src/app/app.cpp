@@ -661,6 +661,7 @@ bool App::init() {
         AP_ERROR("traffic models or signals failed to initialize");
         return false;
     }
+    world_.set_police_officer_vehicle_layout(traffic_visual_.police_officer_vehicle_layout());
 
     // The first authored district: the player begins beside a working gas
     // station and motel, with apartments and a drive-through on nearby blocks.
@@ -1483,21 +1484,29 @@ glm::vec3 App::player_focus_forward() const {
 }
 
 std::vector<VisiblePoliceIdentity> App::visible_police(
-        glm::vec3 target) const {
+        glm::vec3 target, bool witness_only) const {
     std::vector<VisiblePoliceIdentity> visible;
-    if (wanted_.level() <= 0) return visible;
     const PoliceTuning& police = world_.traffic().police_tuning();
     const glm::vec2 target_xz{target.x, target.z};
+    std::vector<PoliceVisibilityBody> traffic_bodies;
+    traffic_bodies.reserve(world_.traffic().vehicles().size());
+    for (const auto& agent:world_.traffic().vehicles()) {
+        traffic_bodies.push_back({{agent.lane_key,agent.slot},
+            traffic_visual_.vehicle_source_bounds(agent),
+            traffic_visual_.vehicle_body_transform(agent).matrix()});
+    }
     for (const VehicleAgent& agent : world_.traffic().vehicles()) {
         if (!agent.police_unit) continue;
-        const glm::vec2 position{agent.pos.x, agent.pos.z};
-        const bool in_gate = agent.police_pursuit
+        const glm::vec3 eye=police_officer_eye_position(agent);
+        const glm::vec3 forward=police_officer_forward(agent);
+        const glm::vec2 position{eye.x, eye.z};
+        const bool in_gate = agent.police_pursuit && !witness_only
             ? police_maintains_contact(position, target_xz, true, police)
-            : police_can_witness(position, {agent.fwd.x, agent.fwd.z},
+            : police_can_witness(position, {forward.x, forward.z},
                                  target_xz, true, true, police);
         if (!in_gate) continue;
 
-        const glm::vec3 from = agent.pos + glm::vec3{0.0f, 1.35f, 0.0f};
+        const glm::vec3 from = eye;
         const glm::vec3 to = target + glm::vec3{0.0f, 1.05f, 0.0f};
         const glm::vec3 delta = to - from;
         const float distance = glm::length(delta);
@@ -1506,7 +1515,9 @@ std::vector<VisiblePoliceIdentity> App::visible_police(
             continue;
         }
         const auto hit = collider_.raycast(from, delta / distance, distance);
-        if (!hit.hit || hit.distance >= distance - 0.08f)
+        if ((!hit.hit || hit.distance >= distance - 0.08f) &&
+            !police_traffic_blocks_view(from,to,traffic_bodies,
+                {agent.lane_key,agent.slot}))
             visible.push_back({agent.lane_key, agent.slot});
     }
     return visible;
@@ -1693,6 +1704,11 @@ void App::toggle_player_mode() {
     }
     if (on_foot_) {
         const auto target = nearby_vehicle();
+        if (target.locked) {
+            vehicle_interaction_notice_="Patrol car locked";
+            vehicle_notice_until_=step_index_+240;
+            return;
+        }
         if (target.kind!=VehicleEntryTarget::Kind::None && has_animated_driver(target.model)) {
             begin_vehicle_transition(target,true);
             return;
@@ -1738,6 +1754,9 @@ void App::toggle_player_mode() {
 }
 
 void App::teleport(glm::vec3 to, float heading_radians) {
+    police_offenses_.reset();
+    police_arrest_.reset();
+    arrested_feedback_s_=0.0f;
     boat_transition_={};
     cancel_vehicle_transition();
     transition_camera_release_=0;
@@ -2037,6 +2056,7 @@ void App::render() {
     if (tire_track_check_) tire_track_check_camera();
     camera_.fov_y = glm::radians(static_cast<float>(ui_.settings().camera_fov));
     if(signal_check_)signal_check_camera();
+    if(police_officer_check_)police_officer_check_camera();
     Listener listener;
     listener.position = camera_.position;
     listener.forward = camera_.forward();
@@ -2495,8 +2515,11 @@ void App::render() {
                     const auto target=nearby_vehicle();
                     if (target.kind!=VehicleEntryTarget::Kind::None) {
                         const auto& model=player_car_definition(target.model);
-                        prompt=target.kind==VehicleEntryTarget::Kind::Traffic?"E / A  -  Steal ":"E / A  -  Enter ";
-                        prompt+=model.brand;prompt+=" ";prompt+=model.model;
+                        if (target.locked) prompt="Patrol car locked";
+                        else {
+                            prompt=target.kind==VehicleEntryTarget::Kind::Traffic?"E / A  -  Steal ":"E / A  -  Enter ";
+                            prompt+=model.brand;prompt+=" ";prompt+=model.model;
+                        }
                     }
                 }
                 if (!on_foot_ && !in_aircraft_ && !in_boat_ && car_visual_.active_car()==PlayerCarId::HarrowHauler)
@@ -2555,6 +2578,7 @@ void App::render() {
             if (!dev_menu_.open()) bank_interaction_.draw(hud_, vp,
                 bank_target(city::bank_local_position(player_character_.position), on_foot_),
                 bank_vault_);
+            game_ui_.draw_arrested(hud_, arrested_feedback_s_, vp);
         } else {
             GameUiSnapshot snapshot;
         snapshot.save_notice=save_notice_.c_str();
@@ -2691,6 +2715,7 @@ void App::render() {
     }
     if(house_check_)capture_house_check();
     if(signal_check_)capture_signal_check();
+    if(police_officer_check_)capture_police_officer_check();
     if (!screenshot_path_.empty() && frame_limit_ > 0 &&
         frames_rendered_ + 1 >= frame_limit_) {
         save_screenshot(screenshot_path_);
@@ -2782,6 +2807,8 @@ int App::run() {
         if (frame_limit_ > 0 && frames_rendered_ >= frame_limit_) break;
         if(house_check_ && (house_check_failed_ || (house_check_complete_ && house_check_capture_.empty())))break;
         if(signal_check_ && (signal_check_failed_ || (signal_check_done_ && signal_check_capture_.empty())))break;
+        if(police_officer_check_ && (police_officer_check_failed_ ||
+            (police_officer_check_done_ && police_officer_check_capture_.empty())))break;
         if (delivery_check_) tick_delivery_check();
         if (weapon_check_) {
             const auto key=[&](SDL_Keycode code,bool down) {
@@ -2853,6 +2880,8 @@ int App::run() {
         repair_shop_feedback_s_=std::max(0.f,repair_shop_feedback_s_-camera_frame_dt_);
         mission_success_feedback_s_=std::max(
             0.f,mission_success_feedback_s_-camera_frame_dt_);
+        if (ui_.screen()==UiScreen::Driving)
+            arrested_feedback_s_=std::max(0.f,arrested_feedback_s_-camera_frame_dt_);
         impact_feedback_seconds_ =
             std::max(0.0f, impact_feedback_seconds_ - camera_frame_dt_);
         if (ui_.screen() == UiScreen::Driving && on_foot_ && !vehicle_transition_.active() &&
@@ -2884,7 +2913,8 @@ int App::run() {
         for (int i = 0; i < tick.steps; ++i) {
             const InputFrame raw_input = tire_track_check_
                 ? tire_track_check_input()
-                : (signal_check_ ? signal_check_input() : input_.frame());
+                : (signal_check_ ? signal_check_input()
+                    : (police_officer_check_ ? police_officer_check_input() : input_.frame()));
             // Snapshot before EACH step, not before the batch: prev_car_ has to
             // be exactly one step behind or the render interpolation covers the
             // wrong span on a multi-step frame.
@@ -3013,14 +3043,19 @@ int App::run() {
                 foot_hazard_ptr = &foot_hazard;
             }
             const glm::vec3 police_target = player_focus_position();
+            check_police_driving_offenses();
             const auto police_visible = visible_police(police_target);
             world_.set_police_context(wanted_.level(), police_target,
                                       police_visible);
+            world_.set_police_officer_context(on_foot_,
+                glm::length(on_foot_ ? player_character_.velocity : car_.velocity),
+                &collider_);
             world_.step_traffic(static_cast<int64_t>(step_index_), car_,
                                 foot_hazard_ptr);
             world_.resolve_traffic_collision(
                 car_, tuning_.car_collision_half_width,
                 tuning_.car_collision_half_length, tuning_.mass_kg, tuning_.body_damage_gain);
+            check_police_collision_offenses();
             // Traffic may displace the tractor after its vehicle step. Keep
             // the final published hitch pose exact, including while on foot.
             if (trailer_.attached && glm::distance(tractor_hitch(car_,tuning_),
@@ -3039,9 +3074,11 @@ int App::run() {
                                   world_.traffic());
             tire_tracks_.step(car_, vehicle_input.handbrake,
                               conditions_.snow_cover, step_index_);
+            const auto current_police_visible=visible_police(player_focus_position());
+            check_police_arrest(current_police_visible);
             wanted_.update(
                 static_cast<float>(kSimDt),
-                !visible_police(player_focus_position()).empty(),
+                !current_police_visible.empty(),
                 world_.traffic().police_tuning());
             if (car_.impact_count != seen_impact_count_) {
                 seen_impact_count_ = car_.impact_count;
@@ -3271,7 +3308,10 @@ int App::run() {
         traffic_visual_.sync(scene_, world_.traffic(), world_.lanes(),
                              static_cast<int64_t>(step_index_),
                              visible_headlight_level, presentation_focus,
-                             traffic_presentation_radius);
+                             traffic_presentation_radius,static_cast<float>(clock_.alpha()));
+        character_visual_.sync_police(world_.traffic(),traffic_visual_,
+            static_cast<float>(clock_.alpha()),static_cast<int64_t>(step_index_),
+            presentation_focus,traffic_presentation_radius);
         scene_.update();
 
         PrecipitationType precipitation_type = PrecipitationType::Rain;

@@ -9,6 +9,7 @@
 #include "city/city_rng.h"
 #include "city/pedestrian_separation.h"
 #include "core/fixed_step.h"
+#include "game/character.h"
 #include "physics/vehicle.h"
 
 namespace apricot {
@@ -162,6 +163,80 @@ int64_t police_response_cadence_steps(int wanted_level) {
                                             : 1.4f;
     return std::max<int64_t>(
         1, static_cast<int64_t>(std::ceil(seconds / kSimDtF)));
+}
+
+glm::vec3 officer_local_point(const VehicleAgent& car, glm::vec3 local) {
+    glm::vec3 forward{car.fwd.x, 0.0f, car.fwd.z};
+    if (glm::length(forward) < 1e-5f) forward = {0.0f, 0.0f, -1.0f};
+    else forward = glm::normalize(forward);
+    const glm::vec3 right{-forward.z, 0.0f, forward.x};
+    return car.pos + right * local.x + glm::vec3{0.0f, local.y, 0.0f}
+                   - forward * local.z;
+}
+
+// Visibility around the four expanded body corners makes a returning officer
+// walk around their cruiser even when the suspect led them to its other side.
+// This is a six-node local path, with fixed node/tie order, not a navmesh query.
+glm::vec3 officer_car_waypoint(glm::vec3 from, glm::vec3 goal,
+                               const VehicleAgent& car,
+                               const PoliceOfficerVehicleLayout& layout) {
+    glm::vec2 forward{car.fwd.x, car.fwd.z};
+    if (glm::length(forward) < 1e-5f) return goal;
+    forward = glm::normalize(forward);
+    const glm::vec2 right{-forward.y, forward.x};
+    auto local = [&](glm::vec3 p) {
+        const glm::vec2 d{p.x - car.pos.x, p.z - car.pos.z};
+        return glm::vec2{glm::dot(d, right), glm::dot(d, forward)};
+    };
+    const float hx = layout.half_width_m + 0.38f;
+    const float hz = layout.half_length_m + 0.38f;
+    auto blocked = [&](glm::vec2 a, glm::vec2 b) {
+        const glm::vec2 d = b - a;
+        float enter = 0.0f, leave = 1.0f;
+        for (int axis = 0; axis < 2; ++axis) {
+            const float half = axis == 0 ? hx : hz;
+            if (std::fabs(d[axis]) < 1e-6f) {
+                if (std::fabs(a[axis]) >= half) return false;
+                continue;
+            }
+            float p = (-half - a[axis]) / d[axis];
+            float q = (half - a[axis]) / d[axis];
+            if (p > q) std::swap(p, q);
+            enter = std::max(enter, p);
+            leave = std::min(leave, q);
+            if (enter >= leave) return false;
+        }
+        return enter < leave && leave > 0.001f && enter < 0.999f;
+    };
+    const std::array<glm::vec2, 6> nodes{{local(from), local(goal),
+        {-hx - 0.12f, -hz - 0.12f}, {-hx - 0.12f, hz + 0.12f},
+        {hx + 0.12f, -hz - 0.12f}, {hx + 0.12f, hz + 0.12f}}};
+    if (!blocked(nodes[0], nodes[1])) return goal;
+    std::array<float, 6> distance{{0.0f, kInf, kInf, kInf, kInf, kInf}};
+    std::array<std::size_t, 6> previous{{6, 6, 6, 6, 6, 6}};
+    std::array<bool, 6> visited{};
+    for (int pass = 0; pass < 6; ++pass) {
+        std::size_t current = 6;
+        for (std::size_t n = 0; n < 6; ++n)
+            if (!visited[n] && (current == 6 || distance[n] < distance[current]))
+                current = n;
+        if (current == 6 || !std::isfinite(distance[current])) break;
+        visited[current] = true;
+        for (std::size_t n = 0; n < 6; ++n) {
+            if (visited[n] || blocked(nodes[current], nodes[n])) continue;
+            const float cost = distance[current] + glm::distance(nodes[current], nodes[n]);
+            if (cost + 1e-5f < distance[n]) {
+                distance[n] = cost;
+                previous[n] = current;
+            }
+        }
+    }
+    if (previous[1] == 6) return from;
+    std::size_t next = 1;
+    while (previous[next] > 0) next = previous[next];
+    const glm::vec2 p = glm::vec2{car.pos.x, car.pos.z} +
+                         right * nodes[next].x + forward * nodes[next].y;
+    return {p.x, from.y, p.y};
 }
 
 float turn_speed_limit(TurnKind kind) {
@@ -946,6 +1021,12 @@ void Crowd::clear() {
     visible_police_.clear();
     police_response_due_ = false;
     police_next_response_step_ = 0;
+    police_officers_enabled_ = false;
+    police_target_on_foot_ = false;
+    police_target_speed_mps_ = 0.0f;
+    police_officer_world_ = nullptr;
+    police_officer_layout_ = {};
+    police_player_contacts_.clear();
     retired_.clear();
     lane_buckets_.clear();
     touched_lanes_.clear();
@@ -964,6 +1045,257 @@ void Crowd::clear() {
     ped_pos_frozen_.clear();
     dead_nodes_.clear();
     stats_ = CrowdStats{};
+}
+
+void Crowd::set_police_officer_context(bool target_on_foot,
+                                       float target_speed_mps,
+                                       const TerrainCollider* world) {
+    police_officers_enabled_ = true;
+    police_target_on_foot_ = target_on_foot;
+    police_target_speed_mps_ = std::isfinite(target_speed_mps)
+        ? std::max(0.0f, target_speed_mps) : 100.0f;
+    police_officer_world_ = world;
+}
+
+bool Crowd::report_police_vehicle_hit(VisiblePoliceIdentity cruiser) {
+    if (police_wanted_level_ <= 0) return false;
+    auto struck = std::find_if(vehicles_.begin(), vehicles_.end(), [&](const auto& car) {
+        return car.police_unit && car.lane_key == cruiser.lane_key && car.slot == cruiser.slot;
+    });
+    if (struck == vehicles_.end()) return false;
+    if (struck->police_pursuit) return true;
+    const int target_units = std::min(8, police_wanted_level_ + 2);
+    if (static_cast<int>(police_pursuit_count()) >= target_units) {
+        VehicleAgent* release = nullptr;
+        float farthest = -1.0f;
+        for (auto& car : vehicles_) {
+            if (!car.police_pursuit) continue;
+            const glm::vec2 delta{car.pos.x - police_target_xz_.x,
+                                  car.pos.z - police_target_xz_.y};
+            const float distance = glm::dot(delta, delta);
+            if (!release || distance > farthest) {
+                release = &car;
+                farthest = distance;
+            }
+        }
+        if (release) {
+            release->police_pursuit = false;
+            release->police_route.clear();
+            release->police_route_index = 0;
+            release->police_last_replan_step = -1;
+        }
+    }
+    struck->police_pursuit = true;
+    struck->mode = AgentMode::Integrating;
+    struck->police_route.clear();
+    struck->police_route_index = 0;
+    struck->police_last_replan_step = -1;
+    struck->police_last_target = police_target_xz_;
+    return true;
+}
+
+void Crowd::step_police_officers(const VehicleState* player,
+                                 const OnFootTrafficHazard* on_foot_player) {
+    if (!police_officers_enabled_ || !graph_) return;
+    const CharacterTuning walking{};
+    // The car poses are final for this step and never change in this pass.
+    // Freeze the officer poses too, so two officers do not read each other's
+    // partly advanced walk and make scan order part of their decisions.
+    std::vector<glm::vec3> frozen_people(vehicles_.size(), glm::vec3{kInf});
+    for (std::size_t n = 0; n < vehicles_.size(); ++n)
+        if (vehicles_[n].police_unit && police_officer_on_foot(vehicles_[n].officer))
+            frozen_people[n] = vehicles_[n].officer.pos;
+
+    for (std::size_t own = 0; own < vehicles_.size(); ++own) {
+        VehicleAgent& car = vehicles_[own];
+        if (!car.police_unit || !graph_->valid(car.lane)) continue;
+        PoliceOfficerState& officer = car.officer;
+        officer.previous_pos = officer.pos;
+        officer.previous_heading = officer.heading;
+        glm::vec3 forward{car.fwd.x, 0.0f, car.fwd.z};
+        if (glm::length(forward) < 1e-5f) forward = {0.0f, 0.0f, -1.0f};
+        else forward = glm::normalize(forward);
+        const glm::vec3 right{-forward.z, 0.0f, forward.x};
+        const glm::vec3 seat = officer_local_point(car,
+            police_officer_layout_.driver_seat_local);
+        glm::vec3 door = officer_local_point(car,
+            police_officer_layout_.driver_door_local);
+
+        auto ground = [&](glm::vec3& p, float reference_y) {
+            if (!police_officer_world_) { p.y = reference_y; return true; }
+            const float lift = walking.max_step_m + 0.08f;
+            const auto support = police_officer_world_->probe_down(
+                {p.x, reference_y + lift, p.z}, walking.max_drop_m + lift);
+            if (!support.hit || support.normal.y < 0.55f ||
+                support.point.y > reference_y + walking.max_step_m ||
+                support.point.y < reference_y - walking.max_drop_m) return false;
+            p.y = support.point.y;
+            return character_position_clear(*police_officer_world_, p, walking);
+        };
+        auto body_blocks = [&](glm::vec3 p, const VehicleAgent& vehicle) {
+            if (std::fabs(p.y - vehicle.pos.y) > 2.3f) return false;
+            const auto footprint = traffic_vehicle_footprint(traffic_vehicle_kind(vehicle));
+            const glm::vec3 d = p - vehicle.pos;
+            const glm::vec3 vehicle_right{-vehicle.fwd.z, 0.0f, vehicle.fwd.x};
+            return std::fabs(glm::dot(d, vehicle.fwd)) < footprint.half_length_m + walking.radius_m &&
+                   std::fabs(glm::dot(d, vehicle_right)) < footprint.half_width_m + walking.radius_m;
+        };
+        auto dynamic_clear = [&](glm::vec3 p, bool skip_own) {
+            for (std::size_t n = 0; n < vehicles_.size(); ++n) {
+                if (!(skip_own && n == own) && body_blocks(p, vehicles_[n])) return false;
+                if (skip_own && n != own) {
+                    const VehicleAgent& other = vehicles_[n];
+                    const glm::vec3 velocity = other.fwd * other.speed_mps +
+                        glm::vec3{other.collision_velocity_xz.x, 0.0f,
+                                  other.collision_velocity_xz.y};
+                    for (int future = 1; future <= 4; ++future)
+                        if (body_blocks(p - velocity * (0.15f * float(future)), other))
+                            return false;
+                }
+                if (n != own && std::fabs(p.y - frozen_people[n].y) < 1.8f &&
+                    glm::distance(glm::vec2{p.x, p.z},
+                        glm::vec2{frozen_people[n].x, frozen_people[n].z}) < 0.67f)
+                    return false;
+            }
+            if (player && !police_target_on_foot_ &&
+                std::fabs(p.y - player->position.y) < 2.5f) {
+                const glm::vec3 pf = vehicle_forward(*player);
+                const glm::vec3 pr{-pf.z, 0.0f, pf.x};
+                const glm::vec3 d = p - player->position;
+                if (std::fabs(glm::dot(d, pf)) < 3.05f &&
+                    std::fabs(glm::dot(d, pr)) < 1.50f) return false;
+            }
+            if (on_foot_player &&
+                glm::distance(glm::vec2{p.x, p.z}, on_foot_player->position) < 0.75f)
+                return false;
+            return true;
+        };
+        auto clear_segment = [&](glm::vec3 from, glm::vec3 to, bool skip_own) {
+            const float length = glm::distance(from, to);
+            const int count = std::max(1, static_cast<int>(std::ceil(length / 0.14f)));
+            float support_y = from.y;
+            for (int sample = 1; sample <= count; ++sample) {
+                glm::vec3 p = glm::mix(from, to, float(sample) / float(count));
+                if (!ground(p, support_y) || !dynamic_clear(p, skip_own)) return false;
+                support_y = p.y;
+            }
+            return true;
+        };
+
+        const bool needs_door = officer.phase != PoliceOfficerPhase::Seated;
+        const bool supported_door = needs_door && ground(door, car.pos.y);
+        officer.door_pos = door;
+        const bool entering = officer.phase == PoliceOfficerPhase::Returning ||
+                              officer.phase == PoliceOfficerPhase::Entering;
+        const glm::vec3 door_facing = entering ? right : -right;
+        officer.door_heading = std::atan2(door_facing.x, -door_facing.z);
+        const float distance_to_target = glm::distance(
+            glm::vec2{car.pos.x, car.pos.z}, police_target_xz_);
+        const Lane& lane = graph_->lane(car.lane);
+        const float stopping_distance = car.speed_mps * car.speed_mps /
+            (2.0f * std::max(0.5f, car.profile.brake));
+        const float stopping_room = officer.phase == PoliceOfficerPhase::Seated
+            ? stopping_distance : 0.0f;
+        const bool safe_road_position = !active_turn(*graph_, car) &&
+            car.committed_junction == 0xFFFFFFFFu &&
+            car.dist_along_m > junction_clearance(lane.junction_from) + 3.0f &&
+            lane.length_m - car.dist_along_m >
+                junction_clearance(lane.junction_to) + 3.0f + stopping_room;
+        bool door_clear = false;
+        // Only perform capsule/door-sweep queries when a stopped officer may
+        // actually use them. Ordinary patrol cars retain the cheap path.
+        const float movement = std::fabs(car.speed_mps) +
+            glm::length(car.collision_velocity_xz) +
+            std::fabs(car.collision_yaw_velocity) * police_officer_layout_.half_length_m;
+        if (supported_door && movement <= 0.08f &&
+            officer.phase != PoliceOfficerPhase::Seated &&
+            officer.phase != PoliceOfficerPhase::Pursuing) {
+            door_clear = dynamic_clear(door, true) &&
+                clear_segment(seat, door, true) &&
+                clear_segment(door, door + forward * 0.75f, true);
+        }
+        const PoliceOfficerPhase old_phase = officer.phase;
+        PoliceOfficerStepInput input;
+        input.engaged = car.police_pursuit && police_wanted_level_ > 0;
+        input.target_on_foot = police_target_on_foot_;
+        input.target_speed_mps = police_target_speed_mps_;
+        input.target_distance_m = distance_to_target;
+        input.vehicle_speed_mps = movement;
+        input.stopping_distance_m = stopping_distance;
+        input.safe_road_position = safe_road_position;
+        input.door_clear = door_clear;
+        input.at_door = glm::distance(officer.pos, door) < 0.075f;
+        step_police_officer_phase(officer, input);
+
+        if (officer.phase == PoliceOfficerPhase::Seated ||
+            officer.phase == PoliceOfficerPhase::Braking) {
+            officer.pos = seat;
+            officer.heading = std::atan2(forward.x, -forward.z);
+            continue;
+        }
+        if (officer.transition.active()) {
+            const auto sample = sample_vehicle_transition(officer.transition);
+            officer.pos = glm::mix(door, seat, sample.traverse);
+            officer.heading = officer.door_heading;
+            continue;
+        }
+        if (old_phase == PoliceOfficerPhase::Exiting) {
+            officer.pos = door;
+            officer.heading = officer.door_heading;
+            continue;
+        }
+        // Face and move using the same character solver as the player, then
+        // add frozen traffic body clearance that the terrain collider lacks.
+        glm::vec3 goal = officer.phase == PoliceOfficerPhase::Returning
+            ? door : glm::vec3{police_target_xz_.x, officer.pos.y, police_target_xz_.y};
+        const float stand_off = officer.phase == PoliceOfficerPhase::Returning
+            ? 0.0f : (police_target_on_foot_ ? kPoliceOfficerFootStandOffM : 4.4f);
+        const glm::vec2 target_delta{goal.x - officer.pos.x, goal.z - officer.pos.z};
+        if (glm::length(target_delta) <= stand_off + 0.03f) continue;
+        goal = officer_car_waypoint(officer.pos, goal, car, police_officer_layout_);
+        glm::vec3 direction = goal - officer.pos;
+        direction.y = 0.0f;
+        const float remaining = glm::length(direction);
+        if (remaining < 1e-5f) continue;
+        direction /= remaining;
+        const float speed = officer.phase == PoliceOfficerPhase::Pursuing ? 4.8f : 2.8f;
+        const float travel = std::min(remaining,
+            std::min(speed * kSimDtF, std::max(0.0f, glm::length(target_delta) - stand_off)));
+        // Prefer a straight stride. Fixed alternate headings let an officer
+        // edge around a post or stopped neighbour without walking through it.
+        for (float angle : {0.0f, 0.78539816f, -0.78539816f,
+                            1.57079633f, -1.57079633f}) {
+            const glm::vec3 candidate_direction{
+                direction.x * std::cos(angle) - direction.z * std::sin(angle),
+                0.0f,
+                direction.x * std::sin(angle) + direction.z * std::cos(angle)};
+            const glm::vec3 destination = officer.pos + candidate_direction * travel;
+            const glm::vec3 lookahead = officer.pos + candidate_direction *
+                std::min(0.38f, std::max(travel, remaining));
+            if (!clear_segment(officer.pos, lookahead, false)) continue;
+            glm::vec3 next = destination;
+            if (!ground(next, officer.pos.y)) continue;
+            const float target_heading = std::atan2(candidate_direction.x, -candidate_direction.z);
+            if (police_officer_world_) {
+                PlayerCharacterState current;
+                current.position = officer.pos;
+                current.facing_yaw = officer.heading;
+                current.view_yaw = target_heading;
+                CharacterTuning tuning = walking;
+                tuning.walk_speed_mps = travel / kSimDtF;
+                InputFrame intent;
+                intent.throttle = 1.0f;
+                next = step_character(current, tuning, intent,
+                                      *police_officer_world_, kSimDtF).position;
+            }
+            if (!dynamic_clear(next, false)) continue;
+            officer.distance_walked_m += glm::distance(officer.pos, next);
+            officer.pos = next;
+            const float turn = std::remainder(target_heading - officer.heading, 6.283185307f);
+            officer.heading += std::clamp(turn, -12.0f * kSimDtF, 12.0f * kSimDtF);
+            break;
+        }
+    }
 }
 
 void Crowd::set_police_context(
@@ -1019,7 +1351,8 @@ bool Crowd::player_in_police_view() const {
     for (const VehicleAgent& agent : vehicles_) {
         if (!agent.police_unit) continue;
         if (!police_has_line_of_sight(agent)) continue;
-        const glm::vec2 position{agent.pos.x, agent.pos.z};
+        const glm::vec3 eye = police_officer_eye_position(agent);
+        const glm::vec2 position{eye.x, eye.z};
         if (agent.police_pursuit) {
             if (police_maintains_contact(position, police_target_xz_,
                                          true, tuning_.police)) {
@@ -1027,7 +1360,8 @@ bool Crowd::player_in_police_view() const {
             }
             continue;
         }
-        if (police_can_witness(position, {agent.fwd.x, agent.fwd.z},
+        const glm::vec3 forward = police_officer_forward(agent);
+        if (police_can_witness(position, {forward.x, forward.z},
                                police_target_xz_, true, true,
                                tuning_.police)) {
             return true;
@@ -1129,8 +1463,10 @@ void Crowd::update_police_response(int64_t step) {
             !police_has_line_of_sight(agent)) {
             continue;
         }
+        const glm::vec3 eye = police_officer_eye_position(agent);
+        const glm::vec3 forward = police_officer_forward(agent);
         if (police_can_witness(
-                {agent.pos.x, agent.pos.z}, {agent.fwd.x, agent.fwd.z},
+                {eye.x, eye.z}, {forward.x, forward.z},
                 police_target_xz_, true, true, tuning_.police)) {
             engage(agent);
         }
@@ -1309,7 +1645,7 @@ bool Crowd::take_vehicle(uint64_t lane_key, uint32_t slot, VehicleAgent& out) {
     const auto it=std::find_if(vehicles_.begin(),vehicles_.end(),[&](const VehicleAgent& v) {
         return v.lane_key==lane_key && v.slot==slot;
     });
-    if (it==vehicles_.end()) return false;
+    if (it==vehicles_.end() || it->police_unit) return false;
     out=*it;
     if (it->node!=kInvalidId) dead_nodes_.push_back(it->node);
     retire(lane_key,slot);
@@ -1364,6 +1700,11 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
             vehicles_.begin(), vehicles_.end(), [&](const VehicleAgent& v) {
                 const glm::vec2 d{v.pos.x - player_xz.x, v.pos.z - player_xz.y};
                 if (d.x * d.x + d.y * d.y <= vr2) return false;
+                if (v.police_unit && !police_officer_driving_allowed(v.officer)) {
+                    const glm::vec2 officer_delta{v.officer.pos.x - player_xz.x,
+                                                  v.officer.pos.z - player_xz.y};
+                    if (glm::dot(officer_delta, officer_delta) <= vr2) return false;
+                }
                 if (v.node != kInvalidId) dead_nodes_.push_back(v.node);
                 retire(v.lane_key, v.slot);
                 ++stats_.retired;
@@ -1469,6 +1810,12 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
                 map_seed_, lane.key, slot, tuning_.police.patrol_fraction);
             v.pos = pose.position;
             v.fwd = pose.tangent;
+            if (v.police_unit) {
+                v.officer.pos = v.officer.previous_pos =
+                    officer_local_point(v, police_officer_layout_.driver_seat_local);
+                v.officer.heading = v.officer.previous_heading =
+                    std::atan2(v.fwd.x, -v.fwd.z);
+            }
             v.spawn_ordinal = static_cast<uint32_t>(stats_.activated);
             vehicles_.push_back(v);
             ++stats_.activated;
@@ -2398,6 +2745,8 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
             ++stats_.junction_box_holds;
         }
         if (vehicle_engine_failed(v.mechanical)) target=0.f;
+        if (v.police_unit && !police_officer_driving_allowed(v.officer))
+            target = 0.0f;
         if (!vehicle_engine_failed(v.mechanical) &&
             v.speed_mps < 0.5f && target < 0.5f)
             v.delay_seconds = std::min(60.0f, v.delay_seconds + dt);
@@ -2631,6 +2980,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
     // the turn actually driven tomorrow identical; a mid-step conversion at a
     // junction would otherwise negotiate one exit and take another.
     update_police_response(step);
+    step_police_officers(player, on_foot_player);
 }
 
 void Crowd::resolve_vehicle_collisions() {
@@ -2687,7 +3037,8 @@ bool Crowd::resolve_player_collision(VehicleState& player,
                                      float player_half_width_m,
                                      float player_half_length_m,
                                      float player_mass_kg,
-                                     float player_body_damage_gain) {
+                                  float player_body_damage_gain) {
+    police_player_contacts_.clear();
     constexpr float kDamageThreshold = 2.5f;
     constexpr int kSolverPasses = 4;
 
@@ -2717,6 +3068,7 @@ bool Crowd::resolve_player_collision(VehicleState& player,
     // the loop. A few deterministic Gauss-Seidel passes close those secondary
     // overlaps instead of leaving interlocked meshes until the next frame.
     std::vector<uint8_t> damage_recorded(vehicles_.size(), 0u);
+    std::vector<uint8_t> police_contact_recorded(vehicles_.size(), 0u);
 
     bool collided = false;
     for (int pass = 0; pass < kSolverPasses; ++pass) {
@@ -2792,6 +3144,18 @@ bool Crowd::resolve_player_collision(VehicleState& player,
                     player_right, player_fwd, -contact.normal,
                     traffic_body.centre - player_body.centre,
                     player_body.half_width, player_body.half_length);
+
+            if (traffic.police_unit && !police_contact_recorded[traffic_index]) {
+                police_contact_recorded[traffic_index] = 1u;
+                const glm::vec3 player_contact_velocity = player.velocity +
+                    glm::cross(player.angular_velocity,
+                               glm::vec3{player_contact.x, 0.0f, player_contact.y});
+                const glm::vec3 police_contact_velocity = traffic_velocity +
+                    glm::cross(glm::vec3{0.0f, traffic.collision_yaw_velocity, 0.0f},
+                               glm::vec3{traffic_contact.x, 0.0f, traffic_contact.y});
+                police_player_contacts_.push_back({traffic.lane_key, traffic.slot,
+                    player_contact_velocity, police_contact_velocity, normal});
+            }
 
             if (inward < 0.0f) {
                 const float impulse =
@@ -3058,6 +3422,19 @@ uint64_t Crowd::population_hash() const {
         h = mix_bits(h, static_cast<uint64_t>(v.mode));
         h = mix_bits(h, v.police_unit ? 1u : 0u);
         h = mix_bits(h, v.police_pursuit ? 1u : 0u);
+        h = mix_bits(h, static_cast<uint64_t>(v.officer.phase));
+        h = mix_bits(h, static_cast<uint64_t>(v.officer.transition.direction));
+        h = mix_bits(h, v.officer.transition.tick);
+        h = mix_bits(h, v.officer.stationary_ticks);
+        for (int axis = 0; axis < 3; ++axis) {
+            h = mix_f32(h, v.officer.pos[axis]);
+            h = mix_f32(h, v.officer.previous_pos[axis]);
+            h = mix_f32(h, v.officer.door_pos[axis]);
+        }
+        h = mix_f32(h, v.officer.heading);
+        h = mix_f32(h, v.officer.previous_heading);
+        h = mix_f32(h, v.officer.door_heading);
+        h = mix_f32(h, v.officer.distance_walked_m);
         h = mix_bits(h, v.police_route_index);
         h = mix_bits(h, static_cast<uint64_t>(v.police_last_replan_step));
         h = mix_f32(h, v.police_last_target.x);

@@ -594,6 +594,7 @@ void stolen_vehicle_contacts_reach_the_real_crash_recording() {
     crowd_tuning.vehicle_activate_m=260;
     crowd_tuning.vehicle_retire_m=340;
     crowd_tuning.max_peds=0;
+    crowd_tuning.police.patrol_fraction=0.0f;  // stolen civilian-car audio fixture
     crowd.build(lanes,0xA9C011ull,AmbientTuning{},crowd_tuning);
     crowd.refresh(0,{0,0});
     REQUIRE(crowd.vehicles().size()>8);

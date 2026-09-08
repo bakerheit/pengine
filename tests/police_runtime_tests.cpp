@@ -276,11 +276,13 @@ void dispatcher_prefers_the_alpha_ring_then_uses_distant_patrols() {
         if (distance > tuning.police.witness_range && distance <= 140.0f)
             remove_from_band.push_back({agent.lane_key, agent.slot});
     }
-    for (const Identity& identity : remove_from_band) {
-        VehicleAgent removed;
-        REQUIRE(crowd.take_vehicle(identity.first, identity.second, removed));
-        REQUIRE(removed.police_unit);
-    }
+    // Seed a sparse dispatcher fixture directly. Occupied police cruisers
+    // cannot be transferred to the player now that their officer is visible.
+    auto& active = const_cast<std::vector<VehicleAgent>&>(crowd.vehicles());
+    active.erase(std::remove_if(active.begin(), active.end(), [&](const auto& agent) {
+        return std::find(remove_from_band.begin(), remove_from_band.end(),
+                         Identity{agent.lane_key, agent.slot}) != remove_from_band.end();
+    }), active.end());
     REQUIRE(std::any_of(crowd.vehicles().begin(), crowd.vehicles().end(),
                         [&](const VehicleAgent& agent) {
                             return agent.police_unit && !agent.police_pursuit &&

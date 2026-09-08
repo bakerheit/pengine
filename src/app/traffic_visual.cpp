@@ -11,6 +11,8 @@
 
 #include "app/vehicle_lamp_mesh.h"
 #include "app/vehicle_headlight_profile.h"
+#include "app/vehicle_driver_door.h"
+#include "app/vehicle_driver_pose.h"
 #include "app/emergency_lighting.h"
 #include "app/road_fixture_layout.h"
 #include "app/road_sign_mesh.h"
@@ -57,6 +59,20 @@ void set_draw_distance(Scene& scene, NodeId id, float distance) {
 
 }  // namespace
 
+PoliceOfficerVehicleLayout TrafficVisual::police_officer_vehicle_layout() const {
+    const auto& model=models_[static_cast<std::size_t>(TrafficVehicleKind::Police)];
+    const auto& driver=vehicle_driver_layout(PlayerCarId::MunicipalCruiser91C);
+    PoliceOfficerVehicleLayout out;
+    out.driver_seat_local=model.layout.body.transform_point(driver.hip);
+    out.driver_door_local=model.layout.body.transform_point(
+        {driver.approach_x,0.0f,driver.hip.z})+
+        model.layout.body.rotate({1,0,0})*.80f;
+    out.driver_seat_local.y=out.driver_door_local.y=0.0f;
+    out.half_width_m=model.layout.placed_body_bounds.extents().x;
+    out.half_length_m=model.layout.placed_body_bounds.extents().z;
+    return out;
+}
+
 bool TrafficVisual::load_model(Renderer& renderer, const char* mesh_path,
                                const char* const* paint_paths,
                                std::size_t paint_count,
@@ -77,6 +93,16 @@ bool TrafficVisual::load_model(Renderer& renderer, const char* mesh_path,
             "driver_rear_glass", "passenger_rear_glass"};
         const std::string path=mesh_path;
         const std::string root=path.substr(0,path.find_last_of('/')+1);
+        StaticEmesh open_body, driver_door;
+        if (!read_static_emesh(asset_path(root+"body_open.emesh"),open_body) ||
+            !read_static_emesh(asset_path(root+"driver_door.emesh"),driver_door))
+            return false;
+        // Use the authored open shell throughout, so the door and its glass
+        // can move without leaving a second, closed panel in the doorway.
+        out.mesh=renderer.add_mesh(open_body);
+        out.driver_door_mesh=renderer.add_mesh(driver_door);
+        out.driver_door_bounds=driver_door.bounds;
+        if (out.mesh==kInvalidId || out.driver_door_mesh==kInvalidId) return false;
         out.glass_material=renderer.add_glass_material();
         if (out.glass_material==kInvalidId) return false;
         for (std::size_t i=0;i<std::size(kGlassNames);++i) {
@@ -260,6 +286,12 @@ TrafficVisual::Rig TrafficVisual::create_rig(
         (h >> 8) % static_cast<uint64_t>(model.paints.size()))];
     rig.body = scene.create(body, Transform{}, model.bounds);
     set_draw_distance(scene, rig.body, 420.0f);
+    if (model.driver_door_mesh != kInvalidId) {
+        Renderable door=body;
+        door.mesh=model.driver_door_mesh;
+        rig.driver_door=scene.create(door,Transform{},model.driver_door_bounds);
+        set_draw_distance(scene,rig.driver_door,420.0f);
+    }
 
     for (std::size_t i=0;i<model.glass_count;++i) {
         Renderable glass;
@@ -304,6 +336,8 @@ TrafficVisual::Rig TrafficVisual::create_rig(
 void TrafficVisual::destroy_rig(Scene& scene, Rig& rig) const {
     scene.remove(rig.body);
     rig.body = kInvalidId;
+    if (rig.driver_door != kInvalidId) scene.remove(rig.driver_door);
+    rig.driver_door = kInvalidId;
     for (NodeId& id : rig.wheels) {
         scene.remove(id);
         id = kInvalidId;
@@ -325,14 +359,21 @@ void TrafficVisual::destroy_rig(Scene& scene, Rig& rig) const {
 void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
                              const VehicleAgent& agent,
                              const LaneGraph& lanes, int64_t step,
-                             float headlight_level) const {
+                             float headlight_level, float alpha) const {
     const Model& model = models_[rig.model];
     const Transform chassis = chassis_transform(agent);
 
     const Transform body_transform = chassis * model.layout.body;
     scene.set_transform(rig.body, body_transform);
-    for (NodeId id : rig.glass)
-        if (id != kInvalidId) scene.set_transform(id,body_transform);
+    const float door_open = agent.police_unit
+        ? police_officer_door_open(agent.officer,alpha) : 0.0f;
+    const Transform door_transform = vehicle_driver_door_transform(
+        PlayerCarId::MunicipalCruiser91C,body_transform,door_open);
+    if (rig.driver_door != kInvalidId)
+        scene.set_transform(rig.driver_door,door_transform);
+    for (std::size_t i=0;i<rig.glass.size();++i)
+        if (rig.glass[i] != kInvalidId)
+            scene.set_transform(rig.glass[i],i==3u ? door_transform : body_transform);
     const glm::vec4 damage0 = pack_vehicle_damage0(agent.body_damage);
     const glm::vec2 damage1 = pack_vehicle_damage1(agent.body_damage);
     const glm::vec3 source_centre = model.bounds.center();
@@ -347,6 +388,18 @@ void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
         body->renderable.body_damage0 = damage0;
         body->renderable.body_damage1 = packed_damage1;
         body->renderable.deform_frame = deform_frame;
+    }
+    if (SceneNode* door = scene.get(rig.driver_door)) {
+        door->renderable.body_damage0 = damage0;
+        door->renderable.body_damage1 = packed_damage1;
+        door->renderable.deform_frame = deform_frame;
+    }
+    for (NodeId id:rig.glass) {
+        if (SceneNode* glass=scene.get(id)) {
+            glass->renderable.body_damage0=damage0;
+            glass->renderable.body_damage1=packed_damage1;
+            glass->renderable.deform_frame=deform_frame;
+        }
     }
 
     float steer = agent.turn_from_lane != kInvalidLane
@@ -442,7 +495,7 @@ void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
 void TrafficVisual::sync(Scene& scene, const Crowd& crowd,
                          const LaneGraph& lanes, int64_t step,
                          float headlight_level, glm::vec3 focus,
-                         float presentation_radius_m) {
+                         float presentation_radius_m, float alpha) {
     const std::vector<VehicleAgent>& agents = crowd.vehicles();
     headlights_.clear();
     headlights_.reserve(agents.size()*2);
@@ -476,7 +529,7 @@ void TrafficVisual::sync(Scene& scene, const Crowd& crowd,
         } else {
             rig = create_rig(scene, agent);
         }
-        sync_rig(scene, rig, agent, lanes, step, headlight_level);
+        sync_rig(scene, rig, agent, lanes, step, headlight_level,alpha);
         if(headlight_level>0.001f) {
             const Model& model=models_[rig.model];
             const Transform chassis=chassis_transform(agent);

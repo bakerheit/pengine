@@ -73,6 +73,9 @@ bool App::load_game() {
     mission_stage_=saved.mission; seed_=saved.session_seed; step_index_=saved.sim_step;
     game_ui_.clear_waypoint();
     wanted_.reset();
+    police_offenses_.reset();
+    police_arrest_.reset();
+    arrested_feedback_s_=0.0f;
     world_.set_police_context(0, player_focus_position());
     seen_impact_count_=0; impact_feedback_seconds_=0; police_emergency_enabled_=false;
     vehicle_interaction_notice_.clear(); vehicle_notice_until_=0;

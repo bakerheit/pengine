@@ -139,6 +139,16 @@ public:
             const std::vector<VisiblePoliceIdentity>& visible_police = {}) {
         crowd_.set_police_context(wanted_level, target, visible_police);
     }
+    void set_police_officer_context(bool target_on_foot, float target_speed_mps,
+                                    const TerrainCollider* collider) {
+        crowd_.set_police_officer_context(target_on_foot,target_speed_mps,collider);
+    }
+    void set_police_officer_vehicle_layout(const PoliceOfficerVehicleLayout& layout) {
+        crowd_.set_police_officer_vehicle_layout(layout);
+    }
+    bool report_police_vehicle_hit(VisiblePoliceIdentity cruiser) {
+        return crowd_.report_police_vehicle_hit(cruiser);
+    }
     bool resolve_traffic_collision(VehicleState& player,
                                    float player_half_width_m,
                                    float player_half_length_m,

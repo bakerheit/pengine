@@ -11,6 +11,7 @@
 #include <glm/glm.hpp>
 
 #include "city/traffic_ai.h"
+#include "city/police_officer.h"
 #include "physics/vehicle_damage.h"
 #include "physics/vehicle_mechanical.h"
 #include "road/lane_graph.h"
@@ -21,6 +22,7 @@
 namespace apricot {
 
 struct VehicleState;
+class TerrainCollider;
 
 // THE ACTIVE SET — the bounded population that is actually stepped.
 //
@@ -151,6 +153,7 @@ struct VehicleAgent {
     uint32_t police_route_index = 0;
     int64_t police_last_replan_step = -1;
     glm::vec2 police_last_target{0.0f};
+    PoliceOfficerState officer{};
 
     // Junction memory. Stop signs need a real arrival and dwell instead of the
     // old "speed dipped under 0.4, good enough" rolling stop. A car that has
@@ -222,6 +225,29 @@ inline TrafficVehicleKind traffic_vehicle_kind(const VehicleAgent& agent) {
         ? TrafficVehicleKind::Police
         : traffic_vehicle_kind(agent.lane_key, agent.slot);
 }
+
+inline glm::vec3 police_officer_eye_position(const VehicleAgent& agent) {
+    if (police_officer_on_foot(agent.officer) || agent.officer.transition.active())
+        return agent.officer.pos + glm::vec3{0.0f, 1.60f, 0.0f};
+    return agent.pos + glm::vec3{0.0f, 1.15f, 0.0f};
+}
+
+inline glm::vec3 police_officer_forward(const VehicleAgent& agent) {
+    if (police_officer_on_foot(agent.officer))
+        return {std::sin(agent.officer.heading), 0.0f,
+                -std::cos(agent.officer.heading)};
+    return agent.fwd;
+}
+
+// One actual player/cruiser contact per stable identity per solver call.
+// Velocities are sampled at the contact point before the collision impulse.
+struct PolicePlayerContact {
+    uint64_t lane_key = 0;
+    uint32_t slot = 0;
+    glm::vec3 player_velocity{0.0f};
+    glm::vec3 police_velocity{0.0f};
+    glm::vec3 normal{0.0f};             // from police body toward player
+};
 
 // Stable identity of one police vehicle whose ray to the wanted target is
 // unobstructed in the production world. World collision owns that raycast;
@@ -549,6 +575,18 @@ public:
                            visible_police);
     }
 
+    void set_police_officer_context(bool target_on_foot, float target_speed_mps,
+                                    const TerrainCollider* world = nullptr);
+    // Called only after an attributed player hit raises wanted heat. The
+    // struck officer felt the contact, even when the player hit from behind.
+    bool report_police_vehicle_hit(VisiblePoliceIdentity cruiser);
+    void set_police_officer_vehicle_layout(const PoliceOfficerVehicleLayout& layout) {
+        police_officer_layout_ = layout;
+    }
+    const std::vector<PolicePlayerContact>& police_player_contacts() const {
+        return police_player_contacts_;
+    }
+
     // Resolve the player against active traffic bodies. Both bodies receive
     // separation and impulse; traffic carries its reaction as a deterministic
     // world-space offset over the lane pose, then drives forward to rejoin.
@@ -627,6 +665,8 @@ private:
     void update_police_route(VehicleAgent& agent, LaneRef target_lane,
                              int64_t step);
     bool police_has_line_of_sight(const VehicleAgent& agent) const;
+    void step_police_officers(const VehicleState* player,
+                              const OnFootTrafficHazard* on_foot_player);
     void resolve_vehicle_collisions();
     float junction_clearance(uint32_t junction) const;
     bool movements_conflict(LaneRef from, LaneRef to,
@@ -669,6 +709,12 @@ private:
     std::vector<VisiblePoliceIdentity> visible_police_;
     bool police_response_due_ = false;
     int64_t police_next_response_step_ = 0;
+    bool police_officers_enabled_ = false;
+    bool police_target_on_foot_ = false;
+    float police_target_speed_mps_ = 0.0f;
+    const TerrainCollider* police_officer_world_ = nullptr;
+    PoliceOfficerVehicleLayout police_officer_layout_{};
+    std::vector<PolicePlayerContact> police_player_contacts_;
 
     // Permanent: a retired agent never returns, because the closed form that
     // would have described it stopped describing it the moment it was

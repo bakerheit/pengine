@@ -19,6 +19,9 @@
 #include "app/weapon_visual.h"
 #include "game/weapon.h"
 #include "game/wanted_system.h"
+#include "game/police_offenses.h"
+#include "game/police_arrest.h"
+#include "game/police_visibility.h"
 #include "game/repair_shop.h"
 #include "game/road_name.h"
 #include "app/world.h"
@@ -103,6 +106,10 @@ public:
     bool boat_check_passed() const { return boat_check_passed_; }
     void set_police_check(bool enabled) { police_check_=enabled; }
     bool police_check_passed() const { return police_check_captures_==7; }
+    void set_police_officer_check(bool enabled) { police_officer_check_=enabled; }
+    bool police_officer_check_passed() const {
+        return police_officer_check_done_ && !police_officer_check_failed_;
+    }
     void set_start_wanted(int level) { start_wanted_level_=level; }
     void set_weapon_check(bool enabled) { weapon_check_=enabled; }
     bool weapon_check_passed() const { return weapon_check_captures_==7; }
@@ -230,6 +237,7 @@ private:
         uint64_t lane_key = 0;
         uint32_t slot = 0;
         PlayerCarId model = PlayerCarId::LegacyCar5;
+        bool locked = false;
     };
     VehicleEntryTarget nearby_vehicle() const;
     bool take_nearby_vehicle(const VehicleEntryTarget& target);
@@ -243,7 +251,13 @@ private:
     glm::vec3 player_focus_position() const;
     glm::vec3 player_focus_forward() const;
     std::vector<VisiblePoliceIdentity> visible_police(
-        glm::vec3 target) const;
+        glm::vec3 target, bool witness_only = false) const;
+    void check_police_driving_offenses();
+    void check_police_collision_offenses();
+    void check_police_arrest(const std::vector<VisiblePoliceIdentity>& visible);
+    InputFrame police_officer_check_input();
+    void police_officer_check_camera();
+    void capture_police_officer_check();
     SkyEnv current_sky_env() const;
 
     // Drain and log the GL error queue. Returns how many were found.
@@ -382,6 +396,22 @@ private:
     bool ui_settings_applied_ = false;
     GameUi game_ui_;
     WantedSystem wanted_;
+    PoliceOffenseTracker police_offenses_;
+    PoliceArrestTracker police_arrest_;
+    float arrested_feedback_s_=0.0f;
+    unsigned police_arrest_reports_=0;
+    unsigned police_red_light_reports_=0;
+    unsigned police_collision_reports_=0;
+    bool police_officer_check_=false;
+    bool police_officer_check_done_=false;
+    bool police_officer_check_failed_=false;
+    int police_officer_check_stage_=0;
+    uint64_t police_officer_check_tick_=0;
+    uint64_t police_officer_check_stage_tick_=0;
+    VisiblePoliceIdentity police_officer_check_unit_{};
+    unsigned police_officer_check_phases_=0;
+    bool police_officer_check_foot_target_set_=false;
+    std::string police_officer_check_capture_;
     DevMenu dev_menu_;
     BugReportUi bug_report_;
     bool bug_report_restore_mouse_ = false;

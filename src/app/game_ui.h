@@ -35,6 +35,8 @@ struct GameUiSnapshot {
 // resources stay owned by Hud.
 class GameUi {
 public:
+    static constexpr float kArrestedDisplaySeconds = 4.0f;
+    void draw_arrested(Hud& hud, float remaining_s, glm::vec2 vp) const;
     void build_map();
     void draw_minimap(Hud& hud, const UiFlow& flow,
                       const GameUiSnapshot& snapshot, glm::vec2 vp) const;

@@ -60,7 +60,7 @@ App::VehicleEntryTarget App::nearby_vehicle() const {
     }
     for (const auto& v:world_.traffic().vehicles()) {
         const auto footprint=traffic_vehicle_footprint(traffic_vehicle_kind(v));
-        consider({VehicleEntryTarget::Kind::Traffic,0,v.lane_key,v.slot,traffic_model(v)},v.pos,traffic_rotation(v),
+        consider({VehicleEntryTarget::Kind::Traffic,0,v.lane_key,v.slot,traffic_model(v),v.police_unit},v.pos,traffic_rotation(v),
             footprint.half_width_m,footprint.half_length_m,v.pos.y,
             std::fabs(v.speed_mps)+glm::length(v.collision_velocity_xz));
     }

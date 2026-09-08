@@ -1,4 +1,5 @@
 #include "app/character_visual.h"
+#include "app/traffic_visual.h"
 
 #include <algorithm>
 #include <cmath>
@@ -178,6 +179,19 @@ bool CharacterVisual::init(const PlayerCharacterState& player) {
         if (!load_model(root, 1.72f, npc_models_[i])) return false;
     }
 
+    // Both supplied uniform skins use the proven police body/animation rig.
+    // Keep this pool separate: a civilian's random outfit is never an officer.
+    static constexpr std::array<const char*, 2> kPoliceNames = {
+        "police_male_17", "police_male_19",
+    };
+    for (std::size_t i = 0; i < police_models_.size(); ++i) {
+        const std::string root = std::string{
+            "models/characters/psx_pack/"} + kPoliceNames[i] + "/";
+        // The seated and door-contact solvers use a 1.76 m person too. Never
+        // let the officer change height when stepping out of the cruiser.
+        if (!load_model(root, 1.76f, police_models_[i])) return false;
+    }
+
     last_player_distance_ = player.distance_walked_m;
     player_walk_time_ = 0.0f;
     player_visible_ = true;
@@ -188,6 +202,8 @@ bool CharacterVisual::init(const PlayerCharacterState& player) {
     sync_staff(0, 0.0f, glm::vec3{0.0f}, 0.0f);
     AP_INFO("character visual: player plus %zu supplied skinned civilian models "
             "ready", npc_models_.size());
+    AP_INFO("character visual: %zu supplied police uniform models ready",
+            police_models_.size());
     return true;
 }
 
@@ -378,16 +394,110 @@ void CharacterVisual::sync_transition(PlayerCarId car, const Transform* body,
     if (driver_visible_) player_visible_ = false;
 }
 
+void CharacterVisual::sync_police(const Crowd& crowd,
+                                  const TrafficVisual& traffic, float alpha,
+                                  int64_t step, glm::vec3 focus,
+                                  float presentation_radius_m) {
+    const float blend = std::clamp(alpha, 0.0f, 1.0f);
+    std::vector<PoliceRig> next;
+    next.reserve(crowd.police_unit_count());
+    std::size_t old = 0;
+    for (const auto& agent : crowd.vehicles()) {
+        const auto& officer = agent.officer;
+        const glm::vec3 presentation_position = police_officer_on_foot(officer)
+            ? officer.pos : agent.pos;
+        if (!agent.police_unit || !city::within_presentation_radius(
+                presentation_position, focus, presentation_radius_m)) continue;
+        while (old < police_rigs_.size() && identity_less(
+                police_rigs_[old].character.lane_key,
+                police_rigs_[old].character.slot,
+                agent.lane_key, agent.slot)) ++old;
+        PoliceRig rig;
+        if (old < police_rigs_.size() &&
+            police_rigs_[old].character.lane_key == agent.lane_key &&
+            police_rigs_[old].character.slot == agent.slot) {
+            rig = std::move(police_rigs_[old++]);
+        } else {
+            rig.character.lane_key = agent.lane_key;
+            rig.character.slot = agent.slot;
+            rig.character.model = static_cast<std::size_t>(splitmix64_mix(
+                agent.lane_key ^ (static_cast<uint64_t>(agent.slot) << 32)) %
+                police_models_.size());
+        }
+        const Model& model = police_models_[rig.character.model];
+        const float phase = static_cast<float>(
+            (agent.lane_key ^ static_cast<uint64_t>(agent.slot)) & 255u) /
+            256.0f;
+        const float idle_time = (static_cast<float>(step) + blend) *
+            static_cast<float>(kSimDt) + phase * model.idle.duration();
+        rig.in_vehicle = !police_officer_on_foot(officer);
+        if (rig.in_vehicle) {
+            const Transform body = traffic.vehicle_body_transform(agent);
+            VehicleDriverPose occupant;
+            bool posed = false;
+            if (officer.transition.active()) {
+                const Transform standing = model_transform(facing_transform(
+                    officer.door_pos, character_forward(officer.door_heading)),
+                    model, 0.0f);
+                Pose idle;
+                sample_pose(model, model.idle, idle_time, idle);
+                posed = make_vehicle_transition_pose(
+                    PlayerCarId::MunicipalCruiser91C, model.skeleton,
+                    model.bounds, body, standing, idle.local,
+                    sample_vehicle_transition(officer.transition, blend),
+                    occupant);
+            } else {
+                posed = make_vehicle_driver_pose(
+                    PlayerCarId::MunicipalCruiser91C, model.skeleton,
+                    model.bounds, body, occupant);
+            }
+            if (!posed) continue;
+            rig.character.world = occupant.world;
+            rig.character.pose.local = std::move(occupant.local);
+            rig.character.pose.skin = std::move(occupant.skin);
+            rig.character.pose.dual_real = std::move(occupant.dual_real);
+            rig.character.pose.dual_part = std::move(occupant.dual_part);
+        } else {
+            const auto position = glm::mix(officer.previous_pos, officer.pos,
+                                           blend);
+            const float yaw = mixed_angle(officer.previous_heading,
+                                           officer.heading, blend);
+            const Transform root = facing_transform(
+                position, character_forward(yaw));
+            const float step_distance = glm::length(glm::vec2{
+                officer.pos.x - officer.previous_pos.x,
+                officer.pos.z - officer.previous_pos.z});
+            const float speed = step_distance / static_cast<float>(kSimDt);
+            const bool sprinting = speed > 3.0f;
+            const Animation& animation = speed <= 0.08f ? model.idle :
+                sprinting ? model.sprint : model.walk;
+            const float stride = sprinting ? kSprintStrideMetres :
+                                             kWalkStrideMetres;
+            const float walked = std::max(0.0f, officer.distance_walked_m -
+                                               (1.0f - blend) * step_distance);
+            const float time = speed <= 0.08f ? idle_time :
+                (walked / stride + phase) * animation.duration();
+            const float plant = speed <= 0.08f ? 0.0f :
+                sprinting ? model.sprint_plant : model.walk_plant;
+            rig.character.world = model_transform(root, model, plant);
+            sample_pose(model, animation, time, rig.character.pose);
+        }
+        next.push_back(std::move(rig));
+    }
+    police_rigs_ = std::move(next);
+}
+
 bool CharacterVisual::draw_model(const Model& model, const Pose& pose,
                                  const Transform& world,
-                                 const Camera& camera) const {
+                                 const Camera& camera,
+                                 bool cull_bind_bounds) const {
     if (!model.loaded || pose.dual_real.empty() ||
         pose.dual_real.size() != pose.dual_part.size()) {
         return false;
     }
     const AABB world_bounds = model.bounds.transformed(world.matrix())
                                   .expanded(0.35f);
-    if (camera.frustum().cull(world_bounds)) return false;
+    if (cull_bind_bounds && camera.frustum().cull(world_bounds)) return false;
     shader_.set_mat4("u_model", world.matrix());
     shader_.set_vec4_array("u_dq_real", pose.dual_real.data(),
                            static_cast<int>(pose.dual_real.size()));
@@ -402,6 +512,7 @@ void CharacterVisual::render(const Camera& camera, const SkyEnv& environment,
                              const HeadlightRig& headlights,
                              const CanopyLightRig& canopy_lights) const {
     last_draw_count_ = 0;
+    last_police_draw_count_ = 0;
     if (!shader_.valid()) return;
     shader_.bind();
     shader_.set_mat4("u_view_proj", camera.view_projection());
@@ -440,6 +551,18 @@ void CharacterVisual::render(const Camera& camera, const SkyEnv& environment,
         if (glm::dot(delta, delta) > max_distance_squared) continue;
         if (draw_model(npc_models_[rig.model], rig.pose, rig.world, camera)) ++last_draw_count_;
     }
+    for (const PoliceRig& officer : police_rigs_) {
+        const Rig& rig = officer.character;
+        const glm::vec3 delta = rig.world.position - camera.position;
+        if (glm::dot(delta, delta) > max_distance_squared) continue;
+        // A seated or traversing pose lies outside the tall bind-pose box.
+        // Distance-limit these few officers like the player's visible driver.
+        if (draw_model(police_models_[rig.model], rig.pose, rig.world, camera,
+                       !officer.in_vehicle)) {
+            ++last_draw_count_;
+            ++last_police_draw_count_;
+        }
+    }
 }
 
 bool CharacterVisual::player_right_hand_transform(glm::mat4& out) const {
@@ -467,14 +590,20 @@ void CharacterVisual::destroy() {
         model.mesh.destroy();
         model.texture.destroy();
     }
+    for (Model& model : police_models_) {
+        model.mesh.destroy();
+        model.texture.destroy();
+    }
     rigs_.clear();
     staff_rigs_.clear();
+    police_rigs_.clear();
     player_pose_ = Pose{};
     boat_standing_pose_ = Pose{};
     player_visible_ = false;
     driver_visible_ = false;
     driver_pose_ = VehicleDriverPose{};
     last_draw_count_ = 0;
+    last_police_draw_count_ = 0;
 }
 
 }  // namespace apricot

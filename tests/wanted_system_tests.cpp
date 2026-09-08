@@ -82,6 +82,20 @@ void developer_level_setup_is_exact_and_does_not_report_a_crime() {
         "developer wanted setup selects exact levels without inventing crimes");
 }
 
+void traffic_and_cruiser_reports_reach_the_dispatcher() {
+    for (const auto crime : {WantedSystem::Crime::TrafficViolation,
+                             WantedSystem::Crime::PoliceVehicleCollision}) {
+        WantedSystem wanted;
+        wanted.add_heat(1.0f, crime);
+        REQUIRE(wanted.level() == 1);
+        WantedSystem::Crime reported = WantedSystem::Crime::Other;
+        REQUIRE(wanted.take_crime_report(reported));
+        REQUIRE(reported == crime);
+        REQUIRE(!wanted.take_crime_report(reported));
+    }
+    apricot_test::pass("traffic violations and cruiser impacts keep their crime kind through dispatch");
+}
+
 }  // namespace
 
 int main() {
@@ -89,5 +103,6 @@ int main() {
     contact_holds_then_escape_cools();
     crime_report_is_one_shot_and_keeps_latest_kind();
     developer_level_setup_is_exact_and_does_not_report_a_crime();
+    traffic_and_cruiser_reports_reach_the_dispatcher();
     return apricot_test::done("wanted_system_tests");
 }

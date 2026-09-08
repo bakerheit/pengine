@@ -733,13 +733,9 @@ void collision_recovery_moves_where_the_body_points() {
     crowd.refresh(0, {0.0f, 0.0f});
     REQUIRE(!crowd.vehicles().empty());
     const VehicleAgent original = crowd.vehicles().front();
-    const auto population = crowd.vehicles();
-    for (const auto& agent : population) {
-        if (agent.lane_key == original.lane_key && agent.slot == original.slot)
-            continue;
-        VehicleAgent removed;
-        REQUIRE(crowd.take_vehicle(agent.lane_key, agent.slot, removed));
-    }
+    // This collision fixture needs one unchanged body, not a player taking
+    // possession of every other driver (occupied police cars stay locked).
+    const_cast<std::vector<VehicleAgent>&>(crowd.vehicles()) = {original};
     REQUIRE(crowd.vehicles().size() == 1u);
     const glm::vec3 right{-original.fwd.z, 0.0f, original.fwd.x};
     VehicleState player;
@@ -1230,7 +1226,9 @@ void leaking_traffic_coasts_to_a_persistent_stop() {
     spine.points={{-1200,0},{1200,0}};
     RoadGraph roads;roads.build({spine},RoadGraphParams{},GroundSampler{});
     LaneGraph lanes;lanes.build(roads,GroundSampler{});
-    CrowdTuning tuning;tuning.max_peds=0;
+    // This fixture exercises civilian ownership transfer after an engine
+    // failure. Patrol cars retain their officer and are deliberately locked.
+    CrowdTuning tuning;tuning.max_peds=0;tuning.police.patrol_fraction=0.0f;
     Crowd crowd;crowd.build(lanes,0xF1A1ull,AmbientTuning{},tuning);
     crowd.refresh(0,{0,0});
     REQUIRE(!crowd.vehicles().empty());
@@ -1279,6 +1277,7 @@ int main() {
         Crowd crowd;
         AmbientTuning ambient;
         CrowdTuning tuning;
+        tuning.police.patrol_fraction = 0.0f;  // civilian possession fixture
         crowd.build(n.lanes,0xCAFE1234ull,ambient,tuning);
         crowd.refresh(0,{0,0});
         REQUIRE(!crowd.vehicles().empty());

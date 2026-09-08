@@ -30,7 +30,7 @@ public:
               const CrowdTuning& tuning, TerrainCollider& collider);
     void sync(Scene& scene, const Crowd& crowd, const LaneGraph& lanes,
               int64_t step, float headlight_level, glm::vec3 focus,
-              float presentation_radius_m = 0.0f);
+              float presentation_radius_m = 0.0f, float alpha = 1.0f);
     // Drop only transient traffic-car presentation. Authored signals and
     // street lamps stay resident across cutscenes and session resets.
     void clear_vehicles(Scene& scene);
@@ -55,6 +55,17 @@ public:
     const TrafficVisualLayout& vehicle_layout(const VehicleAgent& agent) const {
         return models_[static_cast<std::size_t>(traffic_vehicle_kind(agent))].layout;
     }
+    Transform vehicle_body_transform(const VehicleAgent& agent) const {
+        Transform chassis;
+        chassis.position=agent.pos;
+        chassis.rotation=glm::quat(glm::vec3{0.0f,
+            std::atan2(-agent.fwd.x,-agent.fwd.z),0.0f});
+        return chassis*vehicle_layout(agent).body;
+    }
+    PoliceOfficerVehicleLayout police_officer_vehicle_layout() const;
+    const AABB& vehicle_source_bounds(const VehicleAgent& agent) const {
+        return models_[static_cast<std::size_t>(traffic_vehicle_kind(agent))].bounds;
+    }
     MaterialId vehicle_paint(const VehicleAgent& agent) const {
         const auto& paints=models_[static_cast<std::size_t>(traffic_vehicle_kind(agent))].paints;
         return paints[(traffic_vehicle_identity_hash(agent.lane_key,agent.slot)>>8)%paints.size()];
@@ -69,6 +80,8 @@ public:
 private:
     struct Model {
         MeshId mesh = kInvalidId;
+        MeshId driver_door_mesh = kInvalidId;
+        AABB driver_door_bounds;
         std::vector<MaterialId> paints;
         AABB bounds;
         TrafficVisualLayout layout;
@@ -90,6 +103,7 @@ private:
         uint32_t slot = 0;
         std::size_t model = 0;
         NodeId body = kInvalidId;
+        NodeId driver_door = kInvalidId;
         std::array<NodeId, 4> wheels{
             kInvalidId, kInvalidId, kInvalidId, kInvalidId};
         std::array<NodeId, 4> lamps{
@@ -129,7 +143,7 @@ private:
     void destroy_rig(Scene& scene, Rig& rig) const;
     void sync_rig(Scene& scene, Rig& rig, const VehicleAgent& agent,
                   const LaneGraph& lanes, int64_t step,
-                  float headlight_level) const;
+                  float headlight_level, float alpha) const;
     void build_signals(Scene& scene, const LaneGraph& lanes,
                        TerrainCollider& collider);
     void build_street_lamps(Scene& scene, const LaneGraph& lanes,
