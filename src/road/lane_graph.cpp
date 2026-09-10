@@ -70,6 +70,16 @@ std::vector<glm::vec3> offset_polyline(const std::vector<glm::vec2>& pts,
     for (std::size_t i = 1; i < n; ++i)
         along[i] = along[i - 1] + glm::length(pts[i] - pts[i - 1]);
     const float total = std::max(along.back(), 1e-6f);
+    // Every vertex is displaced by exactly `offset` along its own bisector
+    // normal, so a lane vertex is always that far from the centreline and
+    // always on the carriageway. A true mitre (the intersection of the two
+    // offset segment LINES) preserves corner angles instead, but its length is
+    // 1/cos(half the deflection): at the 132-degree corner on spine 100 that
+    // throws the vertex out by 2.5x the offset, several metres clear of the
+    // asphalt the car is supposed to be driving on. Measured, it traded a
+    // slightly better lane shape for cars driving off the road and piling up.
+    // Keeping vertices on the road and cleaning up afterwards is the trade
+    // that holds.
     for (std::size_t i = 0; i < n; ++i) {
         glm::vec2 tangent;
         if (i == 0) tangent = pts[1] - pts[0];
@@ -79,10 +89,61 @@ std::vector<glm::vec3> offset_polyline(const std::vector<glm::vec2>& pts,
         offset_points.push_back(pts[i] +
                                 lane_right(safe_normalize(tangent)) * offset);
     }
+
+    // Offsetting each vertex on its own bisector self-intersects wherever the
+    // road turns a corner tighter than the lane is far from the centreline:
+    // the inner-side vertices swap order and the lane doubles back on itself
+    // for a few centimetres. pose() reads its tangent straight off that
+    // segment, so a car crossing the spike had its heading reverse inside a
+    // single 120 Hz step -- 180 degrees, 21,600 deg/s, a car pirouetting on
+    // the spot mid-block. What it cost was a search in the wrong module: every
+    // suspect was in the traffic code, and every one of them was innocent. The
+    // agent was on one lane, not turning, not in a maneuver, moving four
+    // centimetres a step. The lane it was standing on was the thing that was
+    // wrong, so measure the GEOMETRY before suspecting the driver.
+    //
+    // The true offset of an inner corner IS the trimmed corner; the loop is an
+    // artifact of offsetting vertices independently. Drop any interior vertex
+    // whose offset segment runs against the source segment it came from, and
+    // repeat, because trimming one corner can expose the next. Endpoints are
+    // never dropped -- they are what puts the lane at its junction.
+    std::vector<std::size_t> keep(n);
+    for (std::size_t i = 0; i < n; ++i) keep[i] = i;
+    for (bool changed = true; changed && keep.size() > 2;) {
+        changed = false;
+        std::vector<std::size_t> next;
+        next.reserve(keep.size());
+        next.push_back(keep.front());
+        for (std::size_t k = 1; k + 1 < keep.size(); ++k) {
+            const glm::vec2 step =
+                offset_points[keep[k]] - offset_points[next.back()];
+            const glm::vec2 source = pts[keep[k]] - pts[next.back()];
+            // Reversed relative to the road, or collapsed onto the previous
+            // vertex outright. Either way the segment carries no usable
+            // direction and pose() must not read a tangent from it.
+            if (glm::dot(step, source) <= 0.0f) {
+                changed = true;
+                continue;
+            }
+            next.push_back(keep[k]);
+        }
+        next.push_back(keep.back());
+        keep.swap(next);
+    }
+    // The last kept interior vertex can still fold past the endpoint, which
+    // the loop above cannot see because it never drops the endpoint.
+    while (keep.size() > 2) {
+        const std::size_t last = keep[keep.size() - 2];
+        const glm::vec2 step = offset_points[keep.back()] - offset_points[last];
+        const glm::vec2 source = pts[keep.back()] - pts[last];
+        if (glm::dot(step, source) > 0.0f) break;
+        keep.erase(keep.begin() + static_cast<std::ptrdiff_t>(keep.size()) - 2);
+    }
+
     constexpr float kLaneDrapeStepM = 4.0f;
-    for (std::size_t segment = 0; segment + 1 < n; ++segment) {
-        const glm::vec2 a = offset_points[segment];
-        const glm::vec2 delta = offset_points[segment + 1] - a;
+    for (std::size_t segment = 0; segment + 1 < keep.size(); ++segment) {
+        const glm::vec2 a = offset_points[keep[segment]];
+        const glm::vec2 delta = offset_points[keep[segment + 1]] - a;
         const float length = glm::length(delta);
         if (length < 1e-4f) continue;
         const float y0 = surf.at(a);
@@ -626,9 +687,56 @@ LanePose LaneGraph::pose(LaneRef r, float d, float lateral_m) const {
     const float seg = l.cum[s + 1] - l.cum[s];
     const float u = seg > 1e-6f ? (t_d - l.cum[s]) / seg : 0.0f;
 
-    const glm::vec3 tangent = b - a;
+    // A centreline is a polyline, so a tangent read straight off the segment
+    // is a STEP function: crossing a shape point rotated the heading by the
+    // whole authored deflection inside one 120 Hz tick. Spine 100 turns 132
+    // degrees at one vertex, which is 15,800 deg/s -- a car pirouetting on the
+    // spot mid-block instead of driving round the bend. Traffic reads its
+    // heading from here, so the continuity has to live here.
+    //
+    // Roll the heading through the corner over a short arc either side of the
+    // vertex, clamped to half of each neighbouring segment so two corners can
+    // never blend into one another. Outside that window the tangent is exactly
+    // the segment direction, which keeps long straights honest -- and the two
+    // END vertices are deliberately excluded, so a lane still meets its
+    // junction on precisely the heading the junction was built from.
+    auto segment_dir = [&](std::size_t k) {
+        const glm::vec3 d3 = l.centreline[k + 1] - l.centreline[k];
+        const float len = glm::length(d3);
+        return len > 1e-6f ? d3 / len : glm::vec3{1.0f, 0.0f, 0.0f};
+    };
+    auto segment_len = [&](std::size_t k) { return l.cum[k + 1] - l.cum[k]; };
+    // Smoothstep, so the heading leaves and rejoins the straight with zero
+    // rate of change; a linear ramp corners smoothly but starts and stops
+    // steering with a jerk.
+    auto ease = [](float x) { return x * x * (3.0f - 2.0f * x); };
+
+    glm::vec3 tangent = segment_dir(s);
+    const std::size_t last = l.centreline.size() - 1u;
+    // Half a car length either side of the vertex.
+    constexpr float kCornerBlendM = 3.0f;
+    if (s > 0) {
+        const float w = std::min(kCornerBlendM,
+            0.5f * std::min(segment_len(s - 1), segment_len(s)));
+        const float from_vertex = t_d - l.cum[s];
+        if (w > 1e-4f && from_vertex < w) {
+            const float mix = 0.5f + 0.5f * ease(from_vertex / w);
+            tangent = glm::mix(segment_dir(s - 1), segment_dir(s), mix);
+        }
+    }
+    if (s + 1 < last) {
+        const float w = std::min(kCornerBlendM,
+            0.5f * std::min(segment_len(s), segment_len(s + 1)));
+        const float to_vertex = l.cum[s + 1] - t_d;
+        if (w > 1e-4f && to_vertex < w) {
+            const float mix = 0.5f - 0.5f * ease(to_vertex / w);
+            tangent = glm::mix(segment_dir(s), segment_dir(s + 1), mix);
+        }
+    }
     const float tl = glm::length(tangent);
-    out.tangent = tl > 1e-6f ? tangent / tl : glm::vec3{1.0f, 0.0f, 0.0f};
+    // A blend across a near-reversal cancels itself out. Nothing sensible to
+    // point at there, so keep the segment the station actually lies on.
+    out.tangent = tl > 1e-3f ? tangent / tl : segment_dir(s);
     const glm::vec3 right = glm::cross(out.tangent, kUp);
     const float rl = glm::length(right);
     out.right = rl > 1e-6f ? right / rl : glm::vec3{0.0f, 0.0f, 1.0f};

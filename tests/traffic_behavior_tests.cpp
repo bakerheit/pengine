@@ -312,11 +312,101 @@ void authored_streaming_order_is_stable() {
     REQUIRE(saw_waiting_driver);
     apricot_test::pass("30s of real-map stop and yield traffic stays bit-equal under reversed activation order, including patience state");
 }
+// THE CAR THAT SPUN ON THE SPOT.
+//
+// Ordinary lane-following traffic used to reverse its heading inside a single
+// 120 Hz step -- 180 degrees, 21,600 deg/s. Not a turn taken badly: a snap. The
+// agent was on one lane, not turning, not in a maneuver, four centimetres
+// further along than it had been. Two things in the lane geometry did it, and
+// both are geometry, not driving:
+//
+//   1. offset_polyline() offset each vertex independently, so at a corner
+//      tighter than the lane is wide the inner vertices swapped order and the
+//      centreline doubled back for a few centimetres.
+//   2. pose() read its tangent straight off the polyline segment, which makes
+//      the heading a STEP function -- crossing any shape point rotated the car
+//      by the whole authored deflection at once, up to 132 degrees on spine 100.
+//
+// So this runs the REAL authored map, on the REAL draped ground, through the
+// REAL Crowd, and watches what the cars' own published `fwd` does. Both numbers
+// are printed, because the bound that matters is not "did it pass" but "how
+// close is it": a car may corner briskly, it may not pirouette.
+void authored_traffic_never_snaps_its_heading() {
+    TerrainGround ground{city::kMapSeed};
+    RoadGraph roads; LaneGraph lanes;
+    roads.build(city::map_spines(), {}, ground.sampler());
+    lanes.build(roads, ground.sampler());
+
+    // The geometry first, because if the lanes are continuous the drivers are
+    // reading a continuous thing. Walk every lane at 2 cm -- finer than any car
+    // moves in one step, so a discontinuity cannot hide between samples.
+    double worst_lane_turn = 0.0;
+    LaneRef worst_lane = kInvalidLane;
+    for (LaneRef r = 0; r < lanes.lane_count(); ++r) {
+        const float length = lanes.lane(r).length_m;
+        glm::vec3 previous = lanes.pose(r, 0.0f).tangent;
+        for (float d = 0.02f; d <= length; d += 0.02f) {
+            const glm::vec3 t = lanes.pose(r, d).tangent;
+            const double turn = std::acos(glm::clamp(
+                glm::dot(glm::normalize(previous), glm::normalize(t)),
+                -1.0f, 1.0f)) * 57.2957795;
+            if (turn > worst_lane_turn) { worst_lane_turn = turn; worst_lane = r; }
+            previous = t;
+        }
+    }
+    std::printf("      worst lane heading turn per 2 cm: %.2f deg (lane %d)\n",
+                worst_lane_turn, static_cast<int>(worst_lane));
+    REQUIRE_MSG(worst_lane_turn < 12.0,
+                "a lane's heading jumps within 2 cm of station", "lane geometry");
+
+    // Now the cars. Identity is (lane key, slot) and BOTH get recycled, so a
+    // retired departure and the fresh one that takes its pair look like one car
+    // teleporting. Filter on travel: at 120 Hz nothing legitimately moves 0.5 m
+    // in a step, and a car that did is a different car. Without this the suite
+    // measures respawns and reports 9,000 deg/s of nothing.
+    CrowdTuning tuning; tuning.max_peds = 0;
+    Crowd crowd; crowd.build(lanes, city::kMapSeed, {}, tuning);
+    std::map<std::pair<uint64_t, uint32_t>, std::pair<glm::vec3, glm::vec3>> seen;
+    double worst_yaw = 0.0;
+    int64_t samples = 0;
+    for (glm::vec2 focus : {glm::vec2{-263.58f, -386.76f}, glm::vec2{-1050, 110},
+                            glm::vec2{-1300, -190}}) {
+        for (int64_t s = 0; s < 3600; ++s) {
+            if (s % tuning.refresh_every_steps == 0) crowd.refresh(s, focus);
+            step(crowd, s);
+            for (const VehicleAgent& v : crowd.vehicles()) {
+                const std::pair<uint64_t, uint32_t> id{v.lane_key, v.slot};
+                const auto it = seen.find(id);
+                if (it != seen.end() &&
+                    glm::length(v.pos - it->second.second) < 0.5f) {
+                    ++samples;
+                    worst_yaw = std::max(worst_yaw, std::acos(glm::clamp(
+                        glm::dot(glm::normalize(it->second.first),
+                                 glm::normalize(v.fwd)), -1.0f, 1.0f)) * 57.2957795);
+                }
+                seen[id] = {v.fwd, v.pos};
+            }
+        }
+    }
+    std::printf("      worst traffic yaw: %.2f deg/step = %.0f deg/s "
+                "over %lld steps of driving\n",
+                worst_yaw, worst_yaw * 120.0, static_cast<long long>(samples));
+    REQUIRE_MSG(samples > 100000, "the crowd barely drove, so this proved nothing",
+                "coverage");
+    // 25 deg/step is 3,000 deg/s: still brisk, and still nothing like the
+    // 78-to-180 degrees a single step used to be able to produce. What is left
+    // under this bound is a real defect and not this one -- see the suite notes.
+    REQUIRE_MSG(worst_yaw < 25.0,
+                "traffic snapped its heading inside one step", "crowd");
+    apricot_test::pass("authored-map traffic turns its heading instead of snapping it");
+}
+
 } // namespace
 int main() {
     controls_match_priority(); rolling_yield_and_actual_stop();
     gap_scan_and_clearance(); patience_keeps_safety(); signs_match_the_authored_map();
     authored_approaches_clear();
     authored_streaming_order_is_stable();
+    authored_traffic_never_snaps_its_heading();
     return apricot_test::done("traffic_behavior_tests");
 }

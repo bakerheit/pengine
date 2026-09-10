@@ -576,6 +576,87 @@ void test_auxiliary_lane_taper_preserves_through_lanes() {
     pass("a 3-to-4 auxiliary taper holds through lanes and opens at the shoulder");
 }
 
+// A tight corner offset into a lane is where the polyline offset used to eat
+// itself. The corner below is spine 84's, copied from the authored map: metre-
+// long segments turning about 27 degrees each, with the lane sitting 2 m to the
+// inside. Offsetting each vertex independently pushed the inner vertices past
+// one another, and the lane doubled back for a few centimetres. pose() reads
+// its tangent off that segment, so traffic crossing the spike reversed heading
+// inside one 120 Hz step: 180 degrees, 21,600 deg/s, a car spinning on the spot
+// in the middle of a block.
+//
+// Two claims, and the second is the one that bites: the lane must never run
+// against the road, AND the heading it reports must be continuous. A centreline
+// can be perfectly ordered and still snap, because a polyline tangent is a step
+// function unless pose() rolls it through the corner.
+void test_a_tight_corner_does_not_fold_the_lane_back_on_itself() {
+    RoadSpine hook;
+    hook.id = 1;
+    hook.cls = RoadClass::Street;
+    hook.points = {{-60.0f, 0.0f}, {-1.0f, 0.0f},   {0.0f, 0.5f},
+                   {0.7f, 1.5f},   {1.0f, 3.0f},    {1.0f, 60.0f}};
+    RoadGraph roads;
+    roads.build({hook}, RoadGraphParams{}, GroundSampler{});
+    LaneGraph lanes;
+    lanes.build(roads, GroundSampler{}, LaneBuildParams{});
+    REQUIRE(lanes.lane_count() > 0);
+
+    bool saw_offset_lane = false;
+    for (LaneRef r = 0; r < lanes.lane_count(); ++r) {
+        const Lane& l = lanes.lane(r);
+        if (std::fabs(l.lateral_offset_m) > 0.5f) saw_offset_lane = true;
+
+        // 1. Ordering. Every step of the centreline goes forward.
+        for (std::size_t k = 1; k + 1 < l.centreline.size(); ++k) {
+            const glm::vec3 in = l.centreline[k] - l.centreline[k - 1];
+            const glm::vec3 on = l.centreline[k + 1] - l.centreline[k];
+            if (glm::length(in) < 1e-5f || glm::length(on) < 1e-5f) continue;
+            REQUIRE_MSG(glm::dot(glm::normalize(in), glm::normalize(on)) > -0.5f,
+                        "the offset lane doubles back on itself at a tight corner",
+                        "lane centreline");
+        }
+
+        // 2. Continuity. 2 cm of road may not swing the heading like a stunt.
+        // The bound is generous on purpose: this fixture's corner is genuinely
+        // sharp, and the claim being pinned is "no discontinuity", not "gentle".
+        glm::vec3 previous = lanes.pose(r, 0.0f).tangent;
+        for (float d = 0.02f; d <= l.length_m; d += 0.02f) {
+            const glm::vec3 t = lanes.pose(r, d).tangent;
+            const float turn = std::acos(glm::clamp(
+                glm::dot(glm::normalize(previous), glm::normalize(t)),
+                -1.0f, 1.0f)) * 57.2957795f;
+            REQUIRE_MSG(turn < 15.0f,
+                        "lane heading jumps within 2 cm of station",
+                        "pose() tangent");
+            previous = t;
+        }
+    }
+    REQUIRE_MSG(saw_offset_lane, "the fixture never built an offset lane, so it "
+                "proved nothing", "fixture");
+    pass("a tight corner neither folds the offset lane back nor snaps its heading");
+}
+
+// The heading a lane reports at its two ends is what junction code is built
+// from: the turn curve anchors on it, and the seamless-continuation test
+// compares it across a join. Rolling the heading through interior corners must
+// not disturb either end.
+void test_corner_smoothing_leaves_lane_end_headings_alone() {
+    const Net n = build();
+    for (LaneRef r = 0; r < n.lanes.lane_count(); ++r) {
+        const Lane& l = n.lanes.lane(r);
+        if (l.centreline.size() < 2) continue;
+        const std::size_t last = l.centreline.size() - 1u;
+        const glm::vec3 first_seg = l.centreline[1] - l.centreline[0];
+        const glm::vec3 last_seg = l.centreline[last] - l.centreline[last - 1u];
+        REQUIRE(glm::length(first_seg) > 1e-5f && glm::length(last_seg) > 1e-5f);
+        REQUIRE(glm::dot(n.lanes.pose(r, 0.0f).tangent,
+                         glm::normalize(first_seg)) > 0.9999f);
+        REQUIRE(glm::dot(n.lanes.pose(r, l.length_m).tangent,
+                         glm::normalize(last_seg)) > 0.9999f);
+    }
+    pass("lane end headings are exactly the end segments, smoothing or not");
+}
+
 }  // namespace
 
 int main() {
@@ -597,5 +678,7 @@ int main() {
     test_approach_group_a_splits_the_crossing_streets();
     test_build_is_deterministic();
     test_auxiliary_lane_taper_preserves_through_lanes();
+    test_a_tight_corner_does_not_fold_the_lane_back_on_itself();
+    test_corner_smoothing_leaves_lane_end_headings_alone();
     return apricot_test::done("lane_graph_tests");
 }
