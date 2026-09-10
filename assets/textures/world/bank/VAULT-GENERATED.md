@@ -1,7 +1,7 @@
 # Vault assets
 
 The base set was generated with the built-in OpenAI imagegen tool on
-2026-09-03; the O'Haven door edit was generated on 2026-09-05. Door and note
+2026-09-03; the superseded O'Haven door edit on 2026-09-05. Door and note
 are reduced to 768x768; keypad to 512x512. Original outputs remain in the Codex
 generated-images folder. These are diffuse artwork, not PBR map sets.
 The physical note artwork matches `kBankVaultCode`; the readable game panel
@@ -11,10 +11,13 @@ uses that constant directly. Regenerate the artwork if the code changes.
 
 Use case: stylized-concept. Asset: flat game texture for the face of a thick rectangular bank vault door. Square image, edge-to-edge satin brushed steel panel, late-1980s precision machining, concentric circular reinforcement centered in a rectangular bolted perimeter, restrained brass pinstripes matching a navy-and-gold civic bank. A small upper brass name plate reads exactly 'PINATTY'. Clean realistic micro-scratches and brushed grain, broad planar surface, no central handle or wheel (a real modeled wheel will be mounted there). Orthographic front elevation, no perspective, no surrounding wall, no frame outside canvas, no floor, no cast shadow, no room, no highlights baked from a scene, diffuse albedo only, no watermark.
 
-## vault-door-face-ohaven.png
+## vault-door-face-ohaven.png (unused)
 
 Generated with OpenAI built-in imagegen on 2026-09-05 by editing the inspected
 vault face. Runtime output is 768x768.
+
+**Superseded.** The city is Pinatty again, so the game loads the PINATTY
+original above. This edit is kept only as a record of how it was made.
 
 Use case: stylized-concept. Edit the supplied square bank vault-door face texture in place. Replace only the small brass nameplate text `PINATTY` with exact text `O'HAVEN`, retaining the apostrophe. Preserve the orthographic satin brushed-steel panel, concentric reinforcement, bolts, navy-and-gold pinstripes, restrained wear, and empty central mounting area. Add no handle, perspective, scene, watermark, or extra text.
 

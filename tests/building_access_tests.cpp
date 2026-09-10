@@ -59,8 +59,7 @@ void expanded_neighborhood_plots() {
         ++plots;
         REQUIRE(lot.pavement.width_m>=old.pavement.width_m);
         REQUIRE(lot.pavement.depth_m>=old.pavement.depth_m);
-        const bool restaurant=std::strcmp(old.site.name,"Cloggers")==0 ||
-                              std::strcmp(old.site.name,"Tacomaco")==0;
+        const bool restaurant=std::strcmp(old.site.name,"Cloggers")==0;
         if(restaurant) {
             REQUIRE(!lot.parking_tracks_frontage);
             REQUIRE_NEAR(glm::length(lot.parking_shift),0.f,.0001f);
@@ -111,7 +110,7 @@ void expanded_neighborhood_plots() {
             lot.name,old.pavement.width_m,old.pavement.depth_m,lot.pavement.width_m,
             lot.pavement.depth_m,glm::length(lot.parking_shift));
     }
-    REQUIRE(plots==11u);REQUIRE(edges>=36u);REQUIRE(shifted>=11u);
+    REQUIRE(plots==10u);REQUIRE(edges>=32u);REQUIRE(shifted>=11u);
     // A closer neighboring parcel must win over a road farther along the ray.
     auto gas=original.front();auto neighbor=gas;
     const auto origin=city::access_world(gas.site,{29,0});
@@ -127,7 +126,7 @@ void expanded_neighborhood_plots() {
 
 void authored_inventory_and_slopes() {
     const auto lots = city::authored_building_access_lots();
-    REQUIRE(lots.size() == 40u + city::kLuxuryEstates.size());
+    REQUIRE(lots.size() == 44u + city::kLuxuryEstates.size());
     const TerrainGround ground{city::kMapSeed};
     RoadGraph graph;
     graph.build(city::map_spines(), RoadGraphParams{}, ground.sampler());
@@ -146,7 +145,7 @@ void authored_inventory_and_slopes() {
             static_cast<unsigned long long>(result.entrance.road_key >> 32),
             result.road_endpoint.x, result.road_endpoint.z, result.lot_endpoint.x, result.lot_endpoint.z);
         if (std::strcmp(lots[i].site.name,"Cloggers")==0 ||
-            std::strcmp(lots[i].site.name,"Tacomaco")==0) {
+            std::strcmp(lots[i].site.name,"TacoMaco")==0) {
             REQUIRE(result.connected);
             // The authored vehicle path (2.8m including clearance) must fit
             // inside the actual opening even if junction clearance shifts it.
@@ -155,7 +154,7 @@ void authored_inventory_and_slopes() {
         }
         if (!result.connected) continue;
         ++connected;
-        REQUIRE(result.width_m >= 5.0f);
+        REQUIRE(result.width_m >= (result.use == city::BuildingAccessUse::PedestrianPath ? 3.0f : 5.0f));
         REQUIRE_NEAR(result.lot_endpoint.y, city::access_lot_top(lots[i]), 1e-5);
         REQUIRE(result.entrance.road_key >> 32 != 151u);
         REQUIRE(city::access_clear_of_junctions(graph, result.entrance.curb, result.width_m * 0.5f));

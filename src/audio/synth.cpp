@@ -1309,6 +1309,9 @@ std::size_t override_bank_from_wavs(SfxBank& bank,
     // The offline extractor already made this loop phase-continuous.
     if (!paths.engine_idle.empty() &&
         override_clip_from_wav(bank.engine_idle, paths.engine_idle)) ++loaded;
+    for (std::size_t i=0; i<kTrafficHornClipCount; ++i)
+        if (!paths.traffic_horns[i].empty() &&
+            override_clip_from_wav(bank.traffic_horns[i], paths.traffic_horns[i])) ++loaded;
     if (!paths.city_ambience.empty() &&
         override_clip_from_wav(bank.city_ambience, paths.city_ambience)) {
         ++loaded;

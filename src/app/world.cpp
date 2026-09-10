@@ -1,4 +1,5 @@
 #include "app/world.h"
+#include "city/precipitation_cover.h"
 
 #include <array>
 #include <algorithm>
@@ -35,7 +36,7 @@
 #include "city/gun_store.h"
 #include "city/graffiti.h"
 #include "city/neighborhood_towers.h"
-#include "city/vellum_infill.h"
+#include "city/pinatty_infill.h"
 #include "city/construction_site.h"
 #include "city/construction_neighbor_materials.h"
 #include "city/construction_neighbor_equipment.h"
@@ -46,6 +47,11 @@
 #include "city/emergency_stations.h"
 #include "city/east_arm_plaza.h"
 #include "city/neighborhood_bar.h"
+#include "city/loom_cultural.h"
+#include "city/north_airbase.h"
+#include "city/burgerpiz_asset.h"
+#include "gfx/street_lamp_light.h"
+#include "city/miandi_gas_station_asset.h"
 #include "city/luxury_neighborhood.h"
 #include "city/westmere_streetscape.h"
 #include "city/residential_neighborhood.h"
@@ -61,6 +67,7 @@
 #include "game/aircraft.h"
 #include "gfx/primitives.h"
 #include "gfx/texture.h"
+#include "gfx/loom_museum_meshes.h"
 #include "physics/vehicle.h"
 
 namespace apricot {
@@ -81,9 +88,21 @@ struct StartMaterials {
     MaterialId quickbite_menu_interior_b=kInvalidId, quickbite_menu_drive=kInvalidId;
     MaterialId quickbite_tile=kInvalidId;
     MaterialId quickbite_vinyl=kInvalidId, quickbite_floor=kInvalidId, quickbite_steel=kInvalidId;
-    MaterialId tacomaco_brand=kInvalidId, tacomaco_menu_interior_a=kInvalidId;
-    MaterialId tacomaco_menu_interior_b=kInvalidId, tacomaco_menu_drive=kInvalidId;
     MaterialId glass=kInvalidId;
+    MaterialId museum_artwork=kInvalidId;
+    MeshId museum_amphora=kInvalidId;
+    std::array<MeshId,4> museum_paintings{};
+    MaterialId halberd_gate_sign=kInvalidId, halberd_hangar_numbers=kInvalidId;
+    MaterialId halberd_chain_link=kInvalidId;
+    std::array<MeshId,3> halberd_number_cells{};
+    MaterialId museum_plaster=kInvalidId, museum_parquet=kInvalidId, museum_coffer=kInvalidId;
+    MaterialId museum_plaque_sheet=kInvalidId, museum_panel_sheet=kInvalidId;
+    MaterialId museum_label_sheet=kInvalidId, museum_directory=kInvalidId;
+    std::array<MeshId,city::kLoomGalleryCount> museum_plaque_cells{};
+    std::array<MeshId,city::kLoomGalleryCount> museum_panel_cells{};
+    std::array<MeshId,city::kLoomLabelCells> museum_label_cells{};
+    MeshId museum_sphere=kInvalidId, museum_cone=kInvalidId, museum_wheel=kInvalidId;
+    MeshId museum_skull=kInvalidId, museum_ring=kInvalidId;
     MaterialId store_snacks=kInvalidId,store_drinks=kInvalidId;
     MaterialId airport_paving = kInvalidId;
     MaterialId airport_facade = kInvalidId;
@@ -188,6 +207,48 @@ bool load_start_alpha_texture(Renderer& renderer, const char* relative_path,
     return out != kInvalidId;
 }
 
+// One quad per atlas cell, with inset UVs. Texture upload flips vertically, so
+// v counts DOWN from 1: sheet row 0 is the v range nearest 1. This matches the
+// painting quads above, which is the reference for the convention. Getting it
+// backwards does not fail loudly - every room quietly shows another room's
+// graphic. The inset keeps a neighbouring cell out of the bilinear sample at
+// the frame edge.
+bool add_atlas_cell_quads(Renderer& renderer, int columns, int rows,
+                          MeshId* out, std::size_t count) {
+    const float du = 1.0f / static_cast<float>(columns);
+    const float dv = 1.0f / static_cast<float>(rows);
+    for (std::size_t i = 0; i < count; ++i) {
+        const int column = static_cast<int>(i) % columns;
+        const int row = static_cast<int>(i) / columns;
+        MeshData quad = make_billboard_quad();
+        for (MeshVertex& vertex : quad.vertices) {
+            vertex.uv = glm::vec2{static_cast<float>(column) * du + du * 0.004f,
+                                  1.0f - static_cast<float>(row + 1) * dv + dv * 0.004f} +
+                        vertex.uv * glm::vec2{du * 0.992f, dv * 0.992f};
+        }
+        out[i] = renderer.add_mesh(quad);
+        if (out[i] == kInvalidId) return false;
+    }
+    return true;
+}
+
+// Authored graphics name their atlas cell. Keeping the index in the part name
+// is what lets the sim side place a wall label, or a hangar number, without
+// ever learning that a texture atlas exists.
+int site_atlas_cell(const city::StartPart& part, const char* prefix) {
+    if (!part.name) return -1;
+    const std::size_t length = std::strlen(prefix);
+    if (std::strncmp(part.name, prefix, length) != 0) return -1;
+    const char* digits = part.name + length;
+    if (*digits == '\0') return -1;
+    int cell = 0;
+    for (const char* c = digits; *c; ++c) {
+        if (*c < '0' || *c > '9') return -1;
+        cell = cell * 10 + (*c - '0');
+    }
+    return cell;
+}
+
 bool load_start_materials(Renderer& renderer, StartMaterials& out) {
     out.finish.fill(renderer.white_material());
     out.graffiti.fill(kInvalidId);
@@ -195,6 +256,54 @@ bool load_start_materials(Renderer& renderer, StartMaterials& out) {
     out.residential_roof.fill(kInvalidId);
     out.glass = renderer.add_glass_material();
     if (out.glass == kInvalidId) return false;
+
+    if (!load_start_texture(renderer,"textures/world/loom_museum/paintings-atlas.png",out.museum_artwork)) return false;
+    for (std::size_t i=0;i<out.museum_paintings.size();++i) {
+        auto canvas=make_billboard_quad();
+        // Texture upload flips the image vertically. Inset each atlas cell to
+        // keep neighboring paintings out of bilinear samples at frame edges.
+        for(auto& vertex:canvas.vertices)
+            vertex.uv=glm::vec2{.002f+static_cast<float>(i%2)*.5f,
+                .502f-static_cast<float>(i/2)*.5f}+vertex.uv*.496f;
+        out.museum_paintings[i]=renderer.add_mesh(canvas);
+        if(out.museum_paintings[i]==kInvalidId)return false;
+    }
+
+    out.museum_amphora=renderer.add_mesh(make_loom_amphora());
+    if(out.museum_amphora==kInvalidId)return false;
+
+    // The museum's interior sheets. The plaster, parquet and coffer are
+    // near-neutral on purpose: each gallery tints them, so eight rooms get
+    // their own colour out of one 256px texture apiece.
+    if (!load_start_texture(renderer,"textures/world/loom_museum/gallery-plaster.png",out.museum_plaster) ||
+        !load_start_texture(renderer,"textures/world/loom_museum/gallery-parquet.png",out.museum_parquet) ||
+        !load_start_texture(renderer,"textures/world/loom_museum/coffer-ceiling.png",out.museum_coffer) ||
+        !load_start_texture(renderer,"textures/world/loom_museum/gallery-plaques.png",out.museum_plaque_sheet) ||
+        !load_start_texture(renderer,"textures/world/loom_museum/gallery-panels.png",out.museum_panel_sheet) ||
+        !load_start_texture(renderer,"textures/world/loom_museum/exhibit-labels.png",out.museum_label_sheet) ||
+        !load_start_texture(renderer,"textures/world/loom_museum/museum-directory.png",out.museum_directory))
+        return false;
+    if (!add_atlas_cell_quads(renderer,4,2,out.museum_plaque_cells.data(),out.museum_plaque_cells.size()) ||
+        !add_atlas_cell_quads(renderer,4,2,out.museum_panel_cells.data(),out.museum_panel_cells.size()) ||
+        !add_atlas_cell_quads(renderer,4,8,out.museum_label_cells.data(),out.museum_label_cells.size()))
+        return false;
+    if (!load_start_texture(renderer,"textures/world/halberd/gate-sign.png",out.halberd_gate_sign) ||
+        !load_start_texture(renderer,"textures/world/halberd/hangar-numbers.png",out.halberd_hangar_numbers) ||
+        !load_start_alpha_texture(renderer,"textures/world/halberd/chain-link.png",
+                                  out.halberd_chain_link))
+        return false;
+    if (!add_atlas_cell_quads(renderer,2,2,out.halberd_number_cells.data(),
+                              out.halberd_number_cells.size()))
+        return false;
+
+    out.museum_sphere=renderer.add_mesh(make_loom_sphere());
+    out.museum_cone=renderer.add_mesh(make_loom_cone());
+    out.museum_wheel=renderer.add_mesh(make_loom_spoked_wheel());
+    out.museum_skull=renderer.add_mesh(make_loom_skull());
+    out.museum_ring=renderer.add_mesh(make_loom_ring());
+    if(out.museum_sphere==kInvalidId || out.museum_cone==kInvalidId ||
+       out.museum_wheel==kInvalidId || out.museum_skull==kInvalidId ||
+       out.museum_ring==kInvalidId) return false;
 
     Texture asphalt;
     if (!asphalt.make_asphalt(256, 0x48414C4C4F574159ull)) return false;
@@ -223,10 +332,6 @@ bool load_start_materials(Renderer& renderer, StartMaterials& out) {
         !load_start_texture(renderer,"textures/world/quickbite/red-vinyl-albedo.png",out.quickbite_vinyl) ||
         !load_start_texture(renderer,"textures/world/quickbite/linoleum-floor-albedo.png",out.quickbite_floor) ||
         !load_start_texture(renderer,"textures/world/quickbite/brushed-stainless-albedo.png",out.quickbite_steel) ||
-        !load_start_texture(renderer,"textures/world/tacomaco/brand-sign-albedo.png",out.tacomaco_brand) ||
-        !load_start_texture(renderer,"textures/world/tacomaco/menu-board-interior-a-v2-albedo.png",out.tacomaco_menu_interior_a) ||
-        !load_start_texture(renderer,"textures/world/tacomaco/menu-board-interior-b-v2-albedo.png",out.tacomaco_menu_interior_b) ||
-        !load_start_texture(renderer,"textures/world/tacomaco/menu-board-drive-through-v2-albedo.png",out.tacomaco_menu_drive) ||
         !load_start_texture(renderer,"textures/world/gas_station/snacks-shelf-albedo.png",out.store_snacks) ||
         !load_start_texture(renderer,"textures/world/gas_station/chilled-drinks-albedo.png",out.store_drinks) ||
         !load_start_texture(renderer, "textures/world/neighborhood/rooks-auto-repair.png", out.repair_sign) ||
@@ -282,7 +387,7 @@ bool load_start_materials(Renderer& renderer, StartMaterials& out) {
             renderer, "textures/world/airport/landside-paving-albedo.png",
             out.airport_landside_paving) ||
         !load_start_texture(renderer,
-                            "textures/world/airport/terminal-directory-ohaven.png",
+                            "textures/world/airport/terminal-directory-generated.png",
                             out.airport_directory) ||
         !load_start_texture(renderer, "textures/world/airport/furnishing-steel-generated.png",out.airport_furnishing) ||
         !load_start_texture(
@@ -292,7 +397,7 @@ bool load_start_materials(Renderer& renderer, StartMaterials& out) {
             renderer, "textures/world/billboards/pinnaty-taxi.png",
             out.billboard_taxi) ||
         !load_start_texture(
-            renderer, "textures/world/bank/ohaven-savings-sign.png",
+            renderer, "textures/world/bank/pinatty-savings-sign.png",
             out.bank_sign) ||
         !load_start_texture(renderer, "textures/world/bank/terrazzo-floor.png",
                             out.bank_floor) ||
@@ -300,11 +405,11 @@ bool load_start_materials(Renderer& renderer, StartMaterials& out) {
                             out.bank_wood) ||
         !load_start_texture(renderer, "textures/world/bank/acoustic-ceiling.png",
                             out.bank_ceiling) ||
-        !load_start_texture(renderer, "textures/world/bank/atm-face-ohaven.png",
+        !load_start_texture(renderer, "textures/world/bank/atm-face.png",
                             out.bank_atm) ||
         !load_start_texture(renderer, "textures/world/bank/deposit-boxes.png",
                             out.bank_deposits) ||
-        !load_start_texture(renderer, "textures/world/bank/vault-door-face-ohaven.png",
+        !load_start_texture(renderer, "textures/world/bank/vault-door-face.png",
                             out.bank_vault_face) ||
         !load_start_texture(renderer, "textures/world/bank/vault-office-note.png",
                             out.bank_vault_note) ||
@@ -339,7 +444,7 @@ bool load_start_materials(Renderer& renderer, StartMaterials& out) {
         !load_start_texture(renderer,"textures/world/construction/equipment-body-section-generated.png",out.construction_equipment_section) ||
         !load_start_texture(renderer,"textures/world/construction/barrier-face-section-generated.png",out.construction_barrier_section) ||
         !load_start_texture(renderer,"textures/world/construction/wayfinding-board-section-generated.png",out.construction_wayfinding_section) ||
-        !load_start_texture(renderer,"textures/world/hospital/facade/vellum-main-entry-mural-face-generated.png",out.hospital_entry_mural) ||
+        !load_start_texture(renderer,"textures/world/hospital/facade/pinatty-main-entry-mural-face-generated.png",out.hospital_entry_mural) ||
         !load_start_texture(renderer,"textures/world/hospital/emergency/ambulance-bay-2-marker-face-generated.png",out.hospital_emergency_bay_two) ||
         !load_start_texture(renderer,"textures/world/hospital/garage/entry-pay-station-control-face.png",out.hospital_garage_pay_station) ||
         !load_start_texture(renderer,"textures/world/hospital/facade/polish/northwest-healing-art-glass-panel-generated.png",out.hospital_healing_art_glass) ||
@@ -562,12 +667,37 @@ StartShape part_shape(const city::StartPart& part, SiteMaterialStyle style) {
         part_name_has(part, "rooftop hvac")) {
         return StartShape::RoundedBox;
     }
-    if (part_name_is(part, "luxury tree crown") ||
+    if (part_name_is(part, "garden tree crown") || part_name_is(part, "luxury tree crown") ||
         part_name_is(part, "westmere court shrub") ||
         part_name_has(part, "westmere streetscape ornamental shrub") ||
         part_name_has(part, "westmere streetscape palm crown"))
         return StartShape::RoundedBox;
-    if (part_name_has(part, "canopy column") ||
+    // Halberd's tanks and masts are cylinders; its gate board and hangar
+    // numbers are image planes.
+    if (part_name_has(part, "halberd round")) return StartShape::Cylinder;
+    if (part_name_is(part, "halberd gate sign") ||
+        part_name_has(part, "halberd hangar number"))
+        return StartShape::BillboardFace;
+
+    // Museum graphics are image planes, and its floor inlays are paint. A 4 mm
+    // box for an inlay grows lit vertical edges under the gallery pendants and
+    // reads as a step, which is the same trap the airport paint fell into.
+    if (part_name_has(part, "museum plaque ") || part_name_has(part, "museum panel ") ||
+        part_name_has(part, "museum label ") || part_name_is(part, "museum directory") ||
+        part_name_has(part, "museum design study board") ||
+        part_name_has(part, "museum painting "))
+        return StartShape::BillboardFace;
+    if (part_name_is(part, "museum gallery parquet") ||
+        part_name_has(part, "museum hall floor ") ||
+        part_name_is(part, "museum science dial") ||
+        part_name_is(part, "museum space rocket pad") ||
+        part_name_has(part, "museum history model street") ||
+        part_name_is(part, "museum history model route") ||
+        part_name_is(part, "museum history model water") ||
+        part_name_is(part, "museum planet arc"))
+        return StartShape::FlatDecal;
+    if (part_name_has(part,"museum round column") || part_name_has(part,"museum exhibit round") ||
+        part_name_is(part, "garden tree trunk") || part_name_has(part, "canopy column") ||
         part_name_has(part, "shelter column") ||
         part_name_has(part, "light pole") ||
         part_name_has(part, "beacon") ||
@@ -933,13 +1063,14 @@ bool is_skyscraper_window_light(const city::StartPart& part) {
            part_name_is(part,"twin tower office window light");
 }
 
-bool is_vellum_apartment_window(const city::StartPart& part) {
+bool is_pinatty_apartment_window(const city::StartPart& part) {
     return part_name_is(part,"infill apartment window") ||
            part_name_is(part,"infill side apartment window") ||
            part_name_is(part,"infill rear apartment window");
 }
 
 void append_start_site(Scene& scene, TerrainCollider& collider,
+                       std::vector<StaticBox>& precipitation_cover,
                        const city::StartSite& site,
                        const city::StartPart* parts, std::size_t count,
                        const Renderable& prototype, const AABB& unit_bounds,
@@ -950,8 +1081,8 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
                        MeshId gable_prism=kInvalidId,
                        const SkyscraperWindowRegistration* window_registration=nullptr) {
     const bool residential=count>0 && part_name_has(parts[0],"house ");
-    const bool natural_yard = residential || &site == &city::kTidewaterFarmSite;
-    const bool tacomaco_site=&site==&city::kTacomacoSite;
+    const bool loom_site = &site == &city::kLoomMuseumSite || &site == &city::kLoomParkSite;
+    const bool natural_yard = residential || &site == &city::kTidewaterFarmSite || &site == &city::kLoomParkSite;
     // Sites on Miandi's physical-scale paint kit. Club Mirage joined with its
     // detail pass: on the Plain path its walls took a flat finish tint at no
     // texture scale, so the same brick shed read maroon from Bayfront, grey
@@ -1514,6 +1645,320 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
                 r.tint = {1, .87f, .62f, 2.5f};
             }
         }
+        if (loom_site) {
+            if (part.finish == city::StartFinish::Glass) {
+                r.material = materials.glass; r.tint = {.88f,.96f,1.f,.72f};
+            }
+            if (part.finish == city::StartFinish::WarmWall) {
+                r.material = materials.westmere_limestone;
+                r.tint = {1, .96f, .88f, 1};
+            }
+            if (part.finish == city::StartFinish::Steel) {
+                r.material = materials.quickbite_steel;
+                r.tint = {.52f,.35f,.20f,1};
+            }
+            if (part_name_has(part,"garden timber") || part_name_has(part,"gazebo timber") ||
+                part_name_is(part,"garden tree trunk") || part_name_is(part,"garden gazebo floor")) {
+                r.material = prototype.material; r.tint = {.40f,.24f,.12f,1};
+            }
+            if (part_name_is(part,"garden tree crown")) {
+                r.material = prototype.material; r.tint = {.17f,.36f,.12f,1};
+            }
+            if (part_name_has(part,"artwork") || part_name_has(part,"sculpture") ||
+                part_name_has(part,"raised sign letter") || part_name_has(part,"flower cluster"))
+                r.material = prototype.material;
+            if (part_name_has(part,"light lens")) {
+                r.material = prototype.material; r.tint = {1,.91f,.75f,2.5f};
+            }
+        }
+        if (&site==&city::kLoomMuseumSite) {
+            if (part_name_has(part,"interior floor")) {
+                r.material=materials.bank_floor;r.tint={.92f,.88f,.78f,1};
+                r.uv_scale={part.width_m/3.f,part.depth_m/3.f};
+            }
+            const char* painting_names[]={"museum painting landscape","museum painting portrait",
+                "museum painting still life","museum painting harbor"};
+            for(std::size_t painting=0;painting<4;++painting)if(part_name_is(part,painting_names[painting])) {
+                r.mesh=materials.museum_paintings[painting];r.material=materials.museum_artwork;
+                r.tint={1,1,1,1};r.uv_scale={1,1};
+            }
+            if(part_name_has(part,"gallery ceiling") || part_name_has(part,"hall ceiling") ||
+               part_name_is(part,"museum portico ceiling")) {
+                r.material=materials.bank_ceiling;r.tint={.92f,.88f,.78f,1};
+                r.uv_scale={part.width_m/4.f,part.depth_m/4.f};
+            }
+            if(part_name_has(part,"museum exhibit ") || part_name_is(part,"museum gallery sign panel")) r.material=prototype.material;
+            if(part_name_is(part,"museum sculpture amphora")) {
+                r.mesh=materials.museum_amphora;r.material=prototype.material;
+                r.tint={.65f,.32f,.14f,1};
+            }
+            if(part_name_is(part,"museum round column amphora band")) {r.material=prototype.material;r.tint={.16f,.09f,.055f,1};}
+            if(part_name_is(part,"museum column flute")) {r.material=prototype.material;r.tint={.43f,.39f,.30f,1};}
+            if(part_name_is(part,"museum artwork gilt frame"))r.tint={.64f,.43f,.14f,1};
+            if(part_name_is(part,"museum forecourt shrub")) {r.material=prototype.material;r.tint={.18f,.29f,.12f,1};}
+
+            // --- Interior finish ------------------------------------------
+            // One near-white plaster sheet dressed eight ways. The lining
+            // carries its room in the part name for exactly this: a gallery
+            // colour is a tint here, not a texture in the asset folder.
+            struct MuseumWallTint { const char* name; glm::vec4 tint; };
+            // Values are pitched against a cool ambient: anything already
+            // blue-grey here lands as navy in game, and anything dark lands as
+            // black. Only the art room's burgundy is meant to read dark.
+            static constexpr MuseumWallTint kMuseumWalls[] = {
+                {"museum wall art",        {.47f,.27f,.26f,1}},   // old-master hang
+                {"museum wall antiquities",{.92f,.85f,.70f,1}},
+                {"museum wall natural",    {.72f,.74f,.70f,1}},
+                {"museum wall pinatty",     {.93f,.88f,.76f,1}},
+                {"museum wall science",    {.87f,.88f,.87f,1}},
+                {"museum wall space",      {.40f,.44f,.60f,1}},   // to sit the star chart on
+                {"museum wall transport",  {.88f,.82f,.73f,1}},
+                {"museum wall design",     {.97f,.97f,.96f,1}},
+                {"museum wall hall",       {.95f,.92f,.84f,1}},
+            };
+            // The art room's freestanding hanging spine is a wall in every way
+            // that matters here, so it takes the room's own colour.
+            const bool art_spine = part_name_has(part, "museum art hanging wall");
+            for (const MuseumWallTint& wall : kMuseumWalls) {
+                if (!part_name_is(part, wall.name) && !art_spine) continue;
+                r.material = materials.museum_plaster;
+                r.tint = wall.tint;
+                r.uv_scale = {std::max(part.width_m, part.depth_m) / 2.5f,
+                              std::max(part.height_m, 1.f) / 2.5f};
+                break;   // kMuseumWalls[0] is the art room, which is the spine's
+            }
+            if (part_name_is(part, "museum gallery cornice") ||
+                part_name_has(part, "museum gallery reveal") ||
+                part_name_is(part, "museum ceiling cove") ||
+                part_name_is(part, "museum balcony plaster face")) {
+                r.material = materials.museum_plaster;
+                r.tint = {1, .98f, .94f, 1};
+                r.uv_scale = {std::max(part.width_m, part.depth_m) / 2.5f, 1};
+            }
+            if (part_name_is(part, "museum gallery parquet")) {
+                r.material = materials.museum_parquet;
+                r.tint = {.74f, .72f, .70f, 1};
+                r.uv_scale = {part.width_m / 2.4f, part.depth_m / 2.4f};
+            }
+            if (part_name_has(part, "museum gallery ceiling") ||
+                part_name_is(part, "museum lower gallery ceiling") ||
+                part_name_is(part, "museum portico ceiling")) {
+                r.material = materials.museum_coffer;
+                r.tint = {.96f, .94f, .90f, 1};
+                r.uv_scale = {part.width_m / 4.f, part.depth_m / 4.f};
+            }
+            if (part_name_is(part, "museum hall floor band")) {
+                r.material = materials.bank_floor;
+                r.tint = {.44f, .40f, .35f, 1};
+                r.uv_scale = {part.width_m / 3.f, part.depth_m / 3.f};
+            }
+            if (part_name_is(part, "museum hall floor inlay")) {
+                r.material = materials.bank_floor;
+                r.tint = {.74f, .62f, .40f, 1};
+                r.uv_scale = {part.width_m / 3.f, part.depth_m / 3.f};
+            }
+            // Oak where a visitor's hand or seat lands, walnut on the cases.
+            if (part_name_has(part, "museum gallery bench") ||
+                part_name_is(part, "museum vitrine base") ||
+                part_name_is(part, "museum survey table") ||
+                part_name_is(part, "museum history model table") ||
+                part_name_is(part, "museum space model table") ||
+                part_name_is(part, "museum reception desk")) {
+                r.material = materials.bank_wood;
+                r.tint = {.74f, .68f, .60f, 1};
+                r.uv_scale = {std::max(part.width_m, part.depth_m) / 1.8f,
+                              std::max(part.height_m, .5f) / 1.8f};
+            }
+            if (part_name_is(part, "museum reception apron")) r.tint = {.16f, .30f, .30f, 1};
+
+            // --- Interpretive graphics ------------------------------------
+            if (const int cell = site_atlas_cell(part, "museum plaque ");
+                cell >= 0 && cell < static_cast<int>(materials.museum_plaque_cells.size())) {
+                r.mesh = materials.museum_plaque_cells[static_cast<std::size_t>(cell)];
+                r.material = materials.museum_plaque_sheet;
+                r.tint = {1, 1, 1, 1}; r.uv_scale = {1, 1};
+            }
+            if (const int cell = site_atlas_cell(part, "museum panel ");
+                cell >= 0 && cell < static_cast<int>(materials.museum_panel_cells.size())) {
+                r.mesh = materials.museum_panel_cells[static_cast<std::size_t>(cell)];
+                r.material = materials.museum_panel_sheet;
+                r.tint = {1, 1, 1, 1}; r.uv_scale = {1, 1};
+            }
+            if (const int cell = site_atlas_cell(part, "museum label ");
+                cell >= 0 && cell < static_cast<int>(materials.museum_label_cells.size())) {
+                r.mesh = materials.museum_label_cells[static_cast<std::size_t>(cell)];
+                r.material = materials.museum_label_sheet;
+                r.tint = {1, 1, 1, 1}; r.uv_scale = {1, 1};
+            }
+            if (part_name_is(part, "museum directory")) {
+                r.material = materials.museum_directory;
+                r.tint = {1, 1, 1, 1}; r.uv_scale = {1, 1};
+            }
+
+            // --- Exhibit meshes -------------------------------------------
+            if (part_name_has(part, "museum exhibit sphere ")) {
+                r.mesh = materials.museum_sphere; r.material = prototype.material;
+            }
+            if (part_name_has(part, "museum exhibit cone ")) {
+                r.mesh = materials.museum_cone; r.material = prototype.material;
+            }
+            if (part_name_is(part, "museum exhibit wheel train")) {
+                r.mesh = materials.museum_wheel; r.material = prototype.material;
+                r.tint = {.52f, .13f, .10f, 1};
+            }
+            if (part_name_is(part, "museum exhibit skull fossil")) {
+                r.mesh = materials.museum_skull; r.material = prototype.material;
+                r.tint = {.90f, .88f, .82f, 1};
+            }
+            if (part_name_has(part, "museum exhibit ring ")) {
+                r.mesh = materials.museum_ring; r.material = prototype.material;
+                r.tint = {.52f, .35f, .20f, 1};
+            }
+            if (part_name_is(part, "museum exhibit sphere armillary sun")) r.tint = {.82f, .62f, .18f, 1};
+            if (part_name_is(part, "museum exhibit sphere pendulum bob")) r.tint = {.72f, .52f, .18f, 1};
+            if (part_name_is(part, "museum design glassware")) {
+                r.material = materials.glass; r.tint = {.90f, .96f, 1.f, .34f};
+            }
+            // Case glass sits between the visitor and the exhibit, often two
+            // panes deep. At the shopfront alpha it turned a painted city model
+            // into a blue haze, so it is barely there.
+            if (part_name_is(part, "museum vitrine glass")) {
+                r.material = materials.glass; r.tint = {.96f, .98f, 1.f, .13f};
+            }
+            // The model is read from above at half a metre. It needs its own
+            // contrast: a pale card base, dark streets, and blocks that differ
+            // by more than a shade.
+            if (part_name_is(part, "museum history model deck")) {
+                r.material = materials.bank_floor; r.tint = {.90f, .87f, .79f, 1};
+                r.uv_scale = {part.width_m / 2.f, part.depth_m / 2.f};
+            }
+            if (part_name_has(part, "museum history model street")) {
+                r.material = prototype.material; r.tint = {.30f, .29f, .28f, 1};
+            }
+            if (part_name_is(part, "museum exhibit history city block") ||
+                part_name_is(part, "museum exhibit history tower")) {
+                r.material = prototype.material;
+                r.tint = part.finish == city::StartFinish::Brick ? glm::vec4{.62f,.34f,.26f,1}
+                       : part.finish == city::StartFinish::WarmWall ? glm::vec4{.86f,.78f,.60f,1}
+                       : glm::vec4{.50f,.54f,.58f,1};
+            }
+            if (part_name_is(part, "museum history model water")) r.tint = {.30f, .48f, .56f, 1};
+            if (part_name_is(part, "museum science dial")) {
+                r.material = prototype.material; r.tint = {.90f, .88f, .82f, 1};
+            }
+        }
+        // --- Halberd Field ------------------------------------------------
+        // Concrete, olive and galvanised steel. Camber Point is glass and
+        // white render; if this one reads the same from the air it was not
+        // worth building.
+        if (&site == &city::kHalberdFieldSite) {
+            if (part_name_has(part, "halberd ") && part.finish == city::StartFinish::Concrete) {
+                r.material = materials.construction_depot_concrete;
+                r.tint = {.80f, .79f, .74f, 1};
+                r.uv_scale = {std::max(part.width_m, part.depth_m) / 4.f,
+                              std::max(part.height_m, 1.f) / 4.f};
+            }
+            if (part_name_is(part, "halberd runway") || part_name_has(part, "halberd taxiway") ||
+                part_name_is(part, "halberd parade ground") ||
+                part_name_is(part, "halberd station road") ||
+                part_name_is(part, "halberd motor pool")) {
+                r.material = materials.finish[finish_index(city::StartFinish::Asphalt)];
+                r.tint = {.62f, .62f, .63f, 1};
+                r.uv_scale = {part.width_m / 8.f, part.depth_m / 8.f};
+            }
+            // Every concrete paving plane, or the ones left out fall through to
+            // the building rule and come out a different colour from the apron
+            // they are part of.
+            if (part_name_is(part, "halberd apron") || part_name_is(part, "halberd east apron") ||
+                part_name_is(part, "halberd gate apron") ||
+                part_name_is(part, "halberd support apron") ||
+                part_name_is(part, "halberd barracks walk") ||
+                part_name_is(part, "halberd revetment hardstanding") ||
+                part_name_is(part, "halberd fuel compound") ||
+                part_name_is(part, "halberd magazine apron")) {
+                r.material = materials.airport_paving;
+                r.tint = {.88f, .87f, .84f, 1};
+                r.uv_scale = {part.width_m / 12.f, part.depth_m / 12.f};
+            }
+            // Earthworks are grassed over, which is what makes a revetment
+            // read as dug in rather than as another concrete box.
+            if (part_name_is(part, "halberd revetment bank") ||
+                part_name_is(part, "halberd magazine mound")) {
+                r.material = materials.farm_soil;
+                r.tint = {.44f, .52f, .34f, 1};
+                r.uv_scale = {std::max(part.width_m, part.depth_m) / 6.f, 1};
+            }
+            if (part_name_has(part, "halberd fence")) {
+                r.material = materials.quickbite_steel; r.tint = {.62f, .64f, .66f, 1};
+            }
+            // The mesh is alpha-cut. Drawn solid, 2.5 km of perimeter reads as
+            // a concrete wall, and a wall is a different building.
+            if (part_name_is(part, "halberd fence mesh")) {
+                r.material = materials.halberd_chain_link;
+                r.tint = {1, 1, 1, 1};
+                r.uv_scale = {std::max(part.width_m, part.depth_m) / 2.f, part.height_m / 2.f};
+            }
+            if (part_name_is(part, "halberd vehicle shed") ||
+                part_name_is(part, "halberd shed pillar")) {
+                r.material = materials.quickbite_steel; r.tint = {.40f, .44f, .34f, 1};
+            }
+            // Olive, but not black. The station's north faces are away from
+            // the sun all day, and at .34 every building on it read as a
+            // silhouette from the apron.
+            if (part_name_has(part, " roof") || part_name_is(part, "halberd radar head")) {
+                r.material = materials.finish[finish_index(city::StartFinish::DarkRoof)];
+                r.tint = {.46f, .49f, .43f, 1};
+            }
+            if (part_name_is(part, "halberd barracks")) {
+                r.material = materials.westmere_cream_stucco; r.tint = {.80f, .76f, .66f, 1};
+                r.uv_scale = {part.width_m / 5.f, part.height_m / 5.f};
+            }
+            if (part_name_is(part, "halberd hangar door") ||
+                part_name_is(part, "halberd hangar door rib")) {
+                r.material = materials.quickbite_steel; r.tint = {.60f, .63f, .55f, 1};
+            }
+            if (part_name_has(part, "halberd round")) {
+                r.material = materials.quickbite_steel; r.tint = {.70f, .71f, .68f, 1};
+            }
+            if (part.finish == city::StartFinish::Glass) {
+                r.material = materials.glass; r.tint = {.60f, .74f, .78f, .58f};
+            }
+            if (part_name_is(part, "halberd gate sign")) {
+                r.material = materials.halberd_gate_sign;
+                r.tint = {1, 1, 1, 1}; r.uv_scale = {1, 1};
+            }
+            if (const int cell = site_atlas_cell(part, "halberd hangar number ");
+                cell >= 0 && cell < static_cast<int>(materials.halberd_number_cells.size())) {
+                r.mesh = materials.halberd_number_cells[static_cast<std::size_t>(cell)];
+                r.material = materials.halberd_hangar_numbers;
+                r.tint = {1, 1, 1, 1}; r.uv_scale = {1, 1};
+            }
+            if (part_name_has(part, "light lens")) {
+                r.material = prototype.material; r.tint = {1, .93f, .78f, 2.4f};
+            }
+            if (part_name_is(part, "halberd tower beacon lens")) r.tint = {1, .28f, .22f, 3.f};
+            if (part_name_is(part, "halberd flag")) {
+                r.material = prototype.material; r.tint = {.62f, .16f, .14f, 1};
+            }
+            if (part_name_is(part, "halberd barrier arm")) {
+                r.material = prototype.material; r.tint = {.78f, .22f, .18f, 1};
+            }
+            // Markings, and ONLY markings. "halberd runway" without the
+            // trailing space also matches the runway itself, which is a 900 m
+            // plane of asphalt: caught by this rule it came out solid white.
+            if (part_name_has(part, "halberd runway ") ||
+                part_name_is(part, "halberd taxiway centreline") ||
+                part_name_is(part, "halberd parking bay") ||
+                part_name_is(part, "halberd station road edge") ||
+                part_name_is(part, "halberd apron lead-in")) {
+                if (part.height_m < .01f) {
+                    r.material = prototype.material;
+                    r.tint = part.finish == city::StartFinish::Yellow
+                                 ? glm::vec4{.92f, .78f, .18f, 1}
+                                 : glm::vec4{.94f, .94f, .92f, 1};
+                }
+            }
+        }
         if(&site==&city::kNeighborhoodBarSite) {
             if(part_name_is(part,"bar interior floor") || part_name_has(part,"counter") ||
                 part_name_has(part,"shelf") || part_name_has(part,"pool table cabinet") || part_name_has(part,"booth table")) {
@@ -1564,8 +2009,6 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
             }
         }
         if (style==SiteMaterialStyle::Quickbite) {
-            const glm::vec4 tacomaco_green{.16f,.48f,.22f,1};
-            const glm::vec4 tacomaco_orange{.98f,.31f,.045f,1};
             const bool tiled_wall=part.solid &&
                 (part.finish==city::StartFinish::WarmWall || part.finish==city::StartFinish::Brick);
             const bool restaurant_glass =
@@ -1577,9 +2020,7 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
             }
             if (tiled_wall) {
                 r.material=materials.quickbite_tile;
-                r.tint=(tacomaco_site && !part_name_has(part,"interior "))
-                    ? tacomaco_green
-                    : glm::vec4{1,1,1,1};
+                r.tint={1,1,1,1};
                 r.uv_scale={std::max(part.width_m,part.depth_m)/1.2f,part.height_m/1.2f};
             }
             if (part_name_has(part,"quickbite ") && part_name_has(part,"sign face")) {
@@ -1587,24 +2028,14 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
                     const bool interior_left=part_name_is(part,"quickbite interior menu sign face left");
                     const bool interior_right=part_name_is(part,"quickbite interior menu sign face right");
                     r.material=interior_left
-                        ? (tacomaco_site ? materials.tacomaco_menu_interior_a : materials.quickbite_menu_interior_a)
+                        ? materials.quickbite_menu_interior_a
                         : interior_right
-                            ? (tacomaco_site ? materials.tacomaco_menu_interior_b : materials.quickbite_menu_interior_b)
-                            : (tacomaco_site ? materials.tacomaco_menu_drive : materials.quickbite_menu_drive);
+                            ? materials.quickbite_menu_interior_b
+                            : materials.quickbite_menu_drive;
                 } else {
-                    r.material=tacomaco_site ? materials.tacomaco_brand : materials.quickbite_brand;
+                    r.material=materials.quickbite_brand;
                 }
                 r.tint={1,1,1,1};r.uv_scale={1,1};
-            }
-            if (tacomaco_site && !part_name_has(part,"interior ")) {
-                if (part.finish==city::StartFinish::RedTrim ||
-                    part.finish==city::StartFinish::DarkRoof ||
-                    part.finish==city::StartFinish::Steel ||
-                    part.finish==city::StartFinish::Yellow) {
-                    r.tint=tacomaco_orange;
-                } else if (part.finish==city::StartFinish::TealDoor) {
-                    r.tint={.12f,.46f,.22f,1};
-                }
             }
             if (part_name_is(part,"quickbite interior floor")) {
                 r.material=materials.quickbite_floor;r.tint={1,1,1,1};
@@ -1730,6 +2161,7 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
         }
         if(part.shape==city::BuildingPieceShape::GablePrism)r.mesh=gable_prism;
         const Transform t = part_transform(site, part);
+        city::append_precipitation_cover(part, t, precipitation_cover);
         const NodeId id = scene.create(r, t, unit_bounds);
         if (SceneNode* node = scene.get(id)) {
             node->max_draw_distance = site.max_draw_distance_m;
@@ -1739,7 +2171,7 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
         if (window_registration && window_registration->windows &&
             (is_skyscraper_window_light(part) ||
              (window_registration->existing_dark_pane &&
-              is_vellum_apartment_window(part)))) {
+              is_pinatty_apartment_window(part)))) {
             uint64_t building_key=window_registration->building_key;
             if(window_registration->split_twin_towers) {
                 building_key=splitmix64_mix(building_key ^
@@ -1761,7 +2193,7 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
         }
 
         if (part.solid) {
-            if ((miandi_detailed_site || natural_yard || style == SiteMaterialStyle::Construction ||
+            if ((loom_site || miandi_detailed_site || natural_yard || style == SiteMaterialStyle::Construction ||
                  style == SiteMaterialStyle::Westmere || &site == &city::kGunStoreSite || part_name_has(part,"bar ") || part_name_has(part,"station ") || part_name_has(part,"tower ") || part_name_has(part,"infill ") || &site == &city::kPawnShopSite || &site == &city::kGasStationSite || &site == &city::kBankSite || &site == &city::kAutoRepairSite ||
                  &site == &city::kLaundromatSite || &site == &city::kFastFoodSite ||
                  &site == &city::kTacomacoSite || &site == &city::kEastArmPlazaSite) && part.pitch_deg == 0.0f &&
@@ -1777,7 +2209,7 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
             collider.add_static_ground_rect({t.position.x,t.position.z},city::kMarinaDeckTop,
                 {part.width_m*.5f,part.depth_m*.5f},0,Surface::Rock);
         }
-        if (city::residential_ground_piece(part) || city::luxury_ground_piece(part) || city::tidewater_farm_ground_piece(part) || city::gun_store_ground_piece(part) || city::vellum_infill_ground_piece(part) || (&site == &city::kEastArmPlazaSite && (part_name_has(part, "parking lot") || part_name_has(part, " walk") || part_name_has(part, "court") || part_name_has(part, "service lane") || part_name_has(part, "interior floor") || part_name_has(part, "threshold"))) || is_building_plot_pavement(part) ||
+        if ((loom_site && city::loom_ground_piece(part)) || city::residential_ground_piece(part) || city::luxury_ground_piece(part) || city::tidewater_farm_ground_piece(part) || city::gun_store_ground_piece(part) || city::pinatty_infill_ground_piece(part) || (&site == &city::kEastArmPlazaSite && (part_name_has(part, "parking lot") || part_name_has(part, " walk") || part_name_has(part, "court") || part_name_has(part, "service lane") || part_name_has(part, "interior floor") || part_name_has(part, "threshold"))) || is_building_plot_pavement(part) ||
             part_name_is(part,"marina parking lot") || part_name_has(part,"terminal parking walk") ||
             part_name_has(part,"terminal splitter island") ||
             part_name_has(part,"terminal pedestrian connector") ||
@@ -1840,6 +2272,7 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
             part_name_is(part,"bar back alley") || part_name_is(part,"bar alley entrance walk") ||
             part_name_is(part,"bar front threshold") || part_name_is(part,"bar alley threshold") ||
             part_name_is(part,"store interior floor") || part_name_is(part,"store interior entrance threshold") ||
+            (&site == &city::kHalberdFieldSite && city::halberd_ground_piece(part)) ||
             (miandi_detailed_site && city::miandi_ground_piece(part))) {
             const float site_yaw = std::atan2(site.sin_yaw, site.cos_yaw);
             const float local_yaw = glm::radians(part.yaw_deg);
@@ -2002,6 +2435,11 @@ bool World::init(Renderer& renderer, uint64_t seed, const StreamerConfig& cfg) {
     return true;
 }
 
+void World::sync_burgerpiz_parking_lamps(Scene& scene,float night_level) {
+    for(const auto id:burgerpiz_parking_lens_nodes_)
+        if(auto* node=scene.get(id))node->renderable.tint=street_lamp_lens_tint(night_level);
+}
+
 void World::update(Scene& scene, Renderer& renderer, glm::vec3 focus,
                    StepMode mode) {
     const StreamerStats st = streamer_.step(scene, proto_, focus, mode);
@@ -2079,15 +2517,23 @@ void World::sync_skyscraper_window_lights(
         std::fabs(clamped_darkness-skyscraper_window_sync_darkness_)>=0.10f;
     const bool clock_rate_changed=
         time_of_day_per_step!=skyscraper_window_sync_time_rate_;
-    if(bucket==skyscraper_window_sync_bucket_ &&
-       session_seed==skyscraper_window_sync_seed_ && !visible_clock_jump &&
-       !darkness_jump && !clock_rate_changed) return;
+    const bool refresh_targets=bucket!=skyscraper_window_sync_bucket_ ||
+        session_seed!=skyscraper_window_sync_seed_ || visible_clock_jump ||
+        darkness_jump || clock_rate_changed;
+    // Rendering can outpace the 120 Hz simulation clock. There is no visual
+    // progress to apply twice at the same step, but target refreshes still
+    // need to run for a dev-clock or lighting change.
+    if(!refresh_targets &&
+       absolute_step==skyscraper_window_presentation_step_) return;
 
-    skyscraper_window_sync_bucket_=bucket;
-    skyscraper_window_sync_seed_=session_seed;
-    skyscraper_window_sync_darkness_=clamped_darkness;
-    skyscraper_window_sync_time_=visible_time_of_day;
-    skyscraper_window_sync_time_rate_=time_of_day_per_step;
+    if(refresh_targets) {
+        skyscraper_window_sync_bucket_=bucket;
+        skyscraper_window_sync_seed_=session_seed;
+        skyscraper_window_sync_darkness_=clamped_darkness;
+        skyscraper_window_sync_time_=visible_time_of_day;
+        skyscraper_window_sync_time_rate_=time_of_day_per_step;
+    }
+    skyscraper_window_presentation_step_=absolute_step;
     skyscraper_window_stats_={};
 
     constexpr glm::vec4 kDarkGlass{0.045f,0.115f,0.14f,1.0f};
@@ -2103,13 +2549,17 @@ void World::sync_skyscraper_window_lights(
             case city::SkyscraperUse::Mixed:
                 ++skyscraper_window_stats_.mixed;break;
         }
-        const float viewer_distance=glm::length(
-            window.building_position-glm::vec2{viewer_position.x,
-                                                viewer_position.z});
-        const auto light=city::skyscraper_window_lod_light(
-            window.lod,window.address,session_seed,absolute_step,
-            visible_time_of_day,clamped_darkness,viewer_distance,
-            time_of_day_per_step);
+        if(refresh_targets) {
+            const float viewer_distance=glm::length(
+                window.building_position-glm::vec2{viewer_position.x,
+                                                    viewer_position.z});
+            window.target_light=city::skyscraper_window_lod_light(
+                window.lod,window.address,session_seed,absolute_step,
+                visible_time_of_day,clamped_darkness,viewer_distance,
+                time_of_day_per_step);
+        }
+        const auto light=city::skyscraper_window_smoothed_light(
+            window.presentation,window.target_light,absolute_step);
         if(window.lod.dynamic) ++skyscraper_window_stats_.dynamic_lod;
         else ++skyscraper_window_stats_.static_lod;
         if(light.lit) {
@@ -2207,7 +2657,10 @@ void World::step_traffic(int64_t step, const VehicleState& player,
         crowd_.refresh(step, focus);
     crowd_.rebuild_buckets();
     crowd_.step_vehicles(step, &player, on_foot_player);
-    crowd_.step_peds(step);
+    // The player's car is a hazard to people on the pavement, not only to
+    // other drivers. A stopped car passes the same pointer and startles
+    // nobody, which is what the closing-speed gate is for.
+    crowd_.step_peds(step, &player);
 }
 
 bool World::resolve_traffic_collision(VehicleState& player,
@@ -2239,6 +2692,19 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
 
     StartMaterials start_materials;
     if (!load_start_materials(renderer, start_materials)) return false;
+    museum_art_meshes_=start_materials.museum_paintings;
+    museum_amphora_mesh_=start_materials.museum_amphora;
+    museum_meshes_.clear();
+    museum_meshes_.insert(museum_meshes_.end(),start_materials.museum_plaque_cells.begin(),
+                          start_materials.museum_plaque_cells.end());
+    museum_meshes_.insert(museum_meshes_.end(),start_materials.museum_panel_cells.begin(),
+                          start_materials.museum_panel_cells.end());
+    museum_meshes_.insert(museum_meshes_.end(),start_materials.museum_label_cells.begin(),
+                          start_materials.museum_label_cells.end());
+    for(const MeshId mesh:{start_materials.museum_sphere,start_materials.museum_cone,
+                           start_materials.museum_wheel,start_materials.museum_skull,
+                           start_materials.museum_ring})
+        museum_meshes_.push_back(mesh);
 
     const MeshData unit = make_box(glm::vec3{0.5f});
     start_box_mesh_ = renderer.add_mesh(unit);
@@ -2264,6 +2730,7 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
     skyscraper_windows_.clear();
     skyscraper_windows_.reserve(10000u);
     skyscraper_window_sync_bucket_=UINT64_MAX;
+    skyscraper_window_presentation_step_=UINT64_MAX;
     skyscraper_window_sync_darkness_=-1.0f;
     skyscraper_window_sync_time_=-1.0f;
 
@@ -2277,8 +2744,6 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
         city::bake_building(city::kApartmentPlan);
     std::vector<city::StartPart> fast_food_parts =
         city::bake_building(city::kFastFoodPlan);
-    std::vector<city::StartPart> tacomaco_parts =
-        city::bake_building(city::kTacomacoPlan);
     std::vector<city::StartPart> bank_parts =
         city::bake_building(city::kBankPlan);
     auto repair_parts = city::bake_auto_repair();
@@ -2312,6 +2777,7 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
     airport_parts.insert(airport_parts.end(),garage.parts.begin(),garage.parts.end());
 
     interior_streaming_volumes_.clear();
+    precipitation_cover_.clear();
     const auto register_interior = [&](const city::StartSite& site,
                                        const auto& parts) {
         city::append_interior_streaming_volumes(
@@ -2322,7 +2788,6 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
     register_interior(city::kMotelSite, motel_parts);
     register_interior(city::kApartmentSite, apartment_parts);
     register_interior(city::kFastFoodSite, fast_food_parts);
-    register_interior(city::kTacomacoSite, tacomaco_parts);
     register_interior(city::kBankSite, bank_parts);
     register_interior(city::kAutoRepairSite, repair_parts);
     register_interior(city::kLaundromatSite, laundry_parts);
@@ -2382,61 +2847,54 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
                          city::kNessBillboardPartCount +
                          city::kPinnatyTaxiBillboardPartCount);
     city::apply_building_access_layout(city::kGasStationSite,gas_parts,access_layout_);
-    append_start_site(scene, collider, city::kGasStationSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kGasStationSite,
                       gas_parts.data(), gas_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::GasStation,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_,
                       start_cylinder_mesh_, start_nodes_);
     city::apply_building_access_layout(city::kCarWashSite,car_wash_parts,access_layout_);
-    append_start_site(scene, collider, city::kCarWashSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kCarWashSite,
                       car_wash_parts.data(), car_wash_parts.size(), r,
                       unit.bounds, start_materials,
                       SiteMaterialStyle::GasStation, start_decal_mesh_,
                       start_billboard_mesh_, start_rounded_box_mesh_,
                       start_cylinder_mesh_, start_nodes_);
     city::apply_building_access_layout(city::kMotelSite,motel_parts,access_layout_);
-    append_start_site(scene, collider, city::kMotelSite, motel_parts.data(),
+    append_start_site(scene, collider, precipitation_cover_, city::kMotelSite, motel_parts.data(),
                       motel_parts.size(), r, unit.bounds, start_materials,
                       SiteMaterialStyle::Plain,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_,
                       start_cylinder_mesh_, start_nodes_);
     city::apply_building_access_layout(city::kApartmentSite,apartment_parts,access_layout_);
-    append_start_site(scene, collider, city::kApartmentSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kApartmentSite,
                       apartment_parts.data(), apartment_parts.size(), r,
                       unit.bounds, start_materials, SiteMaterialStyle::Plain,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_,
                       start_cylinder_mesh_, start_nodes_);
     city::apply_building_access_layout(city::kFastFoodSite,fast_food_parts,access_layout_);
-    append_start_site(scene, collider, city::kFastFoodSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kFastFoodSite,
                       fast_food_parts.data(), fast_food_parts.size(), r,
                       unit.bounds, start_materials, SiteMaterialStyle::Quickbite,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_,
                       start_cylinder_mesh_, start_nodes_);
-    city::apply_building_access_layout(city::kTacomacoSite,tacomaco_parts,access_layout_);
-    append_start_site(scene, collider, city::kTacomacoSite,
-                      tacomaco_parts.data(), tacomaco_parts.size(), r,
-                      unit.bounds, start_materials, SiteMaterialStyle::Quickbite,
-                      start_decal_mesh_, start_billboard_mesh_,
-                      start_rounded_box_mesh_,
-                      start_cylinder_mesh_, start_nodes_);
     city::apply_building_access_layout(city::kBankSite,bank_parts,access_layout_);
-    append_start_site(scene, collider, city::kBankSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kBankSite,
                       bank_parts.data(), bank_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::TexturedBuilding,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
     city::apply_building_access_layout(city::kAutoRepairSite,repair_parts,access_layout_);
-    append_start_site(scene, collider, city::kAutoRepairSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kAutoRepairSite,
         repair_parts.data(), repair_parts.size(), r, unit.bounds, start_materials,
         SiteMaterialStyle::TexturedBuilding, start_decal_mesh_, start_billboard_mesh_,
         start_rounded_box_mesh_, start_cylinder_mesh_, start_nodes_);
     city::apply_building_access_layout(city::kLaundromatSite,laundry_parts,access_layout_);
-    append_start_site(scene, collider, city::kLaundromatSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kLaundromatSite,
         laundry_parts.data(), laundry_parts.size(), r, unit.bounds, start_materials,
         SiteMaterialStyle::TexturedBuilding, start_decal_mesh_, start_billboard_mesh_,
         start_rounded_box_mesh_, start_cylinder_mesh_, start_nodes_);
@@ -2444,7 +2902,7 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
     register_interior(city::kEastArmPlazaSite, east_arm_plaza_parts);
     city::apply_building_access_layout(city::kEastArmPlazaSite,
                                        east_arm_plaza_parts, access_layout_);
-    append_start_site(scene, collider, city::kEastArmPlazaSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kEastArmPlazaSite,
         east_arm_plaza_parts.data(), east_arm_plaza_parts.size(), r, unit.bounds,
         start_materials, SiteMaterialStyle::TexturedBuilding, start_decal_mesh_,
         start_billboard_mesh_, start_rounded_box_mesh_, start_cylinder_mesh_,
@@ -2458,13 +2916,13 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
     auto pawn_parts=city::bake_pawn_shop();
     register_interior(city::kPawnShopSite, pawn_parts);
     city::apply_building_access_layout(city::kPawnShopSite,pawn_parts,access_layout_);
-    append_start_site(scene,collider,city::kPawnShopSite,pawn_parts.data(),pawn_parts.size(),
+    append_start_site(scene,collider,precipitation_cover_,city::kPawnShopSite,pawn_parts.data(),pawn_parts.size(),
         r,unit.bounds,start_materials,SiteMaterialStyle::TexturedBuilding,
         start_decal_mesh_,start_billboard_mesh_,start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_,pawn_guitar_mesh_);
     auto gun_store_parts=city::bake_gun_store();
     register_interior(city::kGunStoreSite, gun_store_parts);
     city::apply_building_access_layout(city::kGunStoreSite,gun_store_parts,access_layout_);
-    append_start_site(scene,collider,city::kGunStoreSite,gun_store_parts.data(),gun_store_parts.size(),
+    append_start_site(scene,collider,precipitation_cover_,city::kGunStoreSite,gun_store_parts.data(),gun_store_parts.size(),
         r,unit.bounds,start_materials,SiteMaterialStyle::TexturedBuilding,
         start_decal_mesh_,start_billboard_mesh_,start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_);
     for(std::size_t i=0;i<city::kNeighborhoodTowers.size();++i) {
@@ -2477,50 +2935,50 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
             window_site_key(city::kNeighborhoodTowers[i].site,
                             0x4E45494748424F52ull),
             city::kNeighborhoodTowers[i].use,false,false};
-        append_start_site(scene,collider,city::kNeighborhoodTowers[i].site,
+        append_start_site(scene,collider,precipitation_cover_,city::kNeighborhoodTowers[i].site,
             tower_parts.data(),tower_parts.size(),r,unit.bounds,start_materials,
             SiteMaterialStyle::TexturedBuilding,start_decal_mesh_,start_billboard_mesh_,
             start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_,kInvalidId,
             kInvalidId,&window_registration);
     }
     const std::size_t neighborhood_window_count=skyscraper_windows_.size();
-    for (std::size_t i = 0; i < city::kVellumInfillParcels.size(); ++i) {
-        const auto parts = city::bake_vellum_infill(i);
+    for (std::size_t i = 0; i < city::kPinattyInfillParcels.size(); ++i) {
+        const auto parts = city::bake_pinatty_infill(i);
         const SkyscraperWindowRegistration window_registration{
             &skyscraper_windows_,
-            window_site_key(city::kVellumInfillParcels[i].site,
+            window_site_key(city::kPinattyInfillParcels[i].site,
                             0x56454C4C554D494Eull),
             city::SkyscraperUse::Residential,false,true};
         append_start_site(
-            scene, collider, city::kVellumInfillParcels[i].site,
+            scene, collider, precipitation_cover_, city::kPinattyInfillParcels[i].site,
             parts.data(), parts.size(), r, unit.bounds, start_materials,
             SiteMaterialStyle::TexturedBuilding, start_decal_mesh_,
             start_billboard_mesh_, start_rounded_box_mesh_,
             start_cylinder_mesh_, start_nodes_, kInvalidId,
             start_gable_mesh_, &window_registration);
     }
-    const std::size_t vellum_infill_window_count=
+    const std::size_t pinatty_infill_window_count=
         skyscraper_windows_.size()-neighborhood_window_count;
     const auto construction_parts = city::bake_construction_site();
-    append_start_site(scene, collider, city::kConstructionSite.site,
+    append_start_site(scene, collider, precipitation_cover_, city::kConstructionSite.site,
         construction_parts.data(), construction_parts.size(), r, unit.bounds,
         start_materials, SiteMaterialStyle::Construction, start_decal_mesh_,
         start_billboard_mesh_, start_rounded_box_mesh_, start_cylinder_mesh_,
         start_nodes_);
     const auto materials_parts = city::bake_construction_neighbor_materials();
-    append_start_site(scene, collider, city::kConstructionNeighborMaterialsSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kConstructionNeighborMaterialsSite,
         materials_parts.data(), materials_parts.size(), r, unit.bounds,
         start_materials, SiteMaterialStyle::Construction, start_decal_mesh_,
         start_billboard_mesh_, start_rounded_box_mesh_, start_cylinder_mesh_,
         start_nodes_);
     const auto equipment_parts = city::bake_construction_neighbor_equipment();
-    append_start_site(scene, collider, city::kConstructionNeighborEquipment.site,
+    append_start_site(scene, collider, precipitation_cover_, city::kConstructionNeighborEquipment.site,
         equipment_parts.data(), equipment_parts.size(), r, unit.bounds,
         start_materials, SiteMaterialStyle::Construction, start_decal_mesh_,
         start_billboard_mesh_, start_rounded_box_mesh_, start_cylinder_mesh_,
         start_nodes_);
     const auto street_detail_parts = city::bake_construction_street_detail();
-    append_start_site(scene, collider, city::kConstructionStreetDetailSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kConstructionStreetDetailSite,
         street_detail_parts.data(), street_detail_parts.size(), r, unit.bounds,
         start_materials, SiteMaterialStyle::Construction, start_decal_mesh_,
         start_billboard_mesh_, start_rounded_box_mesh_, start_cylinder_mesh_,
@@ -2528,7 +2986,7 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
     for (std::size_t i = 0; i < city::kAdditionalConstructionSites.size(); ++i) {
         const auto parts = city::bake_additional_construction_site(i);
         append_start_site(
-            scene, collider, city::kAdditionalConstructionSites[i].site,
+            scene, collider, precipitation_cover_, city::kAdditionalConstructionSites[i].site,
             parts.data(), parts.size(), r, unit.bounds, start_materials,
             SiteMaterialStyle::Construction, start_decal_mesh_,
             start_billboard_mesh_, start_rounded_box_mesh_, start_cylinder_mesh_,
@@ -2542,39 +3000,178 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
                             0x5457494E544F5745ull),
             city::SkyscraperUse::Mixed,true,false};
         append_start_site(
-            scene, collider, city::kTwinSkyscraperBlockSites[i], parts.data(),
+            scene, collider, precipitation_cover_, city::kTwinSkyscraperBlockSites[i], parts.data(),
             parts.size(), r, unit.bounds, start_materials,
             SiteMaterialStyle::TexturedBuilding, start_decal_mesh_,
             start_billboard_mesh_, start_rounded_box_mesh_, start_cylinder_mesh_,
             start_nodes_, kInvalidId, kInvalidId, &window_registration);
     }
-    AP_INFO("city window lighting: %zu skyscraper suites + %zu Vellum "
+    AP_INFO("city window lighting: %zu skyscraper suites + %zu Pinatty "
             "apartments registered",
-            skyscraper_windows_.size()-vellum_infill_window_count,
-            vellum_infill_window_count);
+            skyscraper_windows_.size()-pinatty_infill_window_count,
+            pinatty_infill_window_count);
     const auto hospital_parts = city::bake_polished_hospital_campus();
-    append_start_site(scene, collider, city::kHospitalSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kHospitalSite,
         hospital_parts.data(), hospital_parts.size(), r, unit.bounds,
         start_materials, SiteMaterialStyle::Construction, start_decal_mesh_,
         start_billboard_mesh_, start_rounded_box_mesh_, start_cylinder_mesh_,
         start_nodes_);
     const auto hospital_north_parking = city::bake_hospital_north_parking();
-    append_start_site(scene, collider, city::kHospitalNorthParkingSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kHospitalNorthParkingSite,
         hospital_north_parking.data(), hospital_north_parking.size(), r,
         unit.bounds, start_materials, SiteMaterialStyle::Construction,
         start_decal_mesh_, start_billboard_mesh_, start_rounded_box_mesh_,
         start_cylinder_mesh_, start_nodes_);
+    burgerpiz_lights_.clear();
+    burgerpiz_parking_lights_.clear();
+    burgerpiz_parking_lens_nodes_.clear();
+    const std::pair<const city::StartSite*,const char*> imported_restaurants[]={
+        {&city::kBurgerPizSite,city::kBurgerPizAssetRoot},
+        {&city::kFreakyFranksSite,city::kFreakyFranksAssetRoot},
+        {&city::kTacomacoSite,city::kTacomacoAssetRoot},
+    };
+    for(const auto& [where,root]:imported_restaurants) {
+        const auto& site=*where;
+        auto burger_parts=city::bake_burgerpiz_lot();
+        register_interior(site,burger_parts);
+        city::apply_building_access_layout(site,burger_parts,access_layout_);
+        append_start_site(scene,collider,precipitation_cover_,site,burger_parts.data(),burger_parts.size(),
+            r,unit.bounds,start_materials,SiteMaterialStyle::Plain,
+            start_decal_mesh_,start_billboard_mesh_,start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_);
+        city::BurgerPizAsset burger_asset;
+        if(!city::load_burgerpiz_asset(burger_asset,root)) {
+            AP_ERROR("%s: missing or invalid cooked private asset; run tools/cook_burgerpiz.py",site.name);
+            return false;
+        }
+        Transform burger_pose;
+        burger_pose.position=city::burgerpiz_world({0,0,0},site);
+        burger_pose.rotation=glm::angleAxis(std::atan2(site.sin_yaw,
+            site.cos_yaw),glm::vec3{0,1,0});
+        for(const auto& part:burger_asset.materials) {
+            StaticEmesh mesh;
+            Texture texture;
+            if(!read_static_emesh(city::burgerpiz_path(part.mesh,root),mesh) ||
+               !(part.texture=="-"?texture.make_white():texture.load_file(city::burgerpiz_path(part.texture,root)))) {
+                AP_ERROR("%s: failed loading %s",site.name,part.mesh.c_str());return false;
+            }
+            Renderable placed;
+            placed.mesh=renderer.add_mesh(mesh);
+            if(placed.mesh==kInvalidId)return false;
+            burgerpiz_meshes_.push_back(placed.mesh);
+            // Let the furnished shell occlude outdoor shading from inside.
+            placed.material=part.glass?renderer.add_glass_material():
+                renderer.add_material(std::move(texture),false,.25f,{},false,true);
+            placed.tint=part.tint;
+            if(part.emissive)placed.tint.a=2.5f;
+            const auto node=scene.create(placed,burger_pose,mesh.bounds);
+            if(part.mesh=="parking_lens.emesh")burgerpiz_parking_lens_nodes_.push_back(node);
+            start_nodes_.push_back(node);
+            if(auto* n=scene.get(node))n->max_draw_distance=site.max_draw_distance_m;
+        }
+        city::add_burgerpiz_collision(collider,burger_asset,site);
+        for(const auto& p:burger_asset.lights)burgerpiz_lights_.push_back(city::burgerpiz_world(p,site));
+        for(const auto& p:burger_asset.parking_lights)
+            burgerpiz_parking_lights_.push_back(city::burgerpiz_world(p,site));
+        AP_INFO("%s: %zu parking lamp heads",site.name,burger_asset.parking_lights.size());
+        AP_INFO("%s: %zu material meshes, %zu solid boxes, %zu interior lights at %.1f %.1f",
+            site.name,burger_asset.materials.size(),burger_asset.boxes.size(),burger_asset.lights.size(),
+            site.origin.x,site.origin.z);
+    }
+    for(const auto& station:city::kImportedGasStations) {
+        const auto& site=*station.site;
+        const auto* root=station.root;
+        auto parts=city::bake_miandi_gas_station_lot();
+        register_interior(site,parts);
+        city::apply_building_access_layout(site,parts,access_layout_);
+        append_start_site(scene,collider,precipitation_cover_,site,parts.data(),parts.size(),
+            r,unit.bounds,start_materials,SiteMaterialStyle::Plain,
+            start_decal_mesh_,start_billboard_mesh_,start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_);
+        collider.add_static_ground_rect({site.origin.x,site.origin.z},site.ground_m+.07f,{20,28},
+            std::atan2(site.sin_yaw,site.cos_yaw),Surface::Rock);
+        city::MiandiGasStationAsset gas_asset;
+        if(!city::load_miandi_gas_station_asset(gas_asset,root)) {
+            AP_ERROR("%s: missing or invalid cooked private asset; run tools/cook_miandi_gas_station.py",site.name);
+            return false;
+        }
+        Transform gas_pose;
+        gas_pose.position=city::miandi_gas_station_world({0,0,0},site);
+        gas_pose.rotation=glm::angleAxis(std::atan2(site.sin_yaw,
+            site.cos_yaw),glm::vec3{0,1,0});
+        for(const auto& part:gas_asset.materials) {
+            StaticEmesh mesh;
+            Texture texture;
+            if(!read_static_emesh(city::miandi_gas_station_path(part.mesh,root),mesh) ||
+               !(part.texture=="-"?texture.make_white():texture.load_file(city::miandi_gas_station_path(part.texture,root)))) {
+                AP_ERROR("%s: failed loading %s",site.name,part.mesh.c_str());return false;
+            }
+            Renderable placed;
+            placed.mesh=renderer.add_mesh(mesh);
+            if(placed.mesh==kInvalidId)return false;
+            miandi_gas_station_meshes_.push_back(placed.mesh);
+            // Let the furnished shell occlude outdoor shading from inside.
+            placed.material=part.glass?renderer.add_glass_material():
+                renderer.add_material(std::move(texture),false,.25f,{},false,true);
+            placed.tint=part.tint;
+            if(part.emissive)placed.tint.a=2.5f;
+            const auto node=scene.create(placed,gas_pose,mesh.bounds);
+            start_nodes_.push_back(node);
+            if(auto* n=scene.get(node))n->max_draw_distance=site.max_draw_distance_m;
+        }
+        city::add_miandi_gas_station_collision(collider,gas_asset,site);
+        for(const auto& p:gas_asset.lights)miandi_gas_station_lights_.push_back(city::miandi_gas_station_world(p,site));
+        AP_INFO("%s: %zu material meshes, %zu solid boxes, %zu interior lights at %.1f %.1f",
+            site.name,gas_asset.materials.size(),gas_asset.boxes.size(),gas_asset.lights.size(),
+            site.origin.x,site.origin.z);
+        for(const auto& cover:gas_asset.covers) {
+            StaticBox box;
+            box.centre=city::miandi_gas_station_world(cover.centre,site);
+            box.oriented=true;
+            box.local_bounds={-cover.half,cover.half};
+            box.axis_x={site.cos_yaw,-site.sin_yaw};
+            box.axis_z={site.sin_yaw,site.cos_yaw};
+            const glm::vec3 extent{
+                std::abs(site.cos_yaw)*cover.half.x+std::abs(site.sin_yaw)*cover.half.z,
+                cover.half.y,
+                std::abs(site.sin_yaw)*cover.half.x+std::abs(site.cos_yaw)*cover.half.z};
+            box.bounds={box.centre-extent,box.centre+extent};
+            precipitation_cover_.push_back(box);
+        }
+    }
+    auto museum_parts=city::bake_loom_museum();
+    register_interior(city::kLoomMuseumSite,museum_parts);
+    city::apply_building_access_layout(city::kLoomMuseumSite,museum_parts,access_layout_);
+    append_start_site(scene,collider,precipitation_cover_,city::kLoomMuseumSite,museum_parts.data(),museum_parts.size(),
+        r,unit.bounds,start_materials,SiteMaterialStyle::TexturedBuilding,
+        start_decal_mesh_,start_billboard_mesh_,start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_,kInvalidId,start_gable_mesh_);
+    auto park_parts=city::bake_loom_park();
+    city::apply_building_access_layout(city::kLoomParkSite,park_parts,access_layout_);
+    append_start_site(scene,collider,precipitation_cover_,city::kLoomParkSite,park_parts.data(),park_parts.size(),
+        r,unit.bounds,start_materials,SiteMaterialStyle::TexturedBuilding,
+        start_decal_mesh_,start_billboard_mesh_,start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_);
+    // Halberd Field. Airport material style: its paving and paint use the same
+    // thin-plane convention, so the shape rules already do the right thing.
+    auto halberd_parts=city::bake_halberd_field();
+    append_start_site(scene,collider,precipitation_cover_,city::kHalberdFieldSite,
+        halberd_parts.data(),halberd_parts.size(),r,unit.bounds,start_materials,
+        SiteMaterialStyle::Airport,start_decal_mesh_,start_billboard_mesh_,
+        start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_);
+    for(const auto& part:halberd_parts)
+        if(part_name_is(part,"halberd runway light lens") ||
+           part_name_is(part,"halberd apron light lens") ||
+           part_name_is(part,"halberd gate light lens"))
+            residential_lights_.push_back(part_world_centre(city::kHalberdFieldSite,part));
+
     auto bar_parts=city::bake_neighborhood_bar();
     register_interior(city::kNeighborhoodBarSite, bar_parts);
     city::apply_building_access_layout(city::kNeighborhoodBarSite,bar_parts,access_layout_);
-    append_start_site(scene,collider,city::kNeighborhoodBarSite,bar_parts.data(),bar_parts.size(),
+    append_start_site(scene,collider,precipitation_cover_,city::kNeighborhoodBarSite,bar_parts.data(),bar_parts.size(),
         r,unit.bounds,start_materials,SiteMaterialStyle::TexturedBuilding,
         start_decal_mesh_,start_billboard_mesh_,start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_);
     for(bool fire:{true,false}) {
         const auto& site=fire?city::kFireStationSite:city::kPoliceStationSite;
         const auto parts=city::bake_emergency_station(fire);
         register_interior(site, parts);
-        append_start_site(scene,collider,site,parts.data(),parts.size(),r,unit.bounds,start_materials,
+        append_start_site(scene,collider,precipitation_cover_,site,parts.data(),parts.size(),r,unit.bounds,start_materials,
             SiteMaterialStyle::TexturedBuilding,start_decal_mesh_,start_billboard_mesh_,
             start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_);
     }
@@ -2583,7 +3180,7 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
         const auto& site=city::kResidentialHouses[i].site;
         const auto parts=city::bake_residential_house(i,residential_ground.sampler());
         register_interior(site, parts);
-        append_start_site(scene,collider,site,parts.data(),parts.size(),r,unit.bounds,start_materials,
+        append_start_site(scene,collider,precipitation_cover_,site,parts.data(),parts.size(),r,unit.bounds,start_materials,
             SiteMaterialStyle::TexturedBuilding,start_decal_mesh_,start_billboard_mesh_,
             start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_,kInvalidId,start_gable_mesh_);
         for(const auto& part:parts) if(part_name_is(part,"house interior light lens")) {
@@ -2594,7 +3191,7 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
     for(std::size_t i=0;i<city::kLuxuryEstates.size();++i) {
         const auto& site=city::kLuxuryEstates[i].site;
         const auto parts=city::bake_luxury_estate(i,residential_ground.sampler());
-        append_start_site(scene,collider,site,parts.data(),parts.size(),r,unit.bounds,start_materials,
+        append_start_site(scene,collider,precipitation_cover_,site,parts.data(),parts.size(),r,unit.bounds,start_materials,
             SiteMaterialStyle::Westmere,start_decal_mesh_,start_billboard_mesh_,
             start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_,kInvalidId,start_gable_mesh_);
         for(const auto& part:parts) if(part_name_is(part,"house luxury entrance light lens")) {
@@ -2606,7 +3203,7 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
         const auto& site=city::kWestmereCourtGreens[i];
         const auto parts=city::bake_westmere_court_green(
             i,residential_ground.sampler());
-        append_start_site(scene,collider,site,parts.data(),parts.size(),r,
+        append_start_site(scene,collider,precipitation_cover_,site,parts.data(),parts.size(),r,
             unit.bounds,start_materials,SiteMaterialStyle::Westmere,
             start_decal_mesh_,start_billboard_mesh_,start_rounded_box_mesh_,
             start_cylinder_mesh_,start_nodes_);
@@ -2616,12 +3213,12 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
         }
     }
     const auto westmere_common=city::bake_westmere_common(residential_ground.sampler());
-    append_start_site(scene,collider,city::kWestmereCommonSite,westmere_common.data(),
+    append_start_site(scene,collider,precipitation_cover_,city::kWestmereCommonSite,westmere_common.data(),
         westmere_common.size(),r,unit.bounds,start_materials,
         SiteMaterialStyle::Westmere,start_decal_mesh_,start_billboard_mesh_,
         start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_);
     const auto westmere_gate=city::bake_westmere_gate(residential_ground.sampler());
-    append_start_site(scene,collider,city::kWestmereGateSite,westmere_gate.data(),
+    append_start_site(scene,collider,precipitation_cover_,city::kWestmereGateSite,westmere_gate.data(),
         westmere_gate.size(),r,unit.bounds,start_materials,
         SiteMaterialStyle::Westmere,start_decal_mesh_,start_billboard_mesh_,
         start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_);
@@ -2638,14 +3235,14 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
         const auto& record = city::kWestmereStreetscapeSites[i];
         const auto parts = city::bake_westmere_streetscape_site(
             i, residential_ground.sampler());
-        append_start_site(scene, collider, record.site, parts.data(),
+        append_start_site(scene, collider, precipitation_cover_, record.site, parts.data(),
             parts.size(), r, unit.bounds, start_materials,
             SiteMaterialStyle::Westmere, start_decal_mesh_,
             start_billboard_mesh_, start_rounded_box_mesh_,
             start_cylinder_mesh_, start_nodes_);
     }
     const auto farm_parts = city::bake_tidewater_farm(residential_ground.sampler());
-    append_start_site(scene, collider, city::kTidewaterFarmSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kTidewaterFarmSite,
         farm_parts.data(), farm_parts.size(), r, unit.bounds, start_materials,
         SiteMaterialStyle::Farm, start_decal_mesh_,
         start_billboard_mesh_, start_rounded_box_mesh_, start_cylinder_mesh_,
@@ -2669,8 +3266,6 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
             house_door_centre(d,0),{d.width*.5f,d.height*.5f,d.thickness*.5f},d.closed_yaw));
     }
     quickbite_doors_=city::quickbite_doors();
-    const auto tacomaco_doors=city::quickbite_doors(city::kTacomacoSite);
-    quickbite_doors_.insert(quickbite_doors_.end(),tacomaco_doors.begin(),tacomaco_doors.end());
     quickbite_door_states_.resize(quickbite_doors_.size());
     for(const auto& door:quickbite_doors_) {
         std::vector<NodeId> nodes;
@@ -2711,82 +3306,82 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
         }
     }
     bank_vault_pose_ = 0.0f;
-    append_start_site(scene, collider, city::kAirportSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kAirportSite,
                       airport_parts.data(), airport_parts.size(), r,
                       unit.bounds, start_materials, SiteMaterialStyle::Airport,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_,
                       start_cylinder_mesh_, start_nodes_);
-    append_start_site(scene, collider, city::kFlorangiaAirportSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kFlorangiaAirportSite,
                       florangia_airport_parts.data(),
                       florangia_airport_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::Airport,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
-    append_start_site(scene, collider, city::kMiandiSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kMiandiSite,
                       miandi_rough_parts.data(), miandi_rough_parts.size(), r,
                       unit.bounds,
                       start_materials, SiteMaterialStyle::Plain,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
-    append_start_site(scene, collider, city::kMiandiContextSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kMiandiContextSite,
                       miandi_context_parts.data(),
                       miandi_context_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::Plain,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
-    append_start_site(scene, collider, city::kMiandiStreetFixtureSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kMiandiStreetFixtureSite,
                       miandi_street_parts.data(), miandi_street_parts.size(), r,
                       unit.bounds, start_materials, SiteMaterialStyle::Plain,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
-    append_start_site(scene, collider, city::kMiandiCalleOchoSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kMiandiCalleOchoSite,
                       miandi_calle_ocho_parts.data(),
                       miandi_calle_ocho_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::Plain,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
-    append_start_site(scene, collider, city::kMiandiBayfrontSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kMiandiBayfrontSite,
                       miandi_bayfront_parts.data(),
                       miandi_bayfront_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::Plain,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
-    append_start_site(scene, collider, city::kMiandiCalleNocheSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kMiandiCalleNocheSite,
                       miandi_calle_noche_parts.data(),
                       miandi_calle_noche_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::Plain,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
-    append_start_site(scene, collider, city::kMiandiPrismWorksSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kMiandiPrismWorksSite,
                       miandi_prism_works_parts.data(),
                       miandi_prism_works_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::Plain,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
-    append_start_site(scene, collider, city::kMiandiMariposaMotelSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kMiandiMariposaMotelSite,
                       miandi_mariposa_parts.data(),
                       miandi_mariposa_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::Plain,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
-    append_start_site(scene, collider, city::kMiandiSunwaveHotelSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kMiandiSunwaveHotelSite,
                       miandi_sunwave_parts.data(),
                       miandi_sunwave_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::Plain,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
-    append_start_site(scene, collider, city::kMiandiOceanDriveSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kMiandiOceanDriveSite,
                       miandi_ocean_drive_parts.data(),
                       miandi_ocean_drive_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::Plain,
@@ -2825,14 +3420,14 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
                 glm::radians(palm.yaw_deg));
         }
     }
-    append_start_site(scene, collider, city::kMiandiNorthPromenadeSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kMiandiNorthPromenadeSite,
                       miandi_promenade_parts.data(),
                       miandi_promenade_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::Plain,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
-    append_start_site(scene, collider, city::kMiandiPortSolSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kMiandiPortSolSite,
                       miandi_port_sol_parts.data(),
                       miandi_port_sol_parts.size(), r, unit.bounds,
                       start_materials, SiteMaterialStyle::Plain,
@@ -2912,20 +3507,20 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
         boat_colliders_.push_back(collider.add_kinematic_oriented_box(
             boat_pose.transform_point(box.centre),box.half,city::kMarlinYaw));
     const auto marina_parts=city::bake_marina();
-    append_start_site(scene,collider,city::kMarlinDockSite,marina_parts.data(),
+    append_start_site(scene,collider,precipitation_cover_,city::kMarlinDockSite,marina_parts.data(),
         marina_parts.size(),r,unit.bounds,start_materials,SiteMaterialStyle::Marina,
         start_decal_mesh_,start_billboard_mesh_,start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_);
     AP_INFO("marina: %zu detailed pier, service shed and mooring parts",marina_parts.size());
     AP_INFO("marina: Marlin Sprint 22 moored at %.1f, 0, %.1f; %zu triangles, no road-wheel rig",
         city::kMarlinMooring.x,city::kMarlinMooring.z,boat_body.indices.size()/3);
-    append_start_site(scene, collider, city::kNessBillboardSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kNessBillboardSite,
                       city::kNessBillboardParts,
                       city::kNessBillboardPartCount, r, unit.bounds,
                       start_materials, SiteMaterialStyle::Billboard,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
-    append_start_site(scene, collider, city::kPinnatyTaxiBillboardSite,
+    append_start_site(scene, collider, precipitation_cover_, city::kPinnatyTaxiBillboardSite,
                       city::kPinnatyTaxiBillboardParts,
                       city::kPinnatyTaxiBillboardPartCount, r, unit.bounds,
                       start_materials, SiteMaterialStyle::Billboard,
@@ -2954,7 +3549,7 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
 
     AP_INFO("authored districts: creator baked gas station %zu parts, U-motel "
             "%zu parts, apartments %zu parts, restaurant %zu parts, "
-            "car wash %zu parts, bank %zu parts, O'Haven airport %zu parts, "
+            "car wash %zu parts, bank %zu parts, Pinatty airport %zu parts, "
             "Florangia airport %zu parts, "
             "Miandi %zu parts, "
             "Ness billboard %zu parts, "
@@ -3160,8 +3755,10 @@ void World::shutdown(Scene& scene, Renderer& renderer) {
     skyscraper_window_stats_={};
     skyscraper_window_sync_bucket_=UINT64_MAX;
     skyscraper_window_sync_time_rate_=0.0f;
+    skyscraper_window_presentation_step_=UINT64_MAX;
     residential_lights_.clear();
     interior_streaming_volumes_.clear();
+    precipitation_cover_.clear();
     house_doors_.clear();house_door_states_.clear();house_door_nodes_.clear();house_door_colliders_.clear();
     quickbite_doors_.clear();quickbite_door_states_.clear();
     quickbite_door_nodes_.clear();quickbite_door_colliders_.clear();
@@ -3169,6 +3766,21 @@ void World::shutdown(Scene& scene, Renderer& renderer) {
     boat_node_=kInvalidId;boat_colliders_.clear();boat_collision_enabled_=true;
     airport_aircraft_colliders_.clear();
     airport_aircraft_collision_enabled_ = true;
+    for(const auto mesh:burgerpiz_meshes_)renderer.remove_mesh(mesh);
+    burgerpiz_meshes_.clear();
+    for(const auto mesh:miandi_gas_station_meshes_)renderer.remove_mesh(mesh);
+    miandi_gas_station_meshes_.clear();
+    miandi_gas_station_lights_.clear();
+    if(museum_amphora_mesh_!=kInvalidId) {renderer.remove_mesh(museum_amphora_mesh_);museum_amphora_mesh_=kInvalidId;}
+    for(const MeshId mesh:museum_meshes_) if(mesh!=kInvalidId) renderer.remove_mesh(mesh);
+    museum_meshes_.clear();
+    for(auto& mesh:museum_art_meshes_) {
+        if(mesh!=kInvalidId)renderer.remove_mesh(mesh);
+        mesh=kInvalidId;
+    }
+    burgerpiz_lights_.clear();
+    burgerpiz_parking_lights_.clear();
+    burgerpiz_parking_lens_nodes_.clear();
     for (const MeshId mesh : airport_aircraft_meshes_) renderer.remove_mesh(mesh);
     airport_aircraft_meshes_.clear();
     if(airport_garage_ramp_mesh_!=kInvalidId) {

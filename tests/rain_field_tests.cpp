@@ -13,11 +13,105 @@
 #include <cstdio>
 
 #include "gfx/rain_field.h"
+#include "gfx/precip_shelter.h"
+#include "city/precipitation_cover.h"
 #include "test_assert.h"
 
 using namespace apricot;
 
 namespace {
+
+std::array<glm::vec3, 4> streak(glm::vec3 head,
+                                glm::vec3 tail_offset = {0, 0.85f, 0}) {
+    const glm::vec3 half{0.02f, 0, 0};
+    return {head - half, head + half, head + tail_offset + half,
+            head + tail_offset - half};
+}
+
+void roofs_block_indoor_particles_but_keep_outdoor_rain() {
+    TerrainCollider collider{1};
+    collider.add_static_box({{-5, 4, -5}, {5, 4.3f, 5}});
+    PrecipitationShelter shelter;
+    shelter.rebuild(collider.static_boxes(), {{-35, -10, -35}, {35, 35, 35}});
+    REQUIRE(shelter.sheltered(streak({0, 1, 0})));
+    REQUIRE(shelter.sheltered(streak({0, 4.2f, 0})));
+    REQUIRE(!shelter.sheltered(streak({0, 4.4f, 0})));
+    REQUIRE(!shelter.sheltered(streak({6, 1, 0})));
+    // A wind-slanted tail crosses cover even though the head is outside.
+    REQUIRE(shelter.sheltered(streak({5.2f, 1, 0}, {-0.4f, .85f, 0})));
+    // Width matters too: both rain ribbons and snowflake edges stay outside.
+    REQUIRE(shelter.sheltered(streak({5.01f, 1, 0})));
+    apricot_test::pass("roof blocks full indoor streaks while roof-top and outdoor rain remain");
+}
+
+void rotated_cover_does_not_fill_its_empty_aabb_corners() {
+    TerrainCollider collider{1};
+    collider.add_static_oriented_box({0, 5, 0}, {5, .2f, 1}, glm::radians(45.f));
+    PrecipitationShelter shelter;
+    shelter.rebuild(collider.static_boxes(), {{-20, -10, -20}, {20, 20, 20}});
+    REQUIRE(shelter.sheltered(streak({0, 1, 0})));
+    REQUIRE(!shelter.sheltered(streak({3.5f, 1, 3.5f})));
+    apricot_test::pass("rotated roofs preserve rain in uncovered AABB corners");
+}
+
+void shelter_refresh_handles_tall_roofs_disabled_props_and_teleports() {
+    TerrainCollider collider{1};
+    const auto roof = collider.add_kinematic_box({{-5, 100, -5}, {5, 101, 5}});
+    PrecipitationShelter shelter;
+    const AABB field{{-35, -10, -35}, {35, 35, 35}};
+    shelter.rebuild(collider.static_boxes(), field);
+    REQUIRE(shelter.sheltered(streak({0, 1, 0})));
+    REQUIRE(collider.set_kinematic_enabled(roof, false));
+    shelter.rebuild(collider.static_boxes(), field);
+    REQUIRE(!shelter.sheltered(streak({0, 1, 0})));
+    REQUIRE(collider.set_kinematic_enabled(roof, true));
+    REQUIRE(collider.set_kinematic_vehicle(roof, true));
+    shelter.rebuild(collider.static_boxes(), field);
+    REQUIRE(!shelter.sheltered(streak({0, 1, 0})));
+    REQUIRE(collider.set_kinematic_vehicle(roof, false));
+    REQUIRE(collider.set_kinematic_box(roof, {{995, 100, 995}, {1005, 101, 1005}}));
+    shelter.rebuild(collider.static_boxes(), {{965, -10, 965}, {1035, 35, 1035}});
+    REQUIRE(shelter.sheltered(streak({1000, 1, 1000})));
+    REQUIRE(!shelter.sheltered(streak({0, 1, 0})));
+    apricot_test::pass("cover refresh follows tall roofs and teleports and excludes disabled/vehicle boxes");
+}
+
+void authored_cloggers_roof_shelters_the_whole_room() {
+    TerrainCollider collider{city::kMapSeed};
+    const auto& site = city::kFastFoodSite;
+    const auto world = [&](glm::vec3 p) {
+        return glm::vec3{site.origin.x + site.cos_yaw * p.x + site.sin_yaw * p.z,
+                         site.ground_m + p.y,
+                         site.origin.z - site.sin_yaw * p.x + site.cos_yaw * p.z};
+    };
+    std::vector<StaticBox> roofs;
+    for (const auto& part : city::bake_building(city::kFastFoodPlan)) {
+        Transform transform;
+        transform.position = world({part.centre.x, part.bottom_m + part.height_m * .5f, part.centre.z});
+        transform.rotation = glm::angleAxis(std::atan2(site.sin_yaw, site.cos_yaw), glm::vec3{0, 1, 0}) *
+            glm::quat(glm::radians(glm::vec3{part.pitch_deg, part.yaw_deg, part.roll_deg}));
+        transform.scale = {part.width_m, part.height_m, part.depth_m};
+        city::append_precipitation_cover(part, transform, roofs);
+        if (!part.solid) continue;
+        REQUIRE(part.pitch_deg == 0 && part.roll_deg == 0);
+        collider.add_static_oriented_box(
+            world({part.centre.x, part.bottom_m + part.height_m * .5f, part.centre.z}),
+            {part.width_m * .5f, part.height_m * .5f, part.depth_m * .5f},
+            std::atan2(site.sin_yaw, site.cos_yaw) + glm::radians(part.yaw_deg));
+    }
+    PrecipitationShelter shelter;
+    const glm::vec3 centre = world({-5, 2, 3});
+    shelter.rebuild(collider.static_boxes(), {centre - glm::vec3{40}, centre + glm::vec3{40}}, roofs);
+    for (float x = -19; x <= 9; x += 1.f) {
+        for (float z = -4; z <= 10; z += 1.f) {
+            for (float y : {1.f, 2.f, 3.5f})
+                REQUIRE(shelter.sheltered(streak(world({x, y, z}))));
+        }
+    }
+    REQUIRE(!shelter.sheltered(streak(world({-5, 7, 3}))));
+    REQUIRE(!shelter.sheltered(streak(world({-5, 2, -12}))));
+    apricot_test::pass("actual Cloggers roof pieces shelter the room and leave rain above/outside visible");
+}
 
 bool inside_half_open(float v, float centre, float span) {
     const float lo = centre - span * 0.5f;
@@ -193,6 +287,10 @@ void snow_stays_camera_locked_after_large_steps() {
 }  // namespace
 
 int main() {
+    roofs_block_indoor_particles_but_keep_outdoor_rain();
+    rotated_cover_does_not_fill_its_empty_aabb_corners();
+    shelter_refresh_handles_tall_roofs_disabled_props_and_teleports();
+    authored_cloggers_roof_shelters_the_whole_room();
     wrapping_always_lands_inside_the_half_open_window();
     a_degenerate_span_is_returned_untouched();
     drops_stay_in_the_box_however_long_the_frame_was();

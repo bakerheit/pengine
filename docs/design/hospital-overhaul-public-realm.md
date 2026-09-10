@@ -1,4 +1,4 @@
-# Vellum Regional Hospital overhaul: public realm
+# Pinatty Regional Hospital overhaul: public realm
 
 ## Scope
 

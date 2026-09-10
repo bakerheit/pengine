@@ -64,7 +64,9 @@ struct WeatherParams {
     float rain = 0.0f;        // 0..1 precipitation intensity
     float snow = 0.0f;        // 0..1 snow/blizzard intensity
     float snow_cover = 0.0f;  // 0..1 accumulated on the surface
-    float overcast = 0.0f;    // 0..1 extra cloud, dimmer sun, greyer light
+    // DECK OPACITY, independent of precipitation. This is the axis that says
+    // how much sky is left; rain and snow below only guarantee a minimum.
+    float overcast = 0.0f;    // 0..1 cloud deck thickness
     float fog = 0.0f;         // 0..1 haze density
 
     // Where the haze band sits when fog > 0. Ignored entirely at fog == 0.
@@ -88,6 +90,41 @@ struct DistanceHazeParams {
     float foggy_end_m = 455.0f;
 };
 
+// --- deck tuning ------------------------------------------------------------
+//
+// How much light a FULL cloud deck lets through, at a high sun and at a low
+// one. Two numbers rather than one because the deck is the only thing standing
+// between the sun and the ground, and the sun is not equally far away all day.
+//
+// The old code used a single flat multiply worth ~0.57 of the clear sky at
+// every hour, which is why a noon storm read as mid-grey and a dusk storm read
+// as the same mid-grey. 0.34 at a high sun is a storm you can still drive in;
+// 0.20 at a low one is the dusk squall that sends you looking for the
+// headlight switch.
+inline constexpr float kHighSunDeckFloor = 0.34f;
+inline constexpr float kLowSunDeckFloor = 0.20f;
+
+// The deck a full downpour brings with it when nothing authored one.
+//
+// A FLOOR, not a sum, and that distinction is the whole point of this pass.
+// Adding rain into the deck made the two inseparable: crank the rain and the
+// sky closed over whether you wanted it to or not, so a bright sunshower was
+// not a thing this engine could represent. A floor keeps the honest half of
+// the old rule — rain out of a clear blue sky still looks bolted on — while
+// leaving `overcast` free to say how thick the deck actually is.
+// The value is bounded from above by the sun: 0.35 base cover plus 0.65 of the
+// deck must stay under kSunSwallowedCloudCover below, so that PRECIPITATION
+// ALONE CAN NEVER HIDE THE SUN — only the deck axis can. That is the invariant
+// the split exists to create, and tests/sky_env_tests.cpp pins it.
+inline constexpr float kPrecipCloudFloor = 0.28f;
+
+// Where assets/shaders/sky.frag starts hiding the sun disc behind the deck
+// (its `sun_vis` smoothstep runs from here to 0.85). The shader carries the
+// same number; this copy exists so a headless test can assert that a preset
+// meant to keep its sun actually stays on the clear side of it, which is the
+// difference between a sunshower and a grey day with rain in it.
+inline constexpr float kSunSwallowedCloudCover = 0.55f;
+
 namespace detail {
 
 inline float sky_fract(float x) { return x - std::floor(x); }
@@ -98,10 +135,35 @@ inline float sky_smoothstep(float e0, float e1, float x) {
     return t * t * (3.0f - 2.0f * t);
 }
 
-inline glm::vec3 blizzard_grey(const glm::vec3& color, float brightness) {
+// Collapse a colour to its own luminance, scaled, with a faint cool cast.
+//
+// Deriving the target from the INPUT's luminance rather than from an absolute
+// grey is what keeps a night storm darker than a noon storm. An absolute
+// constant here reads as one flat tint at every hour, and the tell is a foggy
+// midnight coming out brighter than the sky above it.
+//
+// Named for the blizzard path that needed it first; the cloud deck and the
+// haze band now use the same curve, because they are the same phenomenon at
+// different strengths.
+inline glm::vec3 deck_grey(const glm::vec3& color, float brightness) {
     const float luminance = glm::dot(color, glm::vec3{0.2126f, 0.7152f, 0.0722f});
     return glm::vec3{luminance * brightness} *
            glm::vec3{0.94f, 0.98f, 1.05f};
+}
+
+// How much of the light reaching the top of the deck comes out of the bottom.
+//
+// WEIGHTED BY BOTH the deck and the sun's height, and the second term is the
+// one that was missing: a low sun's light takes a longer slant path through
+// the same cloud, so the identical storm has to bite harder at dusk than at
+// noon. With a single flat multiplier the sky went grey at every hour and a
+// dusk storm looked like a noon storm with the lights turned down.
+//
+// Returns exactly 1 at zero cloud, which is what keeps the no-op contract.
+inline float deck_transmission(float cloud, float sun_up) {
+    const float day = sky_smoothstep(-0.10f, 0.25f, sun_up);
+    const float floor_at_full = glm::mix(kLowSunDeckFloor, kHighSunDeckFloor, day);
+    return glm::mix(1.0f, floor_at_full, cloud);
 }
 
 }  // namespace detail
@@ -202,10 +264,14 @@ inline void apply_weather(SkyEnv& env, const WeatherParams& w) {
     const float snow_cover = std::clamp(w.snow_cover, 0.0f, 1.0f);
     const float fog = std::clamp(w.fog, 0.0f, 1.0f);
 
-    // Rain implies cloud. A downpour under a clear blue sky is the single most
-    // obvious way to make weather look bolted on.
-    const float cloud =
-        std::clamp(overcast + rain * 0.6f + snow * 0.72f, 0.0f, 1.0f);
+    // TWO AXES, NOT ONE. `overcast` is how thick the deck is; rain and snow say
+    // how much water is falling through it. They used to be summed, which meant
+    // the deck was a function of the downpour and a bright sunshower could not
+    // exist. Precipitation now only guarantees a MINIMUM deck.
+    const float precipitation = std::max(rain, snow);
+    const float precipitation_deck = precipitation * kPrecipCloudFloor;
+    const float cloud = std::clamp(std::max(overcast, precipitation_deck),
+                                   0.0f, 1.0f);
 
     if (cloud > 0.0f) {
         env.cloud_cover = glm::mix(env.cloud_cover, 1.0f, cloud);
@@ -213,15 +279,50 @@ inline void apply_weather(SkyEnv& env, const WeatherParams& w) {
         // A thick deck scatters the sun into a flat grey dome: the directional
         // light loses its warmth and most of its punch, and ambient picks up
         // what it lost so the scene dims rather than going black.
-        const glm::vec3 grey{0.55f, 0.57f, 0.62f};
-        env.light_color = glm::mix(env.light_color, env.light_color * grey, cloud);
-        env.ambient = glm::mix(env.ambient, env.ambient * 1.35f + glm::vec3{0.02f},
-                               cloud);
-        env.sky_top = glm::mix(env.sky_top, env.sky_top * grey, cloud);
-        env.sky_bottom = glm::mix(env.sky_bottom, env.sky_bottom * grey, cloud);
-        env.cloud_color = glm::mix(env.cloud_color, env.cloud_color * 0.75f, cloud);
+        //
+        // WEIGHTED BY THE SUN, through deck_transmission(). Every target below
+        // is derived from the field's own current value, so the same deck lands
+        // differently at noon, at dusk and at midnight instead of pulling all
+        // three toward one hardcoded grey.
+        const float transmission =
+            detail::deck_transmission(cloud, env.sun_dir.y);
+        const float day = detail::sky_smoothstep(-0.10f, 0.25f, env.sun_dir.y);
 
-        // Wet surfaces are shinier. It is a cheap trick and it works.
+        env.light_color = glm::mix(
+            env.light_color, detail::deck_grey(env.light_color, transmission),
+            cloud);
+        env.sky_top = glm::mix(
+            env.sky_top, detail::deck_grey(env.sky_top, transmission), cloud);
+        env.sky_bottom = glm::mix(
+            env.sky_bottom, detail::deck_grey(env.sky_bottom, transmission),
+            cloud);
+
+        // The deck reads as the UNDERSIDE of something solid, so in daylight it
+        // has to come out darker than the sky showing between the gaps. It used
+        // to land at 0.75 luminance over a sky greyed to 0.46, which is why
+        // thickening a storm made the screen brighter instead of darker.
+        //
+        // The extra factor is what buys that margin: the deck's own base colour
+        // is white by day where the sky is 0.81, so equal treatment would leave
+        // the cloud fractionally ahead.
+        //
+        // By night it is deliberately allowed back over the sky — an overcast
+        // midnight really does glow above a dark horizon, and clamping it there
+        // reads as a hole in the sky rather than cloud.
+        env.cloud_color = glm::mix(
+            env.cloud_color, detail::deck_grey(env.cloud_color,
+                                               transmission * 0.72f), cloud);
+
+        // Overcast lifts the fill light, because a deck turns a hard sun into a
+        // sky-wide softbox and the shadows open up. That is a DAYTIME effect:
+        // scaling it by daylight stops a midnight storm from brightening the
+        // ground it is supposed to be darkening.
+        env.ambient = glm::mix(
+            env.ambient,
+            env.ambient * (1.0f + 0.35f * day) + glm::vec3{0.02f * day}, cloud);
+
+        // Wet surfaces are shinier. It is a cheap trick and it works. Driven by
+        // rain rather than by the deck, so a sunshower still glosses the roads.
         env.specular_strength =
             glm::mix(env.specular_strength, env.specular_strength + 0.25f, rain);
 
@@ -230,8 +331,12 @@ inline void apply_weather(SkyEnv& env, const WeatherParams& w) {
     }
 
     if (fog > 0.0f) {
-        env.fog_color = glm::mix(env.sky_bottom, glm::vec3{0.72f, 0.74f, 0.78f},
-                                 fog * 0.5f);
+        // The haze is lit by the sky it hangs under, so its colour comes from
+        // that sky's luminance. This used to be an absolute light grey with no
+        // daylight term at all, and it showed: a foggy midnight painted a
+        // brighter band around the horizon than the sky it sat against.
+        env.fog_color = glm::mix(
+            env.sky_bottom, detail::deck_grey(env.sky_bottom, 1.05f), fog * 0.5f);
         env.fog_start = w.fog_start_m;
         env.fog_end = w.fog_end_m;
         env.fog_density = fog;
@@ -245,19 +350,19 @@ inline void apply_weather(SkyEnv& env, const WeatherParams& w) {
         // luminance keeps night darker than day instead of forcing one flat tint.
         const float blizzard = snow * snow;
         env.light_color = glm::mix(
-            env.light_color, detail::blizzard_grey(env.light_color, 0.42f), blizzard);
+            env.light_color, detail::deck_grey(env.light_color, 0.42f), blizzard);
         env.ambient = glm::mix(
-            env.ambient, detail::blizzard_grey(env.ambient, 0.43f), blizzard);
+            env.ambient, detail::deck_grey(env.ambient, 0.43f), blizzard);
         env.sky_top = glm::mix(
-            env.sky_top, detail::blizzard_grey(env.sky_top, 0.42f), blizzard);
+            env.sky_top, detail::deck_grey(env.sky_top, 0.42f), blizzard);
         env.sky_bottom = glm::mix(
-            env.sky_bottom, detail::blizzard_grey(env.sky_bottom, 0.45f), blizzard);
+            env.sky_bottom, detail::deck_grey(env.sky_bottom, 0.45f), blizzard);
         env.sun_color = glm::mix(
-            env.sun_color, detail::blizzard_grey(env.sun_color, 0.30f), blizzard);
+            env.sun_color, detail::deck_grey(env.sun_color, 0.30f), blizzard);
         env.cloud_color = glm::mix(
-            env.cloud_color, detail::blizzard_grey(env.cloud_color, 0.42f), blizzard);
+            env.cloud_color, detail::deck_grey(env.cloud_color, 0.42f), blizzard);
         env.fog_color = glm::mix(
-            env.fog_color, detail::blizzard_grey(env.fog_color, 0.50f), blizzard);
+            env.fog_color, detail::deck_grey(env.fog_color, 0.50f), blizzard);
     }
 
     if (snow_cover > 0.0f) env.snow_cover = snow_cover;

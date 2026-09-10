@@ -11,6 +11,8 @@
 
 namespace apricot {
 void App::begin_new_game() {
+    snow_clearance_ = {};
+    snowplow_service_.reset();
     // Load the complete production scene before changing session state.
     std::string error;
     if (!opening_cutscene_.start(scene_,renderer_,error)) {
@@ -43,7 +45,7 @@ void App::begin_new_game() {
     sync_current_vehicle_obstacle();
     update_weather();
     intro_audio_.stop(audio_device_.mixer());vehicle_audio_.stop();
-    police_siren_.stop();traffic_idle_audio_.stop();city_audio_.stop();
+    police_siren_.stop();traffic_idle_audio_.stop();traffic_horn_audio_.stop();city_audio_.stop();
     vehicle_leak_warning_.stop(audio_device_.mixer());
     camera_=opening_cutscene_.camera(window_.aspect());
     world_.fill(scene_,renderer_,camera_.position);
@@ -64,7 +66,7 @@ bool App::begin_delivery_cutscene() {
     delivery_cutscene_=true;
     vehicle_interaction_notice_.clear();mission_success_feedback_s_=0;
     intro_audio_.stop(audio_device_.mixer());vehicle_audio_.stop();
-    police_siren_.stop();traffic_idle_audio_.stop();city_audio_.stop();
+    police_siren_.stop();traffic_idle_audio_.stop();traffic_horn_audio_.stop();city_audio_.stop();
     vehicle_leak_warning_.stop(audio_device_.mixer());
     camera_=opening_cutscene_.camera(window_.aspect());
     world_.fill(scene_,renderer_,camera_.position);
@@ -94,6 +96,7 @@ void App::finish_opening() {
     vehicle_audio_.start(audio_device_.mixer(),audio_device_.bank());
     vehicle_audio_.set_model(player_car_definition(car_visual_.active_car()).mesh_path);
     traffic_idle_audio_.start(audio_device_.mixer(),audio_device_.bank());
+    traffic_horn_audio_.start(audio_device_.mixer(),audio_device_.bank());
     police_siren_.start(audio_device_.mixer());
     chase_camera_.reset();camera_obstruction_distance_=-1;
     input_.consume_edges();input_.set_ui_mode(false);clock_.reset();

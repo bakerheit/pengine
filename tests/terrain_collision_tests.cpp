@@ -625,7 +625,29 @@ void baked_road_slabs_override_the_terrain_under_the_wheels() {
     REQUIRE_NEAR(road_mark.position.y,
                  road_top + kVehicleFluidMarkLiftM, 1e-5);
 
+    // Exiting enables the car's body collider. Fresh and growing puddles must
+    // still find the same pavement, while ordinary probes still hit the car.
+    const auto car = collider.add_kinematic_oriented_box(
+        {x, top + 0.8f, z}, {0.9f, 0.7f, 2.0f}, 0.4f);
+    REQUIRE(collider.set_kinematic_vehicle(car, true));
+    for (bool enabled : {false, true, false, true}) {
+        REQUIRE(collider.set_kinematic_enabled(car, enabled));
+        const auto mark = vehicle_fluid_mark_placement(
+            collider, {x, z}, top + 0.8f);
+        REQUIRE(mark.road);
+        REQUIRE(!mark.prop);
+        REQUIRE_NEAR(mark.position.y, pavement_mark.position.y, 1e-5);
+        const auto support = collider.probe_down({x, top + 2.0f, z}, 5.0f);
+        REQUIRE(support.prop == enabled);
+        REQUIRE_NEAR(support.point.y, top + (enabled ? 1.5f : 0.0f), 1e-5);
+    }
+
     collider.set_snow_collision_depth(0.28f);
+    const auto snow_under_car = vehicle_fluid_mark_placement(
+        collider, {x, z}, top + 1.0f);
+    REQUIRE(snow_under_car.road);
+    REQUIRE_NEAR(snow_under_car.position.y,
+                 top + 0.28f + kVehicleFluidMarkLiftM, 1e-5);
     const VehicleFluidMarkPlacement snow_mark =
         vehicle_fluid_mark_placement(
             collider, {road_x, z}, road_top + 1.0f);
@@ -633,6 +655,13 @@ void baked_road_slabs_override_the_terrain_under_the_wheels() {
     REQUIRE_NEAR(snow_mark.position.y,
                  road_top + 0.28f + kVehicleFluidMarkLiftM, 1e-5);
     collider.set_snow_collision_depth(0.0f);
+    // Filtering vehicles must preserve ordinary raised props as spill support.
+    REQUIRE(collider.set_kinematic_vehicle(car, false));
+    const auto prop_mark = vehicle_fluid_mark_placement(
+        collider, {x, z}, top + 0.8f);
+    REQUIRE(prop_mark.prop);
+    REQUIRE_NEAR(prop_mark.position.y, top + 1.5f + kVehicleFluidMarkLiftM, 1e-5);
+    REQUIRE(collider.set_kinematic_enabled(car, false));
 
     const glm::vec3 slope_normal =
         glm::normalize(glm::vec3{-0.12f, 1.0f, 0.08f});

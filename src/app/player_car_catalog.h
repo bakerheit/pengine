@@ -151,10 +151,14 @@ inline constexpr std::array<PlayerCarDefinition, kSelectablePlayerCarCount>
          "models/vehicles/municipal_cruiser_91b/body.emesh",
          "textures/vehicles/municipal_cruiser_91b/body.png",
          .42f,.94f,1.63f,1.53f,1.58f,.94f,.34f},
+        // Half-track 0.845 against the 1.05 body half-width leaves 0.099 m of
+        // fender over the tyre. At 0.94 the tyre sidewall was the outermost
+        // surface on the car. Keep wheel_x and physical_half_track equal:
+        // municipal_cruiser_91_tests and player_car_visual both rely on it.
         {PlayerCarId::MunicipalCruiser91C, "MUNICIPAL", "CRUISER 91-C PURSUIT",
          "models/vehicles/municipal_cruiser_91c/body.emesh",
          "textures/vehicles/municipal_cruiser_91c/body.png",
-         .42f,.94f,1.63f,1.53f,1.58f,.94f,.373f},
+         .42f,.845f,1.63f,1.53f,1.58f,.845f,.355f},
         {PlayerCarId::MunicipalCruiser91D, "MUNICIPAL", "CRUISER 91-D METRO",
          "models/vehicles/municipal_cruiser_91d/body.emesh",
          "textures/vehicles/municipal_cruiser_91d/body.png",

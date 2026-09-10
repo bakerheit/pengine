@@ -4,12 +4,14 @@
 #include "lighting.glsl"
 #include "vehicle_damage.glsl"
 #include "vehicle_headlights.glsl"
+#include "vehicle_snow.glsl"
 
 in vec3 v_world_pos;
 in vec3 v_normal;
 in vec2 v_uv;
 in vec4 v_tint;
 in vec4 v_terrain_weights;
+in vec4 v_windshield;
 flat in float v_vehicle_lamp;
 flat in int v_headlight_profile;
 in vec3 v_lamp_source_position;
@@ -20,7 +22,75 @@ uniform bool u_receives_snow;
 uniform float u_material_specular_scale = 1.0;
 out vec4 frag_color;
 
+// Each texel pair is {start.xyz,width}, {end.xyz,remaining visual cover}.
+// Height interpolation prevents a plowed road from clearing a bridge or roof.
+uniform sampler2D u_snow_clearance;
+uniform int u_snow_clearance_count;
+uniform vec4 u_snow_clearance_bounds;
+uniform float u_snow_clearance_height_tolerance;
+// Static world-space cells hold complete roof lists. Open paved lots have no
+// covering roof; top faces stay snowy because only points BELOW the underside
+// qualify. Rotated roof corners use the same narrow phase as suspension snow.
+uniform samplerBuffer u_snow_shelter_roofs;
+uniform usamplerBuffer u_snow_shelter_cells;
+uniform usamplerBuffer u_snow_shelter_indices;
+uniform int u_snow_shelter_columns;
+uniform int u_snow_shelter_rows;
+uniform vec2 u_snow_shelter_origin;
+uniform float u_snow_shelter_cell_size;
+bool sheltered_from_snow(vec3 position) {
+    if(u_snow_shelter_columns==0 || u_snow_shelter_rows==0) return false;
+    ivec2 cell=ivec2(floor((position.xz-u_snow_shelter_origin)/u_snow_shelter_cell_size));
+    if(cell.x<0 || cell.y<0 || cell.x>=u_snow_shelter_columns || cell.y>=u_snow_shelter_rows)
+        return false;
+    uvec2 span=texelFetch(u_snow_shelter_cells,cell.y*u_snow_shelter_columns+cell.x).xy;
+    for(uint i=0u;i<span.y;++i) {
+        int roof=int(texelFetch(u_snow_shelter_indices,int(span.x+i)).x)*4;
+        vec4 anchor=texelFetch(u_snow_shelter_roofs,roof+2);
+        if(position.y>=anchor.z) continue;
+        vec4 broad=texelFetch(u_snow_shelter_roofs,roof+3);
+        if(any(lessThan(position.xz,broad.xy)) || any(greaterThan(position.xz,broad.zw))) continue;
+        vec4 local=texelFetch(u_snow_shelter_roofs,roof);
+        vec4 axes=texelFetch(u_snow_shelter_roofs,roof+1);
+        vec2 delta=position.xz-anchor.xy;
+        vec2 point=vec2(dot(delta,axes.xy),dot(delta,axes.zw));
+        if(all(greaterThanEqual(point,local.xy)) && all(lessThanEqual(point,local.zw)))
+            return true;
+    }
+    return false;
+}
+
+float local_snow_cover(vec3 position) {
+    if(sheltered_from_snow(position)) return 0.0;
+    float cover=u_snow_cover;
+    if (u_snow_clearance_count==0 ||
+        position.x<u_snow_clearance_bounds.x || position.z<u_snow_clearance_bounds.y ||
+        position.x>u_snow_clearance_bounds.z || position.z>u_snow_clearance_bounds.w)
+        return cover;
+    for (int i=0;i<u_snow_clearance_count;++i) {
+        vec4 a=texelFetch(u_snow_clearance,ivec2(i*2,0),0);
+        vec4 b=texelFetch(u_snow_clearance,ivec2(i*2+1,0),0);
+        // Cheap rejection before the projection/divide for distant swaths.
+        if (any(lessThan(position.xz,min(a.xz,b.xz)-vec2(a.w))) ||
+            any(greaterThan(position.xz,max(a.xz,b.xz)+vec2(a.w)))) continue;
+        vec2 delta=b.xz-a.xz;
+        float t=clamp(dot(position.xz-a.xz,delta)/max(dot(delta,delta),1e-8),0.0,1.0);
+        vec3 closest=mix(a.xyz,b.xyz,t);
+        vec2 offset=position.xz-closest.xz;
+        if (dot(offset,offset)<=a.w*a.w &&
+            abs(position.y-closest.y)<=u_snow_clearance_height_tolerance)
+            cover=min(cover,b.w);
+    }
+    return cover;
+}
+
+
 void main() {
+    // Some legacy body triangles extend beyond the painted pane. Their metal
+    // keeps ordinary snow shading even though they carry pane coordinates.
+    bool windshield=v_windshield.w>.5 &&
+        all(greaterThanEqual(v_windshield.xy,vec2(0.0))) &&
+        all(lessThanEqual(v_windshield.xy,vec2(1.0)));
     if (u_glass) {
         vec3 N=normalize(v_normal);
         vec3 V=normalize(u_cam_pos-v_world_pos);
@@ -34,6 +104,13 @@ void main() {
         float glint=pow(max(dot(R,normalize(u_light_dir)),0.0),180.0);
         vec3 glass=mix(vec3(.12,.20,.23)*u_ambient,reflection,.7)+u_light_color*glint*1.5;
         float opacity=clamp(.16+fresnel*.48+glint*.22,.16,.72);
+        if(u_snow_cover>0.0 && windshield) {
+            float snow=local_snow_cover(v_world_pos)*
+                windshield_snow_remaining(v_windshield.xyz);
+            vec3 snowy=apply_lighting(vec3(.82,.86,.90),N,v_world_pos,0.0);
+            glass=mix(glass,snowy,snow);
+            opacity=mix(opacity,1.0,snow);
+        }
         frag_color=vec4(apply_fog(glass,v_world_pos),opacity);
         return;
     }
@@ -94,6 +171,10 @@ void main() {
     if (u_receives_snow && u_snow_cover > 0.0 &&
         v_vehicle_lamp < 0.0 && v_tint.a <= 1.0) {
         float accumulation = snow_accumulation(normalize(v_normal).y);
+        if(windshield)
+            accumulation=u_snow_cover*windshield_snow_remaining(v_windshield.xyz);
+        if (accumulation > 0.0)
+            accumulation *= local_snow_cover(v_world_pos) / u_snow_cover;
         albedo = apply_snow_cover(albedo, accumulation);
         material_specular *= 1.0 - accumulation * 0.82;
     }

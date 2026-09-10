@@ -1,7 +1,7 @@
 # Westmere Estates
 
-Westmere Estates is O'Haven's high-end residential enclave on the dry bluff
-west of Vellum Row and south of the Kessel Channel. It remains part of the
+Westmere Estates is Pinatty's high-end residential enclave on the dry bluff
+west of Pinatty Row and south of the Kessel Channel. It remains part of the
 Meadows for district and police-response rules; its identity comes from its
 street layout and authored grounds, not a new gameplay district.
 

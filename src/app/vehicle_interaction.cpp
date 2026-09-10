@@ -12,7 +12,8 @@ namespace {
 PlayerCarId traffic_model(const VehicleAgent& v) {
     switch (traffic_vehicle_kind(v)) {
         case TrafficVehicleKind::Sedan:return PlayerCarId::LegacyCar5;
-        case TrafficVehicleKind::BoxTruck:return PlayerCarId::LegacyCar8;
+        case TrafficVehicleKind::BoxTruck:
+        case TrafficVehicleKind::Snowplow:return PlayerCarId::LegacyCar8;
         case TrafficVehicleKind::Ambulance:return PlayerCarId::MunicipalAmbulance;
         case TrafficVehicleKind::Firetruck:return PlayerCarId::MunicipalFiretruck;
         case TrafficVehicleKind::HalcyonSix:return PlayerCarId::HalcyonSix;
@@ -59,6 +60,7 @@ App::VehicleEntryTarget App::nearby_vehicle() const {
             p.state.position.y-p.tuning.wheel_radius-static_suspension_length(p.tuning)-p.tuning.com_height_above_mount,0);
     }
     for (const auto& v:world_.traffic().vehicles()) {
+        if (v.snowplow_unit) continue;
         const auto footprint=traffic_vehicle_footprint(traffic_vehicle_kind(v));
         consider({VehicleEntryTarget::Kind::Traffic,0,v.lane_key,v.slot,traffic_model(v),v.police_unit},v.pos,traffic_rotation(v),
             footprint.half_width_m,footprint.half_length_m,v.pos.y,

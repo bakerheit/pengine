@@ -53,15 +53,15 @@ void intro_is_aspect_safe_and_waits_for_both_time_and_assets() {
 
 void map_road_names_are_authored_and_numbered_in_order() {
     const char* north_south[] = {"Briar Street", "Mercer Avenue", "Bellweather Road",
-        "Rook Lane", "Vellum Row", "Juniper Avenue", "Ashford Street",
+        "Rook Lane", "Pinatty Row", "Juniper Avenue", "Ashford Street",
         "Wren Road", "Cinder Street"};
     const char* east_west[] = {"First Street", "Second Street", "Third Street",
         "Fourth Street", "Fifth Street", "Halloway Street", "Sixth Street",
         "Seventh Street", "Eighth Street", "Ninth Street", "Tenth Street"};
     int named = 0;
     for (const auto& road : city::kRoads) {
-        REQUIRE(std::strstr(road.name, "Vellum NS") == nullptr);
-        REQUIRE(std::strstr(road.name, "Vellum EW") == nullptr);
+        REQUIRE(std::strstr(road.name, "Pinatty NS") == nullptr);
+        REQUIRE(std::strstr(road.name, "Pinatty EW") == nullptr);
         if (road.id >= 20 && road.id <= 28) {
             REQUIRE(std::strcmp(road.name, north_south[road.id - 20]) == 0);
             ++named;
@@ -247,7 +247,7 @@ void pause_actions_are_real_actions() {
     apricot_test::pass("pause can resume, restart, or return to a quitting title");
 }
 
-void map_projection_keeps_ohavens_compass() {
+void map_projection_keeps_pinattys_compass() {
     const MapViewport vp{100.0f, 40.0f, 600.0f, 420.0f};
     const MapPoint nw = world_to_map(-city::kWorldHalfMetres,
                                      -city::kWorldHalfMetres, vp);
@@ -527,21 +527,66 @@ void developer_menu_teleports_to_florangia_airport_access() {
         "Florangia airport teleport lands flat on the public access road");
 }
 
-void developer_teleport_rows_fit_the_720p_canvas() {
-    const DevMenuPanelLayout compact = dev_menu_panel_layout(
-        static_cast<int>(kDevTeleportLocations.size()), 720.0f);
+void developer_panel_scrolls_instead_of_squashing_rows() {
+    // A row's label is 20 px of glyph at kUiTextScale 1.21 drawn at +11, so it
+    // needs 35.2 px and rows must never go below kDevMenuMinRowHeight. The old
+    // layout shrank to a 24 px floor to keep every entry on screen, which
+    // overlapped every label from seventeen entries on and would have run the
+    // panel off a 720p canvas entirely at twenty-two. Now rows keep their
+    // height and the list scrolls.
+    const int locations = static_cast<int>(kDevTeleportLocations.size());
+
+    // SHORT LIST: everything visible, nothing to scroll, full row height.
+    for (const int count : {1, 4, 11}) {
+        const DevMenuPanelLayout few = dev_menu_panel_layout(count, 720.0f);
+        REQUIRE(few.visible_rows == count);
+        REQUIRE(!few.scrolls);
+        REQUIRE_NEAR(few.row_height, 43.0f, 0.001f);
+        REQUIRE(few.bottom <= 700.001f);
+        REQUIRE(dev_menu_first_visible_row(count, count - 1,
+                                           few.visible_rows) == 0);
+    }
+
+    // OVERFLOWING LIST at 720p: rows stay readable, panel stays on screen,
+    // and it reports that it is showing a window.
+    const DevMenuPanelLayout compact = dev_menu_panel_layout(locations, 720.0f);
+    REQUIRE(compact.row_height >= kDevMenuMinRowHeight);
     REQUIRE(compact.bottom <= 700.001f);
-    REQUIRE(compact.row_height >= 30.0f);
+    REQUIRE(compact.visible_rows < locations);
+    REQUIRE(compact.scrolls);
 
-    const DevMenuPanelLayout roomy = dev_menu_panel_layout(
-        static_cast<int>(kDevTeleportLocations.size()), 1080.0f);
+    // 1080p has room for the whole list at full height.
+    const DevMenuPanelLayout roomy = dev_menu_panel_layout(locations, 1080.0f);
     REQUIRE_NEAR(roomy.row_height, 43.0f, 0.001f);
+    REQUIRE(roomy.visible_rows == locations);
+    REQUIRE(!roomy.scrolls);
 
-    const DevMenuPanelLayout with_waypoint = dev_menu_panel_layout(
-        static_cast<int>(kDevTeleportLocations.size()) + 1, 720.0f);
-    REQUIRE(with_waypoint.bottom <= 700.001f);
-    REQUIRE(with_waypoint.row_height >= 28.0f);
-    apricot_test::pass("all Florangia teleport rows fit the 720p developer panel");
+    // Every entry stays REACHABLE: for any selection, on any list length that
+    // overflows, the window must contain it and must stay inside the list.
+    for (const int count : {locations, locations + 1, 40, 200}) {
+        const DevMenuPanelLayout layout = dev_menu_panel_layout(count, 720.0f);
+        REQUIRE(layout.row_height >= kDevMenuMinRowHeight);
+        REQUIRE(layout.bottom <= 700.001f);
+        for (int selection = 0; selection < count; ++selection) {
+            const int first = dev_menu_first_visible_row(
+                count, selection, layout.visible_rows);
+            REQUIRE(first >= 0);
+            REQUIRE(first + layout.visible_rows <= count);
+            REQUIRE_MSG(selection >= first &&
+                        selection < first + layout.visible_rows,
+                        "keyboard/controller selection scrolled out of view",
+                        "dev panel window");
+        }
+        // Scroll boundaries: the top of the list shows the first row, and the
+        // bottom shows the last, with no window hanging past either end.
+        REQUIRE(dev_menu_first_visible_row(count, 0, layout.visible_rows) == 0);
+        REQUIRE(dev_menu_first_visible_row(count, count - 1,
+                                           layout.visible_rows) ==
+                count - layout.visible_rows);
+    }
+    apricot_test::pass(
+        "dev panel keeps rows readable, scrolls long lists, and never scrolls "
+        "the selection out of view");
 }
 
 void developer_menu_offers_teleport_only_when_a_map_waypoint_exists() {
@@ -558,6 +603,15 @@ void developer_menu_offers_teleport_only_when_a_map_waypoint_exists() {
     REQUIRE(menu.item_count() ==
             static_cast<int>(kDevTeleportLocations.size()) + 1);
     REQUIRE(std::strcmp(menu.item_label(0), "MAP WAYPOINT") == 0);
+    // The contract this test names is the OFFSET, not which location happens
+    // to be authored first: the runtime waypoint row owns 0 and every authored
+    // location keeps its own index one row below. Checking the whole mapping
+    // states that directly. The old single hard-coded "HALLOWAY GAS" went
+    // stale the moment SIX TWELVE NORTH was prepended, even though the offset
+    // it was standing in for never moved.
+    for (std::size_t i = 0; i < kDevTeleportLocations.size(); ++i)
+        REQUIRE(std::strcmp(menu.item_label(static_cast<int>(i) + 1),
+                            kDevTeleportLocations[i].name) == 0);
     REQUIRE(menu.update(kBtnAccept).kind ==
             DevMenuActionKind::TeleportWaypoint);
 
@@ -565,10 +619,6 @@ void developer_menu_offers_teleport_only_when_a_map_waypoint_exists() {
     const DevMenuAction authored = menu.update(kBtnAccept);
     REQUIRE(authored.kind == DevMenuActionKind::Teleport);
     REQUIRE(authored.location_index == 0);
-    REQUIRE(std::strcmp(
-                kDevTeleportLocations[
-                    static_cast<std::size_t>(authored.location_index)].name,
-                "HALLOWAY GAS") == 0);
     apricot_test::pass(
         "F1 exposes the manual map waypoint without shifting authored teleports");
 }
@@ -786,9 +836,36 @@ void developer_menu_navigates_and_returns_a_teleport() {
     REQUIRE(menu.selection() == 3);
     menu.update(kBtnAccept);
     REQUIRE(menu.page() == DevMenuPage::WeatherTime);
-    REQUIRE(menu.item_count() == 2);
+    // Three rows since snow accumulation joined weather and time on this page.
+    REQUIRE(menu.item_count() == 3);
     REQUIRE(std::strcmp(menu.item_value(0), "DYNAMIC") == 0);
     REQUIRE(std::strcmp(menu.item_value(1), "LIVE") == 0);
+    REQUIRE(std::strcmp(menu.item_label(2), "SNOW ACCUMULATION  >") == 0);
+    REQUIRE(std::strcmp(menu.item_value(2), "AUTO (WEATHER)") == 0);
+
+    // Snow depth had no UI coverage at all, so walk the whole row: open it,
+    // pick a real preset, confirm the action carries that exact depth, and
+    // confirm Back lands on the row it came from rather than the page top.
+    menu.set_selection(2);
+    menu.update(kBtnAccept);
+    REQUIRE(menu.page() == DevMenuPage::SnowDepth);
+    REQUIRE(std::strcmp(menu.title(), "SNOW ACCUMULATION") == 0);
+    REQUIRE(menu.item_count() == static_cast<int>(kDevSnowDepthValues.size()));
+    REQUIRE(std::strcmp(menu.item_value(0), "ACTIVE") == 0);
+    const int deep = static_cast<int>(kDevSnowDepthValues.size()) - 1;
+    menu.set_selection(deep);
+    const DevMenuAction snow = menu.update(kBtnAccept);
+    REQUIRE(snow.kind == DevMenuActionKind::SetSnowDepth);
+    REQUIRE_NEAR(snow.snow_depth_m, kDevSnowDepthValues[
+        static_cast<std::size_t>(deep)], 1e-6f);
+    REQUIRE(std::strcmp(menu.item_value(deep), "ACTIVE") == 0);
+    menu.update(kBtnBack);
+    REQUIRE(menu.page() == DevMenuPage::WeatherTime);
+    REQUIRE(menu.selection() == 2);
+    REQUIRE(std::strcmp(menu.item_value(2), kDevSnowDepthLabels[
+        static_cast<std::size_t>(deep)]) == 0);
+
+    menu.set_selection(0);
 
     menu.update(kBtnAccept);
     REQUIRE(menu.page() == DevMenuPage::Weather);
@@ -986,7 +1063,7 @@ int main() {
     settings_menu_changes_player_preferences();
     map_returns_to_the_screen_that_opened_it();
     pause_actions_are_real_actions();
-    map_projection_keeps_ohavens_compass();
+    map_projection_keeps_pinattys_compass();
     map_coastline_interpolates_and_clips_without_losing_area();
     map_layers_cycle_without_changing_the_return_screen();
     map_camera_zooms_pans_and_stays_on_the_island();
@@ -998,7 +1075,7 @@ int main() {
     developer_menu_teleports_to_ostend_shore();
     developer_menu_teleports_to_safe_florangia_palms();
     developer_menu_teleports_to_florangia_airport_access();
-    developer_teleport_rows_fit_the_720p_canvas();
+    developer_panel_scrolls_instead_of_squashing_rows();
     developer_menu_offers_teleport_only_when_a_map_waypoint_exists();
     driving_mechanics_profiles_are_distinct_and_player_safe();
     return apricot_test::done("ui_flow_tests");

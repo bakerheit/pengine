@@ -1,6 +1,6 @@
-# Vellum Regional Hospital Campus
+# Pinatty Regional Hospital Campus
 
-Vellum Regional is a four-story ring-and-spine hospital west of the east-side
+Pinatty Regional is a four-story ring-and-spine hospital west of the east-side
 construction district. It still occupies the approved three-by-three clinical
 superblock, south garage row, and separate north visitor lot, but the old nine
 identical boxes are gone.
@@ -44,7 +44,7 @@ the complex read as one architected hospital rather than a copied block grid.
   still provides roughly 100 visitor spaces.
 
 Tenth Street, Bellweather Road, Juniper Avenue, and Sixth Street stay connected
-as the public perimeter. Rook Lane, Vellum Row, Seventh, Eighth, and Ninth
+as the public perimeter. Rook Lane, Pinatty Row, Seventh, Eighth, and Ninth
 remain clipped through the clinical site, so there is no fake city through-road
 inside the hospital.
 

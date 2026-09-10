@@ -82,7 +82,7 @@ control tower, maintenance hangar and apron, marked public parking, dropoff
 road, and the direct highway access throat.
 
 The site bakes through the same `StartSite`/`BuildingPiece` path used by the
-O'Haven airport, so visible solid terminal, tower, hangar, light, and monument
+Pinatty airport, so visible solid terminal, tower, hangar, light, and monument
 pieces register matching collision. Thin runway, taxiway, apron, parking, and
 road pieces use the airport paving material over the shared 6.5 m terrain
 plate. Procedural palms are excluded from the airport parcel and its margin.

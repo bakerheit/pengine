@@ -2,22 +2,36 @@
 
 A **C++17 / OpenGL 3.3** game engine, and the pilot game being built on it.
 
-**The pilot world has two states:** O'Haven, the GTA-style authored city rebuilt
-from `probablecause`, and Florangia, its low subtropical neighbor to the
-southeast. O'Haven's city design remains at the legacy path
+**The pilot world has two states:** O'Haven, whose GTA-style authored city
+Pinatty is rebuilt from `probablecause`, and Florangia, its low subtropical
+neighbor to the southeast. Pinatty's city design is at
 [`docs/design/pinatty.md`](docs/design/pinatty.md); Florangia's terrain brief is
 [`docs/design/florangia.md`](docs/design/florangia.md).
 
-**Its MAP AND ITS ROADS are written; the rest is not.** `src/city/` holds the
-ten district polygons with their character parameters, the landmark table, the
-terrain operators that `height_at()` evaluates (PENG-41) and the road network —
-92 spines, 52.8 km of centreline, in `roads.h` — all `constexpr` C++, not a data
+**Its map and roads came first, and much has landed on top of them since.**
+`src/city/` holds the ten district polygons with their character parameters,
+the landmark table, the terrain operators that `height_at()` evaluates
+(PENG-41) and the road network — 92 spines, 52.8 km of centreline, in
+`roads.h` — all `constexpr` C++, not a data
 file, and the argument for that is in `src/city/map.h`. `map_spines()` feeds
 `RoadGraph` → the ribbon bake → six uploaded layers, and the app draws them.
-Traffic, police, missions and buildings do not exist: the decision layers in
-`src/city/` (traffic_ai, police_ai, pedestrians) are a library nothing calls
-yet. Do not describe any of *those* as working, and do not treat the design
-document as a description of the tree beyond the map and the roads.
+**This paragraph used to say traffic, police, missions and buildings did not
+exist and that `src/city/`'s decision layers were a library nothing called. That
+stopped being true, and it stayed on the page long enough to mislead agents into
+disbelieving working systems.** Today: `src/traffic/` simulates a live ambient
+population that consumes `city/traffic_ai.h`; `game/wanted_system.h` consumes
+`city/police_ai.h`, and officers witness offences, pursue, fire and arrest;
+`game/delivery_mission.h` is wired into the app; and a growing set of authored
+buildings are enterable — the bar, pawn shop, gun store, gas store, quickbite,
+repair shop, bank vault and a furnished house among them, each with its own
+suite.
+
+**What is still NOT there is worth naming precisely, because that is the part
+that keeps expiring.** There is no mission *campaign* — one delivery mission and
+a cutscene system, not a structure of jobs; the Sycamore Loop target house has
+no scripting (`docs/neighborhood-backlog.md`); the gun store cannot sell you
+anything. Check the tree before describing any of it, in either direction: the
+design document is still a design document, not a description of the code.
 
 There used to be a sample game, Apricot Rally — a time trial with a checkpoint
 route, lap timing and a ghost car. It was a placeholder and it was deleted in
@@ -80,8 +94,12 @@ Three targets. Dependencies flow **sim → host → exe**, never back.
 | `apricot_host` | `apricot_sim`, SDL2, glad, ImGui, miniaudio | `platform` `gfx`, plus `audio/device.cpp` + `audio/miniaudio_impl.c` |
 | `apricot` (exe) | `apricot_host` | `app` + `main.cpp` |
 
-`src/game/` currently holds one thing — `conditions.{h,cpp}`, the deterministic
-weather that feeds `VehicleTuning::grip_scale`. O'Haven's rules land there.
+`src/game/` is where Pinatty's rules landed, and it has filled up: about forty
+files covering the wanted system, police offences/arrest/combat, weapons, the
+character, vehicle interaction and transitions, the delivery mission, cutscenes,
+save games, the map and minimap, snow and weather hazards, and still
+`conditions.{h,cpp}`, the deterministic weather that feeds
+`VehicleTuning::grip_scale`.
 
 **Each module owns its own `CMakeLists.txt`** and attaches its files with
 `target_sources()`. The root `CMakeLists.txt` declares three source-less

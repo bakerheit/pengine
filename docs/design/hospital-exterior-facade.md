@@ -1,4 +1,4 @@
-# Vellum Regional Hospital exterior facade polish
+# Pinatty Regional Hospital exterior facade polish
 
 ## Scope
 

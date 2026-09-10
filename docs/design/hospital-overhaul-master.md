@@ -1,4 +1,4 @@
-# Vellum Regional Hospital overhaul master contract
+# Pinatty Regional Hospital overhaul master contract
 
 This contract coordinates the hospital overhaul. Coordinates are local to
 `kHospitalSite`: `+x` is grid east, `+z` is grid south, world `+Z` is south,

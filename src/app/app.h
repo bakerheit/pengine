@@ -33,10 +33,13 @@
 #include "audio/vehicle_audio.h"
 #include "audio/vehicle_leak_warning.h"
 #include "audio/traffic_idle_audio.h"
+#include "audio/traffic_horn_audio.h"
 #include "audio/police_siren.h"
 #include "core/fixed_step.h"
 #include "game/conditions.h"
 #include "game/snowpack.h"
+#include "app/snowplow_service.h"
+#include "physics/snow_shelter.h"
 #include "game/character.h"
 #include "game/drunk.h"
 #include "game/aircraft.h"
@@ -107,16 +110,31 @@ public:
     void set_police_check(bool enabled) { police_check_=enabled; }
     bool police_check_passed() const { return police_check_captures_==7; }
     void set_police_officer_check(bool enabled) { police_officer_check_=enabled; }
+    void set_police_pursuit_check(bool enabled) {
+        police_pursuit_check_=enabled; police_officer_check_=enabled;
+    }
+    void set_traffic_horn_check(bool enabled) { traffic_horn_check_=enabled; }
+    bool traffic_horn_check_passed() const {
+        return traffic_horn_check_done_ && !traffic_horn_check_failed_;
+    }
     bool police_officer_check_passed() const {
         return police_officer_check_done_ && !police_officer_check_failed_;
     }
     void set_start_wanted(int level) { start_wanted_level_=level; }
     void set_weapon_check(bool enabled) { weapon_check_=enabled; }
-    bool weapon_check_passed() const { return weapon_check_captures_==7; }
+    bool weapon_check_passed() const {
+        return weapon_check_captures_==255 && weapon_hit_check_done_ && !weapon_hit_check_failed_;
+    }
     void set_house_check(bool enabled) { house_check_=enabled; }
     bool house_check_passed() const { return house_check_complete_ && !house_check_failed_; }
     void set_signal_check(bool enabled) { signal_check_=enabled; }
     bool signal_check_passed() const { return signal_check_done_ && !signal_check_failed_; }
+    void set_character_identity_check(bool enabled) {
+        character_identity_check_ = enabled;
+    }
+    bool character_identity_check_passed() const {
+        return character_identity_check_done_ && !character_identity_check_failed_;
+    }
     void set_tire_track_check(bool enabled) { tire_track_check_ = enabled; }
     bool tire_track_check_passed() const {
         return tire_tracks_.live_count() >= 20u;
@@ -135,15 +153,18 @@ public:
     void set_warp_interval(int frames) { warp_interval_ = frames; }
 
     // Start at an authored remote site without driving there first. This is a
-    // visual-QA option only; the default remains the Vellum Row spawn.
+    // visual-QA option only; the default remains the Pinatty Row spawn.
     void set_start_position(glm::vec2 xz) { start_position_ = xz; }
     // Interior QA can place the person independently of the parked car.
+    void set_start_player_height(float y) { start_player_height_=y;start_player_height_set_=true; }
     void set_start_player_position(glm::vec2 xz) { start_player_position_=xz;start_player_position_set_=true; }
     void set_start_heading(float radians) { start_heading_radians_ = radians; }
     void set_session_seed(uint64_t seed) { seed_=new_game_seed_=seed; }
     void set_clear_weather(bool clear) { clear_weather_=clear; }
     void set_weather_preset(DevWeatherPreset preset);
     void set_snow_depth_override(float depth_m);
+    void set_snowplow_check(bool enabled) { snowplow_check_ = enabled; }
+    void set_snowplow_refill_preview(float seconds) { snowplow_refill_preview_seconds_ = seconds; }
     void set_vehicle_preview(PlayerCarId car, bool driving) {
         start_car_=car; start_driving_=driving;
     }
@@ -177,16 +198,24 @@ private:
     float delivery_check_pause_time_=0;
     glm::vec3 delivery_check_position_{};
     InputFrame signal_check_input();
+    // Stages a departure change at one (lane_key, slot) against the real
+    // ambient reconciliation. See character_identity_check.cpp.
+    void character_identity_check();
+    void sync_ambient_for_check(const std::vector<PedAgent>& agents,
+                                double seconds);
     InputFrame tire_track_check_input() const;
     void tire_track_check_camera();
     void signal_check_camera();
     void capture_signal_check();
     bool signal_check_=false, signal_check_failed_=false, signal_check_done_=false;
+    bool character_identity_check_=false, character_identity_check_failed_=false,
+         character_identity_check_done_=false;
     bool tire_track_check_ = false;
     bool overhead_qa_=false;
     bool daylight_qa_=false;
     bool road_start_qa_=false;
     int signal_check_ticks_=0;
+    int signal_check_fixture_kind_=0;
     std::size_t signal_check_index_=0;
     glm::vec3 signal_check_base_{0.0f}, signal_check_direction_{0,0,-1};
     std::string signal_check_capture_;
@@ -253,9 +282,17 @@ private:
     std::vector<VisiblePoliceIdentity> visible_police(
         glm::vec3 target, bool witness_only = false) const;
     void check_police_driving_offenses();
+    void check_police_armed_offense(bool player_armed);
     void check_police_collision_offenses();
+    void check_police_shots();
     void check_police_arrest(const std::vector<VisiblePoliceIdentity>& visible);
+    bool player_has_drawn_weapon() const;
+    float current_speed_limit_mps() const;
     InputFrame police_officer_check_input();
+    InputFrame police_pursuit_check_input();
+    InputFrame traffic_horn_check_input();
+    void traffic_horn_check_camera();
+    void capture_traffic_horn_check();
     void police_officer_check_camera();
     void capture_police_officer_check();
     SkyEnv current_sky_env() const;
@@ -276,7 +313,7 @@ private:
     // The RUN seed: session identity, not world identity.
     //
     // Since PENG-41 those are two different things. The terrain, and therefore
-    // O'Haven itself, is keyed on city::kMapSeed, which is pinned in the map
+    // Pinatty itself, is keyed on city::kMapSeed, which is pinned in the map
     // tables — the city is an authored place and does not reroll. This seed
     // carries what is ALLOWED to differ between sessions: weather, ambient
     // variation, mission shuffles, and today the placeholder box field.
@@ -291,7 +328,7 @@ private:
     TerrainCollider collider_{0};
 
     // The drive. There is no game layer between this and the physics yet — the
-    // rally that used to sit here is gone (PENG-23) and O'Haven
+    // rally that used to sit here is gone (PENG-23) and Pinatty
     // (docs/design/pinatty.md) has no code. So App steps the vehicle directly,
     // which is exactly as much game as this build has.
     DrivingMechanicsStyle driving_mechanics_style_ =
@@ -314,7 +351,26 @@ private:
     BankInteraction bank_interaction_;
     bool bank_input_consumed_ = false;
     WeaponWheel weapon_wheel_;
+    WeaponUseState weapon_use_;
+    PcmClip weapon_shot_clip_,weapon_reload_clip_;
+    bool weapon_aim_mouse_=false, weapon_aim_pad_=false, weapon_aim_toggle_=false;
+    bool weapon_fire_pad_=false, weapon_fire_pending_=false, weapon_reload_pending_=false;
+    bool weapon_focus_=true;
+    unsigned weapon_shots_=0;
+    unsigned weapon_body_hits_=0;
+    float weapon_hit_feedback_=0.f;
+    glm::vec3 weapon_socket_player_position_{0.f};
+    float weapon_socket_player_yaw_=0.f;
+    void step_weapon_use(bool available, float dt);
+    void tick_weapon_hit_check();
+    void capture_weapon_hit_check();
+    bool weapon_hit_check_done_=false, weapon_hit_check_failed_=false;
+    uint64_t weapon_hit_check_lane_=0;
+    uint32_t weapon_hit_check_slot_=0;
+    unsigned weapon_hit_check_start_hits_=0;
+
     WeaponVisual weapon_visual_;
+    PoliceWeaponVisual police_weapon_visual_;
     bool weapon_restore_mouse_=false,weapon_input_consumed_=false;
     bool weapon_check_=false;
     unsigned weapon_check_captures_=0;
@@ -379,6 +435,13 @@ private:
     uint64_t step_index_ = 0;
     Conditions conditions_;
     SnowpackState snowpack_;
+    SnowClearanceField snow_clearance_;
+    SnowShelterField snow_shelter_;
+    SnowplowService snowplow_service_;
+    bool snowplow_service_active_ = false;
+    bool snowplow_check_ = false;
+    float snowplow_refill_preview_seconds_ = 0.0f;
+    bool snowplow_refill_preview_applied_ = false;
     glm::vec2 dev_tornado_center_m_{0.0f};
     bool dev_tornado_center_set_ = false;
 
@@ -401,8 +464,22 @@ private:
     float arrested_feedback_s_=0.0f;
     unsigned police_arrest_reports_=0;
     unsigned police_red_light_reports_=0;
+    unsigned police_stop_sign_reports_=0;
+    unsigned police_speeding_reports_=0;
+    unsigned police_armed_reports_=0;
     unsigned police_collision_reports_=0;
+    unsigned police_shot_reports_=0;
+    float player_health_=100.0f;
+    float police_hit_feedback_s_=0.0f;
+    float police_shot_down_feedback_s_=0.0f;
     bool police_officer_check_=false;
+    bool police_pursuit_check_=false;
+    bool police_pursuit_check_saw_yield_=false;
+    bool police_pursuit_check_saw_merge_=false;
+    bool police_pursuit_check_saw_bypass_=false;
+    VisiblePoliceIdentity police_pursuit_check_yield_unit_{};
+    glm::vec3 police_pursuit_check_yield_position_{0};
+    LaneRef police_pursuit_check_start_lane_=kInvalidLane;
     bool police_officer_check_done_=false;
     bool police_officer_check_failed_=false;
     int police_officer_check_stage_=0;
@@ -412,6 +489,11 @@ private:
     unsigned police_officer_check_phases_=0;
     bool police_officer_check_foot_target_set_=false;
     std::string police_officer_check_capture_;
+    bool traffic_horn_check_=false, traffic_horn_check_done_=false, traffic_horn_check_failed_=false;
+    int traffic_horn_check_stage_=0;
+    uint64_t traffic_horn_check_tick_=0, traffic_horn_check_stage_tick_=0, traffic_horn_check_seen_=0;
+    VisiblePoliceIdentity traffic_horn_check_driver_{};
+    std::string traffic_horn_check_capture_;
     DevMenu dev_menu_;
     BugReportUi bug_report_;
     bool bug_report_restore_mouse_ = false;
@@ -438,6 +520,8 @@ private:
     RainAudio rain_audio_;
     VehicleAudio vehicle_audio_;
     TrafficIdleAudio traffic_idle_audio_;
+    TrafficHornAudio traffic_horn_audio_;
+    bool player_horn_pending_=false;
     PoliceSiren police_siren_;
     bool police_emergency_enabled_=false;
     bool police_check_=false;
@@ -456,6 +540,8 @@ private:
     float start_heading_radians_ = city::kOpeningMissionCarHeading;
     glm::vec2 start_player_position_{0};
     bool start_player_position_set_=false;
+    float start_player_height_=0;
+    bool start_player_height_set_=false;
     PlayerCarId start_car_=PlayerCarId::LegacyCar5;
     bool start_driving_=false;
     bool clear_weather_=false;

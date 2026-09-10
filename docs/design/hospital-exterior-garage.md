@@ -1,4 +1,4 @@
-# Vellum Regional Hospital garage exterior polish
+# Pinatty Regional Hospital garage exterior polish
 
 Implementation sidecar for the 146 x 38 m, three-deck parking garage and the
 reclaimed Seventh Street corridor. All coordinates are local to
@@ -46,7 +46,7 @@ or a generic high-frequency material.
 - The bridge portal leaves a real 4.0 m opening centered at `x=46`. No sidecar
   wall crosses the protected ground walk or P2 bridge path.
 - The two rain gardens sit at `x=9` and `x=91`, clear of the bridge axis,
-  driveway sight triangles, and the narrow Vellum Row edge.
+  driveway sight triangles, and the narrow Pinatty Row edge.
 
 ## Parent integration
 

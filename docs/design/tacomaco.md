@@ -1,35 +1,53 @@
-# Tacomaco
+# TacoMaco — Fourth Street
 
-Tacomaco is a second, enterable copy of the Cloggers fast-food building. It
-sits in the Vellum Row block at grid east `136`, south `155`, two blocks east
-of its original parcel, between Sixth and Seventh Street. The site uses the
-same `64 m × 38 m` parcel, north-facing frontage, parking row, drive-through
-return, kitchen partition, fixtures,
-floor supports, and two live push-door leaves as Cloggers.
+TacoMaco now uses the full furnished BurgerPiz building on its existing Pinatty
+parcel: world centre **189.053, 128.367**, Pinatty grid east **136**, south **155**,
+ground **12 m**. It faces north toward **Fourth Street (road 33)**. Earlier notes
+incorrectly placed this parcel between Sixth and Seventh Street.
 
-The shared parking row has five `3.5 m` bays: three west of the door crossing
-and two east. Its stripes and wheel stops are building-anchored, so parcel
-expansion leaves the pedestrian crossing clear instead of dragging the bays
-toward the sidewalk.
+The imported shell is rotated 180 degrees to keep the existing street-facing
+entrance. Its fixed **60 × 38 m** parking lot has one measured six-metre driveway.
+The old Cloggers-derived shell, extra driveway cuts, push-door colliders,
+branding materials and ceiling lights are removed. The replacement uses the
+original imported open entrance leaves, furnished dining room and kitchen,
+816 collision boxes and 37 ceiling lights. Its 59 material groups contain
+52,720 triangles, including new extruded TacoMaco lettering.
 
-The authored shell is intentionally shared through `kTacomacoPlan` and
-`kFastFoodPlan`; site transforms, building-access registration, interior lights,
-and brand materials are independent. `Tacomaco` gets its own map footprint,
-restaurant marker, dev teleport, measured sidewalk/driveway connection,
-redesigned logo, 15-combo menu with approximate 1991 prices, and an orange-and-
-green exterior palette. The interior and generated menu boards keep their
-existing materials.
+Lime-green roof and upholstery, burnt-orange accents, cream walls and illuminated
+cream signs make this an independent brand. Both menu boards use the new eight-meal
+atlas: Street Tacos, Fire Chicken, Big Burrito, Loaded Nachos, Green Machine,
+Quesadilla, Taco Trio and Churro Time. Prices range from $5 to $11. Image-generation
+prompts and saved textures are in [the asset record](../assets/restaurant-rebrand-menus.md).
 
-The next menu-art pass follows the shared physical/raster contract in
-`docs/design/restaurant-menu-board-spec.md`: two 4:1 interior boards and one
-2:3 drive-through board. Tacomaco's 15 combos must be divided across the two
-interior receivers instead of being squeezed onto the portrait order board.
+The map footprint, restaurant label, safe dev-menu teleport, interior bounds,
+terrain/scatter exclusion and rear-wall graffiti follow the replacement shell.
+BurgerPiz remains unchanged on Ninth Street. The former TacoTaco on Sixth Street
+is now [Freaky Franks](freaky-franks-pinatty.md).
 
-Validation targets:
+## Reproduce
 
-- `tacomaco_tests`: copied shell identity, measured sidewalk connection, and
-  actual on-foot movement through the doorway.
-- `building_access_tests`: all neighborhood plots remain connected after the
-  new parcel is registered.
-- Runtime: approach the new block, inspect the exterior logo and drive-through
-  board, then enter and inspect the interior menu and lighting.
+```sh
+/Applications/Blender.app/Contents/MacOS/Blender -b -t 4 \
+  --python tools/cook_burgerpiz.py -- \
+  assets/models/buildings/burgerpiz/source/BurgerPiz/Models/BurgerPiz.glb \
+  --variant=tacomaco
+```
+
+The cooker copies the tracked `assets/textures/world/tacomaco/menu-atlas.png`
+into the private `assets/models/buildings/tacomaco/` asset set.
+
+## Validation
+
+- `burgerpiz_tests --require-assets`: all three restaurant variants load; actual
+  character movement reaches the interior and counter and returns to the street;
+  counter and sealed-door controls block movement; collision and lighting stay
+  identical between variants.
+- `tacomaco_tests`: Fourth Street access, north-facing entrance, fixed imported
+  lot, no old shell or obsolete driveway registrations.
+- `start_area_tests`, `building_access_tests`, `authored_city_layout_tests`: pass.
+- Rebuilt game: 300-frame day exterior and night interior captures, clean GL queues.
+- Evidence: `build/tacomaco-final-corner.png`, `build/tacomaco-new-counter.png`.
+
+Parking-lamp update (2026-09-09): both heads now glow and cast real night light,
+using the same dusk fade, range and distance cutoff as street lamps. See
+[asset and validation notes](../assets/burgerpiz-parking-lamps.md).

@@ -223,7 +223,7 @@ junctions.
 
 `city::map_spines()` — `src/city/roads.h` and `src/city/spines.cpp`. It is
 still a **parameter** to `RoadGraph::build()` and it must stay one: nothing in
-this module knows O'Haven exists, and that is what lets `tests/road_*.cpp` build
+this module knows Pinatty exists, and that is what lets `tests/road_*.cpp` build
 the graph out of a fixture instead of out of a city.
 
 Measured on the real network, in `tests/city_roads_tests.cpp`:

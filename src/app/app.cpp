@@ -1,11 +1,15 @@
 #include "app/app.h"
+#include "gfx/street_lamp_light.h"
 #include "app/vehicle_model_tuning.h"
 #include "app/weapon_wheel.h"
+#include "app/weapon_audio.h"
+#include "app/weapon_aim.h"
 #include "game/intro_layout.h"
 #include "game/delivery_mission.h"
 #include "game/repair_shop.h"
 #include "game/weather_hazards.h"
 #include "city/neighborhood_bar.h"
+#include "city/loom_cultural.h"
 #include "city/pawn_shop.h"
 #include "city/gun_store.h"
 #include "city/hospital_exterior.h"
@@ -58,6 +62,7 @@ extern char** environ;
 #include "game/drunk.h"
 #include "gfx/gl_state.h"
 #include "gfx/sky_env.h"
+#include "game/local_snow_conditions.h"
 #include "terrain/heightmap.h"
 
 namespace apricot {
@@ -198,6 +203,12 @@ constexpr int kMaxSpikeLogs = 3;
 // Debug time acceleration lives in `sky_speed`; normal play leaves it at 1 so
 // the visible sky and HUD clock use the session day length exactly.
 
+// `overcast` here is DECK OPACITY, and since PENG the axis split it no longer
+// gets topped up by the rain figure — apply_weather() only holds it to a
+// minimum (kPrecipCloudFloor). The old numbers were written expecting rain to
+// contribute most of the deck, so a preset that wants a grey sky now has to
+// say so outright. That is the point: it is what lets Sunshower ask for a
+// downpour and keep its sun.
 void apply_dev_weather(DevWeatherPreset preset, overlay::Controls& controls) {
     switch (preset) {
         case DevWeatherPreset::Clear:
@@ -205,14 +216,24 @@ void apply_dev_weather(DevWeatherPreset preset, overlay::Controls& controls) {
             controls.overcast = 0.0f;
             controls.fog = 0.0f;
             break;
+        case DevWeatherPreset::Sunshower:
+            // Hard rain, barely any deck. The sun stays clear of the cloud
+            // (cover lands under sky.frag's 0.55 swallow threshold) and the
+            // rain still glosses the road through specular_strength.
+            controls.rain = 0.62f;
+            controls.overcast = 0.12f;
+            controls.fog = 0.10f;
+            break;
         case DevWeatherPreset::Overcast:
             controls.rain = 0.0f;
-            controls.overcast = 0.75f;
+            controls.overcast = 0.72f;
             controls.fog = 0.25f;
             break;
         case DevWeatherPreset::Rain:
-            controls.rain = 0.35f;
-            controls.overcast = 0.30f;
+            // Was 0.30 deck, which under the summed model became 0.51. Stated
+            // outright now, and a touch heavier: a rainy day is grey.
+            controls.rain = 0.45f;
+            controls.overcast = 0.80f;
             controls.fog = 0.55f;
             break;
         case DevWeatherPreset::Storm:
@@ -282,6 +303,12 @@ void override_conditions_for_dev(DevWeatherPreset preset,
 
     switch (preset) {
         case DevWeatherPreset::Clear: break;
+        case DevWeatherPreset::Sunshower:
+            // Rain for grip and particles; the thin deck lives in `controls`.
+            // Atmosphere stays Clear so it never forces headlights on.
+            conditions.atmosphere = AtmosphericWeather::Clear;
+            conditions.wind_mps = {3.0f, 1.0f};
+            break;
         case DevWeatherPreset::Overcast:
             conditions.atmosphere = AtmosphericWeather::Overcast;
             break;
@@ -508,7 +535,7 @@ bool App::init() {
     // docs/architecture.md's amendment made concrete: the world is a pure
     // function of (map, seed, coord). city::kMapSeed is pinned in the map
     // tables and selects the noise detail under the authored skeleton, so
-    // O'Haven is the same place in every session. seed_ below is the SESSION
+    // Pinatty is the same place in every session. seed_ below is the SESSION
     // -- weather, ambient variation, the placeholder box field -- and it is
     // the one that will eventually come from a save file.
     collider_ = TerrainCollider(city::kMapSeed);
@@ -553,6 +580,8 @@ bool App::init() {
     vehicle_audio_.start(audio_device_.mixer(), audio_device_.bank());
     (void)vehicle_leak_ding();
     traffic_idle_audio_.start(audio_device_.mixer(), audio_device_.bank());
+    traffic_horn_audio_.start(audio_device_.mixer(), audio_device_.bank());
+    AP_INFO("traffic horns: %zu recorded variations loaded",traffic_horn_audio_.loaded_clip_count());
     police_siren_.start(audio_device_.mixer());
     apply_ui_settings();
 
@@ -646,7 +675,7 @@ bool App::init() {
     }
 
     // --- roads ---------------------------------------------------------------
-    // O'Haven's road network, from the authored tables in src/city/roads.h.
+    // Pinatty's road network, from the authored tables in src/city/roads.h.
     // This used to be an empty list plus a --road-probe flag that baked two
     // crossing streets at the origin so the bake/upload/draw path was exercised
     // at all; the flag existed to be deleted the day map_spines() landed, and
@@ -662,6 +691,17 @@ bool App::init() {
         return false;
     }
     world_.set_police_officer_vehicle_layout(traffic_visual_.police_officer_vehicle_layout());
+    if (overhead_qa_) {
+        // Diagnostic framing only; normal play keeps both shipped budgets. Each
+        // actor class gets the same policy against its OWN retire radius, and
+        // against the terrain floor rather than sea level, so the view holds
+        // over deep coastal ground as well as over this inland junction.
+        const CrowdTuning& crowd = world_.traffic_tuning();
+        traffic_visual_.set_vehicle_draw_distance(
+            overhead_qa_actor_draw_distance_m(crowd.vehicle_retire_m));
+        character_visual_.set_npc_draw_distance(
+            overhead_qa_actor_draw_distance_m(crowd.ped_retire_m));
+    }
 
     // The first authored district: the player begins beside a working gas
     // station and motel, with apartments and a drive-through on nearby blocks.
@@ -672,6 +712,13 @@ bool App::init() {
         AP_ERROR("starting area failed; cannot continue");
         return false;
     }
+    snow_shelter_.build(world_.precipitation_cover());
+    collider_.set_snow_shelter(&snow_shelter_);
+    if (!renderer_.set_snow_shelter(snow_shelter_)) {
+        AP_ERROR("snow shelter upload failed; cannot continue");
+        return false;
+    }
+    AP_INFO("snow shelter: %zu authored roof and ceiling covers", snow_shelter_.boxes().size());
     if (road_start_qa_) {
         // Authored parking slabs and other firm ground overlays are attached
         // by set_starting_area(). Settle after that so --start-at can exercise
@@ -696,6 +743,11 @@ bool App::init() {
     place_character_next_to_car();
     if(start_player_position_set_ && !start_driving_) {
         auto placed=spawn_character(collider_,start_player_position_.x,start_player_position_.y,-start_heading_radians_);
+        if(start_player_height_set_) {
+            const auto floor=collider_.probe_down({placed.position.x,start_player_height_+.25f,placed.position.z},.5f);
+            if(!floor.hit) { AP_ERROR("--start-player-height has no supporting floor");return false; }
+            placed.position.y=floor.point.y;
+        }
         if(!character_position_clear(collider_,placed.position,CharacterTuning{})) {
             AP_ERROR("--start-player-at is blocked by world geometry");return false;
         }
@@ -707,6 +759,10 @@ bool App::init() {
         return false;
     }
     if (!weapon_visual_.init(renderer_,scene_)) return false;
+    police_weapon_visual_.init(renderer_);
+    weapon_shot_clip_=synth_pistol_shot();
+    override_clip_from_wav(weapon_shot_clip_,asset_path("audio/weapons/Glock17_Shoot_004.wav"));
+    weapon_reload_clip_=synth_pistol_reload();
     if (start_driving_ &&
         (has_animated_driver(car_visual_.active_car()) || road_start_qa_)) {
         on_foot_=false;
@@ -818,9 +874,11 @@ void App::shutdown() {
     vehicle_audio_.stop();
     police_siren_.stop();
     traffic_idle_audio_.stop();
+    traffic_horn_audio_.stop();
     city_audio_.stop();
     audio_device_.stop();
     traffic_visual_.destroy(scene_);
+    police_weapon_visual_.destroy(scene_);
     weapon_visual_.destroy(scene_);
     character_visual_.destroy();
     vehicle_effects_.destroy(scene_);
@@ -957,8 +1015,107 @@ void App::capture_and_submit_bug_report() {
     }
 }
 
+void App::step_weapon_use(bool available, float dt) {
+    weapon_visual_.step_particles(dt);
+    weapon_hit_feedback_=std::max(0.f,weapon_hit_feedback_-std::max(0.f,dt));
+    WeaponUseInput controls;
+    controls.available=available;
+    controls.aim=weapon_aim_mouse_ || weapon_aim_pad_ || weapon_aim_toggle_;
+    controls.fire_pressed=weapon_fire_pending_;
+    controls.reload_pressed=weapon_reload_pending_;
+    const bool was_reloading=weapon_use_.reloading;
+    const bool fired=weapon_use_.step(weapon_wheel_.equipped,controls,dt);
+    VoiceParams sound;
+    sound.category=Category::Impacts;
+    sound.gain=.65f;
+    if (!was_reloading && weapon_use_.reloading)
+        audio_device_.mixer().play_oneshot(&weapon_reload_clip_,sound);
+    if (dt>0.f || !available) weapon_fire_pending_=weapon_reload_pending_=false;
+    if (!fired) return;
+    ++weapon_shots_;
+    audio_device_.mixer().play_oneshot(&weapon_shot_clip_,sound);
+    // Pick the crosshair target first, then trace from the actual held gun.
+    // This second trace prevents the shoulder camera firing through nearby cover.
+    const auto aim=weapon_aim_camera(player_character_.position,player_character_.view_yaw,
+        player_character_.view_pitch,weapon_use_.aim_blend);
+    ChaseCameraPose pose;
+    pose.target=aim.target;pose.collision_pivot=aim.pivot;pose.desired_eye=aim.eye;
+    pose.fov_y=aim.fov_y;
+    apply_drunk_camera(pose,drunk_);
+    if (transition_camera_release_>0.f) {
+        const float blend=vehicle_transition_ease(1.f-transition_camera_release_);
+        pose.target=glm::mix(transition_camera_.position+transition_camera_.forward()*4.8f,pose.target,blend);
+        pose.desired_eye=glm::mix(transition_camera_.position,pose.desired_eye,blend);
+    }
+    glm::vec3 eye=pose.desired_eye;
+    const glm::vec3 eye_ray=pose.desired_eye-pose.collision_pivot;
+    const float eye_distance=glm::length(eye_ray);
+    if (eye_distance>1e-4f) {
+        const auto obstruction=collider_.raycast(pose.collision_pivot,eye_ray,eye_distance);
+        float allowed=obstruction.hit ? std::max(.15f,obstruction.distance-.35f) : eye_distance;
+        // Keep the current camera's eased return from cover while using this
+        // tick's aim. New obstructions still pull the sight in immediately.
+        if (camera_obstruction_distance_>=0.f) allowed=std::min(allowed,camera_obstruction_distance_);
+        eye=pose.collision_pivot+eye_ray/eye_distance*std::min(allowed,eye_distance);
+    }
+    eye.y=std::max(eye.y,collider_.height(eye.x,eye.z)+1.2f);
+    const glm::vec3 direction=glm::normalize(pose.target-eye);
+    const auto sight=collider_.raycast(eye,direction,120.f);
+    const auto sight_ped=world_.traffic().raycast_ped(eye,direction,
+        sight.hit ? sight.distance : 120.f);
+    const glm::vec3 target=sight_ped.hit ? sight_ped.point :
+        eye+direction*(sight.hit ? sight.distance : 120.f);
+    glm::vec3 muzzle,barrel;
+    if (!weapon_visual_.muzzle_world(muzzle,barrel))
+        muzzle=player_character_.position+glm::vec3{0,1.35f,0};
+    else {
+        const auto turn=character_root_rotation(player_character_.view_yaw)*
+            glm::inverse(character_root_rotation(weapon_socket_player_yaw_));
+        muzzle=player_character_.position+turn*(muzzle-weapon_socket_player_position_);
+    }
+    const glm::vec3 travel=target-muzzle;
+    const float distance=glm::length(travel);
+    weapon_visual_.clear_impact();
+    // The held mesh may poke through thin cover. Don't let a muzzle already
+    // beyond that wall turn a blocked shot into an unobstructed body hit.
+    const glm::vec3 shoulder=player_character_.position+glm::vec3{0,1.35f,0};
+    const glm::vec3 reach=muzzle-shoulder;
+    const float reach_distance=glm::length(reach);
+    if (reach_distance>.01f) {
+        const auto cover=collider_.raycast(shoulder,reach,reach_distance);
+        if (cover.hit) {
+            weapon_visual_.show_impact(shoulder+reach/reach_distance*cover.distance);
+            return;
+        }
+    }
+    if (distance>.01f) {
+        const auto hit=collider_.raycast(muzzle,travel/distance,std::min(120.f,distance+.1f));
+        const auto body=world_.shoot_ped(muzzle,travel/distance,
+            hit.hit ? hit.distance : std::min(120.f,distance+.1f),static_cast<int64_t>(step_index_));
+        if (body.hit) {
+            weapon_visual_.show_blood(body.point,travel/distance,weapon_shots_);
+            ++weapon_body_hits_;
+            weapon_hit_feedback_=.25f;
+            if (body.officer) {
+                // The heat lands whether or not anybody watched. Shooting a
+                // uniformed officer is not a crime that needs a witness cone.
+                wanted_.add_heat(body.officer_downed ? kOfficerDownedHeat
+                                                     : kOfficerWoundedHeat,
+                                 WantedSystem::Crime::OfficerAssault);
+                AP_INFO("pistol %s police officer %llu/%u; wanted %d",
+                    body.officer_downed ? "downed" : "hit",
+                    static_cast<unsigned long long>(body.lane_key),body.slot,
+                    wanted_.level());
+            } else {
+                AP_INFO("pistol body hit: pedestrian %llu/%u",static_cast<unsigned long long>(body.lane_key),body.slot);
+            }
+        } else if (hit.hit) weapon_visual_.show_impact(muzzle+travel/distance*hit.distance);
+    }
+}
+
 void App::poll_events() {
     input_.begin_frame();
+    player_horn_pending_=false;
     bank_input_consumed_ = false;
     weapon_input_consumed_=false;
 
@@ -976,6 +1133,58 @@ void App::poll_events() {
             window_.on_resize(w, h);
             camera_.aspect =
                 static_cast<float>(w) / static_cast<float>(h > 0 ? h : 1);
+        }
+
+        // Releases and focus changes must reach weapons even while a modal owns input.
+        if (e.type==SDL_WINDOWEVENT && e.window.event==SDL_WINDOWEVENT_FOCUS_LOST) {
+            weapon_focus_=false;
+            weapon_aim_mouse_=weapon_aim_pad_=weapon_aim_toggle_=false;
+            weapon_fire_pad_=true; // require trigger release after focus returns
+            weapon_fire_pending_=weapon_reload_pending_=false;
+        }
+        if (e.type==SDL_WINDOWEVENT && e.window.event==SDL_WINDOWEVENT_FOCUS_GAINED)
+            weapon_focus_=true;
+        if (e.type==SDL_MOUSEBUTTONUP && e.button.button==SDL_BUTTON_RIGHT)
+            weapon_aim_mouse_=false;
+        if (e.type==SDL_CONTROLLERDEVICEREMOVED) {
+            weapon_aim_pad_=false;
+            weapon_fire_pad_=true;
+        }
+        const bool weapon_available=weapon_focus_ && on_foot_ &&
+            ui_.screen()==UiScreen::Driving && !dev_menu_.open() && !bug_report_.open &&
+            !bank_interaction_.modal() && !bank_input_consumed_ && !opening_cutscene_.active() &&
+            !vehicle_transition_.active() && !boat_transition_.active() &&
+            !weapon_wheel_.open && !weapon_input_consumed_ &&
+            weapon_wheel_.equipped==WeaponId::Pistol;
+        if (weapon_available && e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_q &&
+            !(e.key.keysym.mod & (KMOD_CTRL | KMOD_GUI))) {
+            if (!e.key.repeat) {
+                weapon_aim_toggle_=!weapon_aim_toggle_;
+                if (weapon_aim_toggle_) input_.set_mouse_look(true);
+            }
+            continue;
+        }
+        if (e.type==SDL_CONTROLLERAXISMOTION) {
+            if (e.caxis.axis==SDL_CONTROLLER_AXIS_TRIGGERLEFT)
+                weapon_aim_pad_=weapon_available && e.caxis.value>16000;
+            if (e.caxis.axis==SDL_CONTROLLER_AXIS_TRIGGERRIGHT) {
+                const bool down=e.caxis.value>16000;
+                if (weapon_available && down && !weapon_fire_pad_) weapon_fire_pending_=true;
+                weapon_fire_pad_=down;
+            }
+        }
+        if (weapon_available && e.type==SDL_MOUSEBUTTONDOWN) {
+            if (e.button.button==SDL_BUTTON_RIGHT) {
+                weapon_aim_mouse_=true; input_.set_mouse_look(true);
+            }
+            // The first left click captures the cursor; it must not also shoot.
+            if (e.button.button==SDL_BUTTON_LEFT && input_.mouse_look()) weapon_fire_pending_=true;
+        }
+        const bool weapon_reload=(e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_r) ||
+            (e.type==SDL_CONTROLLERBUTTONDOWN && e.cbutton.button==SDL_CONTROLLER_BUTTON_X);
+        if (weapon_available && weapon_reload) {
+            if (e.type!=SDL_KEYDOWN || !e.key.repeat) weapon_reload_pending_=true;
+            continue;
         }
 
         // The reporter owns all typing while open. ImGui already saw the
@@ -1033,14 +1242,40 @@ void App::poll_events() {
             continue;
         }
 
-        // Siren/lightbar is presentation-only, so no replay-format change.
+        // Horn and siren are audio/presentation controls, outside the replay format.
+        const bool road_vehicle_controls=weapon_focus_ && ui_.screen()==UiScreen::Driving &&
+            !dev_menu_.open() && !bug_report_.open && !bank_interaction_.modal() &&
+            !bank_input_consumed_ && !opening_cutscene_.active() && !weapon_wheel_.open &&
+            !weapon_input_consumed_ && !on_foot_ && !in_aircraft_ && !in_boat_ &&
+            !vehicle_transition_.active() && !boat_transition_.active();
+        if (road_vehicle_controls && e.type==SDL_KEYDOWN && e.key.repeat==0 &&
+            e.key.keysym.sym==SDLK_h) player_horn_pending_=true;
         const bool emergency_toggle=(e.type==SDL_KEYDOWN && e.key.repeat==0 &&
-            e.key.keysym.sym==SDLK_h) || (e.type==SDL_CONTROLLERBUTTONDOWN &&
+            e.key.keysym.sym==SDLK_j) || (e.type==SDL_CONTROLLERBUTTONDOWN &&
             e.cbutton.button==SDL_CONTROLLER_BUTTON_LEFTSTICK);
-        if (emergency_toggle && ui_.screen()==UiScreen::Driving &&
-            !dev_menu_.open() && !on_foot_ && !in_aircraft_ && !in_boat_ &&
+        if (emergency_toggle && road_vehicle_controls &&
             has_police_lightbar(car_visual_.active_car())) {
             police_emergency_enabled_=!police_emergency_enabled_;
+        }
+        // The bare-fist jab, on F or controller X while on foot and unarmed.
+        // Handled here for the same reason as the siren above: it drives the
+        // character animator and its one-shot contact latch and applies no
+        // damage yet, so it is presentation and costs no replay-format change.
+        // city/character_punch.h owns the timing; app/character_animation.h is
+        // the caller. A RELEASE always clears the level, whatever the context,
+        // so leaving the state that allows a punch cannot leave one latched on.
+        const bool punch_down=(e.type==SDL_KEYDOWN && e.key.repeat==0 &&
+            e.key.keysym.sym==SDLK_f) || (e.type==SDL_CONTROLLERBUTTONDOWN &&
+            e.cbutton.button==SDL_CONTROLLER_BUTTON_X);
+        const bool punch_up=(e.type==SDL_KEYUP && e.key.keysym.sym==SDLK_f) ||
+            (e.type==SDL_CONTROLLERBUTTONUP &&
+             e.cbutton.button==SDL_CONTROLLER_BUTTON_X);
+        if (punch_up) character_visual_.set_player_punch_held(false);
+        if (punch_down && ui_.screen()==UiScreen::Driving && !dev_menu_.open() &&
+            on_foot_ && !vehicle_transition_.active() &&
+            !boat_transition_.active() &&
+            weapon_wheel_.equipped==WeaponId::Unarmed) {
+            character_visual_.set_player_punch_held(true);
         }
         // The instancing A/B toggle is handled HERE rather than in InputMapper
         // on purpose. InputFrame is the replay tape format; a debug toggle
@@ -1097,6 +1332,7 @@ void App::poll_events() {
         input_.handle_event(e);
     }
 
+    input_.set_weapon_controls(on_foot_ && weapon_wheel_.equipped==WeaponId::Pistol);
     input_.end_frame();
 }
 
@@ -1420,6 +1656,16 @@ void App::update_weather(bool step_snowpack) {
     collider_.set_snow_collision_depth(
         collision.active ? static_cast<float>(collision.depth_m) : 0.0f);
 
+    if (step_snowpack) {
+        snow_clearance_.advance(conditions_.snow, conditions_.heatwave,
+                                static_cast<float>(kSimDt), conditions_.snow_depth_m);
+    }
+    if (conditions_.snow_depth_m <= 0.0f) snow_clearance_.clear();
+    collider_.set_snow_clearance(&snow_clearance_, conditions_.snow_depth_m);
+    if (conditions_.snow_depth_m >= 0.02f) snowplow_service_active_ = true;
+    else if (conditions_.snow_depth_m < 0.008f) snowplow_service_active_ = false;
+    world_.set_snowplow_service(snowplow_service_active_);
+
     // A manual depth or a forced accumulating pack changes snow grip after the
     // atmospheric preset was built, so finish the derived physics terms here.
     const float night =
@@ -1497,6 +1743,10 @@ std::vector<VisiblePoliceIdentity> App::visible_police(
     }
     for (const VehicleAgent& agent : world_.traffic().vehicles()) {
         if (!agent.police_unit) continue;
+        // A downed officer sees nothing, witnesses nothing and arrests nobody.
+        // This is the one list all three of those read, so gating it here is
+        // what makes shooting a cop actually take him out of the fight.
+        if (police_officer_downed(agent.officer)) continue;
         const glm::vec3 eye=police_officer_eye_position(agent);
         const glm::vec3 forward=police_officer_forward(agent);
         const glm::vec2 position{eye.x, eye.z};
@@ -1754,6 +2004,8 @@ void App::toggle_player_mode() {
 }
 
 void App::teleport(glm::vec3 to, float heading_radians) {
+    traffic_horn_audio_.reset();
+    vehicle_audio_.stop_horn(); player_horn_pending_=false;
     police_offenses_.reset();
     police_arrest_.reset();
     arrested_feedback_s_=0.0f;
@@ -1822,8 +2074,22 @@ void App::teleport(glm::vec3 to, float heading_radians) {
 }
 
 void App::update_camera(float dt) {
+    if (snowplow_check_) {
+        for (const auto& truck : world_.traffic().vehicles()) {
+            if (!truck.snowplow_unit) continue;
+            const glm::vec3 right{-truck.fwd.z, 0.0f, truck.fwd.x};
+            const glm::vec3 target = truck.pos - truck.fwd * 5.0f;
+            camera_.position = truck.pos - truck.fwd * 14.0f + right * 12.0f +
+                glm::vec3{0.0f, 11.0f, 0.0f};
+            const glm::vec3 look = target - camera_.position;
+            camera_.yaw = std::atan2(look.x, -look.z);
+            camera_.pitch = std::atan2(look.y, glm::length(glm::vec2{look.x, look.z}));
+            return;
+        }
+    }
     if (overhead_qa_) {
-        camera_.position = {start_position_.x, 542.0f, start_position_.y + 0.5f};
+        camera_.position = {start_position_.x, kOverheadQaCameraHeightM,
+                            start_position_.y + 0.5f};
         camera_.yaw = 0.0f;
         camera_.pitch = -glm::half_pi<float>() + 0.001f;
         camera_.fov_y = glm::radians(64.0f);
@@ -1876,13 +2142,11 @@ void App::update_camera(float dt) {
                                    player_character_.view_yaw, a);
         const float pitch = glm::mix(prev_player_character_.view_pitch,
                                      player_character_.view_pitch, a);
-        const float cp = std::cos(pitch);
-        const glm::vec3 view_forward{
-            cp * std::sin(yaw), std::sin(pitch), -cp * std::cos(yaw)};
-        pose.target = pos + glm::vec3{0.0f, 1.38f, 0.0f};
-        pose.collision_pivot = pose.target;
-        pose.desired_eye = pose.target - view_forward * 4.8f;
-        pose.fov_y = glm::radians(60.0f);
+        const auto aim=weapon_aim_camera(pos,yaw,pitch,weapon_use_.aim_blend);
+        pose.target=aim.target;
+        pose.collision_pivot=aim.pivot;
+        pose.desired_eye=aim.eye;
+        pose.fov_y=aim.fov_y;
     } else {
         // Interpolate the car between its previous and current sim states.
         // Without this a 120 Hz sim visibly steps on a 144 Hz panel.
@@ -2032,6 +2296,18 @@ void App::render() {
     if (opening_cutscene_.active()) { render_opening();return; }
 
     const SkyEnv env = current_sky_env();
+    // Bounded QA only: age the real driven paths just before the final image.
+    // Normal play always advances this state exclusively at the fixed step.
+    if (snowplow_refill_preview_seconds_ > 0.0f && !snowplow_refill_preview_applied_ &&
+        frame_limit_ > 0 && frames_rendered_ + 1 >= frame_limit_) {
+        snow_clearance_.advance(conditions_.snow, conditions_.heatwave,
+            snowplow_refill_preview_seconds_, conditions_.snow_depth_m);
+        snowplow_refill_preview_applied_ = true;
+        AP_INFO("snow refill preview: aged actual paths %.1f seconds toward %.3f m main snow",
+            static_cast<double>(snowplow_refill_preview_seconds_),
+            static_cast<double>(conditions_.snow_depth_m));
+    }
+    renderer_.set_snow_clearance(snow_clearance_, conditions_.snow_depth_m);
     const float sim_seconds =
         static_cast<float>(static_cast<double>(step_index_) * kSimDt);
     // Window occupancy is replay-stable from the session seed and absolute
@@ -2054,9 +2330,20 @@ void App::render() {
 
     update_camera(camera_frame_dt_);
     if (tire_track_check_) tire_track_check_camera();
-    camera_.fov_y = glm::radians(static_cast<float>(ui_.settings().camera_fov));
+    camera_.fov_y = glm::radians(static_cast<float>(ui_.settings().camera_fov)) *
+        (on_foot_ ? glm::mix(1.f,.8f,weapon_use_.aim_blend) : 1.f);
+    if (weapon_check_ && (frames_rendered_==341 || frames_rendered_==351 || frames_rendered_==430)) {
+        const glm::vec3 forward=character_forward(player_character_.facing_yaw);
+        const glm::vec3 right{forward.z,0,-forward.x};
+        const glm::vec3 target=player_character_.position+glm::vec3{0,1.25f,0};
+        camera_.position=target+right*2.4f+forward*.75f+glm::vec3{0,.35f,0};
+        const glm::vec3 look=target-camera_.position;
+        camera_.yaw=std::atan2(look.x,-look.z);
+        camera_.pitch=std::atan2(look.y,glm::length(glm::vec2{look.x,look.z}));
+    }
     if(signal_check_)signal_check_camera();
     if(police_officer_check_)police_officer_check_camera();
+    if(traffic_horn_check_)traffic_horn_check_camera();
     Listener listener;
     listener.position = camera_.position;
     listener.forward = camera_.forward();
@@ -2088,6 +2375,7 @@ void App::render() {
         scene_draw_distance =
             std::min(kRenderDistance, env.fog_end + 96.0f);
     }
+    world_.sync_burgerpiz_parking_lamps(scene_,visible_night_level);
     traffic_visual_.sync_street_lights(scene_, camera_.position,
         visible_night_level);
     const Scene::CullResult& culled = scene_.cull(
@@ -2122,7 +2410,7 @@ void App::render() {
     // Indoor fixtures stay on during the day and share their visible positions.
     const auto add_interior_lights=[&](const city::StartSite& site,
         const auto& parts,std::string_view name,float range,glm::vec3 local_direction=glm::vec3{0,-1,0},
-        float power=2.3f,float outer=.58f) {
+        float power=2.3f,float outer=.58f,glm::vec3 colour=glm::vec3{0.f}) {
         if (lighting_stress_) return;
         for (const auto& part:parts) {
             if (std::string_view(part.name)!=name) continue;
@@ -2132,7 +2420,8 @@ void App::render() {
             const auto direction=glm::normalize(glm::vec3{
                 site.cos_yaw*local_direction.x+site.sin_yaw*local_direction.z,local_direction.y,
                 -site.sin_yaw*local_direction.x+site.cos_yaw*local_direction.z});
-            const glm::vec3 color = name == "quickbite interior ceiling light lens"
+            const glm::vec3 color = colour!=glm::vec3{0.f} ? colour
+                : name == "quickbite interior ceiling light lens"
                 ? glm::vec3{1.0f,.97f,.91f}
                 : glm::vec3{1.0f,.88f,.70f};
             if (glm::distance(p,camera_.position)<65.f)
@@ -2141,8 +2430,6 @@ void App::render() {
         }
     };
     add_interior_lights(city::kFastFoodSite,city::kFastFoodParts,
-        "quickbite interior ceiling light lens",10.5f,{0,-1,0},1.8f,.35f);
-    add_interior_lights(city::kTacomacoSite,city::kFastFoodParts,
         "quickbite interior ceiling light lens",10.5f,{0,-1,0},1.8f,.35f);
     add_interior_lights(city::kGasStationSite,city::kGasStationParts,
         "store interior ceiling light lens",6.6f);
@@ -2153,6 +2440,25 @@ void App::render() {
     add_interior_lights(city::kGunStoreSite,gun_store_lights,"gun store rack light lens",5.5f,{0,-.85f,-1});
     add_interior_lights(city::kGunStoreSite,gun_store_lights,"gun store counter light lens",7.f,{0,-.55f,-1},3.0f);
     add_interior_lights(city::kGunStoreSite,gun_store_lights,"gun store exterior light lens",5.5f);
+    static const auto museum_lights=city::bake_loom_museum();
+    // 9 m covers a gallery from the two pendant rows and stops well short of
+    // the 12 m between an upper fitting and the ground floor. The grid has no
+    // occlusion, so that gap is the only thing keeping the upstairs fittings
+    // from lighting the room below straight through the slab. The .55 cone is
+    // deliberately narrow: the grid's span radius is range/outer, so a wide
+    // cone is expensive, and the shader's outer edge is hard rather than
+    // feathered, so coverage has to come from overlap.
+    add_interior_lights(city::kLoomMuseumSite,museum_lights,"museum gallery light lens",9.f,{0,-1,0},2.7f,.55f,{1.f,.97f,.93f});
+    // Picture lights sit a metre off the wall and wash down it. One direction
+    // per fixture name, so the heads are all downlights with a wide cone
+    // rather than four names for four wall orientations.
+    add_interior_lights(city::kLoomMuseumSite,museum_lights,"museum art light lens",6.5f,{0,-1,0},3.2f,.62f,{1.f,.98f,.95f});
+    // Coves point at the ceiling. Without them the soffit takes no light at all
+    // and a finished room still reads as a box with a black lid.
+    add_interior_lights(city::kLoomMuseumSite,museum_lights,"museum cove light lens",7.5f,{0,1,0},2.2f,.55f,{1.f,.96f,.90f});
+    static const auto park_lights=city::bake_loom_park();
+    if (visible_night_level > .05f)
+        add_interior_lights(city::kLoomParkSite,park_lights,"garden gazebo light lens",7.f);
     static const auto bar_lights=city::bake_neighborhood_bar();
     add_interior_lights(city::kNeighborhoodBarSite,bar_lights,"bar warm light lens",6.5f);
     // Hospital fixtures are authored by the exterior sidecars, but their
@@ -2178,6 +2484,19 @@ void App::render() {
         add_interior_lights(city::kHospitalNorthParkingSite,
             hospital_parking_lights, "hospital parking lot light lens", 23.0f,
             {0.0f, -1.0f, 0.0f}, 5.0f, 0.54f);
+    }
+    if(!lighting_stress_) for(const auto& p:world_.miandi_gas_station_lights()) {
+        if(glm::distance(p,camera_.position)<75.f)
+            emergency_light_sources_.push_back({glm::vec4{p,9.f},
+                {0,-1,0,1.3f},{1,.94f,.84f,.35f}});
+    }
+    if(!lighting_stress_) for(const auto& p:world_.burgerpiz_parking_lights())
+        if(const auto light=parking_lamp_light(p,camera_.position,visible_night_level))
+            emergency_light_sources_.push_back(*light);
+    if(!lighting_stress_) for(const auto& p:world_.burgerpiz_lights()) {
+        if(glm::distance(p,camera_.position)<65.f)
+            emergency_light_sources_.push_back({glm::vec4{p,7.f},
+                {0,-1,0,2.6f},{1,.92f,.80f,.35f}});
     }
     if(!lighting_stress_) for(const auto& p:world_.residential_lights()) {
         if(glm::distance(p,camera_.position)<65.f)
@@ -2270,7 +2589,8 @@ void App::render() {
 
     // 4. Rain or snow over the world, blended.
     if (ui_.settings().weather_effects) {
-        rain_.render(camera_, env, headlights, world_.canopy_lights());
+        rain_.render(camera_, env, headlights, world_.canopy_lights(), collider_,
+                     world_.precipitation_cover());
     }
 
     // 5. HUD last, one draw.
@@ -2298,8 +2618,13 @@ void App::render() {
                                                  city::devon_position().z};
             game_ui_.draw_minimap(hud_, ui_, radar, vp);
             const glm::vec3 focus = player_focus_position();
+            const auto snow_contact = collider_.probe_down(
+                focus + glm::vec3{0.0f, 0.5f, 0.0f}, 4.0f,
+                TerrainCollider::ProbeVehicles::Exclude);
+            const Conditions local_weather = conditions_with_local_snow(conditions_,
+                snow_contact.hit ? snow_contact.snow_depth_m : conditions_.snow_depth_m);
             const HazardExposure exposure = hazard_exposure_at(
-                conditions_, focus, collider_.height(focus.x, focus.z));
+                local_weather, focus, collider_.height(focus.x, focus.z));
             const GameplayHazard hazard = dominant_hazard(exposure);
             const float severity = hazard_severity(exposure, hazard);
             const char* warning = nullptr;
@@ -2400,6 +2725,12 @@ void App::render() {
             } else if (!on_foot_) {
                 const float speed_mph = metres_per_second_to_miles_per_hour(
                     glm::length(car_.velocity));
+                const float speed_limit_mps = current_speed_limit_mps();
+                const float speed_limit_mph = metres_per_second_to_miles_per_hour(
+                    speed_limit_mps);
+                const bool over_limit = speed_limit_mps > 0.0f &&
+                    glm::length(car_.velocity) > speed_limit_mps +
+                        PoliceOffenseTracker::speeding_tolerance_mps;
                 const float health01 =
                     glm::clamp(car_.health / 100.0f, 0.0f, 1.0f);
                 const float right = vp.x - 24.0f;
@@ -2426,9 +2757,19 @@ void App::render() {
                 std::snprintf(line, sizeof(line), "%3.0f MPH",
                               static_cast<double>(speed_mph));
                 hud_.text_centered(line, left + 127.0f, top + 10.0f, 42.0f,
-                                   {1.0f, 0.78f, 0.30f, 1.0f});
+                                   over_limit ? glm::vec4{1.0f, 0.18f, 0.10f, 1.0f}
+                                              : glm::vec4{1.0f, 0.78f, 0.30f, 1.0f});
 
-                hud_.text(vehicle_engine_failed(car_.mechanical) ? "ENGINE OUT":"VEHICLE", {left + 18.0f, top + 68.0f}, 13.0f,
+                char vehicle_status[64];
+                if (speed_limit_mps > 0.0f)
+                    std::snprintf(vehicle_status, sizeof(vehicle_status),
+                        "%s   LIMIT %.0f",
+                        vehicle_engine_failed(car_.mechanical) ? "ENGINE OUT" : "VEHICLE",
+                        static_cast<double>(speed_limit_mph));
+                else
+                    std::snprintf(vehicle_status, sizeof(vehicle_status), "%s",
+                        vehicle_engine_failed(car_.mechanical) ? "ENGINE OUT" : "VEHICLE");
+                hud_.text(vehicle_status, {left + 18.0f, top + 68.0f}, 13.0f,
                           {0.68f, 0.70f, 0.68f, 1.0f});
                 std::snprintf(line, sizeof(line), "%3.0f%%",
                               static_cast<double>(car_.health));
@@ -2501,7 +2842,7 @@ void App::render() {
                 else if (in_boat_) prompt="E / A  -  Exit beside dock or shore";
                 else if (in_aircraft_) prompt=aircraft_can_exit(aircraft_) ?
                     "E / A  -  Exit aircraft" : "LAND AND STOP TO EXIT";
-                else if (!on_foot_) prompt="E / A  -  Exit vehicle";
+                else if (!on_foot_) prompt="E / A  -  Exit vehicle   H - HORN";
                 else if (mission_stage_==MissionStage::DeliveryActive &&
                          delivery_contact(player_character_.position,on_foot_))
                     prompt="E / A  -  Give Lou's package to Devon";
@@ -2525,7 +2866,7 @@ void App::render() {
                 if (!on_foot_ && !in_aircraft_ && !in_boat_ && car_visual_.active_car()==PlayerCarId::HarrowHauler)
                     prompt += trailer_.attached ? "   T / DPAD RIGHT - DROP TRAILER" : "   T / DPAD RIGHT - COUPLE TRAILER";
                 if (!on_foot_ && !in_aircraft_ && !in_boat_ && has_police_lightbar(car_visual_.active_car()))
-                    prompt += "   H / L3 - SIREN + LIGHTS";
+                    prompt += "   J / L3 - SIREN + LIGHTS";
                 if (!on_foot_ && !in_aircraft_ && !in_boat_ && repair_shop_ready(car_,tuning_))
                     prompt += repair_shop_visit_.serviced ? "   SERVICE COMPLETE" : "   HOLD STILL - REPAIRING";
                 if (!prompt.empty()) hud_.text_centered(prompt.c_str(),vp.x*.5f,vp.y-90,20,{1,.95f,.75f,1});
@@ -2533,7 +2874,63 @@ void App::render() {
             game_ui_.draw_dev_menu(hud_, dev_menu_, vp);
             if (on_foot_ && !dev_menu_.open() && !bank_interaction_.modal() &&
                 !weapon_wheel_.open && mission_success_feedback_s_ <= 0.0f)
-                hud_.text_centered("TAB / LB - WEAPONS",vp.x*.5f,vp.y-56,16,{.8f,.82f,.83f,1});
+                hud_.text_centered(weapon_wheel_.equipped==WeaponId::Pistol
+                    ? "RMB / LT - HOLD AIM    Q - TOGGLE AIM    LMB / RT - FIRE    R / X - RELOAD    TAB / LB - WEAPONS"
+                    : "TAB / LB - WEAPONS",vp.x*.5f,vp.y-56,16,{.8f,.82f,.83f,1});
+            if (on_foot_ && weapon_wheel_.equipped==WeaponId::Pistol &&
+                !dev_menu_.open() && !bank_interaction_.modal() && !weapon_wheel_.open) {
+                char ammo[80];
+                std::snprintf(ammo,sizeof(ammo),"PISTOL   %02d / %02d%s",weapon_use_.magazine,
+                    weapon_use_.reserve,weapon_use_.reloading ? "   RELOADING" :
+                    (weapon_use_.magazine==0 ? "   EMPTY - RELOAD" : ""));
+                hud_.text(ammo,{vp.x-320.f,92.f},24,{1,.95f,.8f,1});
+                if (weapon_use_.reloading)
+                    hud_.rect({vp.x-320.f,124.f},{vp.x-320.f+220.f*weapon_use_.reload_progress(),128.f},{1,.8f,.35f,1});
+                if (!weapon_use_.reloading) {
+                    const glm::vec2 c=vp*.5f;
+                    const bool aiming=weapon_use_.aim_blend>.5f;
+                    const float gap=(aiming ? 7.f : 13.f)+weapon_use_.recoil*12.f;
+                    const glm::vec4 ink=aiming ? glm::vec4{1,1,.92f,1} : glm::vec4{1,1,1,.55f};
+                    const auto stroke=[&](glm::vec2 a,glm::vec2 b) {
+                        hud_.line(a,b,5,{0,0,0,.75f});
+                        hud_.line(a,b,2.5f,ink);
+                    };
+                    stroke(c+glm::vec2{-gap-10,0},c+glm::vec2{-gap,0});
+                    stroke(c+glm::vec2{gap,0},c+glm::vec2{gap+10,0});
+                    stroke(c+glm::vec2{0,-gap-10},c+glm::vec2{0,-gap});
+                    stroke(c+glm::vec2{0,gap},c+glm::vec2{0,gap+10});
+                    hud_.circle(c,3.5f,{0,0,0,.8f});
+                    hud_.circle(c,1.5f,ink);
+                    if (aiming) hud_.text_centered(weapon_aim_toggle_ ? "AIM - Q TO RELEASE" : "AIM",
+                        c.x,c.y+38,17,{1,.9f,.6f,.95f});
+                    if (weapon_hit_feedback_>0.f) {
+                        hud_.line(c+glm::vec2{-9,-9},c+glm::vec2{9,9},3,{1,.15f,.08f,1});
+                        hud_.line(c+glm::vec2{-9,9},c+glm::vec2{9,-9},3,{1,.15f,.08f,1});
+                    }
+                }
+            }
+            if (on_foot_ && !dev_menu_.open() && !bank_interaction_.modal()) {
+                char health[32];
+                std::snprintf(health, sizeof(health), "HEALTH %3.0f",
+                    static_cast<double>(player_health_));
+                const glm::vec4 health_color = player_health_ <= 32.0f
+                    ? glm::vec4{1.0f, 0.18f, 0.10f, 1.0f}
+                    : glm::vec4{0.82f, 0.93f, 0.76f, 1.0f};
+                hud_.text(health, {vp.x - 216.0f, 142.0f}, 21.0f, health_color);
+                hud_.rect({vp.x - 216.0f, 171.0f}, {vp.x - 56.0f, 177.0f},
+                          {0.04f, 0.05f, 0.05f, 0.9f});
+                hud_.rect({vp.x - 216.0f, 171.0f},
+                          {vp.x - 216.0f + 160.0f *
+                              glm::clamp(player_health_ / 100.0f, 0.0f, 1.0f),
+                           177.0f}, health_color);
+            }
+            if (police_hit_feedback_s_ > 0.0f)
+                hud_.outline({5.0f, 5.0f}, {vp.x - 5.0f, vp.y - 5.0f}, 9.0f,
+                    {1.0f, 0.05f, 0.02f,
+                     0.65f * glm::clamp(police_hit_feedback_s_ / 0.45f, 0.0f, 1.0f)});
+            if (police_shot_down_feedback_s_ > 0.0f)
+                hud_.title_text_centered("WASTED", vp.x * 0.5f, 116.0f, 58.0f,
+                                         {0.92f, 0.08f, 0.05f, 1.0f});
             draw_weapon_wheel(hud_,weapon_wheel_,vp);
             if(repair_shop_feedback_s_>0)
                 hud_.text_centered("CAR REPAIRED",vp.x*.5f,vp.y*.25f,30,{.65f,1,.65f,1});
@@ -2682,6 +3079,35 @@ void App::render() {
         capture_and_submit_bug_report();
     }
 
+    if (character_identity_check_) character_identity_check();
+
+    if (weapon_check_) {
+        const int capture_frame=frames_rendered_+1;
+        if (capture_frame==60 && weapon_wheel_.open && weapon_wheel_.hovered==WeaponId::Pistol &&
+            save_screenshot(screenshot_path_+".wheel.bmp")) weapon_check_captures_|=1u;
+        glm::mat4 hand{1};
+        if (capture_frame==100 && !weapon_wheel_.open && weapon_wheel_.equipped==WeaponId::Pistol &&
+            character_visual_.player_right_hand_transform(hand) &&
+            save_screenshot(screenshot_path_+".held.bmp")) weapon_check_captures_|=2u;
+        if (capture_frame==240 && !weapon_wheel_.open && weapon_wheel_.equipped==WeaponId::Unarmed &&
+            save_screenshot(screenshot_path_+".unarmed.bmp")) weapon_check_captures_|=4u;
+        if (capture_frame==340 && weapon_use_.aim_blend>.95f &&
+            save_screenshot(screenshot_path_+".aim.bmp")) weapon_check_captures_|=8u;
+        if (capture_frame==351 && weapon_shots_==1 && weapon_use_.magazine==11 &&
+            save_screenshot(screenshot_path_+".fire.bmp")) weapon_check_captures_|=16u;
+        if (capture_frame==430 && weapon_use_.reloading && weapon_shots_==2 &&
+            save_screenshot(screenshot_path_+".reload.bmp")) weapon_check_captures_|=32u;
+        if (capture_frame==500 && !weapon_use_.reloading && weapon_use_.magazine==12 &&
+            weapon_use_.reserve==46) weapon_check_captures_|=64u;
+        if (capture_frame==580 && weapon_shots_==2 && !weapon_wheel_.open &&
+            weapon_use_.magazine==12) weapon_check_captures_|=128u;
+        if (capture_frame==342) save_screenshot(screenshot_path_+".aim-side.png");
+        if (capture_frame==352) save_screenshot(screenshot_path_+".fire-side.png");
+        if (capture_frame==431) save_screenshot(screenshot_path_+".reload-side.png");
+        capture_weapon_hit_check();
+
+    }
+
     if(lighting_benchmark_ && !screenshot_path_.empty() &&
         (frames_rendered_==419 || frames_rendered_==539)) {
         save_screenshot(screenshot_path_+(frames_rendered_==419 ? ".off.bmp" : ".on.bmp"));
@@ -2716,6 +3142,7 @@ void App::render() {
     if(house_check_)capture_house_check();
     if(signal_check_)capture_signal_check();
     if(police_officer_check_)capture_police_officer_check();
+    if(traffic_horn_check_)capture_traffic_horn_check();
     if (!screenshot_path_.empty() && frame_limit_ > 0 &&
         frames_rendered_ + 1 >= frame_limit_) {
         save_screenshot(screenshot_path_);
@@ -2809,8 +3236,11 @@ int App::run() {
         if(signal_check_ && (signal_check_failed_ || (signal_check_done_ && signal_check_capture_.empty())))break;
         if(police_officer_check_ && (police_officer_check_failed_ ||
             (police_officer_check_done_ && police_officer_check_capture_.empty())))break;
+        if(traffic_horn_check_ && (traffic_horn_check_failed_ ||
+            (traffic_horn_check_done_ && traffic_horn_check_capture_.empty())))break;
         if (delivery_check_) tick_delivery_check();
         if (weapon_check_) {
+            tick_weapon_hit_check();
             const auto key=[&](SDL_Keycode code,bool down) {
                 SDL_Event event{};event.type=down ? SDL_KEYDOWN:SDL_KEYUP;
                 event.key.keysym.sym=code;event.key.keysym.scancode=SDL_GetScancodeFromKey(code);
@@ -2825,11 +3255,56 @@ int App::run() {
             if (frames_rendered_==150) key(SDLK_ESCAPE,true);
             if (frames_rendered_==151) { key(SDLK_ESCAPE,false);key(SDLK_TAB,false); }
             if (frames_rendered_==160 && weapon_wheel_.equipped!=WeaponId::Pistol)
-                weapon_check_captures_|=8u;
+                weapon_check_captures_|=512u;
+            const auto mouse=[&](uint8_t button,bool down) {
+                SDL_Event event{}; event.type=down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+                event.button.button=button; SDL_PushEvent(&event);
+            };
+            if (frames_rendered_==260 || frames_rendered_==520) key(SDLK_TAB,true);
+            if (frames_rendered_==265) key(SDLK_2,true);
+            if (frames_rendered_==266) key(SDLK_2,false);
+            if (frames_rendered_==280) key(SDLK_TAB,false);
+            if (frames_rendered_==310) mouse(SDL_BUTTON_RIGHT,true);
+            if (frames_rendered_==350 || frames_rendered_==375 || frames_rendered_==525) mouse(SDL_BUTTON_LEFT,true);
+            if (frames_rendered_==372 || frames_rendered_==376 || frames_rendered_==526) mouse(SDL_BUTTON_LEFT,false);
+            if (frames_rendered_==400) key(SDLK_r,true);
+            if (frames_rendered_==410) {
+                SDL_Event repeat{}; repeat.type=SDL_KEYDOWN;
+                repeat.key.keysym.sym=SDLK_r; repeat.key.keysym.scancode=SDL_SCANCODE_R;
+                repeat.key.repeat=1; SDL_PushEvent(&repeat);
+            }
+            if (frames_rendered_==411) key(SDLK_r,false);
+            if (frames_rendered_==510) mouse(SDL_BUTTON_RIGHT,false);
+            if (frames_rendered_==550) key(SDLK_ESCAPE,true);
+            if (frames_rendered_==551) { key(SDLK_ESCAPE,false);key(SDLK_TAB,false); }
+
+        }
+        if (traffic_horn_check_) {
+            const auto key=[&](SDL_Keycode code,bool down,bool repeat=false) {
+                SDL_Event event{};event.type=down ? SDL_KEYDOWN : SDL_KEYUP;
+                event.key.keysym.sym=code;event.key.keysym.scancode=SDL_GetScancodeFromKey(code);
+                event.key.repeat=repeat ? 1 : 0;SDL_PushEvent(&event);
+            };
+            if (frames_rendered_==10) key(SDLK_h,true);
+            if (frames_rendered_==11 || frames_rendered_==12) key(SDLK_h,true,true);
+            if (frames_rendered_==13) key(SDLK_h,false);
+            if (frames_rendered_==40 && (vehicle_audio_.horn_count()!=1 || police_emergency_enabled_)) {
+                AP_ERROR("player H horn check: expected one horn and no siren toggle");
+                traffic_horn_check_failed_=true;
+            }
+            if (frames_rendered_==45 || frames_rendered_==55) key(SDLK_j,true);
+            if (frames_rendered_==46 || frames_rendered_==56) key(SDLK_j,false);
+            if (frames_rendered_==50 && has_police_lightbar(car_visual_.active_car()) && !police_emergency_enabled_)
+                traffic_horn_check_failed_=true;
+            if (frames_rendered_==60) {
+                if (police_emergency_enabled_) traffic_horn_check_failed_=true;
+                if (!traffic_horn_check_failed_)
+                    AP_INFO("player H horn check: PASS; one recorded horn, key repeat ignored, J siren separate");
+            }
         }
         if (police_check_ && (frames_rendered_==60 || frames_rendered_==450)) {
             SDL_Event event{}; event.type=SDL_KEYDOWN;
-            event.key.keysym.sym=SDLK_h; event.key.keysym.scancode=SDL_SCANCODE_H;
+            event.key.keysym.sym=SDLK_j; event.key.keysym.scancode=SDL_SCANCODE_J;
             SDL_PushEvent(&event);
             event.type=SDL_KEYUP; SDL_PushEvent(&event);
         }
@@ -2858,6 +3333,8 @@ int App::run() {
         const UiScreen screen_before_ui = ui_.screen();
         process_ui_input(static_cast<float>(std::clamp(dt, 0.0, 0.1)));
         if (opening_cutscene_.active()) {
+            weapon_aim_mouse_=weapon_aim_pad_=weapon_aim_toggle_=false;
+            step_weapon_use(false,0.f);
             camera_frame_dt_=static_cast<float>(std::clamp(dt,0.0,0.1));
             const float elapsed=frame_limit_>0 ? 1.f/30.f : camera_frame_dt_;
             if (opening_cutscene_.advance(elapsed)) { finish_opening();dt=0;last=WallClock::now(); }
@@ -2882,6 +3359,10 @@ int App::run() {
             0.f,mission_success_feedback_s_-camera_frame_dt_);
         if (ui_.screen()==UiScreen::Driving)
             arrested_feedback_s_=std::max(0.f,arrested_feedback_s_-camera_frame_dt_);
+        police_hit_feedback_s_ = std::max(
+            0.0f, police_hit_feedback_s_ - camera_frame_dt_);
+        police_shot_down_feedback_s_ = std::max(
+            0.0f, police_shot_down_feedback_s_ - camera_frame_dt_);
         impact_feedback_seconds_ =
             std::max(0.0f, impact_feedback_seconds_ - camera_frame_dt_);
         if (ui_.screen() == UiScreen::Driving && on_foot_ && !vehicle_transition_.active() &&
@@ -2892,17 +3373,27 @@ int App::run() {
             character_look_dy_pending_ += input_.frame().look_dy;
         }
 
+        const bool weapon_available=weapon_focus_ && ui_.screen()==UiScreen::Driving &&
+            !dev_menu_.open() && !bug_report_.open && !bank_interaction_.modal() &&
+            !bank_input_consumed_ && !weapon_wheel_.open && !weapon_input_consumed_ &&
+            on_foot_ && !vehicle_transition_.active() && !boat_transition_.active();
+        if (!weapon_available) {
+            weapon_fire_pending_=weapon_reload_pending_=false;
+            weapon_aim_mouse_=weapon_aim_pad_=weapon_aim_toggle_=false;
+            step_weapon_use(false,0.f);
+        }
         FixedStep::Tick tick;
         if (ui_.screen() == UiScreen::Driving && !began_or_resumed &&
             !dev_menu_.open() && !bank_interaction_.modal() && !bank_input_consumed_ &&
             !weapon_wheel_.open && !weapon_input_consumed_ &&
             !(lighting_benchmark_ && frames_rendered_>=300)) {
-            tick = clock_.advance((lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_) ? 1.0/60.0 : dt);
+            tick = clock_.advance((weapon_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_) ? 1.0/60.0 : dt);
         } else {
             // Title, pause and map are real pauses. Never let wall time from a
             // modal screen turn into a burst of vehicle steps on return.
             clock_.reset();
         }
+        if (weapon_check_ && was_pressed(input_.frame(),kBtnRespawn)) weapon_check_captures_|=512u;
         last_steps_ = tick.steps;
         last_clamped_ = tick.clamped;
         if (tick.clamped) {
@@ -2914,7 +3405,8 @@ int App::run() {
             const InputFrame raw_input = tire_track_check_
                 ? tire_track_check_input()
                 : (signal_check_ ? signal_check_input()
-                    : (police_officer_check_ ? police_officer_check_input() : input_.frame()));
+                    : (traffic_horn_check_ ? traffic_horn_check_input()
+                        : (police_officer_check_ ? police_officer_check_input() : input_.frame())));
             // Snapshot before EACH step, not before the batch: prev_car_ has to
             // be exactly one step behind or the render interpolation covers the
             // wrong span on a multi-step frame.
@@ -2965,7 +3457,12 @@ int App::run() {
             update_weather(true);
             collider_.set_kinematic_enabled(current_vehicle_collider_,false);
             if (trailer_.attached) enable_trailer_collision(false);
-            auto step_tuning = conditioned_tuning(tuning_, conditions_);
+            const auto snow_contact = collider_.probe_down(
+                car_.position + glm::vec3{0.0f, 0.5f, 0.0f}, 4.0f,
+                TerrainCollider::ProbeVehicles::Exclude);
+            const Conditions road_conditions = conditions_with_local_snow(conditions_,
+                snow_contact.hit ? snow_contact.snow_depth_m : conditions_.snow_depth_m);
+            auto step_tuning = conditioned_tuning(tuning_, road_conditions);
             // Loaded rig accelerates/brakes more slowly without changing the
             // tractor suspension mass or letting it sag through its wheels.
             if (trailer_.attached) {
@@ -3007,7 +3504,14 @@ int App::run() {
                     ? character_look_dx_pending_ : 0.0f;
                 character_input.look_dy = i == 0
                     ? character_look_dy_pending_ : 0.0f;
+                if (i != 0) character_input.pressed = 0u;
                 if (house_check_) character_input = house_check_input();
+                if (weapon_use_.aim_blend>.01f) {
+                    character_input.held &= ~kBtnShiftUp;
+                    character_input.steer*=.55f;
+                    character_input.throttle*=.55f;
+                    character_input.brake*=.55f;
+                }
                 world_.step_house_doors(scene_,collider_,&player_character_,character_tuning_,
                     character_input,static_cast<float>(kSimDt));
                 player_character_ = step_character(
@@ -3042,16 +3546,36 @@ int App::run() {
                     player_character_.velocity.x, player_character_.velocity.z};
                 foot_hazard_ptr = &foot_hazard;
             }
+            step_weapon_use(weapon_available && on_foot_ && !vehicle_transition_.active() &&
+                !boat_transition_.active(),static_cast<float>(kSimDt));
+            if (on_foot_ && (weapon_use_.aim_blend>.01f || weapon_use_.recoil>0.f)) {
+                player_character_.facing_yaw=player_character_.view_yaw;
+            }
+            const bool player_armed = player_has_drawn_weapon();
             const glm::vec3 police_target = player_focus_position();
             check_police_driving_offenses();
+            check_police_armed_offense(player_armed);
             const auto police_visible = visible_police(police_target);
             world_.set_police_context(wanted_.level(), police_target,
                                       police_visible);
-            world_.set_police_officer_context(on_foot_,
-                glm::length(on_foot_ ? player_character_.velocity : car_.velocity),
-                &collider_);
+            const glm::vec3 target_velocity = on_foot_
+                ? player_character_.velocity : car_.velocity;
+            world_.set_police_officer_context(on_foot_, player_armed,
+                {target_velocity.x, target_velocity.z}, &collider_);
+            // A free-driving pursuit is stepped by the same physics as the
+            // player's car, so it needs the CRUISER's handling and the same
+            // weather grip — a cop on ice must be on the ice everyone else is.
+            world_.set_police_vehicle_tuning(conditioned_tuning(
+                player_model_tuning(driving_mechanics_style_,
+                                    PlayerCarId::MunicipalCruiser91C),
+                road_conditions));
             world_.step_traffic(static_cast<int64_t>(step_index_), car_,
                                 foot_hazard_ptr);
+            check_police_shots();
+            snowplow_service_.step(world_.traffic().vehicles(), snow_clearance_,
+                                    conditions_.snow_depth_m);
+            traffic_horn_audio_.update(step_index_,world_.traffic().vehicles(),
+                world_.lanes(),world_.traffic_tuning(),camera_.position);
             world_.resolve_traffic_collision(
                 car_, tuning_.car_collision_half_width,
                 tuning_.car_collision_half_length, tuning_.mass_kg, tuning_.body_damage_gain);
@@ -3073,7 +3597,7 @@ int App::run() {
             vehicle_effects_.step(scene_, collider_, step_index_, car_, tuning_,
                                   world_.traffic());
             tire_tracks_.step(car_, vehicle_input.handbrake,
-                              conditions_.snow_cover, step_index_);
+                              road_conditions.snow_cover, step_index_);
             const auto current_police_visible=visible_police(player_focus_position());
             check_police_arrest(current_police_visible);
             wanted_.update(
@@ -3177,6 +3701,11 @@ int App::run() {
             ui_.screen() == UiScreen::Driving && !dev_menu_.open() &&
             !bank_interaction_.modal() && !weapon_wheel_.open;
         audio_frame.dt_seconds = camera_frame_dt_;
+        audio_frame.horn_available=weapon_focus_ && !bug_report_.open &&
+            !on_foot_ && !in_aircraft_ && !in_boat_ &&
+            !vehicle_transition_.active() && !boat_transition_.active();
+        audio_frame.horn_pressed=player_horn_pending_;
+        traffic_horn_audio_.set_active(audio_frame.active);
         audio_frame.engine_running = !on_foot_ && !in_aircraft_ && !in_boat_ &&
             !vehicle_engine_failed(car_.mechanical);
         audio_frame.engine_rpm = car_.engine_rpm;
@@ -3241,6 +3770,11 @@ int App::run() {
                 case TrafficVehicleKind::HalcyonSix: model = "halcyon_six"; break;
                 case TrafficVehicleKind::MontroseRegentEight: model = "montrose_regent_eight"; break;
                 case TrafficVehicleKind::VesperVx91: model = "vesper_vx91"; break;
+                // RECONSTRUCTED, not authored: this case was lost to an
+                // overwrite and "car8" is a stand-in, picked because a plow is
+                // a truck and BoxTruck already uses it. Whoever owns the
+                // snowplow should set the profile they actually want.
+                case TrafficVehicleKind::Snowplow: model = "car8"; break;
                 case TrafficVehicleKind::Police: model = "municipal_cruiser_91c"; break;
             }
             traffic_idle_audio_.submit(vehicle.lane_key, vehicle.slot, vehicle.pos,
@@ -3285,11 +3819,14 @@ int App::run() {
         car_visual_.sync_driver_door(scene_,vehicle_transition_.active()
             ? vehicle_transition_door_open(sample_vehicle_transition(vehicle_transition_,
                 transition_waiting_ ? 1.f : static_cast<float>(clock_.alpha()))) : 0.f);
+        character_visual_.set_player_weapon_pose(weapon_wheel_.equipped,
+            weapon_use_.equip_blend,weapon_use_.aim_blend,weapon_use_.recoil,
+            weapon_use_.reload_progress(),weapon_use_.reloading,player_character_.view_pitch);
         character_visual_.sync(
             world_.traffic(), prev_player_character_,
             player_character_, static_cast<float>(clock_.alpha()),
             static_cast<int64_t>(step_index_), on_foot_, presentation_focus,
-            npc_presentation_radius);
+            npc_presentation_radius, &collider_);
         if (boat_transition_.active())
             character_visual_.sync_boat_transition(world_.rendered_boat_transform(scene_),
                 boat_transition_,static_cast<float>(clock_.alpha()));
@@ -3302,9 +3839,13 @@ int App::run() {
         else character_visual_.sync_driver(car_visual_.active_car(),
             !on_foot_ && !in_aircraft_ && !in_boat_,car_visual_.rendered_body_transform(scene_));
         glm::mat4 weapon_hand{1};
-        const bool has_weapon_hand=on_foot_ && !vehicle_transition_.active() &&
+        const bool has_weapon_hand=on_foot_ && !vehicle_transition_.active() && !boat_transition_.active() &&
             character_visual_.player_right_hand_transform(weapon_hand);
-        weapon_visual_.sync(scene_,weapon_wheel_.equipped,has_weapon_hand ? &weapon_hand:nullptr);
+        weapon_visual_.sync(scene_,weapon_wheel_.equipped,has_weapon_hand ? &weapon_hand:nullptr,weapon_use_);
+        weapon_socket_player_position_=glm::mix(prev_player_character_.position,
+            player_character_.position,static_cast<float>(clock_.alpha()));
+        weapon_socket_player_yaw_=interpolate_camera_yaw(prev_player_character_.facing_yaw,
+            player_character_.facing_yaw,static_cast<float>(clock_.alpha()));
         traffic_visual_.sync(scene_, world_.traffic(), world_.lanes(),
                              static_cast<int64_t>(step_index_),
                              visible_headlight_level, presentation_focus,
@@ -3312,6 +3853,8 @@ int App::run() {
         character_visual_.sync_police(world_.traffic(),traffic_visual_,
             static_cast<float>(clock_.alpha()),static_cast<int64_t>(step_index_),
             presentation_focus,traffic_presentation_radius);
+        police_weapon_visual_.sync(
+            scene_, character_visual_.police_weapon_sockets());
         scene_.update();
 
         PrecipitationType precipitation_type = PrecipitationType::Rain;
@@ -3329,16 +3872,6 @@ int App::run() {
             static_cast<float>(kSimDt) * static_cast<float>(tick.steps));
 
         render();
-        if (weapon_check_) {
-            if (frames_rendered_==60 && weapon_wheel_.open && weapon_wheel_.hovered==WeaponId::Pistol &&
-                save_screenshot(screenshot_path_+".wheel.bmp")) weapon_check_captures_|=1u;
-            glm::mat4 hand{1};
-            if (frames_rendered_==100 && !weapon_wheel_.open && weapon_wheel_.equipped==WeaponId::Pistol &&
-                character_visual_.player_right_hand_transform(hand) &&
-                save_screenshot(screenshot_path_+".held.bmp")) weapon_check_captures_|=2u;
-            if (frames_rendered_==240 && !weapon_wheel_.open && weapon_wheel_.equipped==WeaponId::Unarmed &&
-                save_screenshot(screenshot_path_+".unarmed.bmp")) weapon_check_captures_|=4u;
-        }
 
         if (first_frame) {
             first_frame = false;
@@ -3347,6 +3880,8 @@ int App::run() {
         }
     }
 
+    if (weapon_check_) AP_INFO("weapon check: captures=%u expected=255 shots=%u ammo=%d/%d",
+        weapon_check_captures_,weapon_shots_,weapon_use_.magazine,weapon_use_.reserve);
     AP_INFO("quit after %llu sim steps (%.2f s of sim time), %d frames",
             static_cast<unsigned long long>(step_index_),
             static_cast<double>(step_index_) * kSimDt, frames_rendered_);
@@ -3440,6 +3975,16 @@ int App::run() {
                  "not the frames that were asked for",
                  gl_errors_);
         return 3;
+    }
+    AP_INFO("snowplows: %zu active units, %.1f m swept, %zu clearance strips",
+        world_.traffic().snowplow_unit_count(),
+        static_cast<double>(snowplow_service_.cleared_distance_m()),
+        snow_clearance_.strips().size());
+    if (snowplow_check_ && (snowplow_service_.cleared_distance_m() < 10.0f ||
+                            (snow_clearance_.strips().empty() &&
+                             !snowplow_refill_preview_applied_))) {
+        AP_ERROR("snowplow check: no meaningful cleared route");
+        return 4;
     }
     AP_INFO("GL error queue clean for the whole session");
     return 0;

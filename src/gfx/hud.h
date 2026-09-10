@@ -70,7 +70,7 @@ public:
     float text_line_height(float glyph_h_px) const;
 
     // Convex screen-space quad, submitted in clockwise order. Map building
-    // footprints use this so O'Haven's six-degree street grid stays visible
+    // footprints use this so Pinatty's six-degree street grid stays visible
     // instead of collapsing into axis-aligned boxes.
     void quad(glm::vec2 a_px, glm::vec2 b_px, glm::vec2 c_px, glm::vec2 d_px,
               glm::vec4 color);

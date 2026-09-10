@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <cstdint>
 #include <cstdio>
 #include <vector>
@@ -392,7 +393,7 @@ void the_drawn_surface_moves_by_this_much_per_level() {
     //
     // Sampling a square around (0, 0) reports mean 0.000 m and worst 0.002 m,
     // and every one of those digits is honest and useless: the origin sits on
-    // Vellum Row's flattened district plate, where a coarse lattice and a fine
+    // Pinatty Row's flattened district plate, where a coarse lattice and a fine
     // one obviously agree because there is nothing between the samples. A
     // drape budget derived from flat ground would then be applied to a
     // hillside.
@@ -453,6 +454,69 @@ void an_out_of_range_level_is_clamped_not_undefined() {
 
 }  // namespace
 
+// build_chunk() reads level-0 normals out of a one-vertex-wider height grid
+// instead of calling normal_at() per vertex, because at level 0 the mesh
+// spacing IS normal_at()'s one-metre epsilon: its four finite differences land
+// exactly on the four neighbouring grid vertices the builder already evaluates.
+// That took one level-0 chunk from 2.81 ms to 0.94 ms, which matters because
+// max_build_quads_per_step admits exactly one of them per streaming step and
+// that step was the whole 4 ms spike.
+//
+// It is only legitimate while the two spacings match, and the values must be
+// BIT-identical rather than close — a normal that differs in the last bit is a
+// different surface, and terrain feeds collision. This is the check that says
+// so. If normal_at's epsilon ever stops matching the level-0 spacing, the fast
+// path must go; this test is what makes that a failure instead of a drift.
+void level_zero_normals_match_normal_at_bit_for_bit() {
+    std::size_t checked = 0;
+    for (int cx = -2; cx <= 2; ++cx) {
+        for (int cz = -2; cz <= 2; ++cz) {
+            const ChunkCoord coord{cx, cz};
+            const ChunkMesh mesh = build_chunk(kSeed, coord, 0);
+            const glm::vec2 origin = chunk_origin(coord);
+            const int verts = lod_verts(0);
+            const float step = lod_spacing_metres(0);
+            for (int j = 0; j < verts; ++j) {
+                for (int i = 0; i < verts; ++i) {
+                    const float wx = origin.x + static_cast<float>(i) * step;
+                    const float wz = origin.y + static_cast<float>(j) * step;
+                    const TerrainVertex& v =
+                        mesh.vertices[static_cast<std::size_t>(j * verts + i)];
+                    const float h = height_at(kSeed, wx, wz);
+                    const glm::vec3 n = normal_at(kSeed, wx, wz);
+                    REQUIRE(std::memcmp(&v.position.y, &h, sizeof(float)) == 0);
+                    REQUIRE(std::memcmp(&v.normal, &n, sizeof(glm::vec3)) == 0);
+                    ++checked;
+                }
+            }
+        }
+    }
+    REQUIRE(checked > 100000);
+
+    // The coarse levels must NOT take that path — their spacing is 2, 4 and 8
+    // metres, so the neighbouring vertex is not where normal_at samples. They
+    // still have to agree with normal_at, by calling it.
+    for (int lod = 1; lod <= kMaxChunkLod; ++lod) {
+        const ChunkMesh mesh = build_chunk(kSeed, ChunkCoord{1, -1}, lod);
+        const glm::vec2 origin = chunk_origin(ChunkCoord{1, -1});
+        const int verts = lod_verts(lod);
+        const float step = lod_spacing_metres(lod);
+        for (int j = 0; j < verts; j += 3) {
+            for (int i = 0; i < verts; i += 3) {
+                const float wx = origin.x + static_cast<float>(i) * step;
+                const float wz = origin.y + static_cast<float>(j) * step;
+                const glm::vec3 n = normal_at(kSeed, wx, wz);
+                const TerrainVertex& v =
+                    mesh.vertices[static_cast<std::size_t>(j * verts + i)];
+                REQUIRE(std::memcmp(&v.normal, &n, sizeof(glm::vec3)) == 0);
+            }
+        }
+    }
+    std::printf("      %zu level-0 vertices agree with normal_at bit for bit\n",
+                checked);
+    apricot_test::pass("level-0 normals come from the shared grid and match normal_at exactly");
+}
+
 int main() {
     std::printf("terrain_lod_tests\n");
     a_coarse_chunk_samples_the_same_lattice_bit_for_bit();
@@ -472,6 +536,7 @@ int main() {
     the_drawn_surface_moves_by_this_much_per_level();
     apricot_test::pass("the drawn surface moves by a measured amount per level");
     an_out_of_range_level_is_clamped_not_undefined();
+    level_zero_normals_match_normal_at_bit_for_bit();
     apricot_test::pass("an out of range level is clamped, not undefined");
     return apricot_test::done("terrain_lod_tests");
 }

@@ -188,12 +188,68 @@ void check_attempt(PlayerCarId id, std::set<uint64_t>& body_hashes) {
                 body.bounds.size().z);
 }
 
+// The 91-C is the one attempt fitted against Legacy Car 5, so it is the one
+// that carries a fender. The others keep their own studied proportions.
+void cruiser_91c_fender_fit() {
+    const auto& definition =
+        player_car_definition(PlayerCarId::MunicipalCruiser91C);
+    StaticEmesh body, wheel;
+    REQUIRE(read_static_emesh(asset_path(definition.mesh_path), body));
+    REQUIRE(read_static_emesh(asset_path("models/vehicles/common/wheel.emesh"),
+                              wheel));
+    REQUIRE(definition.physical_wheel_radius > 0.f);
+
+    // The shared wheel is scaled uniformly to the declared visible radius, so
+    // the tyre's width follows its radius. Derive it; never retype it.
+    const float native_radius = std::max(wheel.bounds.size().y,
+                                         wheel.bounds.size().z) * .5f;
+    REQUIRE(native_radius > .1f);
+    const float tyre_half_width = wheel.bounds.size().x * .5f *
+        (definition.physical_wheel_radius / native_radius);
+    const float outer_face = definition.wheel_x + tyre_half_width;
+
+    // A fender is body standing outboard of the tyre. At half-track .94 the
+    // 91-C had -0.001 m of it: the sidewall was the outermost surface on the
+    // car, so the wheels read as bolted on rather than sitting under arches.
+    for (const float axle : {definition.wheel_front_z,
+                             -definition.wheel_rear_z}) {
+        float flank = 0.f;
+        for (const auto& vertex : body.vertices)
+            if (std::fabs(vertex.pz - axle) < .45f && vertex.py > .60f &&
+                vertex.py < .95f)
+                flank = std::max(flank, std::fabs(vertex.px));
+        REQUIRE(flank > outer_face + .06f);
+    }
+
+    // And the other side of that tradeoff, so nobody buys the fender back by
+    // shrinking the opening onto the tread: the arch must stay clear of the
+    // tyre both ways. Measured as the widest gap between the tread circle and
+    // the body, on the outer skin, at the axle station.
+    float mouth_top = 0.f;
+    for (const auto& vertex : body.vertices)
+        if (std::fabs(vertex.pz - definition.wheel_front_z) < .05f &&
+            std::fabs(vertex.px) > .80f &&
+            vertex.py > definition.arch_centre_y)
+            mouth_top = mouth_top == 0.f ? vertex.py
+                                         : std::min(mouth_top, vertex.py);
+    const float over_tread = mouth_top - definition.arch_centre_y -
+                             definition.physical_wheel_radius;
+    REQUIRE(over_tread > .02f);
+    REQUIRE(over_tread < .17f);
+
+    std::printf("  91-C: fender overhang %.3f m, arch clears tread by %.3f m\n",
+                1.05f - outer_face, over_tread);
+    apricot_test::pass("91-C keeps a real fender over the shared tyre without "
+                       "closing the arch onto the tread");
+}
+
 }  // namespace
 
 int main() {
     std::set<uint64_t> body_hashes;
     for (const auto id : kAttempts) check_attempt(id, body_hashes);
     REQUIRE(body_hashes.size() == kAttempts.size());
+    cruiser_91c_fender_fit();
     apricot_test::pass(
         "five distinct 1991 police studies keep open wells, articulated doors, separate glass and imagegen atlases");
     return apricot_test::done("municipal_cruiser_91_tests");

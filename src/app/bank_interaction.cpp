@@ -133,7 +133,7 @@ void BankInteraction::draw(Hud& hud, glm::vec2 vp, BankTarget nearby,
         text("ENTER / E / A / ESC  PUT NOTE DOWN",550,18,ink);
         return;
     }
-    text("O'HAVEN VAULT",35,35,ivory);
+    text("PINATTY VAULT",35,35,ivory);
     text("ENTER FOUR-DIGIT ACCESS CODE",86,19,ivory);
     std::string display = digits_;
     while (display.size() < 4u) display += '_';

@@ -25,6 +25,8 @@
 #include "test_assert.h"
 #include "traffic/ambient.h"
 #include "traffic/crowd.h"
+#include "app/presentation_budgets.h"
+#include "terrain/heightmap.h"
 
 using namespace apricot;
 using apricot_test::pass;
@@ -1265,6 +1267,352 @@ void leaking_traffic_coasts_to_a_persistent_stop() {
 
 }  // namespace
 
+// Neither ambient actor class could appear in the --overhead QA view. The
+// camera looks straight down from kOverheadQaCameraHeightM; normal play
+// presents cars for 420 m and pedestrians for 175 m, so BOTH budgets fall short
+// of even reaching the ground under it. Roads, buildings and signal heads carry
+// longer budgets, so the frame came out looking like an ordinary quiet junction
+// - and it was read as evidence that a junction the sim was actively running
+// cars and pedestrians through was clear and its crossings were unoccupied.
+//
+// The numbers are set in three different files for three different reasons, so
+// this pins the RELATIONSHIP rather than any one value: whatever the camera
+// height, the terrain floor and the crowd's radii become, the diagnostic view
+// must still reach the farthest actor of each class the crowd keeps alive.
+void overhead_qa_view_reaches_every_actor_the_crowd_keeps() {
+    const CrowdTuning tuning;
+
+    // Straight down at the deepest ground the generator can produce. Both
+    // shipped budgets fail this, which is the defect in one line each.
+    const float deepest_drop = kOverheadQaCameraHeightM - kMinHeightMetres;
+    REQUIRE(kMinHeightMetres < kSeaLevelMetres);
+    REQUIRE(kTrafficVehicleDrawDistanceM < deepest_drop);
+    REQUIRE(kAmbientNpcDrawDistanceM < deepest_drop);
+
+    struct Actor { float retire; float activate; const char* what; };
+    const Actor actors[] = {
+        {tuning.vehicle_retire_m, tuning.vehicle_activate_m, "traffic car"},
+        {tuning.ped_retire_m, tuning.ped_activate_m, "ambient pedestrian"},
+    };
+    for (const Actor& a : actors) {
+        // Activate < retire is the crowd's hysteresis pair. Presenting only to
+        // the activate radius would pop actors out of a diagnostic frame while
+        // they are still being simulated.
+        REQUIRE(a.activate < a.retire);
+
+        const float qa = overhead_qa_actor_draw_distance_m(a.retire);
+
+        // The corner of the right triangle the policy is built from: retire
+        // radius across, full drop to the terrain floor down. Nothing live sits
+        // further from the camera than this.
+        const float farthest_live_actor =
+            std::sqrt(deepest_drop * deepest_drop + a.retire * a.retire);
+        REQUIRE(qa >= farthest_live_actor);
+        REQUIRE(qa > deepest_drop);
+
+        // SEA LEVEL IS NOT THE FLOOR. Deriving the drop from y=0 instead of the
+        // island's analytic minimum silently assumes no actor ever stands below
+        // sea level, and comes up short by tens of metres over deep coastal
+        // ground. This caught exactly that mistake once already.
+        const float from_sea_level = overhead_qa_actor_draw_distance_m(
+            kOverheadQaCameraHeightM, kSeaLevelMetres, a.retire);
+        REQUIRE(from_sea_level < farthest_live_actor);
+
+        // Deeper ground can only ever need MORE distance, never less.
+        REQUIRE(overhead_qa_actor_draw_distance_m(
+                    kOverheadQaCameraHeightM, kMinHeightMetres - 10.0f,
+                    a.retire) > qa);
+    }
+
+    // DIAGNOSTIC ONLY. The fix must not become a global draw-distance rise:
+    // normal play keeps both shipped budgets, and every actor in the frame pays
+    // for any increase to them.
+    REQUIRE_NEAR(kTrafficVehicleDrawDistanceM, 420.0f, 0.001f);
+    REQUIRE_NEAR(kAmbientNpcDrawDistanceM, 175.0f, 0.001f);
+
+    // Cars are kept alive further out than pedestrians, so the view needs more
+    // reach for them. If this inverts, one of the two call sites is using the
+    // other class's radius.
+    REQUIRE(overhead_qa_actor_draw_distance_m(tuning.vehicle_retire_m) >
+            overhead_qa_actor_draw_distance_m(tuning.ped_retire_m));
+    pass("overhead QA view reaches every actor the crowd keeps");
+}
+
+// ---------------------------------------------------------------------------
+//  Replenishment: a stationary player must not watch the city drain
+// ---------------------------------------------------------------------------
+//
+// A phantom slot is a RECURRING departure, not one car: phantom_vehicle() takes
+// the remainder of (step - depart - slot*headway) over the period, so slot k
+// re-departs roughly every period_steps. Retirement used to ban the (lane, slot)
+// PAIR, which threw away every future departure along with the one car that had
+// actually been simulated. With a stationary player the in-range lane set is
+// fixed, so every slot was eventually consumed: measured on the authored city,
+// cars fell from 104 to 26 over 270 s and kept going.
+//
+// The identity now carries the LAP. The instance that was simulated stays banned
+// forever; the next lap is a different departure that nobody has simulated, and
+// it instantiates at its own closed form.
+namespace replenish {
+
+struct City {
+    TerrainGround ground{city::kMapSeed};
+    RoadGraph roads;
+    LaneGraph lanes;
+    City() {
+        roads.build(city::map_spines(), RoadGraphParams{}, ground.sampler());
+        lanes.build(roads, ground.sampler(), LaneBuildParams{});
+    }
+};
+
+struct Ident3 {
+    uint64_t key; uint32_t slot; int64_t gen;
+    bool operator<(const Ident3& o) const {
+        return std::tie(key, slot, gen) < std::tie(o.key, o.slot, o.gen);
+    }
+};
+
+// Steps the crowd with the focus a caller supplies per step, sampling the live
+// population at every refresh. Returns the per-refresh vehicle counts.
+struct Run {
+    std::vector<std::size_t> cars;
+    std::set<Ident3> ever_live;
+    std::set<Ident3> resurrected;
+    std::size_t unsafe_inserts = 0;
+    std::size_t retired_entries = 0;
+    std::size_t retired_events = 0;
+};
+
+template <typename FocusFn>
+Run drive(const LaneGraph& lanes, uint64_t seed, int64_t steps, FocusFn focus,
+          uint32_t max_peds) {
+    Crowd crowd;
+    AmbientTuning ambient;
+    CrowdTuning tuning;
+    tuning.max_peds = max_peds;
+    crowd.build(lanes, seed, ambient, tuning);
+
+    Run out;
+    std::set<Ident3> live_prev;
+    std::set<Ident3> gone;
+    const int cadence = tuning.refresh_every_steps;
+    for (int64_t step = 0; step <= steps; ++step) {
+        if (step % cadence == 0) crowd.refresh(step, focus(step));
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step);
+        crowd.step_peds(step);
+        if (step % cadence != 0) continue;
+
+        std::set<Ident3> live;
+        for (const VehicleAgent& v : crowd.vehicles())
+            live.insert(Ident3{v.lane_key, v.slot, v.generation});
+
+        for (const Ident3& id : live) {
+            if (live_prev.count(id)) continue;
+            // Newly inserted this refresh. It must not have appeared inside a
+            // junction corridor, and it must not have materialised on top of a
+            // car that was already on its lane.
+            const VehicleAgent* born = nullptr;
+            for (const VehicleAgent& v : crowd.vehicles())
+                if (v.lane_key == id.key && v.slot == id.slot) { born = &v; break; }
+            if (born == nullptr) continue;
+            for (const VehicleAgent& other : crowd.vehicles()) {
+                if (other.lane_key == id.key && other.slot == id.slot) continue;
+                if (other.lane != born->lane) continue;
+                if (std::fabs(other.dist_along_m - born->dist_along_m) < 4.0f)
+                    ++out.unsafe_inserts;
+            }
+            // An identity that was live, then absent, then live again would be
+            // a resurrection — the exact thing permanent retirement forbids.
+            if (gone.count(id)) out.resurrected.insert(id);
+        }
+        for (const Ident3& id : live_prev)
+            if (!live.count(id)) gone.insert(id);
+
+        out.ever_live.insert(live.begin(), live.end());
+        out.cars.push_back(live.size());
+        live_prev = std::move(live);
+    }
+    out.retired_entries = crowd.retired_identity_count();
+    out.retired_events = crowd.stats().retired;
+    return out;
+}
+
+// Smallest count seen in [from, to] refresh samples.
+std::size_t min_between(const Run& r, std::size_t from, std::size_t to) {
+    std::size_t lo = static_cast<std::size_t>(-1);
+    for (std::size_t i = from; i < std::min(to, r.cars.size()); ++i)
+        lo = std::min(lo, r.cars[i]);
+    return lo;
+}
+
+}  // namespace replenish
+
+// 240 s stationary on the authored city, several seeds. Before the lap became
+// part of the identity this fell by roughly three quarters and was still
+// falling; the floor below would have failed on every seed.
+void a_stationary_player_does_not_drain_the_city() {
+    replenish::City city;
+    const int64_t steps = 28800;                 // 240 s
+    const std::size_t settle = 450;              // ignore the first ~30 s
+    for (const uint64_t seed : {1ull, 4242ull, 99991ull}) {
+        const replenish::Run run = replenish::drive(
+            city.lanes, seed, steps,
+            [](int64_t) { return glm::vec2{950.0f, 200.0f}; }, 0u);
+        REQUIRE(!run.cars.empty());
+        const std::size_t early = run.cars[settle];
+        const std::size_t late = run.cars.back();
+        const std::size_t floor_count = replenish::min_between(
+            run, settle, run.cars.size());
+        REQUIRE_MSG(early > 40, "seeded demand should populate the junction",
+                    "early population");
+        // The measured pre-fix curve reached 25% of its early value and was
+        // still falling. Anything above two thirds cannot be that curve.
+        REQUIRE_MSG(late * 3 >= early * 2, "population must not drain",
+                    "stationary drain");
+        REQUIRE_MSG(floor_count * 2 >= early, "no deep trough mid-run either",
+                    "stationary trough");
+        // ...and replenishment must not run away into congestion. The spawn
+        // gap, junction clearance and max_vehicles still decide the level; this
+        // catches a policy that forced a count instead.
+        for (std::size_t n : run.cars) REQUIRE(n <= 400);
+        REQUIRE(run.resurrected.empty());
+        REQUIRE(run.unsafe_inserts == 0);
+    }
+    pass("a stationary player does not drain the city");
+}
+
+// Leaving the neighbourhood and coming back must repopulate it, and must not do
+// so by bringing the same departures back from the dead.
+void leaving_and_returning_repopulates_without_resurrection() {
+    replenish::City city;
+    const replenish::Run run = replenish::drive(
+        city.lanes, 4242ull, 28800,
+        [](int64_t step) {
+            return (step > 9600 && step < 19200) ? glm::vec2{-1200.0f, 900.0f}
+                                                 : glm::vec2{950.0f, 200.0f};
+        },
+        0u);
+    const std::size_t before_leaving = run.cars[1100];      // ~73 s, at the junction
+    const std::size_t after_return = run.cars.back();       // ~240 s, back again
+    REQUIRE(before_leaving > 40);
+    REQUIRE_MSG(after_return * 3 >= before_leaving * 2,
+                "returning to a neighbourhood must find it populated", "return");
+    REQUIRE_MSG(run.resurrected.empty(),
+                "no departure may be instantiated twice", "resurrection");
+    REQUIRE(run.unsafe_inserts == 0);
+    pass("leaving and returning repopulates without resurrection");
+}
+
+// The identity is (lane, slot, lap) but the retirement SET still holds one entry
+// per (lane, slot), carrying the newest retired lap. Without that, lap-aware
+// retirement would trade a draining city for a set that grows once per
+// retirement forever.
+void retirement_memory_is_bounded_by_identities_not_retirements() {
+    replenish::City city;
+    const replenish::Run run = replenish::drive(
+        city.lanes, 4242ull, 28800,
+        [](int64_t) { return glm::vec2{950.0f, 200.0f}; }, 0u);
+    REQUIRE(run.retired_events > 0);
+    REQUIRE_MSG(run.retired_entries < run.retired_events,
+                "the set must not hold one entry per retirement", "memory bound");
+    // Every stored entry is a distinct (lane, slot) that was retired at least
+    // once, so the set can never exceed the number of departures ever live.
+    REQUIRE(run.retired_entries <= run.ever_live.size());
+    pass("retirement memory is bounded by identities, not retirements");
+}
+
+// phantom_lap is the quotient of the division phantom_vehicle takes the
+// remainder of. If those two ever disagree, two different departures share one
+// identity and permanent retirement silently bans the wrong car.
+void the_lap_and_the_phase_come_from_one_division() {
+    LaneSchedule s;
+    s.slots = 4; s.headway_steps = 443; s.period_steps = 4 * 443;
+    s.depart_step = 91; s.speed_mps = 13.0f; s.length_m = 200.0f;
+    for (int64_t step : {-5000, -1, 0, 1, 90, 91, 92, 1771, 1772, 1773, 999999}) {
+        for (uint32_t slot = 0; slot < s.slots; ++slot) {
+            const int64_t v = step - s.depart_step -
+                              static_cast<int64_t>(slot) * s.headway_steps;
+            const int64_t lap = phantom_lap(s, slot, step);
+            const int64_t phase = v - lap * s.period_steps;
+            REQUIRE(phase >= 0);
+            REQUIRE(phase < s.period_steps);
+        }
+    }
+    // Laps advance, and never go backwards as the step advances.
+    int64_t prev = phantom_lap(s, 2, -5000);
+    for (int64_t step = -5000; step < 5000; step += 7) {
+        const int64_t lap = phantom_lap(s, 2, step);
+        REQUIRE(lap >= prev);
+        prev = lap;
+    }
+    pass("the lap and the phase come from one division");
+}
+
+// A (lane_key, slot) pair is a recurring schedule slot, so the pair alone does
+// not identify a car or a person. One agent can retire and the next lap's agent
+// appear at the SAME pair with no absent step at all — which means a consumer
+// that reconciles on the pair never sees a gap and happily keeps its state.
+// That is how a brand-new pedestrian ends up standing out of somebody else's
+// sprawl, and how a fresh car inherits a horn cooldown.
+void a_pair_can_change_departure_with_no_absent_step() {
+    replenish::City city;
+    Crowd crowd;
+    AmbientTuning ambient;
+    CrowdTuning tuning;
+    crowd.build(city.lanes, 4242ull, ambient, tuning);
+
+    std::map<std::pair<uint64_t, uint32_t>, int64_t> prev_v, prev_p;
+    std::size_t seamless_v = 0, seamless_p = 0;
+    std::size_t backwards = 0;
+    for (int64_t step = 0; step <= 32400; ++step) {
+        if (step % tuning.refresh_every_steps == 0)
+            crowd.refresh(step, glm::vec2{950.0f, 200.0f});
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step);
+        crowd.step_peds(step);
+
+        std::map<std::pair<uint64_t, uint32_t>, int64_t> now_v, now_p;
+        for (const VehicleAgent& v : crowd.vehicles())
+            now_v[{v.lane_key, v.slot}] = v.generation;
+        for (const PedAgent& p : crowd.peds())
+            now_p[{p.lane_key, p.slot}] = p.generation;
+        for (const auto& kv : now_v) {
+            const auto it = prev_v.find(kv.first);
+            if (it == prev_v.end() || it->second == kv.second) continue;
+            ++seamless_v;
+            // A generation must only ever move FORWARD at a pair. If it could
+            // go back, comparing generations would not be a safe reset trigger
+            // and an old departure could be resurrected.
+            if (kv.second < it->second) ++backwards;
+        }
+        for (const auto& kv : now_p) {
+            const auto it = prev_p.find(kv.first);
+            if (it == prev_p.end() || it->second == kv.second) continue;
+            ++seamless_p;
+            if (kv.second < it->second) ++backwards;
+        }
+        prev_v = std::move(now_v);
+        prev_p = std::move(now_p);
+    }
+    // If these ever reach zero the hazard has gone away and this test is no
+    // longer proving anything — that is a reason to look, not to delete it.
+    REQUIRE_MSG(seamless_v > 0, "vehicles swap departure with no absent step",
+                "seamless vehicle swap");
+    REQUIRE_MSG(seamless_p > 0, "pedestrians swap departure with no absent step",
+                "seamless pedestrian swap");
+    REQUIRE_MSG(backwards == 0, "a generation never moves backwards at a pair",
+                "monotonic generation");
+
+    // The rule presentation and audio reconciliation must use. Matching the
+    // pair is exactly the bug; the departure is the identity.
+    REQUIRE(same_departure(7u, 3u, 5, 7u, 3u, 5));
+    REQUIRE(!same_departure(7u, 3u, 5, 7u, 3u, 6));
+    REQUIRE(!same_departure(7u, 3u, 5, 7u, 4u, 5));
+    REQUIRE(!same_departure(7u, 3u, 5, 8u, 3u, 5));
+    pass("a pair can change departure with no absent step");
+}
+
 int main() {
     leaking_traffic_coasts_to_a_persistent_stop();
     pedestrian_paths_follow_pavements_and_junction_mouths();
@@ -1297,6 +1645,7 @@ int main() {
         pass("taken traffic identity does not respawn after refresh");
     }
     signal_cycle_is_shared_and_opposed();
+    overhead_qa_view_reaches_every_actor_the_crowd_keeps();
     junction_turns_have_continuous_heading();
     stop_signs_require_a_real_dwell();
     junction_right_of_way_has_one_winner();
@@ -1314,5 +1663,10 @@ int main() {
     signal_box_admits_a_bounded_number_of_cars();
     junction_negotiation_keeps_the_network_moving();
     real_city_intersections_do_not_keep_stalled_claimants();
+    the_lap_and_the_phase_come_from_one_division();
+    a_stationary_player_does_not_drain_the_city();
+    leaving_and_returning_repopulates_without_resurrection();
+    retirement_memory_is_bounded_by_identities_not_retirements();
+    a_pair_can_change_departure_with_no_absent_step();
     return apricot_test::done("traffic_runtime_tests");
 }

@@ -22,7 +22,8 @@ struct VehicleFluidMarkPlacement {
 // Place a spill on the highest drawn surface below its vehicle. Raw
 // TerrainCollider::height() deliberately means terrain only; roads and raised
 // sidewalks are baked collision triangles above it and must be found through
-// probe_down() or they will draw over the mark.
+// probe_down() or they will draw over the mark. Vehicle boxes become solid
+// when the driver exits; ignore them so a growing puddle stays under the car.
 inline VehicleFluidMarkPlacement vehicle_fluid_mark_placement(
     const TerrainCollider& collider, glm::vec2 position_xz, float source_y) {
     const float terrain_y = collider.height(position_xz.x, position_xz.y);
@@ -30,7 +31,8 @@ inline VehicleFluidMarkPlacement vehicle_fluid_mark_placement(
     const float origin_y = std::max(source_y + 0.75f, terrain_y + 1.0f);
     const float reach = std::max(origin_y - terrain_y + 0.5f, 1.5f);
     const TerrainCollider::GroundHit hit = collider.probe_down(
-        {position_xz.x, origin_y, position_xz.y}, reach);
+        {position_xz.x, origin_y, position_xz.y}, reach,
+        TerrainCollider::ProbeVehicles::Exclude);
 
     VehicleFluidMarkPlacement out;
     glm::vec3 surface_point{position_xz.x, terrain_y, position_xz.y};

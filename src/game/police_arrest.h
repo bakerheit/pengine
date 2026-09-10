@@ -47,7 +47,11 @@ public:
         if (reported_ || !player_on_foot) return std::nullopt;
 
         for (const auto& car : officers) {
+            // An officer on the ground cannot make an arrest. Without this a
+            // downed cop keeps accruing his own hold and cuffs the player from
+            // where he fell.
             if (!car.police_unit || !car.police_pursuit ||
+                police_officer_downed(car.officer) ||
                 car.officer.phase != PoliceOfficerPhase::Pursuing) continue;
             const VisiblePoliceIdentity id{car.lane_key, car.slot};
             if (std::find(visible.begin(), visible.end(), id) == visible.end()) continue;

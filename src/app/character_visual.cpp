@@ -1,4 +1,5 @@
 #include "app/character_visual.h"
+#include "app/ped_impact_pose.h"
 #include "app/traffic_visual.h"
 
 #include <algorithm>
@@ -23,11 +24,25 @@ namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
 constexpr float kTwoPi = kPi * 2.0f;
-constexpr float kNpcDrawDistance = 175.0f;
-constexpr float kWalkStrideMetres = 1.35f;
-// Cover more ground per cycle while keeping the original 5.45 m/s run cadence.
-constexpr float kSprintStrideMetres = 2.25f * (6.25f / 5.45f);
+// The stride lengths that used to live here are now CharacterAnimTuning's
+// walk_stride_m / sprint_stride_m, at the same values, so the clock that reads
+// them and the state machine that chooses the clip cannot drift apart.
 constexpr float kPedSurfaceLift = DRAPE_EPS_M + SIDEWALK_KERB_M;
+// Above this an ambient walker is running. The animator applies its own
+// threshold too; this is the crowd's own "they broke into a run" signal.
+constexpr float kPedRunSpeed = 3.0f;
+// The player has no lane key, so it needs one stable identity of its own for
+// the hash-derived idle variety. A literal, never a clock and never a counter.
+constexpr uint64_t kPlayerAnimIdentity = 0x504C4159'45520001ull;
+
+// One identity per ambient person, used for BOTH the model choice and every
+// deterministic animation decision. Keeping it in one function is what stops
+// the two drifting apart into a character who changes their idle when they
+// change their shirt.
+uint64_t ped_identity(const PedAgent& agent) {
+    return splitmix64_mix(agent.lane_key ^
+                          (static_cast<uint64_t>(agent.slot) << 32));
+}
 
 bool identity_less(uint64_t ak, uint32_t as, uint64_t bk, uint32_t bs) {
     return ak != bk ? ak < bk : as < bs;
@@ -43,6 +58,30 @@ float wrapped_delta(float from, float to) {
 float mixed_angle(float from, float to, float alpha) {
     return from + wrapped_delta(from, to) * alpha;
 }
+
+// Knockdown ragdoll feel. All of it is presentation: the sim decided this
+// person is Downed, for how long, and WHERE THEY END UP. Nothing here can
+// change any of the three.
+//
+// Note what is not in this list: the launch. PedAgent::impact_velocity is the
+// throw, the crowd integrates it, and the ragdoll is handed the same vector —
+// so there is one answer to "how hard was that" rather than two constants
+// here quietly disagreeing with two in PedLifeTuning about where a body lands.
+//
+// How quickly the figure closes on the position the sim gives it, as a time
+// constant in seconds. Long enough to be invisible during a tumble, short
+// enough that the two agree well before anybody stands up.
+constexpr float kRagdollAnchorTau = 0.30f;
+// How long the settled ragdoll takes to become the stand-up clip.
+//
+// Short enough that the body is not visibly rubber, long enough that the
+// morph is a movement rather than a cut. The clip runs from its own start
+// throughout: this fades the POSE, it does not delay the get-up.
+constexpr float kGetUpFadeS = 0.28f;
+constexpr float kRagdollSpinMin = 2.6f;
+constexpr float kRagdollSpinMax = 6.4f;
+constexpr float kRagdollSpinJitter = 2.2f;
+const RagdollTuning kRagdollTuning{};
 
 Transform facing_transform(glm::vec3 position, glm::vec3 forward) {
     Transform transform;
@@ -66,23 +105,11 @@ bool CharacterVisual::load_model(const std::string& root, float height_m,
         AP_ERROR("character visual: rigged model '%s' is invalid", root.c_str());
         return false;
     }
-    if (!out.idle.load(asset_path(
-            "models/characters/psx_pack/animations/idle.eanim"),
-            out.skeleton) ||
-        !out.walk.load(asset_path(
-            "models/characters/psx_pack/animations/walk.eanim"),
-            out.skeleton) ||
-        !out.sprint.load(asset_path(
-            "models/characters/psx_pack/animations/sprint.eanim"),
-            out.skeleton)) {
+    // The whole registered set, not three clips. CharacterClipSet::load()
+    // already refuses a clip that leaves a channel unbound, which is the
+    // failure that produces a half-animated body and reads as a rig bug.
+    if (!out.clips.load(out.skeleton)) {
         AP_ERROR("character visual: animation set did not bind to '%s'",
-                 root.c_str());
-        return false;
-    }
-    if (out.idle.unresolved_channels() != 0 ||
-        out.walk.unresolved_channels() != 0 ||
-        out.sprint.unresolved_channels() != 0) {
-        AP_ERROR("character visual: animation set has missing bones for '%s'",
                  root.c_str());
         return false;
     }
@@ -104,25 +131,75 @@ bool CharacterVisual::load_model(const std::string& root, float height_m,
         -source.bounds.min.y * scale,
         -source.bounds.center().z * scale,
     };
-    out.walk_plant = locomotion_plant_offset(
-        source, out.skeleton, out.walk, scale);
-    out.sprint_plant = locomotion_plant_offset(
-        source, out.skeleton, out.sprint, scale);
+    for (const CharacterClipInfo& info : kCharacterClips) {
+        // Only the locomotion clips are planted. A death or a get-up ENDS on
+        // the ground on purpose; lifting it to meet a walk cycle's lowest foot
+        // would leave the body hovering above the pavement.
+        out.plants[static_cast<std::size_t>(info.clip)] = info.planted
+            ? locomotion_plant_offset(source, out.skeleton,
+                                      out.clips.clip(info.clip), scale)
+            : 0.0f;
+    }
+    // Ragdoll binding. NOT fatal if it fails: a model whose skeleton is not a
+    // humanoid this can drive still walks, talks and dies on a clip. It just
+    // does not fall with physics, and the log says which one and why.
+    if (!ragdoll_rig_build(out.skeleton, scale, out.ragdoll)) {
+        AP_WARN("character visual: '%s' will use the canned knockdown; its "
+                "skeleton did not bind a ragdoll", root.c_str());
+    }
+    if (!weapon_pose_detail::palm_socket(out.skeleton, "Right",
+                                         out.right_hand_bone,
+                                         out.right_hand_socket)) {
+        out.right_hand_bone = -1;
+    }
+
     out.loaded = true;
-    AP_INFO("character visual: loaded '%s' (%d bones, %.3f m walk plant)",
-            root.c_str(), out.skeleton.bone_count(),
-            static_cast<double>(out.walk_plant));
+    AP_INFO("character visual: loaded '%s' (%d bones, %d clips, %.3f m walk "
+            "plant)", root.c_str(), out.skeleton.bone_count(),
+            kCharacterClipCount,
+            static_cast<double>(
+                out.plants[static_cast<std::size_t>(CharacterClip::Walk)]));
     return true;
 }
 
 void CharacterVisual::sample_pose(const Model& model,
-                                  const Animation& animation, float time,
-                                  Pose& out) {
-    animation.sample(time, model.skeleton, out.local);
-    strip_root_motion_xz(model.skeleton, out.local);
+                                  const CharacterAnimSample& sample,
+                                  Pose& out) const {
+    evaluate_character_pose(model.clips, model.skeleton, sample, parts_a_,
+                            parts_b_, out.local);
     model.skeleton.compute_skin_matrices(out.local, out.skin);
     skin_matrices_to_dual_quaternions(
         out.skin, out.dual_real, out.dual_part);
+}
+
+void CharacterVisual::sample_clip(const Model& model, CharacterClip clip,
+                                  float time, Pose& out) const {
+    CharacterAnimSample sample;
+    sample.clip = clip;
+    sample.from = clip;
+    sample.time = time;
+    sample.from_time = time;
+    sample.blend = 1.0f;
+    sample.root = character_clip_info(clip).root;
+    sample.anchor_xz = model.clips.anchor_xz(clip);
+    sample_pose(model, sample, out);
+}
+
+void CharacterVisual::advance_rig(Rig& rig, const Model& model,
+                                  const CharacterAnimInput& input,
+                                  double sim_seconds,
+                                  const Transform& root, bool bullet_fall) const {
+    // dt comes off the SIM clock, never a wall clock. A rig seen for the first
+    // time this frame owes zero seconds, not whatever the last one owed.
+    const float dt = rig.started
+        ? static_cast<float>(std::max(0.0, sim_seconds - rig.last_sim_seconds))
+        : 0.0f;
+    rig.last_sim_seconds = sim_seconds;
+    rig.started = true;
+    rig.animator.advance(model.clips, input, dt);
+    rig.world = model_transform(root, model,
+                                rig.animator.plant(model.plants));
+    sample_pose(model, pedestrian_impact_sample(rig.animator.sample(), bullet_fall), rig.pose);
 }
 
 Transform CharacterVisual::model_transform(const Transform& root,
@@ -144,25 +221,8 @@ bool CharacterVisual::init(const PlayerCharacterState& player) {
         return false;
     }
 
-    player_right_hand_bone_ = player_model_.skeleton.find_bone("mixamorig:RightHand");
-    const int index = player_model_.skeleton.find_bone("mixamorig:RightHandIndex1");
-    if (player_right_hand_bone_ >= 0 && index >= 0) {
-        const auto& hand = player_model_.skeleton.bone(player_right_hand_bone_);
-        const glm::mat4 bind_hand = glm::inverse(hand.inverse_bind);
-        const glm::vec3 wrist{bind_hand[3]};
-        const glm::vec3 knuckle{glm::inverse(player_model_.skeleton.bone(index).inverse_bind)[3]};
-        const glm::vec3 forward = glm::normalize(knuckle - wrist);
-        const glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3{0, 0, 1}));
-        const glm::vec3 up = glm::cross(right, forward);
-        glm::mat4 socket{1.0f};
-        socket[0] = glm::vec4{right, 0};
-        socket[1] = glm::vec4{up, 0};
-        socket[2] = glm::vec4{-forward, 0};
-        socket[3] = glm::vec4{glm::mix(wrist, knuckle, .70f), 1};
-        player_right_hand_socket_ = hand.inverse_bind * socket;
-    } else {
-        player_right_hand_bone_ = -1;
-    }
+    player_right_hand_bone_ = player_model_.right_hand_bone;
+    player_right_hand_socket_ = player_model_.right_hand_socket;
 
     static constexpr std::array<const char*, 18> kNames = {
         "civilian_male_03", "civilian_male_05", "civilian_male_07",
@@ -192,14 +252,15 @@ bool CharacterVisual::init(const PlayerCharacterState& player) {
         if (!load_model(root, 1.76f, police_models_[i])) return false;
     }
 
-    last_player_distance_ = player.distance_walked_m;
-    player_walk_time_ = 0.0f;
+    player_sim_seconds_ = 0.0;
+    player_started_ = false;
+    player_animator_.reset();
     player_visible_ = true;
     const Transform root = facing_transform(
         player.position, character_forward(player.facing_yaw));
     player_world_ = model_transform(root, player_model_, 0.0f);
-    sample_pose(player_model_, player_model_.idle, 0.0f, player_pose_);
-    sync_staff(0, 0.0f, glm::vec3{0.0f}, 0.0f);
+    sample_clip(player_model_, CharacterClip::Idle, 0.0f, player_pose_);
+    sync_staff(0.0, glm::vec3{0.0f}, 0.0f);
     AP_INFO("character visual: player plus %zu supplied skinned civilian models "
             "ready", npc_models_.size());
     AP_INFO("character visual: %zu supplied police uniform models ready",
@@ -207,56 +268,184 @@ bool CharacterVisual::init(const PlayerCharacterState& player) {
     return true;
 }
 
-CharacterVisual::Rig CharacterVisual::create_rig(
-    const PedAgent& agent, int64_t step) const {
+CharacterVisual::Rig CharacterVisual::create_rig(const PedAgent& agent) const {
     Rig rig;
     rig.lane_key = agent.lane_key;
     rig.slot = agent.slot;
-    const uint64_t identity = splitmix64_mix(
-        agent.lane_key ^ (static_cast<uint64_t>(agent.slot) << 32));
-    rig.model = static_cast<std::size_t>(identity % npc_models_.size());
-    rig.last_step = step;
-    const Model& model = npc_models_[rig.model];
-    rig.walk_time = static_cast<float>(identity & 0xFFFFu) / 65536.0f *
-                    model.walk.duration();
+    rig.generation = agent.generation;
+    rig.model = static_cast<std::size_t>(
+        ped_identity(agent) % npc_models_.size());
     return rig;
 }
 
-void CharacterVisual::sync_rig(Rig& rig, const PedAgent& agent, float alpha,
-                               int64_t step) const {
+void CharacterVisual::sync_rig(Rig& rig, const PedAgent& agent,
+                               double sim_seconds,
+                               const TerrainCollider* world) const {
     const Model& model = npc_models_[rig.model];
-    const int64_t elapsed_steps = std::max<int64_t>(0, step - rig.last_step);
-    rig.last_step = step;
-    const float speed = std::max(agent.speed_mps, 0.0f);
-    const float seconds = static_cast<float>(elapsed_steps) *
-                          static_cast<float>(kSimDt);
-    rig.walk_time += seconds * speed / kWalkStrideMetres *
-                     model.walk.duration();
-
     Transform root = facing_transform(agent.pos, agent.fwd);
     root.position.y += kPedSurfaceLift;
-    if (speed <= 0.08f) {
-        const float identity_phase = static_cast<float>(
-            (agent.lane_key ^ static_cast<uint64_t>(agent.slot)) & 255u) /
-            256.0f;
-        const float idle_time = (static_cast<float>(step) + alpha) *
-            static_cast<float>(kSimDt) +
-            identity_phase * model.idle.duration();
-        rig.world = model_transform(root, model, 0.0f);
-        sample_pose(model, model.idle, idle_time, rig.pose);
-    } else {
-        const float render_ahead = alpha * static_cast<float>(kSimDt) * speed /
-                                   kWalkStrideMetres * model.walk.duration();
-        rig.world = model_transform(root, model, model.walk_plant);
-        sample_pose(model, model.walk, rig.walk_time + render_ahead, rig.pose);
+
+    // Only Downed holds the fall; Rising releases it into the stand-up clip.
+    // The incoming direction selects forward/backward for an authored bullet
+    // fall, while a car impact keeps the physical tumbling response.
+    CharacterAnimInput input = pedestrian_impact_input(
+        agent.activity == PedActivity::Downed, agent.impact_from_bullet,
+        glm::dot(agent.impact_dir_xz, glm::vec2{agent.fwd.x, agent.fwd.z}) < 0.0f);
+    input.identity = ped_identity(agent);
+    input.speed_mps = std::max(agent.speed_mps, 0.0f);
+    input.sprinting = input.speed_mps > kPedRunSpeed;
+    // dt is read before advance_rig consumes it, because the ragdoll and the
+    // animator owe the same seconds and must not disagree about how many.
+    const float dt = rig.started
+        ? static_cast<float>(std::max(0.0, sim_seconds - rig.last_sim_seconds))
+        : 0.0f;
+
+    // The animator runs EVERY frame, ragdoll or not. It is what holds the
+    // knockdown state while the body is on the floor and what decides the
+    // get-up when the crowd puts this person back on their feet; stopping it
+    // for the duration would mean rebuilding that state on the way out.
+    advance_rig(rig, model, input, sim_seconds, root, agent.impact_from_bullet);
+
+    if (input.downed && model.ragdoll.valid && world != nullptr &&
+        !rig.pose.local.empty()) {
+        // Knocked down again mid-recovery: the old fade is about a pose this
+        // body no longer holds.
+        rig.getup_fade_s = 0.0f;
+        rig.landed.clear();
+        step_ragdoll(rig, model, agent, world, dt);
+        return;
     }
+
+    // On their feet again. The animator has already entered the stand-up clip
+    // — what it has NOT got is any idea what shape the body was in when it
+    // stopped being physics, so left alone it cuts from a sprawl to the clip's
+    // authored first frame.
+    if (rig.ragdolling) begin_getup(rig, model);
+    if (rig.getup_fade_s > 0.0f) blend_getup(rig, model, dt);
+}
+
+void CharacterVisual::begin_getup(Rig& rig, const Model& model) const {
+    rig.ragdolling = false;
+    rig.getup_fade_s = 0.0f;
+    rig.landed.clear();
+    if (!rig.ragdoll.active || !model.ragdoll.valid) return;
+
+    // The landed pose, read out of the SOLVER rather than saved off last
+    // frame's buffer: the nodes are still exactly where they came to rest, and
+    // rig.world is the same root the animator is now using, so the two pose
+    // sets are already in one frame and the fade is a plain part-wise blend.
+    ragdoll_bone_poses(model.ragdoll, rig.ragdoll, rig.world.matrix(),
+                       fade_local_);
+    if (fade_local_.size() != rig.pose.local.size()) return;
+    decompose_local_poses(fade_local_, rig.landed);
+    rig.getup_fade_s = kGetUpFadeS;
+}
+
+void CharacterVisual::blend_getup(Rig& rig, const Model& model, float dt) const {
+    rig.getup_fade_s = std::max(0.0f, rig.getup_fade_s - dt);
+    if (rig.landed.size() != rig.pose.local.size()) {
+        rig.getup_fade_s = 0.0f;
+        rig.landed.clear();
+        return;
+    }
+    // 0 at the moment the body stopped being physics, 1 at the end of the
+    // fade. Smoothstepped so it leaves the landed pose gently — a linear ramp
+    // starts the whole body moving on one frame and reads as a twitch.
+    const float t =
+        std::clamp(1.0f - rig.getup_fade_s / kGetUpFadeS, 0.0f, 1.0f);
+    const float weight = t * t * (3.0f - 2.0f * t);
+
+    // Blend the FULLY EVALUATED poses, decomposed. Not the clip's raw parts:
+    // by this point evaluate_character_pose() has already applied the stand-up
+    // clip's root anchoring, and blending before that and re-anchoring after
+    // would snap the root to the clip's own XZ — which is the position pop
+    // this whole path exists to remove, arriving one layer down.
+    decompose_local_poses(rig.pose.local, fade_parts_);
+    ragdoll_getup_blend(rig.landed, fade_parts_, weight, fade_parts_);
+    compose_local_poses(fade_parts_, rig.pose.local);
+    model.skeleton.compute_skin_matrices(rig.pose.local, rig.pose.skin);
+    skin_matrices_to_dual_quaternions(rig.pose.skin, rig.pose.dual_real,
+                                      rig.pose.dual_part);
+    if (rig.getup_fade_s <= 0.0f) rig.landed.clear();
+}
+
+void CharacterVisual::step_ragdoll(Rig& rig, const Model& model,
+                                   const PedAgent& agent,
+                                   const TerrainCollider* world,
+                                   float dt) const {
+    if (!rig.ragdolling) {
+        // HAND OVER FROM THE FRAME THE ANIMATOR WAS SHOWING, not from bind.
+        // advance_rig() has just filled rig.pose.local and rig.world for this
+        // frame, and seeding off those is what makes the switch invisible; a
+        // bind pose snaps the body to a T for one frame and reads as a glitch
+        // from thirty metres away.
+        std::array<glm::vec3, kRagdollJointCount> pose{};
+        ragdoll_sample_pose(model.ragdoll, rig.pose.local,
+                            rig.world.matrix(), pose);
+
+        // The launch is the SIM's launch, not a second opinion about it. The
+        // crowd already threw this body — it is integrating the same vector
+        // under the same gravity to decide where the person ends up — so
+        // taking any other number here would mean the ragdoll and the get-up
+        // spot disagree, and the anchor below would spend the fall dragging
+        // one to the other.
+        const glm::vec3 launch = agent.impact_velocity;
+        const glm::vec2 dir = agent.impact_dir_xz;
+
+        // Tumble. Keyed to (person, which knockdown this is) so the same
+        // victim hit twice falls differently and any given fall replays
+        // identically — hash_coord, never a stream, for the reason
+        // core/rng.h gives.
+        Rng rng{hash_coord(ped_identity(agent),
+                           static_cast<int32_t>(agent.activity_decisions), 0)};
+        // Principally about the axis across the direction of travel, which is
+        // the pitch that carries somebody over a bonnet. The rest is jitter,
+        // so nobody rotates about a perfectly clean axis.
+        const glm::vec3 across{-dir.y, 0.0f, dir.x};
+        const glm::vec3 spin =
+            across * rng.range(kRagdollSpinMin, kRagdollSpinMax) +
+            glm::vec3{rng.unit_float(), rng.unit_float(), rng.unit_float()} *
+                kRagdollSpinJitter;
+
+        ragdoll_launch(rig.ragdoll, model.ragdoll.figure, pose, launch, spin);
+        rig.ragdolling = rig.ragdoll.active;
+        if (!rig.ragdolling) return;
+    }
+
+    ragdoll_step(rig.ragdoll, model.ragdoll.figure, kRagdollTuning, world,
+                 nullptr, dt);
+
+    // Back onto the position the sim owns. agent.pos already carries the
+    // crowd's own thrown-body offset, so this is a correction of centimetres
+    // and not a leash.
+    if (dt > 0.0f) {
+        ragdoll_anchor_xz(rig.ragdoll, {agent.pos.x, agent.pos.z},
+                          1.0f - std::exp(-dt / kRagdollAnchorTau));
+    }
+
+    // THE ANIMATOR'S ROOT, not one of our own at the pelvis.
+    //
+    // Re-rooting here was tidier for precision and made the get-up crossfade
+    // impossible: the ragdoll's bone poses were then relative to an
+    // identity-rotation frame at the hips while the clip's were relative to a
+    // frame facing agent.fwd, and blending two local poses that do not share a
+    // frame re-rotates one of them by the difference. Sharing the root makes
+    // the fade a plain part-wise blend and costs nothing — the sim anchor
+    // above already keeps the pelvis within centimetres of agent.pos, so the
+    // bone-local numbers stay small anyway.
+    ragdoll_bone_poses(model.ragdoll, rig.ragdoll, rig.world.matrix(),
+                       rig.pose.local);
+    model.skeleton.compute_skin_matrices(rig.pose.local, rig.pose.skin);
+    skin_matrices_to_dual_quaternions(rig.pose.skin, rig.pose.dual_real,
+                                      rig.pose.dual_part);
 }
 
 void CharacterVisual::sync(const Crowd& crowd,
                            const PlayerCharacterState& previous_player,
                            const PlayerCharacterState& player, float alpha,
                            int64_t step, bool player_visible, glm::vec3 focus,
-                           float presentation_radius_m) {
+                           float presentation_radius_m,
+                           const TerrainCollider* world) {
     driver_visible_ = false;
     const float blend = std::clamp(alpha, 0.0f, 1.0f);
     const float player_yaw = mixed_angle(
@@ -264,32 +453,44 @@ void CharacterVisual::sync(const Crowd& crowd,
     Transform player_root = facing_transform(
         glm::mix(previous_player.position, player.position, blend),
         character_forward(player_yaw));
-    const float walked = glm::mix(previous_player.distance_walked_m,
-                                  player.distance_walked_m, blend);
-    const float distance_delta = std::max(0.0f, walked - last_player_distance_);
-    last_player_distance_ = walked;
+    const double sim_seconds =
+        (static_cast<double>(step) + static_cast<double>(blend)) * kSimDt;
+    const float dt = player_started_
+        ? static_cast<float>(std::max(0.0, sim_seconds - player_sim_seconds_))
+        : 0.0f;
+    player_sim_seconds_ = sim_seconds;
+    player_started_ = true;
 
-    const float speed = glm::length(glm::vec2{player.velocity.x,
-                                              player.velocity.z});
-    const Animation* animation = &player_model_.idle;
-    float animation_time = (static_cast<float>(step) + blend) *
-                           static_cast<float>(kSimDt);
-    float plant = 0.0f;
-    if (speed > 0.08f) {
-        const bool sprinting = player.sprinting;
-        animation = sprinting ? &player_model_.sprint : &player_model_.walk;
-        const float stride = sprinting ? kSprintStrideMetres
-                                       : kWalkStrideMetres;
-        player_walk_time_ += distance_delta / stride * animation->duration();
-        animation_time = player_walk_time_;
-        plant = sprinting ? player_model_.sprint_plant
-                          : player_model_.walk_plant;
+    // THE TRANSLATION, player side. Same ten lines, different source.
+    CharacterAnimInput input;
+    input.identity = kPlayerAnimIdentity;
+    input.speed_mps = glm::length(glm::vec2{player.velocity.x,
+                                            player.velocity.z});
+    input.sprinting = player.sprinting;
+    input.grounded = player.grounded;
+    input.punch = player_punch_.consume();
+    player_animator_.advance(player_model_.clips, input, dt);
+    if (player_animator_.consume_punch_contact()) player_punch_contact_ = true;
+
+    player_world_ = model_transform(player_root, player_model_,
+                                    player_animator_.plant(player_model_.plants));
+    sample_pose(player_model_, player_animator_.sample(), player_pose_);
+    if (player_visible && apply_player_weapon_pose(
+            player_model_.skeleton, player_model_.local.scale.y,
+            player_weapon_pose_, player_pose_.local, weapon_pose_scratch_)) {
+        player_model_.skeleton.compute_skin_matrices(player_pose_.local, player_pose_.skin);
+        skin_matrices_to_dual_quaternions(player_pose_.skin, player_pose_.dual_real,
+                                          player_pose_.dual_part);
     }
-    player_world_ = model_transform(player_root, player_model_, plant);
-    sample_pose(player_model_, *animation, animation_time, player_pose_);
     player_visible_ = player_visible;
 
-    const std::vector<PedAgent>& agents = crowd.peds();
+    sync_ambient(crowd.peds(), sim_seconds, focus, presentation_radius_m, world);
+}
+
+void CharacterVisual::sync_ambient(const std::vector<PedAgent>& agents,
+                                   double sim_seconds, glm::vec3 focus,
+                                   float presentation_radius_m,
+                                   const TerrainCollider* world) {
     std::vector<Rig> next;
     next.reserve(presentation_radius_m > 0.0f
                      ? std::min<std::size_t>(agents.size(), 64u)
@@ -309,17 +510,53 @@ void CharacterVisual::sync(const Crowd& crowd,
             rigs_[old].slot == agent.slot) {
             rig = std::move(rigs_[old]);
             ++old;
+            // Same pair, different departure: a different person. Start them
+            // fresh rather than inheriting a ragdoll or a get-up fade.
+            if (!same_departure(rig.lane_key, rig.slot, rig.generation,
+                                agent.lane_key, agent.slot, agent.generation))
+                rig = create_rig(agent);
         } else {
-            rig = create_rig(agent, step);
+            rig = create_rig(agent);
         }
-        sync_rig(rig, agent, blend, step);
+        sync_rig(rig, agent, sim_seconds, world);
         next.push_back(std::move(rig));
     }
     rigs_ = std::move(next);
-    sync_staff(step, blend, focus, presentation_radius_m);
+    sync_staff(sim_seconds, focus, presentation_radius_m);
 }
 
-void CharacterVisual::sync_staff(int64_t step, float alpha, glm::vec3 focus,
+bool CharacterVisual::police_rig_probe(uint64_t lane_key, uint32_t slot,
+                                      AmbientRigProbe& out) const {
+    for (const PoliceRig& rig : police_rigs_) {
+        if (rig.character.lane_key != lane_key || rig.character.slot != slot)
+            continue;
+        out.generation = rig.character.generation;
+        out.model = rig.character.model;
+        out.ragdolling = rig.character.ragdolling;
+        out.getup_running = rig.character.getup_fade_s > 0.0f ||
+                            !rig.character.landed.empty();
+        out.started = rig.character.started;
+        return true;
+    }
+    return false;
+}
+
+bool CharacterVisual::ambient_rig_probe(uint64_t lane_key, uint32_t slot,
+                                       AmbientRigProbe& out) const {
+    for (const Rig& rig : rigs_) {
+        if (rig.lane_key != lane_key || rig.slot != slot) continue;
+        out.generation = rig.generation;
+        out.model = rig.model;
+        out.ragdolling = rig.ragdolling;
+        out.getup_running = rig.getup_fade_s > 0.0f || !rig.landed.empty();
+        out.started = rig.started;
+        out.clip_time_s = rig.animator.sample().time;
+        return true;
+    }
+    return false;
+}
+
+void CharacterVisual::sync_staff(double sim_seconds, glm::vec3 focus,
                                  float presentation_radius_m) {
     std::vector<Rig> next;
     next.reserve(std::size(city::kAuthoredStaff));
@@ -336,18 +573,14 @@ void CharacterVisual::sync_staff(int64_t step, float alpha, glm::vec3 focus,
         rig.lane_key = staff.identity;
         rig.slot = 0;
         rig.model = staff.civilian_model;
-        const Model& model = npc_models_[rig.model];
-        rig.world = model_transform(facing_transform(
-            position, city::authored_staff_forward(staff)),
-            model, 0.0f);
-        // Absolute simulation time avoids resets when the shop is streamed
-        // out or the camera returns. A fixed phase separates future clerks.
-        const double phase = static_cast<double>(staff.identity & 0xffffu) / 65536.0;
-        const double seconds = (static_cast<double>(step) + static_cast<double>(alpha)) * kSimDt;
-        const double duration = static_cast<double>(model.idle.duration());
-        const float time = duration > 0.0 ?
-            static_cast<float>(std::fmod(seconds + phase * duration, duration)) : 0.0f;
-        sample_pose(model, model.idle, time, rig.pose);
+        // A clerk stands still, so their whole performance is the idle. The
+        // animator's per-identity phase, rate and idle breaks are what stop two
+        // shops full of staff breathing in unison.
+        CharacterAnimInput input;
+        input.identity = staff.identity;
+        advance_rig(rig, npc_models_[rig.model], input, sim_seconds,
+                    facing_transform(position,
+                                     city::authored_staff_forward(staff)));
         next.push_back(std::move(rig));
     }
     staff_rigs_ = std::move(next);
@@ -357,7 +590,7 @@ void CharacterVisual::prepare_boat_transition(const PlayerCharacterState& shore)
     if(!player_model_.loaded) {boat_standing_pose_={};return;}
     const auto root=facing_transform(shore.position,character_forward(shore.facing_yaw));
     boat_standing_world_=model_transform(root,player_model_,0);
-    sample_pose(player_model_,player_model_.idle,0,boat_standing_pose_);
+    sample_clip(player_model_,CharacterClip::Idle,0,boat_standing_pose_);
 }
 void CharacterVisual::sync_boat_driver(const Transform* body,bool occupied,float steering,float time) {
     driver_visible_=false;
@@ -399,10 +632,21 @@ void CharacterVisual::sync_police(const Crowd& crowd,
                                   int64_t step, glm::vec3 focus,
                                   float presentation_radius_m) {
     const float blend = std::clamp(alpha, 0.0f, 1.0f);
+    const double sim_seconds =
+        (static_cast<double>(step) + static_cast<double>(blend)) * kSimDt;
+    sync_police_units(crowd.vehicles(), traffic, blend, step, sim_seconds,
+                      focus, presentation_radius_m);
+}
+
+void CharacterVisual::sync_police_units(
+    const std::vector<VehicleAgent>& units, const TrafficVisual& traffic,
+    float blend, int64_t step, double sim_seconds, glm::vec3 focus,
+    float presentation_radius_m) {
     std::vector<PoliceRig> next;
-    next.reserve(crowd.police_unit_count());
+    next.reserve(units.size());
+    police_weapon_sockets_.clear();
     std::size_t old = 0;
-    for (const auto& agent : crowd.vehicles()) {
+    for (const auto& agent : units) {
         const auto& officer = agent.officer;
         const glm::vec3 presentation_position = police_officer_on_foot(officer)
             ? officer.pos : agent.pos;
@@ -413,13 +657,24 @@ void CharacterVisual::sync_police(const Crowd& crowd,
                 police_rigs_[old].character.slot,
                 agent.lane_key, agent.slot)) ++old;
         PoliceRig rig;
+        bool reused = false;
         if (old < police_rigs_.size() &&
             police_rigs_[old].character.lane_key == agent.lane_key &&
             police_rigs_[old].character.slot == agent.slot) {
             rig = std::move(police_rigs_[old++]);
-        } else {
+            // One officer rig follows its unit through every occupancy phase,
+            // but only while it IS that unit. A new departure at the same pair
+            // is a different cruiser with a different officer in it.
+            reused = same_departure(
+                rig.character.lane_key, rig.character.slot,
+                rig.character.generation,
+                agent.lane_key, agent.slot, agent.generation);
+            if (!reused) rig = PoliceRig{};
+        }
+        if (!reused) {
             rig.character.lane_key = agent.lane_key;
             rig.character.slot = agent.slot;
+            rig.character.generation = agent.generation;
             rig.character.model = static_cast<std::size_t>(splitmix64_mix(
                 agent.lane_key ^ (static_cast<uint64_t>(agent.slot) << 32)) %
                 police_models_.size());
@@ -429,7 +684,8 @@ void CharacterVisual::sync_police(const Crowd& crowd,
             (agent.lane_key ^ static_cast<uint64_t>(agent.slot)) & 255u) /
             256.0f;
         const float idle_time = (static_cast<float>(step) + blend) *
-            static_cast<float>(kSimDt) + phase * model.idle.duration();
+            static_cast<float>(kSimDt) +
+            phase * model.clips.duration(CharacterClip::Idle);
         rig.in_vehicle = !police_officer_on_foot(officer);
         if (rig.in_vehicle) {
             const Transform body = traffic.vehicle_body_transform(agent);
@@ -440,7 +696,7 @@ void CharacterVisual::sync_police(const Crowd& crowd,
                     officer.door_pos, character_forward(officer.door_heading)),
                     model, 0.0f);
                 Pose idle;
-                sample_pose(model, model.idle, idle_time, idle);
+                sample_clip(model, CharacterClip::Idle, idle_time, idle);
                 posed = make_vehicle_transition_pose(
                     PlayerCarId::MunicipalCruiser91C, model.skeleton,
                     model.bounds, body, standing, idle.local,
@@ -467,20 +723,62 @@ void CharacterVisual::sync_police(const Crowd& crowd,
             const float step_distance = glm::length(glm::vec2{
                 officer.pos.x - officer.previous_pos.x,
                 officer.pos.z - officer.previous_pos.z});
-            const float speed = step_distance / static_cast<float>(kSimDt);
-            const bool sprinting = speed > 3.0f;
-            const Animation& animation = speed <= 0.08f ? model.idle :
-                sprinting ? model.sprint : model.walk;
-            const float stride = sprinting ? kSprintStrideMetres :
-                                             kWalkStrideMetres;
-            const float walked = std::max(0.0f, officer.distance_walked_m -
-                                               (1.0f - blend) * step_distance);
-            const float time = speed <= 0.08f ? idle_time :
-                (walked / stride + phase) * animation.duration();
-            const float plant = speed <= 0.08f ? 0.0f :
-                sprinting ? model.sprint_plant : model.walk_plant;
-            rig.character.world = model_transform(root, model, plant);
-            sample_pose(model, animation, time, rig.character.pose);
+
+            // THE TRANSLATION, officer side.
+            //
+            // A shot officer takes the SAME authored bullet fall a civilian
+            // takes, selected the same way — the crowd's impact direction
+            // against this body's facing. Anything else and the only person in
+            // the city you can shoot without knocking down is the one wearing
+            // the uniform.
+            const bool downed = police_officer_downed(officer);
+            CharacterAnimInput input = pedestrian_impact_input(
+                downed, officer.impact_from_bullet,
+                officer.impact_dir_xz.x * std::sin(officer.heading) -
+                    officer.impact_dir_xz.y * std::cos(officer.heading) < 0.0f);
+            input.identity = splitmix64_mix(
+                agent.lane_key ^ (static_cast<uint64_t>(agent.slot) << 32));
+            input.speed_mps = downed ? 0.0f
+                                     : step_distance / static_cast<float>(kSimDt);
+            input.sprinting = input.speed_mps > kPedRunSpeed;
+            advance_rig(rig.character, model, input, sim_seconds, root,
+                        officer.impact_from_bullet);
+            if (officer.armed) {
+                PlayerWeaponPose weapon;
+                weapon.weapon = WeaponId::Pistol;
+                weapon.equip_blend = 1.0f;
+                weapon.aim_blend = 1.0f;
+                weapon.recoil = officer.weapon_flash_ticks > 0 ? 1.0f : 0.0f;
+                VehicleDriverPose scratch;
+                if (apply_player_weapon_pose(model.skeleton, model.local.scale.y,
+                        weapon, rig.character.pose.local, scratch)) {
+                    model.skeleton.compute_skin_matrices(
+                        rig.character.pose.local, rig.character.pose.skin);
+                    skin_matrices_to_dual_quaternions(
+                        rig.character.pose.skin, rig.character.pose.dual_real,
+                        rig.character.pose.dual_part);
+                }
+            }
+        }
+        if (!rig.in_vehicle && officer.armed && model.right_hand_bone >= 0 &&
+            static_cast<std::size_t>(model.right_hand_bone) <
+                rig.character.pose.skin.size()) {
+            const std::size_t hand = static_cast<std::size_t>(model.right_hand_bone);
+            const glm::mat4 global = rig.character.pose.skin[hand] *
+                glm::inverse(model.skeleton.bone(model.right_hand_bone).inverse_bind);
+            glm::mat4 socket = rig.character.world.matrix() * global *
+                model.right_hand_socket;
+            bool valid = true;
+            for (int axis = 0; axis < 3; ++axis) {
+                const float length = glm::length(glm::vec3{socket[axis]});
+                if (!(length > 1e-6f) || !std::isfinite(length)) {
+                    valid = false;
+                    break;
+                }
+                socket[axis] = glm::vec4{glm::vec3{socket[axis]} / length, 0.0f};
+            }
+            if (valid) police_weapon_sockets_.push_back(
+                {agent.lane_key, agent.slot, socket, officer.weapon_flash_ticks});
         }
         next.push_back(std::move(rig));
     }
@@ -538,7 +836,7 @@ void CharacterVisual::render(const Camera& camera, const SkyEnv& environment,
         player_model_.mesh.draw();
         ++last_draw_count_;
     }
-    const float max_distance_squared = kNpcDrawDistance * kNpcDrawDistance;
+    const float max_distance_squared = npc_draw_distance_ * npc_draw_distance_;
     for (const Rig& rig : rigs_) {
         const glm::vec3 delta = rig.world.position - camera.position;
         if (glm::dot(delta, delta) > max_distance_squared) continue;
@@ -597,8 +895,16 @@ void CharacterVisual::destroy() {
     rigs_.clear();
     staff_rigs_.clear();
     police_rigs_.clear();
+    police_weapon_sockets_.clear();
     player_pose_ = Pose{};
+    player_weapon_pose_ = PlayerWeaponPose{};
+    weapon_pose_scratch_ = VehicleDriverPose{};
     boat_standing_pose_ = Pose{};
+    player_animator_.reset();
+    player_started_ = false;
+    player_sim_seconds_ = 0.0;
+    player_punch_.clear();
+    player_punch_contact_ = false;
     player_visible_ = false;
     driver_visible_ = false;
     driver_pose_ = VehicleDriverPose{};

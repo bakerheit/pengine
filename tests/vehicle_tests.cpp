@@ -1567,7 +1567,7 @@ void a_slide_recovers_cleanly() {
     // the driver already had all the rotation a corner could use.
     //
     // The ground under this test is an authored Flatten at full weight --
-    // O'Haven's downtown plate, dead level -- so the terrain contributes
+    // Pinatty's downtown plate, dead level -- so the terrain contributes
     // nothing and the tyre model has to own both the slide and the recovery.
     InputFrame yank;
     yank.throttle = 0.3f;

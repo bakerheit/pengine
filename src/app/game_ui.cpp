@@ -28,7 +28,7 @@
 #include "city/miandi_prism_works.h"
 #include "city/miandi_sunwave_hotel.h"
 #include "city/neighborhood_towers.h"
-#include "city/vellum_infill.h"
+#include "city/pinatty_infill.h"
 #include "city/construction_site.h"
 #include "city/construction_neighbor_materials.h"
 #include "city/construction_neighbor_equipment.h"
@@ -40,6 +40,9 @@
 #include "city/emergency_stations.h"
 #include "city/east_arm_plaza.h"
 #include "city/neighborhood_bar.h"
+#include "city/loom_cultural.h"
+#include "city/burgerpiz.h"
+#include "city/north_pinatty_gas_station.h"
 #include "city/luxury_neighborhood.h"
 #include "city/residential_neighborhood.h"
 #include "city/tidewater_farm.h"
@@ -159,8 +162,21 @@ void draw_dev_rows(Hud& hud, const DevMenu& menu, glm::vec2 vp) {
              {left + width - 18.0f, top + header_h - 4.0f}, 1.0f,
              {1.0f, 1.0f, 1.0f, 0.18f});
 
-    for (int i = 0; i < menu.item_count(); ++i) {
-        const float y = top + header_h + static_cast<float>(i) * row_h;
+    const int first = dev_menu_first_visible_row(
+        menu.item_count(), menu.selection(), layout.visible_rows);
+    const int last = std::min(menu.item_count(), first + layout.visible_rows);
+    if (layout.scrolls) {
+        // Where you are in the list, so a long page does not look truncated.
+        char range[32];
+        std::snprintf(range, sizeof(range), "%d-%d / %d", first + 1, last,
+                      menu.item_count());
+        hud.text_centered(range, left + width - 58.0f, top + 18.0f, 14.0f,
+                          kMuted);
+    }
+
+    for (int i = first; i < last; ++i) {
+        const float y =
+            top + header_h + static_cast<float>(i - first) * row_h;
         const bool selected = i == menu.selection();
         if (selected) {
             hud.rect({left + 10.0f, y + 2.0f},
@@ -179,6 +195,28 @@ void draw_dev_rows(Hud& hud, const DevMenu& menu, glm::vec2 vp) {
     }
 
     const float footer_y = top + header_h + body_h;
+    if (layout.scrolls) {
+        // Track and thumb hard against the inside edge, so the list reads as
+        // scrollable without spending a row on an indicator.
+        const float track_x = left + width - 7.0f;
+        const float body_top = top + header_h;
+        hud.rect({track_x, body_top + 3.0f}, {track_x + 3.0f, footer_y - 3.0f},
+                 {1.0f, 1.0f, 1.0f, 0.10f});
+        const float span = std::max(1.0f, footer_y - 6.0f - (body_top + 3.0f));
+        const float fraction =
+            static_cast<float>(layout.visible_rows) /
+            static_cast<float>(menu.item_count());
+        const float thumb = std::max(18.0f, span * fraction);
+        const float travel = span - thumb;
+        const float progress =
+            menu.item_count() > layout.visible_rows
+                ? static_cast<float>(first) /
+                      static_cast<float>(menu.item_count() - layout.visible_rows)
+                : 0.0f;
+        const float thumb_top = body_top + 3.0f + travel * progress;
+        hud.rect({track_x, thumb_top}, {track_x + 3.0f, thumb_top + thumb},
+                 kAmber);
+    }
     hud.line({left + 18.0f, footer_y + 2.0f},
              {left + width - 18.0f, footer_y + 2.0f}, 1.0f,
              {1.0f, 1.0f, 1.0f, 0.18f});
@@ -382,16 +420,31 @@ void GameUi::build_map() {
                      roof.width_m, roof.depth_m, false);
         }
     };
+    for(const auto& station:city::kImportedGasStations) {
+    add_rect("6twelve forecourt",*station.site,{0,0},40,56,true);
+    add_rect("6twelve store",*station.site,{-3.95f,-14.23f},14.31f,16.21f,false);
+    add_rect("6twelve canopy",*station.site,{-2.79f,11.37f},21.68f,16.73f,false);
+    add_rect("6twelve restrooms",*station.site,{14.45f,-10.32f},4.66f,7.80f,false);
+    }
     add_site(city::kGasStationSite, city::kGasStationPlan);
     add_site(city::kCarWashSite, city::kCarWashPlan);
     add_site(city::kMotelSite, city::kMotelPlan);
     add_site(city::kApartmentSite, city::kApartmentPlan);
     add_site(city::kFastFoodSite, city::kFastFoodPlan);
-    add_site(city::kTacomacoSite, city::kTacomacoPlan);
+    add_rect("TacoMaco lot",city::kTacomacoSite,{0,0},60,38,true);
+    add_rect(city::kTacomacoSite.name,city::kTacomacoSite,{-1,-5},33,22,false);
     add_site(city::kBankSite, city::kBankPlan);
     add_site(city::kAutoRepairSite, city::kAutoRepairPlan);
     add_site(city::kLaundromatSite, city::kLaundromatPlan);
     add_site(city::kPawnShopSite, city::kPawnShopPlan);
+    add_rect("Freaky Franks lot",city::kFreakyFranksSite,{0,0},60,38,true);
+    add_rect(city::kFreakyFranksSite.name,city::kFreakyFranksSite,{-1,-5},33,22,false);
+    add_rect("BurgerPiz lot",city::kBurgerPizSite,{0,0},60,38,true);
+    add_rect(city::kBurgerPizSite.name,city::kBurgerPizSite,{-1,-5},33,22,false);
+    add_site(city::kLoomMuseumSite,city::kLoomMuseumPlan);
+    add_rect(city::kLoomParkSite.name,city::kLoomParkSite,{0,0},city::kLoomParkSite.lot_width_m,city::kLoomParkSite.lot_depth_m,true);
+    add_rect("Sable Garden gazebo",city::kLoomParkSite,{0,1},9.2f,8.2f,false);
+
     add_site(city::kGunStoreSite, city::kGunStorePlan);
     add_rect(city::kEastArmPlazaSite.name, city::kEastArmPlazaSite, {0.0f, 0.0f},
              city::kEastArmPlazaSite.lot_width_m,
@@ -462,7 +515,7 @@ void GameUi::build_map() {
                  {tower.site.lot_centre.x, tower.site.lot_centre.z},
                  tower.site.lot_width_m, tower.site.lot_depth_m, true);
     }
-    for (const auto& parcel : city::kVellumInfillParcels) {
+    for (const auto& parcel : city::kPinattyInfillParcels) {
         add_rect(parcel.site.name, parcel.site,
                  {parcel.site.lot_centre.x, parcel.site.lot_centre.z},
                  parcel.site.lot_width_m, parcel.site.lot_depth_m, true);
@@ -508,21 +561,21 @@ void GameUi::build_map() {
                  {rect.centre_x(), rect.centre_z()}, rect.width(),
                  rect.depth(), true);
     };
-    add_hospital_bar("Vellum Regional Hospital public and diagnostic wing",
+    add_hospital_bar("Pinatty Regional Hospital public and diagnostic wing",
                      city::kHospitalOverhaulNorthBar);
-    add_hospital_bar("Vellum Regional Hospital inpatient wing",
+    add_hospital_bar("Pinatty Regional Hospital inpatient wing",
                      city::kHospitalOverhaulWestBar);
-    add_hospital_bar("Vellum Regional Hospital surgery and emergency wing",
+    add_hospital_bar("Pinatty Regional Hospital surgery and emergency wing",
                      city::kHospitalOverhaulEastBar);
-    add_hospital_bar("Vellum Regional Hospital support wing",
+    add_hospital_bar("Pinatty Regional Hospital support wing",
                      city::kHospitalOverhaulSouthBar);
-    add_hospital_bar("Vellum Regional Hospital clinical spine",
+    add_hospital_bar("Pinatty Regional Hospital clinical spine",
                      city::kHospitalOverhaulClinicalSpine);
-    add_rect("Vellum Regional Hospital parking garage", city::kHospitalSite,
+    add_rect("Pinatty Regional Hospital parking garage", city::kHospitalSite,
              {city::kHospitalGarageCentre.x,
               city::kHospitalGarageCentre.z}, city::kHospitalGarageWidthM,
              city::kHospitalBlockDepthM, true);
-    add_rect("Vellum Regional Hospital north visitor parking",
+    add_rect("Pinatty Regional Hospital north visitor parking",
              city::kHospitalNorthParkingSite,
              {city::kHospitalNorthParkingCentre.x,
               city::kHospitalNorthParkingCentre.z},
@@ -540,11 +593,11 @@ void GameUi::build_map() {
              24.0f, 72.0f, false);
     add_rect("Taxiway Bravo", city::kAirportSite, {-300.0f, -40.0f},
              24.0f, 72.0f, false);
-    add_rect("O'Haven International west terminal", city::kAirportSite,
+    add_rect("Pinatty International west terminal", city::kAirportSite,
              {-111.5f, 128.0f}, 73.0f, 36.0f, false);
-    add_rect("O'Haven International main terminal", city::kAirportSite,
+    add_rect("Pinatty International main terminal", city::kAirportSite,
              {-35.0f, 128.0f}, 80.0f, 40.0f, false);
-    add_rect("O'Haven International east terminal", city::kAirportSite,
+    add_rect("Pinatty International east terminal", city::kAirportSite,
              {44.0f, 128.0f}, 78.0f, 36.0f, false);
     add_rect("Airport hangar", city::kAirportSite, {315.0f, 112.0f},
              108.0f, 68.0f, false);
@@ -558,15 +611,15 @@ void GameUi::build_map() {
              {-393.0f, 164.0f}, 24.0f, 82.0f, false);
     add_rect("Camber Gateway Hotel east wing", city::kAirportSite,
              {-307.0f, 164.0f}, 24.0f, 82.0f, false);
-    add_rect("O'Haven Rental Centre", city::kAirportSite,
+    add_rect("Pinatty Rental Centre", city::kAirportSite,
              {225.0f, 190.0f}, 62.0f, 24.0f, false);
-    add_rect("O'Haven Rental Parking", city::kAirportSite,
+    add_rect("Pinatty Rental Parking", city::kAirportSite,
              {298.0f, 216.0f}, 48.0f, 48.0f, false);
     add_rect("Camber Air Cargo", city::kAirportSite,
              {370.0f, 178.0f}, 58.0f, 28.0f, false);
     add_rect("Airport Security Gate", city::kAirportSite,
              {-455.0f, 24.0f}, 12.0f, 8.0f, false);
-    add_rect("O'Haven airport arrival pylon", city::kAirportSite,
+    add_rect("Pinatty airport arrival pylon", city::kAirportSite,
              {430.0f, 242.0f}, 10.0f, 3.0f, false);
     add_site(city::kFlorangiaAirportSite, city::kFlorangiaAirportPlan);
     add_rect("Florangia runway 08-26", city::kFlorangiaAirportSite,
@@ -1057,6 +1110,12 @@ glm::vec2 map_site_world_position(const MapSiteMarker& marker) {
 // Keep the atlas POI set in one place. The full map uses these for its
 // labelled markers; the radar uses the same positions as small blips.
 const MapSiteMarker kMapSiteMarkers[] = {
+    {&city::kNorthPinattyGasStationSite,{.1f,.7f,.68f,1},0},
+    {&city::kMiandiGasStationSite,{.94f,.72f,.31f,1},0},
+    {&city::kFreakyFranksSite,{.96f,.30f,.58f,1},4},
+    {&city::kBurgerPizSite,{1.f,.45f,.16f,1},4},
+    {&city::kLoomMuseumSite,{.86f,.72f,.49f,1},-1,UiSymbol::Count,"M"},
+    {&city::kLoomParkSite,{.43f,.78f,.39f,1},-1,UiSymbol::Count,"P"},
     {&city::kGasStationSite, {0.94f, 0.72f, 0.31f, 1}, 0},
     {&city::kCarWashSite, {0.29f, 0.77f, 0.93f, 1}, 1},
     {&city::kMotelSite, {0.30f, 0.85f, 0.75f, 1}, 2},
@@ -1471,10 +1530,15 @@ void GameUi::draw_map(Hud& hud, const UiFlow& flow, const GameUiSnapshot& snapsh
         labels.push_back(box);
         return true;
     };
-    // State names own the overview. Keep them ahead of sites, districts, and
-    // roads in the collision list so each separate landmass reads at a glance.
-    // At closer zoom the local labels take over.
-    if (zoom < 3.2f) {
+    // State names own the OVERVIEW, city names own everything closer, and the
+    // bands do not overlap. O'Haven's landmass and Pinatty's urban extent are
+    // very nearly the same shape, so both labels want the same pixels; drawing
+    // them together just means one of them loses a collision every frame and
+    // flickers. Zoom decides instead: which landmass, then which city.
+    //
+    // Both passes stay ahead of sites, districts and roads in the collision
+    // list, so the largest place on screen always gets its name.
+    if (zoom < 2.0f) {
         const float glyph = zoom < 1.8f ? 36.0f : 30.0f;
         for (const city::State& item : city::kStates) {
             const glm::vec2 anchor = project(
@@ -1490,15 +1554,79 @@ void GameUi::draw_map(Hud& hud, const UiFlow& flow, const GameUiSnapshot& snapsh
                 }
             }
         }
-        const glm::vec2 miandi = project({city::kMiandiWorldOrigin.x,
-                                          city::kMiandiWorldOrigin.z});
-        if (label_fits(miandi, "MIANDI", 34.0f))
-            map_halo_text(hud, "MIANDI", miandi, 34.0f,
-                          {1.0f, 0.78f, 0.40f, 1.0f});
     }
+    // The regional band, and its edges are both load-bearing. It starts where
+    // the state label stops, and it ENDS at the street-label threshold below:
+    // Pinatty's anchor sits over downtown, so the city name must be gone by the
+    // time downtown has streets and sites worth reading. Between the two, the
+    // island fills the view and the only useful question is which city this is.
     const auto site_position = [&](const MapSiteMarker& site) {
         return project(map_site_world_position(site));
     };
+    // City names are DEFERRED, not drawn here, and the reason is downtown: the
+    // site icons are drawn after this point, and a 34pt name placed first still
+    // ends up underneath a pile of coloured discs. Reserving the box stops other
+    // TEXT from landing on it and does nothing about the icons. So the placement
+    // happens here — early, so the city keeps first claim on the map — and the
+    // draw happens after the icons, on top of them.
+    struct PendingLabel { const char* name; glm::vec2 at; glm::vec4 color; };
+    std::vector<PendingLabel> city_labels;
+    if (zoom >= 2.0f && zoom < 3.2f) {
+        // The icon footprints the name has to get out from under. Same ±20 box
+        // the site pass reserves below, computed early so the offset ladder can
+        // see the cluster instead of walking into it.
+        std::vector<LabelBox> icons;
+        if (places) {
+            for (const MapSiteMarker& site : kMapSiteMarkers) {
+                const glm::vec2 p = site_position(site);
+                if (inside(p, map_lo, map_hi, 20))
+                    icons.push_back({p - glm::vec2{20}, p + glm::vec2{20}});
+            }
+        }
+        const auto clears_icons = [&](glm::vec2 centre, const char* name) {
+            const glm::vec2 half{hud.measure_text(name, 34.0f) * 0.5f + 12.0f,
+                                 hud.text_line_height(34.0f) * 0.5f + 7.0f};
+            for (const LabelBox& icon : icons)
+                if (centre.x - half.x < icon.hi.x && centre.x + half.x > icon.lo.x &&
+                    centre.y - half.y < icon.hi.y && centre.y + half.y > icon.lo.y)
+                    return false;
+            return true;
+        };
+        for (const city::City& item : city::kCities) {
+            const glm::vec2 anchor = project(
+                {item.map_label_anchor.x, item.map_label_anchor.z});
+            const glm::vec4 color = item.state == city::StateId::Florangia
+                ? glm::vec4{1.00f, 0.78f, 0.40f, 1.0f}
+                : glm::vec4{0.73f, 0.86f, 0.89f, 1.0f};
+            // North first and further than the other passes go. Downtown is the
+            // densest part of any city here, so the slot that clears it is
+            // rarely the nearest one, and a city name 200px off its anchor still
+            // reads as that city — one buried in the icons does not.
+            bool placed = false;
+            for (const float dy : {-96.0f, -150.0f, -204.0f, 96.0f, 150.0f,
+                                   204.0f, -258.0f, 258.0f, 0.0f}) {
+                const glm::vec2 at = anchor + glm::vec2{0.0f, dy};
+                if (!clears_icons(at, item.name)) continue;
+                if (label_fits(at, item.name, 34.0f)) {
+                    city_labels.push_back({item.name, at, color});
+                    placed = true;
+                    break;
+                }
+            }
+            // Every slot blocked. The city still gets its name — it is the most
+            // important label on the screen and dropping it is what started
+            // this — and drawing last means the icons no longer bury it.
+            if (!placed) {
+                for (const float dy : {0.0f, -96.0f, 96.0f}) {
+                    const glm::vec2 at = anchor + glm::vec2{0.0f, dy};
+                    if (label_fits(at, item.name, 34.0f)) {
+                        city_labels.push_back({item.name, at, color});
+                        break;
+                    }
+                }
+            }
+        }
+    }
     if (places) {
         for (const MapSiteMarker& site : kMapSiteMarkers) {
             const glm::vec2 p = site_position(site);
@@ -1550,6 +1678,11 @@ void GameUi::draw_map(Hud& hud, const UiFlow& flow, const GameUiSnapshot& snapsh
                 map_halo_text(hud, landmark.name, label, 21, ink);
         }
     }
+    // The city names, last of the place labels and therefore over the icons
+    // rather than under them. Their boxes went into `labels` back where they
+    // were placed, so nothing drawn in between chose to sit here.
+    for (const PendingLabel& item : city_labels)
+        map_halo_text(hud, item.name, item.at, 34.0f, item.color);
     if (flow.map_layer() == MapLayer::Explore && zoom < 3.0f) {
         for (const city::District& district : city::kDistricts) {
             glm::vec2 centre{};

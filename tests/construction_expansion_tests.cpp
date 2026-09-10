@@ -101,7 +101,7 @@ void every_new_lot_clears_the_grid() {
     }
     REQUIRE(lots_are_separate(city::kTwinSkyscraperBlockSites[0],
                               city::kTwinSkyscraperBlockSites[1]));
-    apricot_test::pass("new Vellum construction blocks clear the authored road grid and existing lots");
+    apricot_test::pass("new Pinatty construction blocks clear the authored road grid and existing lots");
 }
 
 void four_sites_are_visibly_different() {

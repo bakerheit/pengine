@@ -27,6 +27,12 @@ struct PlayerCarPerformanceProfile {
     float rolling_resistance_scale = 1.f;
     float front_drive_bias_offset = 0.f;
     float wheel_inertia_scale = 1.f;
+    // ATTENUATION ONLY, DESPITE THE NAME. apply_vehicle_impact clamps this to
+    // [0, 1] before it scales the dent, so 1.f is already the maximum and any
+    // value above it is silently discarded. FangVenom shipped 1.18 here and it
+    // did nothing at all — identical dents to 1.f, verified — while reading in
+    // the table as if the bike bruised 18% more easily. Keep every row in
+    // (0, 1]; vehicle_model_tuning_tests enforces it.
     float body_damage_gain = 1.f;
 };
 
@@ -115,8 +121,12 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
             return {1560.f,1.34f,1.14f,1.12f,.99f,1.02f,.90f,1.12f,1.12f,
                     1.16f,1.16f,-.014f,.90f,.98f,-.11f,1.08f,1.f};
         case PlayerCarId::FangVenom: // light, quick-steering 1991 sportbike
+            // Trailing 1.f is body_damage_gain: the bike used to declare 1.18,
+            // which the [0,1] clamp in apply_vehicle_impact threw away. The
+            // dents were always the 1.f ones; this is the honest value, not a
+            // change of feel.
             return {310.f,.58f,1.16f,.90f,1.18f,1.18f,.84f,1.08f,.76f,
-                    .62f,.42f,.105f,.72f,.52f,-.62f,.35f,1.18f};
+                    .62f,.42f,.105f,.72f,.52f,-.62f,.35f,1.f};
         case PlayerCarId::LegacyCruiser91CSlot:
         case PlayerCarId::kCount:
             break;

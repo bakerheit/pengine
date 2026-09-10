@@ -1,4 +1,6 @@
 #include <cstdio>
+#include "app/road_sign_mesh.h"
+#include "game/roadside_fixture_debris.h"
 #include "game/traffic_signal_damage.h"
 #include "physics/vehicle.h"
 #include "physics/breakaway_contact.h"
@@ -60,33 +62,120 @@ int main() {
         through=step_vehicle(through,tuning,InputFrame{},world,static_cast<float>(kSimDt));
     REQUIRE(through.position.z<z-2.f);
     REQUIRE(through.breakaway_id==UINT32_MAX);
-    for(int i=0;i<240;++i) damage.step(static_cast<float>(kSimDt));
-    REQUIRE(damage.fall_seconds==kSignalFallSeconds);
     const glm::vec3 base{x,y,z};
-    const auto fallen=damage.pose(base);
-    REQUIRE_NEAR(glm::length(fallen.transform_point(base)-base),0,1e-4);
-    const auto top=fallen.transform_point(base+glm::vec3{0,6,0});
-    REQUIRE_NEAR(top.z,z-6,1e-4);
-    REQUIRE_NEAR(top.y,y,1e-4);
-    for(const glm::vec3 direction : {glm::vec3{1,0,0},{-1,0,0},{0,0,1},{1,0,1}}) {
-        TrafficSignalDamage other;
-        REQUIRE(other.hit(direction*12.f));
-        other.step(kSignalFallSeconds);
-        const auto tip=other.pose(base).transform_point(base+glm::vec3{0,6,0});
-        REQUIRE_NEAR(glm::distance(tip,base+glm::normalize(direction)*6.f),0,1e-4);
+    std::array<Transform,2> standing{};
+    standing[0].position=base+glm::vec3{0,3,0};
+    standing[0].scale={.2f,6,.2f};
+    standing[1].position=base+glm::vec3{0,6,.4f};
+    standing[1].scale={.8f,.5f,.5f};
+    const AABB unit{{-.5f,-.5f,-.5f},{.5f,.5f,.5f}};
+    const std::array<AABB,2> bounds{unit,unit};
+    RoadsideDebrisState debris;
+    start_roadside_debris(debris,standing,bounds,hard.breakaway_velocity);
+    const auto deterministic_start=debris;
+    const glm::vec3 high_start=debris.pieces[1].pose.position;
+    for(int i=0;i<102;++i)
+        step_roadside_debris(debris,world,static_cast<float>(kSimDt));
+    REQUIRE(glm::distance(debris.pieces[1].pose.position,high_start)>1.f);
+    REQUIRE(!debris.pieces[1].touched_ground); // still airborne at old freeze time
+    const glm::vec3 after_old_freeze=debris.pieces[1].pose.position;
+    for(int i=0;i<24;++i)
+        step_roadside_debris(debris,world,static_cast<float>(kSimDt));
+    REQUIRE(glm::distance(debris.pieces[1].pose.position,after_old_freeze)>.05f);
+    const auto debris_at_126=debris;
+    RoadsideDebrisState replay_debris=deterministic_start;
+    for(int i=0;i<126;++i)
+        step_roadside_debris(replay_debris,world,static_cast<float>(kSimDt));
+    REQUIRE(replay_debris.pieces[0].pose.position==
+            debris_at_126.pieces[0].pose.position);
+    REQUIRE(replay_debris.pieces[1].pose.position==
+            debris_at_126.pieces[1].pose.position);
+    REQUIRE(replay_debris.pieces[1].pose.rotation==
+            debris_at_126.pieces[1].pose.rotation);
+    for(int i=0;i<720;++i)
+        step_roadside_debris(debris,world,static_cast<float>(kSimDt));
+    REQUIRE(roadside_debris_resting_orientation(
+        debris.pieces[0],glm::vec3{0,1,0}));
+    for(std::size_t i=0;i<debris.piece_count;++i) {
+        REQUIRE(debris.pieces[i].touched_ground);
+        REQUIRE(debris.pieces[i].sleeping);
+        for(int corner=0;corner<8;++corner) {
+            const auto& b=debris.pieces[i].local_bounds;
+            const glm::vec3 local{
+                (corner&1)?b.max.x:b.min.x,
+                (corner&2)?b.max.y:b.min.y,
+                (corner&4)?b.max.z:b.min.z};
+            const glm::vec3 p=debris.pieces[i].pose.transform_point(local);
+            REQUIRE(p.y>=world.height(p.x,p.z)-.01f);
+        }
     }
-    Transform housing;housing.position=base+glm::vec3{3,5,0};
-    Transform lens;lens.position=housing.position+glm::vec3{0,0,.2f};
-    REQUIRE_NEAR(glm::length((fallen*housing).position-(fallen*lens).position),.2,1e-4);
+
+    // A detached sign face has its authored origin down at the pole foot and
+    // its geometry several metres above it. It must rotate around its own
+    // centre and land broad-side-down instead of sleeping on an edge in midair.
+    std::array<Transform,1> plate_standing{};
+    plate_standing[0].position=base;
+    const std::array<AABB,1> plate_bounds{AABB{
+        {-0.65f,1.85f,0.05f},{0.65f,3.15f,0.07f}}};
+    RoadsideDebrisState plate_debris;
+    start_roadside_debris(plate_debris,plate_standing,plate_bounds,
+                          hard.breakaway_velocity);
+    for(int i=0;i<720;++i)
+        step_roadside_debris(plate_debris,world,static_cast<float>(kSimDt));
+    REQUIRE(plate_debris.pieces[0].touched_ground);
+    REQUIRE(plate_debris.pieces[0].sleeping);
+    REQUIRE(roadside_debris_resting_orientation(
+        plate_debris.pieces[0],glm::vec3{0,1,0}));
+    const glm::vec3 plate_centre=plate_debris.pieces[0].pose.transform_point(
+        plate_bounds[0].center());
+    REQUIRE(plate_centre.y<y+.12f);
+
+    std::array<Transform,kRoadSignPartCount> sign_standing{};
+    std::array<AABB,kRoadSignPartCount> sign_bounds{};
+    for(std::size_t i=0;i<sign_standing.size();++i) {
+        sign_standing[i].position=base;
+        sign_bounds[i]=plate_bounds[0];
+    }
+    RoadsideDebrisState sign_debris;
+    start_roadside_debris(sign_debris,sign_standing,sign_bounds,
+                          hard.breakaway_velocity);
+    REQUIRE(weld_roadside_debris_piece(
+        sign_debris,kRoadSignWhitePart,kRoadSignBackingPart));
+    REQUIRE(weld_roadside_debris_piece(
+        sign_debris,kRoadSignRedPart,kRoadSignBackingPart));
+    for(int i=0;i<240;++i)
+        step_roadside_debris(sign_debris,world,static_cast<float>(kSimDt));
+    REQUIRE(sign_debris.pieces[kRoadSignWhitePart].pose.position==
+            sign_debris.pieces[kRoadSignBackingPart].pose.position);
+    REQUIRE(sign_debris.pieces[kRoadSignWhitePart].pose.rotation==
+            sign_debris.pieces[kRoadSignBackingPart].pose.rotation);
+    REQUIRE(sign_debris.pieces[kRoadSignRedPart].pose.position==
+            sign_debris.pieces[kRoadSignBackingPart].pose.position);
+    REQUIRE(sign_debris.pieces[kRoadSignRedPart].pose.rotation==
+            sign_debris.pieces[kRoadSignBackingPart].pose.rotation);
+    while(!debris.expired)
+        step_roadside_debris(debris,world,static_cast<float>(kSimDt));
+    REQUIRE(!debris.active);
+    REQUIRE(debris.age_seconds>=kRoadsideDebrisLifetimeSeconds);
+
+    TrafficSignalDamage lamp_damage;
+    REQUIRE(!lamp_damage.hit({kStreetLampBreakSpeed - .01f, 0, 0},
+                             kStreetLampBreakSpeed));
+    REQUIRE(lamp_damage.hit({kStreetLampBreakSpeed, 0, 0},
+                            kStreetLampBreakSpeed));
+    TrafficSignalDamage stop_damage;
+    REQUIRE(!stop_damage.hit({0, 0, kStopSignBreakSpeed - .01f},
+                             kStopSignBreakSpeed));
+    REQUIRE(stop_damage.hit({0, 0, kStopSignBreakSpeed},
+                            kStopSignBreakSpeed));
     const auto saved=damage;
     // Stream activity never owns or clears session state. A restored copy
-    // reproduces the exact pose and a new session starts standing.
-    for(int i=0;i<2000;++i)damage.step(static_cast<float>(kSimDt));
-    REQUIRE(damage.pose(base).position==saved.pose(base).position);
+    // keeps the broken state and a new session starts standing.
+    REQUIRE(saved.broken);
     damage=TrafficSignalDamage{};
     REQUIRE(!damage.broken);
     REQUIRE(world.set_kinematic_enabled(slot,true));
     REQUIRE(drive(2.f).position.z>z+.5f);
-    apricot_test::pass("solid brushes, real hard contact, pass-through, height, deterministic release, attached pose and reset");
+    apricot_test::pass("signals, street lamps and stop signs fall under physics, settle, expire and reset");
     return apricot_test::done("traffic_signal_damage_tests");
 }

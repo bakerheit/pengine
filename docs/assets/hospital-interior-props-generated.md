@@ -1,4 +1,4 @@
-# Vellum Regional Hospital generated interior prop texture
+# Pinatty Regional Hospital generated interior prop texture
 
 Created 2026-09-05 with the built-in `image_gen` tool through the `imagegen`
 skill. No CLI, API key, reference image, external asset, or real medical-product

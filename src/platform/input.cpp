@@ -191,6 +191,7 @@ void InputMapper::handle_event(const SDL_Event& e) {
             }
 
             switch (e.key.keysym.sym) {
+                case SDLK_SPACE:     set_button(kBtnJump, down); break;
                 case SDLK_t:         set_button(kBtnTrailer, down); break;
                 case SDLK_g:         set_button(kBtnDrink, down); break;
                 case SDLK_a:         set_button(kBtnMenuLeft, down); break;
@@ -343,6 +344,9 @@ void InputMapper::handle_event(const SDL_Event& e) {
                     set_button(kBtnShiftDown, down);
                     if (down && ui_mode_) ui_zoom_steps_ -= 1.0f;
                     break;
+                case SDL_CONTROLLER_BUTTON_LEFTSTICK:
+                    set_button(kBtnJump, down);
+                    break;
                 case SDL_CONTROLLER_BUTTON_RIGHTSTICK:
                     set_button(kBtnLookBack, down);
                     break;
@@ -461,8 +465,15 @@ void InputMapper::end_frame(float dt_seconds) {
         // keyboard — "my keyboard stopped working when I plugged in a
         // controller" is a bug report nobody enjoys receiving.
         if (shaped.x != 0.0f) steer = shaped.x;
-        if (pad_throttle > 0.0f) throttle = pad_throttle;
-        if (pad_brake > 0.0f) brake = pad_brake;
+        if (weapon_controls_) {
+            if (shaped.y != 0.f) {
+                throttle=std::max(0.f,-shaped.y);
+                brake=std::max(0.f,shaped.y);
+            }
+        } else {
+            if (pad_throttle > 0.0f) throttle = pad_throttle;
+            if (pad_brake > 0.0f) brake = pad_brake;
+        }
 
         // Right stick looks around, in the same radians the mouse produces, so
         // the sim cannot tell them apart. Scaled by dt because a stick is a

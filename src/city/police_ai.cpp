@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 
 namespace apricot {
@@ -36,6 +37,33 @@ bool police_maintains_contact(glm::vec2 cop_pos, glm::vec2 offender_pos,
     return d2 <= t.pursuit_contact_range * t.pursuit_contact_range;
 }
 
+float police_control_override_speed(bool engaged, float slack_m,
+                                    const PoliceTuning& t) {
+    // Not engaged -> no override. Infinity is the identity for the caller's
+    // std::min, so an ambient patrol keeps the civilian path byte for byte.
+    if (!engaged) return std::numeric_limits<float>::infinity();
+    const float cap = std::max(0.0f, t.control_override_speed);
+    if (!std::isfinite(slack_m) || slack_m <= 0.0f) return cap;
+    // Quick on the run-up, slow at the line. A flat cap would have a pursuer
+    // crawl the last hundred metres of a green approach it never had to slow
+    // for, which reads as a cop losing interest.
+    return cap + slack_m * std::max(0.0f, t.control_override_slack);
+}
+
+bool police_should_ram(bool engaged, bool target_on_foot, int wanted_level,
+                       float ahead_m, float range_m, float speed_mps,
+                       const PoliceTuning& t) {
+    if (!engaged || target_on_foot) return false;
+    if (wanted_level < t.ram_min_wanted) return false;
+    if (!std::isfinite(ahead_m) || !std::isfinite(range_m) ||
+        !std::isfinite(speed_mps)) return false;
+    // Behind the cruiser, or too far to reach before the road turns: the
+    // ordinary route-follow closes that gap first.
+    if (ahead_m < t.ram_min_ahead || range_m > t.ram_range) return false;
+    // A stationary cruiser nudging a car is not a ram, it is a parking scrape.
+    return speed_mps >= 6.0f;
+}
+
 int police_spawn_fallback_count(bool crime_active, int target_units,
                                 int engaged_units) {
     if (!crime_active) return 0;
@@ -44,7 +72,7 @@ int police_spawn_fallback_count(bool crime_active, int target_units,
 }
 
 PursuitCmd police_terminal_pursuit_cmd(float dist, float ahead, float side,
-                                       float speed) {
+                                       float speed, bool forward_blocked) {
     PursuitCmd cmd;
 
     // Target is on top of us: stand on the brake (avoid steer/throttle jitter at
@@ -58,15 +86,27 @@ PursuitCmd police_terminal_pursuit_cmd(float dist, float ahead, float side,
     cmd.throttle = 1.f;
     cmd.brake    = 0.f;
 
-    // If the target is behind us, brake into a turn first; once nearly stopped,
-    // reverse so officers can recover from missed passes.
+    // If the target is behind us, brake into the turn first; once nearly
+    // stopped, TURN AROUND.
     if (ahead < -0.25f) {
         if (speed > 5.f) {
             cmd.throttle = 0.f;
             cmd.brake    = 0.75f;
+        } else if (!forward_blocked) {
+            // Room to swing it round: a car turns around forwards, at full
+            // lock, toward the side the target is on. One arc, nose leading.
+            cmd.throttle = 1.f;
+            cmd.brake    = 0.f;
+            cmd.steer    = side >= 0.f ? 1.f : -1.f;
         } else {
+            // Boxed in — back up. THE STEER INVERTS HERE, and that is the
+            // whole point: the front wheels still steer in reverse, so the
+            // nose goes opposite them. Steering toward the target while
+            // reversing swings the nose further away and the car simply never
+            // comes round.
             cmd.throttle = -0.65f;
             cmd.brake    = 0.f;
+            cmd.steer    = side >= 0.f ? -1.f : 1.f;
         }
     }
 
@@ -94,6 +134,44 @@ bool police_should_replan(float since_last_replan, float replan_interval,
 
 bool police_use_terminal(float dist_to_target, float handoff_range) {
     return dist_to_target <= handoff_range;
+}
+
+glm::vec2 police_pursuit_intercept(glm::vec2 target, glm::vec2 velocity) {
+    if (!std::isfinite(target.x) || !std::isfinite(target.y) ||
+        !std::isfinite(velocity.x) || !std::isfinite(velocity.y)) return target;
+    const float speed = glm::length(velocity);
+    if (speed < 0.15f) return target;
+    const float lead_seconds = std::clamp(0.75f + speed * 0.04f, 0.75f, 2.2f);
+    const glm::vec2 lead = velocity * lead_seconds;
+    const float distance = glm::length(lead);
+    return target + (distance > 45.0f ? lead * (45.0f / distance) : lead);
+}
+
+float police_pursuit_cruise_mps(float road_limit_mps,
+                                float target_speed_mps,
+                                int wanted_level) {
+    if (!std::isfinite(road_limit_mps) || road_limit_mps < 0.0f)
+        road_limit_mps = 0.0f;
+    if (!std::isfinite(target_speed_mps) || target_speed_mps < 0.0f)
+        target_speed_mps = 0.0f;
+    // The margin has to survive the junctions the cruiser still has to cross.
+    // Measured on the authored city at a 40 mph flee, the nearest pursuer runs
+    // free for under half the chase and spends the rest crossing, cornering or
+    // held — so a flat "+3 m/s over the suspect" is a NET LOSS of about four
+    // metres a second, and the cop drifts backwards out of the chase however
+    // well it drives. The margin below is what makes holding station possible;
+    // the caps everywhere else are what stop it being a straight-line win.
+    const float catchup = target_speed_mps * 1.30f + 6.0f +
+        0.6f * static_cast<float>(std::clamp(wanted_level, 0, 5));
+    return std::clamp(std::max(road_limit_mps * 1.25f, catchup),
+                      0.0f, 38.0f);
+}
+
+float police_turn_speed_mps(float ambient_cap, bool engaged,
+                            const PoliceTuning& t) {
+    if (!engaged || !std::isfinite(ambient_cap) || ambient_cap <= 0.0f)
+        return ambient_cap;
+    return ambient_cap * std::max(1.0f, t.turn_speed_scale);
 }
 
 HeatDecay wanted_heat_decay_step(float heat, float lose_track_timer,

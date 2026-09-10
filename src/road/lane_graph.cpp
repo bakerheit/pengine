@@ -265,6 +265,7 @@ void LaneGraph::clear() {
     lanes_.clear();
     junctions_.clear();
     out_links_.clear();
+    pursuit_links_.clear();
     edge_lanes_.clear();
     index_.clear();
 }
@@ -368,9 +369,12 @@ void LaneGraph::build(const RoadGraph& graph, const GroundSampler& ground,
                 l.approach_width_m = forward ? e.width_end_m : e.width_start_m;
                 l.one_way = e.one_way;
                 l.sidewalks = e.sidewalks();
-                l.speed_limit_mps = e.one_way ? 13.9f : def.speed_limit_mps;
+                l.speed_limit_mps = e.speed_limit_mps > 0.0f
+                    ? e.speed_limit_mps
+                    : (e.one_way ? 13.9f : def.speed_limit_mps);
                 l.traffic_density = e.traffic_density;
                 l.ped_density = e.ped_density;
+                l.parked_density = e.parked_density;
                 l.block_quality = e.block_quality;
                 add_lane(std::move(l));
             }
@@ -384,6 +388,24 @@ void LaneGraph::build(const RoadGraph& graph, const GroundSampler& ground,
 
     assign_approach_controls(graph);
     link_junctions(graph, params.drive_on_right);
+    pursuit_links_ = out_links_;
+    for (LaneRef r = 0; r < lanes_.size(); ++r) {
+        const Lane& lane = lanes_[r];
+        const LaneRef reverse = opposing(r);
+        // A highway seam, ramp, or one-way edge is not a turnaround opening.
+        // At a surface junction the normal swept-movement negotiation still
+        // owns admission, so a cruiser yields before crossing other lanes.
+        if (lane.one_way || lane.cls == RoadClass::Freeway ||
+            !valid(reverse) || junctions_[lane.junction_to].degree < 3 ||
+            lanes_[reverse].junction_from != lane.junction_to) continue;
+        auto& links = pursuit_links_[r];
+        if (std::none_of(links.begin(), links.end(), [&](const TurnLink& link) {
+                return link.to == reverse;
+            })) {
+            links.push_back({r, reverse, lane.junction_to, TurnKind::UTurn,
+                             TurnPriority::Yield, 1.0f});
+        }
+    }
     build_index(index_cell_m_);
 }
 
@@ -813,9 +835,10 @@ LaneProjection LaneGraph::nearest_lane_along(glm::vec2 xz, glm::vec2 heading,
     return best;
 }
 
-const std::vector<TurnLink>& LaneGraph::outgoing(LaneRef r) const {
-    if (r >= out_links_.size()) return kNoLinks;
-    return out_links_[r];
+const std::vector<TurnLink>& LaneGraph::outgoing(LaneRef r, bool pursuit) const {
+    const auto& links = pursuit ? pursuit_links_ : out_links_;
+    if (r >= links.size()) return kNoLinks;
+    return links[r];
 }
 
 LaneRef LaneGraph::choose_next(LaneRef r, uint64_t seed,
@@ -839,7 +862,8 @@ LaneRef LaneGraph::choose_next(LaneRef r, uint64_t seed,
     return links.back().to;
 }
 
-std::vector<LaneRef> LaneGraph::plan_route(LaneRef from, LaneRef to) const {
+std::vector<LaneRef> LaneGraph::plan_route(LaneRef from, LaneRef to,
+                                         bool pursuit) const {
     if (from >= lanes_.size() || to >= lanes_.size()) return {};
     if (from == to) return {from};
 
@@ -879,7 +903,7 @@ std::vector<LaneRef> LaneGraph::plan_route(LaneRef from, LaneRef to) const {
         if (cur.lane == to) break;
 
         const float base = g[cur.lane] + lanes_[cur.lane].length_m;
-        for (const TurnLink& t : out_links_[cur.lane]) {
+        for (const TurnLink& t : outgoing(cur.lane, pursuit)) {
             if (t.to >= lanes_.size() || closed[t.to]) continue;
             if (base >= g[t.to]) continue;
             g[t.to] = base;
@@ -897,6 +921,29 @@ std::vector<LaneRef> LaneGraph::plan_route(LaneRef from, LaneRef to) const {
     if (route.empty() || route.back() != from) return {};
     std::reverse(route.begin(), route.end());
     return route;
+}
+
+std::vector<LaneRef> LaneGraph::plan_route(const LaneProjection& from,
+                                          const LaneProjection& to,
+                                          bool pursuit) const {
+    if (!valid(from.lane) || !valid(to.lane)) return {};
+    if (from.lane != to.lane || to.dist_along_m + 2.0f >= from.dist_along_m)
+        return plan_route(from.lane, to.lane, pursuit);
+
+    std::vector<LaneRef> best;
+    float best_cost = std::numeric_limits<float>::infinity();
+    for (const TurnLink& first : outgoing(from.lane, pursuit)) {
+        auto route = plan_route(first.to, to.lane, pursuit);
+        if (route.empty()) continue;
+        float cost = 0.0f;
+        for (std::size_t i = 0; i + 1u < route.size(); ++i)
+            cost += lanes_[route[i]].length_m;
+        if (cost >= best_cost) continue;
+        best_cost = cost;
+        route.insert(route.begin(), from.lane);
+        best = std::move(route);
+    }
+    return best;
 }
 
 bool LaneGraph::approach_group_a(uint32_t junction, LaneRef incoming) const {

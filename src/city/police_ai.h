@@ -100,6 +100,17 @@ struct PoliceTuning {
     // peeled off and driven away.
     float stand_down_distance = 90.f;  // m; keep a standing-down cop until beyond this
 
+    // How far an ENGAGED pursuer may fall behind before the streamer is allowed
+    // to delete it. This is not a nicety. Ordinary traffic retires at ~320 m,
+    // and a cruiser that loses fifteen seconds to a U-turn at city speeds is
+    // three hundred metres back — so with no exemption EVERY pursuer was
+    // deleted mid-chase and replaced by whichever patrol happened to be near
+    // the player. That is why the chase felt like nobody was chasing: there was
+    // never one car following you, only a rotating cast of local cars, each
+    // deleted the moment it fell behind. Beyond THIS ring the unit genuinely
+    // has no chance and a fresh local responder is the better answer.
+    float pursuit_retire_m = 650.f;
+
     // PCG-030 (2nd increment) — pursuit CONTACT range. An ALREADY-ENGAGED unit (an
     // active pursuer, or a deployed cruiser whose officer is on foot) holds the
     // player's heat as long as it stays within this range with clear line of sight
@@ -133,9 +144,77 @@ struct PoliceTuning {
     float replan_interval     = 0.6f;
     float replan_target_move  = 10.f;
 
+    // An ENGAGED unit does not queue at the lights. Pre-PENG this was not a
+    // tuning value because there was no override at all: a pursuer sat through
+    // the same red, the same stop-sign dwell and the same yield creep as the
+    // delivery van behind it, and the chase ended the moment the player crossed
+    // a junction on green. What an override does NOT touch is cross-traffic
+    // conflict — a cop is exempt from the SIGNAL, never from the car actually
+    // in the box — so the cruiser noses the junction at this speed and still
+    // gives way to a body it would hit.
+    //   control_override_speed — cap while crossing against a red or a stop.
+    //   control_override_slack — extra metres per metre of remaining approach,
+    //                            so the run-up is quick and only the line is slow.
+    //   ram_min_wanted         — no deliberate contact below this level; a
+    //                            one-star traffic stop is not a demolition derby.
+    //   ram_range / ram_min_ahead — the window, ahead along the cruiser's own
+    //                            lane, in which lining up on the player is worth
+    //                            leaving the lane centre for.
+    float control_override_speed = 10.0f;
+    float control_override_slack = 0.45f;
+
+    // FREE-DRIVE PURSUIT — the GTA move, and the one thing a lane-following
+    // agent structurally cannot do: leave the road. Inside `free_chase_range`
+    // a dispatched cruiser stops being traffic and becomes a car, steered at
+    // the suspect by police_terminal_pursuit_cmd over the real world — across
+    // a forecourt, over a kerb, through a car park, straight at you. Release is
+    // deliberately much further out than engage so a cruiser does not flicker
+    // between the two modes at the boundary.
+    //
+    // 22 m is not a guess: it is `route_handoff_range` above, the distance the
+    // port itself documents for handing route-following to the terminal
+    // command. Set wider (34 m was tried) the cruiser spends the extra
+    // distance driving AT a moving target, overshoots, and has to turn around
+    // in front of the player — which is where the reversing comes from. Close
+    // in it is a contact move and the nose barely leaves the target at all:
+    // measured, 22 m halves both the time spent reversing and the time spent
+    // pointed the wrong way against 34 m.
+    float free_chase_range   = 22.0f;
+    float free_chase_release = 60.0f;
+
+    // Ambient turn caps are COMFORT limits — 11 m/s straight through a
+    // junction, 6 for a left, 3.5 for a U-turn — and they apply from 32 m out.
+    // On a grid that is most of a chase, and a cruiser obeying them crawls
+    // every corner while the suspect does fifty. A pursuit scales them; the
+    // turn curve itself is unchanged, so this buys speed, not a different line.
+    float turn_speed_scale = 1.7f;
+
+    int   ram_min_wanted  = 2;
+    float ram_range       = 34.0f;
+    float ram_min_ahead   = 5.0f;
+
     // PCG-245 — dispatcher-level roadblock tactic (see RoadblockTuning above).
     RoadblockTuning roadblock{};
 };
+
+// An engaged pursuer's speed at a control it is running (pure). `slack` is the
+// remaining metres to the stop line, and the result is the cap that REPLACES
+// the ordinary hold — never a stop. Returns +inf when the unit is not engaged,
+// which is the identity for the caller's std::min and leaves ordinary traffic
+// (and a patrol that has not been dispatched) on exactly the path it had.
+float police_control_override_speed(bool engaged, float slack_m,
+                                    const PoliceTuning& t);
+
+// Should this pursuer deliberately drive INTO the target (pure)? True inside the
+// window where a swerve out of the lane centre is worth planning: engaged, the
+// heat is high enough to justify contact, the target is in a car ahead of the
+// cruiser along its own lane, and the cruiser is carrying enough speed for the
+// contact to mean anything. The geometry check on the actual arc — kerbs,
+// medians, other traffic — stays with the caller, which is the only thing that
+// can see the road.
+bool police_should_ram(bool engaged, bool target_on_foot, int wanted_level,
+                       float ahead_m, float range_m, float speed_mps,
+                       const PoliceTuning& t);
 
 // PCG-011 witness gate (pure). True when a cruising patrol should convert to a
 // pursuer: a crime is active, the offender is in sight range, inside the forward
@@ -201,8 +280,18 @@ struct PursuitCmd {
     float steer     = 0.f;   // [-1, 1]
     bool  handbrake = false;
 };
+//
+// TURNING AROUND. `forward_blocked` says the caller has looked and there is
+// something solid immediately in front of the nose. It exists because a car
+// with room turns around FORWARDS — full lock, one arc — and only backs up
+// when it is boxed in. The original port reversed unconditionally whenever the
+// target was behind, and reversed with the steering pointed AT the target,
+// which is exactly backwards: the front wheels still steer in reverse, so the
+// nose swings AWAY from where they point. A cruiser that missed a pass would
+// therefore back up, fail to come round, keep the target behind it, and go on
+// reversing into whatever was behind it for the rest of the chase.
 PursuitCmd police_terminal_pursuit_cmd(float dist, float ahead, float side,
-                                       float speed);
+                                       float speed, bool forward_blocked = false);
 
 // PCG-033 — pursuit replan trigger (pure). True when a pursuer should re-plan its
 // lane route THIS frame: the existing route is invalid (empty / fully consumed),
@@ -222,6 +311,25 @@ bool police_should_replan(float since_last_replan, float replan_interval,
 // game (inclusive at the threshold). Trivial, but named + pinned so the hand-off
 // distance is one well-tested decision rather than an inline magic comparison.
 bool police_use_terminal(float dist_to_target, float handoff_range);
+
+// Aim route planning ahead of a moving suspect instead of at the point they
+// occupied on the last 0.6 s replan. Lead is capped so a fast airborne or
+// corrupted target cannot send a cruiser across the city.
+glm::vec2 police_pursuit_intercept(glm::vec2 target, glm::vec2 velocity);
+
+// Engaged units need enough headroom to close on a speeder, including on a
+// freeway. Normal patrols still use their authored cruise speed and every
+// junction/leader safety gate remains in force after this target is chosen.
+float police_pursuit_cruise_mps(float road_limit_mps,
+                                float target_speed_mps,
+                                int wanted_level);
+
+// The cap a pursuer takes a junction movement at (pure). `ambient_cap` is the
+// comfort limit the same movement would get from ordinary traffic; a
+// disengaged unit is handed it back unchanged, so an ambient patrol corners
+// exactly as it always did.
+float police_turn_speed_mps(float ambient_cap, bool engaged,
+                            const PoliceTuning& t);
 
 // PCG-030 wanted heat de-escalation (pure, Bug 1). Given the current heat, the
 // running lose-track timer (seconds the offender has been out of ALL police LOS),

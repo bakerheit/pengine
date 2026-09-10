@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <utility>
 #include <vector>
 
 #include "city/police_officer.h"
@@ -67,12 +68,12 @@ Crowd make_crowd(const Road& road, const VehicleAgent& car) {
 
 void tick(Crowd& crowd, int64_t step, int wanted, glm::vec2 target,
           bool on_foot = true, float speed = 0.0f,
-          const TerrainCollider* world = nullptr) {
+          const TerrainCollider* world = nullptr, bool armed = false) {
     std::vector<VisiblePoliceIdentity> visible;
     for (const auto& car : crowd.vehicles())
         if (car.police_unit) visible.push_back({car.lane_key, car.slot});
     crowd.set_police_context(wanted, target, visible);
-    crowd.set_police_officer_context(on_foot, speed, world);
+    crowd.set_police_officer_context(on_foot, armed, {speed, 0.0f}, world);
     crowd.rebuild_buckets();
     crowd.step_vehicles(step);
 }
@@ -297,6 +298,141 @@ void struck_unit_replaces_a_distant_responder_at_budget() {
     apricot_test::pass("struck officer takes a response slot from the farthest cruiser without exceeding budget");
 }
 
+void armed_suspect_gets_standoff_and_real_cadenced_shots() {
+    Road road;
+    auto car = seed_car(road, 0.0f);
+    car.officer.phase = PoliceOfficerPhase::Pursuing;
+    car.officer.pos = car.officer.previous_pos = car.pos;
+    Crowd crowd = make_crowd(road, car);
+    const glm::vec2 target{car.pos.x + 20.0f, car.pos.z};
+    OnFootTrafficHazard foot;
+    foot.position = target;
+    foot.height_m = car.pos.y;
+    const VisiblePoliceIdentity id{car.lane_key, car.slot};
+    int shots = 0;
+    int first_step = -1;
+    for (int64_t step = 0; step < 230; ++step) {
+        const bool visible = step >= 30;
+        crowd.set_police_context(2, target, visible
+            ? std::vector<VisiblePoliceIdentity>{id}
+            : std::vector<VisiblePoliceIdentity>{});
+        crowd.set_police_officer_context(true, true, {0.0f, 0.0f});
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step, nullptr, &foot);
+        if (!visible) REQUIRE(crowd.police_shots().empty());
+        for (const auto& shot : crowd.police_shots()) {
+            if (first_step < 0) first_step = static_cast<int>(step);
+            REQUIRE(shot.lane_key == id.lane_key && shot.slot == id.slot);
+            ++shots;
+        }
+        REQUIRE(crowd.vehicles().front().officer.armed);
+    }
+    REQUIRE(first_step >= 30 + static_cast<int>(kPoliceShotReactionSteps));
+    REQUIRE(shots == 2);
+    const auto held_position = crowd.vehicles().front().officer.pos;
+    REQUIRE(glm::distance(glm::vec2{held_position.x, held_position.z}, target) >=
+            kPoliceArmedStandOffM - 0.1f);
+
+    for (int64_t step = 230; step < 260; ++step) {
+        crowd.set_police_context(2, target, {id});
+        crowd.set_police_officer_context(true, false, {0.0f, 0.0f});
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step, nullptr, &foot);
+        REQUIRE(crowd.police_shots().empty());
+        REQUIRE(!crowd.vehicles().front().officer.armed);
+    }
+    apricot_test::pass("armed suspect makes officers hold range and fire only with LOS; holstering stops fire");
+}
+
+// The bug this pins: an officer is not a pedestrian agent, so a pistol shot
+// resolved against the crowd's people missed him entirely and the player could
+// empty a magazine into a cop standing a metre away with no effect at all.
+void a_shot_officer_goes_down_and_stops_responding() {
+    Road road;
+    auto car = seed_car(road, 0.0f);
+    car.officer.phase = PoliceOfficerPhase::Pursuing;
+    car.officer.pos = car.officer.previous_pos = car.pos;
+    Crowd crowd = make_crowd(road, car);
+    const glm::vec2 target{car.pos.x + 20.0f, car.pos.z};
+    OnFootTrafficHazard foot;
+    foot.position = target;
+    foot.height_m = car.pos.y;
+    const VisiblePoliceIdentity id{car.lane_key, car.slot};
+    const auto drive = [&](int64_t step) {
+        crowd.set_police_context(2, target, {id});
+        crowd.set_police_officer_context(true, true, {0.0f, 0.0f});
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step, nullptr, &foot);
+    };
+    // Let the real officer arm and take up his standoff first, so the shot
+    // below is fired at a live responder rather than a hand-placed pose.
+    for (int64_t step = 0; step < 120; ++step) drive(step);
+    REQUIRE(crowd.vehicles().front().officer.armed);
+    REQUIRE(crowd.player_in_police_view());
+
+    const auto aim = [&]() {
+        const glm::vec3 muzzle{target.x, foot.height_m + 1.35f, target.y};
+        const glm::vec3 chest =
+            crowd.vehicles().front().officer.pos + glm::vec3{0.0f, 1.15f, 0.0f};
+        const glm::vec3 travel = chest - muzzle;
+        const float distance = glm::length(travel);
+        REQUIRE(distance > 1.0f);
+        return std::pair<glm::vec3, glm::vec3>{muzzle, travel / distance};
+    };
+
+    // Two rounds wound; the officer keeps working. This is the half of the
+    // contract that would pass just as happily if the shot did nothing, so the
+    // health readings are checked as well as the hit flags.
+    int64_t step = 120;
+    for (int round = 0; round < 2; ++round, ++step) {
+        const auto [muzzle, direction] = aim();
+        const PedShotHit hit = crowd.shoot_ped(muzzle, direction, 60.0f, step);
+        REQUIRE(hit.hit && hit.officer && !hit.officer_downed);
+        REQUIRE(hit.lane_key == id.lane_key && hit.slot == id.slot);
+        drive(step);
+        const auto& officer = crowd.vehicles().front().officer;
+        REQUIRE(!police_officer_downed(officer));
+        REQUIRE(officer.health < kPoliceOfficerHealth && officer.health > 0.0f);
+    }
+
+    const auto [muzzle, direction] = aim();
+    const PedShotHit killing = crowd.shoot_ped(muzzle, direction, 60.0f, step);
+    REQUIRE(killing.hit && killing.officer && killing.officer_downed);
+    drive(step++);
+    {
+        const auto& officer = crowd.vehicles().front().officer;
+        REQUIRE(police_officer_downed(officer));
+        REQUIRE(officer.health == 0.0f);
+        REQUIRE(!officer.armed);
+        REQUIRE(officer.impact_from_bullet);
+    }
+
+    // Down means OUT: no shots, no witnessing, no further hits, and the body
+    // stays where it fell instead of continuing the walk it was on.
+    const glm::vec3 fell = crowd.vehicles().front().officer.pos;
+    const int64_t downed_first = step;
+    for (; step < downed_first + 400; ++step) {
+        drive(step);
+        const auto& officer = crowd.vehicles().front().officer;
+        REQUIRE(crowd.police_shots().empty());
+        REQUIRE(!officer.armed);
+        REQUIRE(glm::distance(officer.pos, fell) < 1e-4f);
+        REQUIRE(!crowd.player_in_police_view());
+        REQUIRE(!crowd.raycast_ped(muzzle, direction, 60.0f).hit);
+    }
+
+    // And back up when the window lapses, at full health, on the same unit.
+    for (; step < downed_first + static_cast<int64_t>(kPoliceOfficerDownedTicks) + 4;
+         ++step)
+        drive(step);
+    const auto& recovered = crowd.vehicles().front().officer;
+    REQUIRE(!police_officer_downed(recovered));
+    REQUIRE(recovered.health == kPoliceOfficerHealth);
+    REQUIRE(crowd.vehicles().front().lane_key == id.lane_key);
+    REQUIRE(crowd.raycast_ped(muzzle, direction, 60.0f).officer);
+    apricot_test::pass("a real officer takes pistol rounds, goes down, stops responding and gets back up");
+}
+
 }  // namespace
 
 int main() {
@@ -306,5 +442,7 @@ int main() {
     world_geometry_blocks_exits_and_walks();
     police_contacts_are_pre_impulse_and_do_not_delete_officers();
     struck_unit_replaces_a_distant_responder_at_budget();
+    armed_suspect_gets_standoff_and_real_cadenced_shots();
+    a_shot_officer_goes_down_and_stops_responding();
     return 0;
 }

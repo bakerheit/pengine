@@ -13,8 +13,10 @@ import bpy
 from mathutils import Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from municipal_cruiser_91c_spec import (ATLAS_SIZE, REGIONS, UV_FLIP_U,
-                                        UV_PROJECTIONS, WHEELS)
+from municipal_cruiser_91c_spec import (ATLAS_SIZE, GRAZING_FACING,
+                                        GRAZING_FALLBACK, REGIONS, UV_FLIP_U,
+                                        UV_PROJECTIONS, WELL_ALONG,
+                                        WELL_INNER_X, WELL_UP, WHEELS)
 from vesper_vx91_blender import VehicleBuilder, export_emesh
 
 
@@ -34,14 +36,40 @@ class PatrolBuilder(VehicleBuilder):
         return obj
 
 
-def lower_ring(width: float, shoulder: float, top_width: float,
-               top: float) -> list[tuple[float, float]]:
-    """Ten-sided lower-body section with broad, readable upper planes."""
+def body_ring(width: float, floor: float, rocker: float, shoulder: float,
+              top_width: float, top: float) -> list[tuple[float, float]]:
+    """Fourteen-sided section: swept floor, tucked rocker, two-facet shoulder.
+
+    Every argument varies per station.  The predecessor held width and top
+    within 0.07 m and 0.10 m for the whole car, which is why the flank read as
+    an extruded slab: measured against Legacy Car 5 the side profile lost 7.8%
+    of its length from the widest station to 20 mm off the ground where Car 5
+    loses 56%.  ``floor`` and ``rocker`` are the two knobs that buy that back.
+    """
+    belt = shoulder - .20
+    mid = (width + top_width) * .5
+    # .535 is the driver-door sill (DOOR["sill_y"] = .54).  The rocker face has
+    # to break there or the door cut-out opens a hole below the door panel.
+    # The guards keep the ring monotonic where the swept floor climbs into it
+    # at the nose and tail; a crossed ring inverts normals on a whole station.
+    sill = max(floor + .06, min(.535, belt - .04))
+    chamfer = floor + min(.075, (sill - floor) * .34)
+    crest = max(top - .05, shoulder + .012)
     return [
-        (-width * .62, .18), (-width * .92, .24),
-        (-width, .38), (-width, shoulder), (-top_width, top),
-        (top_width, top), (width, shoulder), (width, .38),
-        (width * .92, .24), (width * .62, .18),
+        (-rocker * .56, floor),
+        (-rocker * .97, chamfer),
+        (-rocker, sill),
+        (-width, belt),
+        (-width, shoulder),
+        (-mid, crest),
+        (-top_width, top),
+        (top_width, top),
+        (mid, crest),
+        (width, shoulder),
+        (width, belt),
+        (rocker, sill),
+        (rocker * .97, chamfer),
+        (rocker * .56, floor),
     ]
 
 
@@ -111,14 +139,22 @@ def window_frame(builder: PatrolBuilder, name: str, outer, inner,
 
 def arch_lip(builder: PatrolBuilder, name: str, side: float, axle: float):
     """Low-poly fender crown around, never across, a real wheel opening."""
-    segments = 7
+    # Six matches the cutter's twelve-sided full ellipse over this half turn,
+    # so lip facets land on cut facets instead of near them.
+    segments = 6
     vertices = []
     for index in range(segments + 1):
         angle = math.pi * index / segments
-        for x, radius in ((side * 1.045, .575), (side * .84, .545),
-                          (side * 1.045, .520), (side * .84, .500)):
-            vertices.append((x, axle + math.cos(angle) * radius,
-                             WHEELS["arch_y"] + math.sin(angle) * radius))
+        # Follow the shell cutter's ellipse with overlap; a circular lip leaves
+        # diagonal gaps.  The outer band steps from 1.048 at the crown to 1.024
+        # at the mouth so the edge reads as a rolled fender lip rather than the
+        # constant-section tube it used to be.
+        for x, along, up in ((side * 1.048, WELL_ALONG + .092, WELL_UP + .090),
+                             (side * .870, WELL_ALONG + .084, WELL_UP + .082),
+                             (side * 1.024, WELL_ALONG + .004, WELL_UP + .004),
+                             (side * .870, WELL_ALONG - .002, WELL_UP - .002)):
+            vertices.append((x, axle + math.cos(angle) * along,
+                             WHEELS["arch_y"] + math.sin(angle) * up))
     faces = []
     for index in range(segments):
         a, following = index * 4, (index + 1) * 4
@@ -137,19 +173,89 @@ def arch_lip(builder: PatrolBuilder, name: str, side: float, axle: float):
     return builder.add_mesh(name, vertices, faces, material)
 
 
+def boolean_cut(shell, name: str, lo, hi):
+    """Subtract an axis-aligned box from the shell and drop the cutter."""
+    x0, y0, z0 = lo
+    x1, y1, z1 = hi
+    vertices = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+                (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
+    faces = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4),
+             (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
+    mesh = bpy.data.meshes.new(name + "Mesh")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.validate(verbose=False)
+    mesh.update()
+    cutter = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(cutter)
+    modifier = shell.modifiers.new("Cut" + name, "BOOLEAN")
+    modifier.operation = "DIFFERENCE"
+    modifier.solver = "EXACT"
+    modifier.object = cutter
+    bpy.context.view_layer.objects.active = shell
+    shell.select_set(True)
+    bpy.ops.object.modifier_apply(modifier=modifier.name)
+    bpy.data.objects.remove(cutter, do_unlink=True)
+    shell.data.update()
+
+
+# One recessed bay at each end.  Everything used to live between y = 2.667 and
+# y = 2.681 -- 14 mm of depth for grille, lamp pocket, four sealed beams and
+# bumper chrome -- so the nose read as a painted wall.  These apertures plus
+# the recessed fascia below give the front three real depth planes: brow and
+# flank at 2.66, fascia at 2.585, bumper and push hardware out to 2.71.
+FRONT_BAY = ((-.855, 2.50, .585), (.855, 2.80, .800))
+REAR_BAY = ((-.855, -2.80, .505), (.855, -2.50, .775))
+FASCIA_Y = 2.585
+TAIL_Y = -2.585
+
+
+def bay_walls(builder: PatrolBuilder, name: str, bay, fascia_y: float,
+              sign: float):
+    """Four return walls from the aperture rim back to the recessed fascia.
+
+    Without these the bay is a hole you can see through; with them the eye
+    reads a real cavity and the lamps sit inside something.
+    """
+    (x0, _, z0), (x1, _, z1) = bay
+    rim = sign * 2.665
+    walls = [
+        builder.panel(name + "Brow", [(x0, fascia_y, z1), (x1, fascia_y, z1),
+                                      (x1, rim, z1), (x0, rim, z1)],
+                      "BLACK", (0, 0, -1)),
+        builder.panel(name + "Floor", [(x0, fascia_y, z0), (x1, fascia_y, z0),
+                                       (x1, rim, z0), (x0, rim, z0)],
+                      "BLACK", (0, 0, 1)),
+    ]
+    for x, inward, suffix in ((x0, 1., "Left"), (x1, -1., "Right")):
+        walls.append(builder.panel(name + suffix,
+                                   [(x, fascia_y, z0), (x, rim, z0),
+                                    (x, rim, z1), (x, fascia_y, z1)],
+                                   "BLACK", (inward, 0, 0)))
+    return walls
+
+
 def cut_wheel_wells(shell):
     """Cut four side-only pockets; the central hood/floor/deck stay intact."""
     for label, axle in (("Front", WHEELS["front_z"]),
                         ("Rear", WHEELS["rear_z"])):
         for side, suffix in ((-1., "L"), (1., "R")):
             segments = 12
-            x_inner, x_outer = side * .67, side * 1.30
+            # Cut deep enough for the swept tyre at full lock, no deeper.
+            # WELL_ALONG is the longitudinal half-mouth: the tyre needs
+            # radius*cos(lock) + half_width*sin(lock) = 0.348 m at the 0.64 rad
+            # cruiser lock, so .47 keeps 0.12 m of margin.  The predecessor cut
+            # .59, which bought nothing and left 0.22 m of daylight in front of
+            # and behind the tread.  WELL_UP is NOT free: it is the tyre radius
+            # plus suspension_travel (0.16 m), so shrinking it makes the tread
+            # clip the arch on full bump.
+            x_inner, x_outer = side * WELL_INNER_X, side * 1.30
             vertices = []
             for x in sorted((x_inner, x_outer)):
                 for index in range(segments):
                     angle = math.tau * index / segments
-                    vertices.append((x, axle + math.cos(angle) * .59,
-                                     WHEELS["arch_y"] + math.sin(angle) * .53))
+                    vertices.append((x, axle + math.cos(angle) * WELL_ALONG,
+                                     WHEELS["arch_y"] +
+                                     math.sin(angle) * WELL_UP))
             faces = []
             for index in range(segments):
                 following = (index + 1) % segments
@@ -199,16 +305,19 @@ def assign_shell_materials(shell, builder: PatrolBuilder):
     for polygon in shell.data.polygons:
         centre = polygon.center
         normal = polygon.normal
-        if centre.y > 2.43 and normal.y > .12:
-            name = "BODY_FRONT"
-        elif centre.y < -2.43 and normal.y < -.12:
-            name = "BODY_REAR"
-        elif normal.z < -.16:
-            name = "BLACK"
-        elif abs(normal.x) > .30:
-            name = "SIDE_DRIVER" if centre.x > 0 else "SIDE_PASSENGER"
+        # Classify by the DOMINANT axis, not by thresholds.  Every receiver is
+        # a planar projection, so a face sent to a receiver whose plane it is
+        # nearly edge-on to gets smeared: the old `abs(normal.x) > .30` rule
+        # put the shoulder facets (normal ~ .5 X / .87 Z) on the side's Y/Z
+        # projection and stretched them 3:1.  Picking the dominant axis bounds
+        # the projection stretch at 1/cos(54.7 deg) = 1.73 for every face.
+        along, across, up = abs(normal.y), abs(normal.x), abs(normal.z)
+        if along >= across and along >= up and abs(centre.y) > 1.90:
+            name = "BODY_FRONT" if normal.y > 0 else "BODY_REAR"
+        elif up >= across:
+            name = "BODY_TOP" if normal.z > 0 else "BLACK"
         else:
-            name = "BODY_TOP"
+            name = "SIDE_DRIVER" if centre.x > 0 else "SIDE_PASSENGER"
         polygon.material_index = material_index[name]
         polygon.use_smooth = False
 
@@ -236,26 +345,57 @@ def assign_uvs(obj):
 
     for polygon in mesh.polygons:
         material = obj.material_slots[polygon.material_index].material.name
-        x0, y0, x1, y1 = REGIONS[material]
-        u0, u1 = (x0 + 2) / ATLAS_SIZE, (x1 - 2) / ATLAS_SIZE
-        v0, v1 = 1 - (y1 - 2) / ATLAS_SIZE, 1 - (y0 + 2) / ATLAS_SIZE
         points = [mesh.vertices[mesh.loops[i].vertex_index].co
                   for i in polygon.loop_indices]
+        axes = bounds = None
         if material in UV_PROJECTIONS:
             axes, bounds_pair = UV_PROJECTIONS[material]
-            bounds = (bounds_pair[0][0], bounds_pair[0][1],
-                      bounds_pair[1][0], bounds_pair[1][1])
-        else:
+            # How square-on is this face to the receiver's projection plane?
+            # The plane's normal is the axis the projection throws away.
+            facing = abs(polygon.normal[3 - axes[0] - axes[1]])
+            if facing >= GRAZING_FACING:
+                bounds = (bounds_pair[0][0], bounds_pair[0][1],
+                          bounds_pair[1][0], bounds_pair[1][1])
+            else:
+                # Edge-on.  Under the old code this face kept the receiver's
+                # plane and either smeared one texel row across it or, when the
+                # span collapsed entirely, took the `.5` branch below and
+                # sampled a single line: 37.2% of triangles were stretched
+                # worse than 4:1 and 76 were fully degenerate.  Send it to a
+                # neutral receiver it can sit on honestly instead.
+                material = GRAZING_FALLBACK.get(material, material)
+                axes = None
+        bounds_are_per_face = axes is None
+        if axes is None:
             axes = fallback_axes(polygon.normal)
             bounds = (min(point[axes[0]] for point in points),
                       max(point[axes[0]] for point in points),
                       min(point[axes[1]] for point in points),
                       max(point[axes[1]] for point in points))
+        x0, y0, x1, y1 = REGIONS[material]
+        u0, u1 = (x0 + 2) / ATLAS_SIZE, (x1 - 2) / ATLAS_SIZE
+        v0, v1 = 1 - (y1 - 2) / ATLAS_SIZE, 1 - (y0 + 2) / ATLAS_SIZE
         span_a, span_b = bounds[1] - bounds[0], bounds[3] - bounds[2]
+
+        # A per-face projection stretched to fill its cell makes the texel
+        # anisotropic by the face's own aspect ratio: a 1.40 x 0.06 m push-bar
+        # rail flattened into a 32 x 52 px swatch is a 24:1 texel.  Fit the
+        # face into the cell at ONE pixels-per-metre and centre it instead.
+        offset_a = offset_b = 0.
+        fit_a = fit_b = 1.
+        if bounds_are_per_face:
+            cell_a, cell_b = (x1 - 2) - (x0 + 2), (y1 - 2) - (y0 + 2)
+            metres_a, metres_b = max(span_a, 1e-6), max(span_b, 1e-6)
+            density = min(cell_a / metres_a, cell_b / metres_b)
+            fit_a = min(1., metres_a * density / max(cell_a, 1e-6))
+            fit_b = min(1., metres_b * density / max(cell_b, 1e-6))
+            offset_a, offset_b = (1. - fit_a) * .5, (1. - fit_b) * .5
+
         for loop, point in zip(polygon.loop_indices, points):
-            a = .5 if span_a < 1e-7 else (point[axes[0]] - bounds[0]) / span_a
-            b = .5 if span_b < 1e-7 else (point[axes[1]] - bounds[2]) / span_b
+            a = .5 if span_a < 1e-6 else (point[axes[0]] - bounds[0]) / span_a
+            b = .5 if span_b < 1e-6 else (point[axes[1]] - bounds[2]) / span_b
             a, b = max(0., min(1., a)), max(0., min(1., b))
+            a, b = offset_a + a * fit_a, offset_b + b * fit_b
             if material in UV_FLIP_U:
                 a = 1 - a
             uv_layer.data[loop].uv = (u0 + a * (u1 - u0),
@@ -282,21 +422,28 @@ def build_vehicle():
     door_parts = []
     panes = {}
 
+    # width, floor, rocker, shoulder, top_width, top.  The floor sweeps up
+    # 0.285 m at the nose and 0.275 m at the tail so the car stops reading as
+    # a brick sitting on the road, and the top runs a real cowl -> crest ->
+    # nose ladder instead of one level line.  0.90 must keep top at the
+    # windshield sill (1.025) and -1.22 at the backlight sill.
     shell = builder.loft("FacetedLowerBody", [
-        (-2.66, lower_ring(.93, .72, .67, .82)),
-        (-2.45, lower_ring(1.045, .90, .78, .98)),
-        (-2.08, lower_ring(1.05, .94, .82, 1.00)),
-        (-1.53, lower_ring(1.05, .95, .83, 1.00)),
-        (-1.22, lower_ring(1.04, .95, .82, .99)),
-        (-.12, lower_ring(1.01, .94, .80, .98)),
-        (.90, lower_ring(1.02, .96, .82, 1.02)),
-        (1.08, lower_ring(1.04, .96, .83, 1.03)),
-        (1.63, lower_ring(1.05, .94, .82, 1.01)),
-        (2.15, lower_ring(1.04, .86, .78, .93)),
-        (2.48, lower_ring(1.00, .76, .72, .85)),
-        (2.66, lower_ring(.93, .65, .65, .74)),
+        (-2.66, body_ring(.940, .460, .900, .880, .800, .955)),
+        (-2.45, body_ring(1.010, .360, .960, .905, .855, .990)),
+        (-2.08, body_ring(1.048, .245, .985, .925, .865, 1.000)),
+        (-1.53, body_ring(1.050, .185, .975, .935, .855, 1.005)),
+        (-1.22, body_ring(1.050, .185, .970, .940, .850, 1.010)),
+        (-.12, body_ring(1.046, .185, .960, .935, .840, .995)),
+        (.90, body_ring(1.046, .195, .965, .930, .845, 1.020)),
+        (1.08, body_ring(1.050, .215, .975, .935, .855, 1.035)),
+        (1.63, body_ring(1.050, .215, .985, .930, .860, 1.030)),
+        (2.15, body_ring(1.040, .285, .990, .915, .865, 1.005)),
+        (2.48, body_ring(.990, .380, .955, .895, .850, .960)),
+        (2.66, body_ring(.905, .470, .880, .865, .790, .905)),
     ], "BODY_TOP")
     cut_wheel_wells(shell)
+    boolean_cut(shell, "FrontBayCutter", *FRONT_BAY)
+    boolean_cut(shell, "RearBayCutter", *REAR_BAY)
     # Open the cabin through the top while retaining shoulder-width sills.
     delete_faces(shell, lambda face:
                  min(v.co.y for v in face.verts) >= -1.221 and
@@ -312,28 +459,22 @@ def build_vehicle():
     assign_shell_materials(shell, builder)
     body_parts.append(shell)
 
-    body_parts.extend([
-        builder.box("CentralChassis", (-.58, -2.47, .18),
-                    (.58, 2.48, .34), "BLACK"),
-        builder.box("CabinFloor", (-.70, -1.20, .32),
-                    (.70, .90, .40), "INTERIOR"),
-    ])
+    # The lofted shell is a closed solid with its own swept floor, so the old
+    # CentralChassis filler box is redundant.  Deleting it is what frees the
+    # half-track: that box reached x = +/-0.58 and the front tyre's inboard
+    # swing at full lock reaches 0.548, which is exactly why the wheels had to
+    # sit at 0.94 and the car had no fenders.
+    body_parts.append(builder.box("CabinFloor", (-.70, -1.20, .32),
+                                  (.70, .90, .40), "INTERIOR"))
     for side in (-1., 1.):
         suffix = "L" if side < 0 else "R"
         body_parts.append(arch_lip(builder, "FrontArch" + suffix, side,
                                    WHEELS["front_z"]))
         body_parts.append(arch_lip(builder, "RearArch" + suffix, side,
                                    WHEELS["rear_z"]))
-        lo, hi = sorted((side * .78, side * .995))
-        body_parts.append(builder.box("Rocker" + suffix, (lo, -.91, .30),
-                                      (hi, 1.02, .54), "BLACK"))
 
-    # Long central hood power bulge: broad and low, not a modern scoop.
-    body_parts.append(builder.loft("PowerBulge", [
-        (.82, [(-.40, 1.015), (-.30, 1.065), (.30, 1.065), (.40, 1.015)]),
-        (1.63, [(-.38, 1.01), (-.28, 1.085), (.28, 1.085), (.38, 1.01)]),
-        (2.35, [(-.30, .86), (-.20, .90), (.20, .90), (.30, .86)]),
-    ], "BODY_TOP"))
+    # The hood is part of the shell: a broad stamped panel with a modest
+    # crown, matching the believable sedan surfaces of Legacy Car 5.
 
     # Formal roof and fixed structure around six real pane components.
     body_parts.append(builder.loft("RoofCap", [
@@ -346,9 +487,9 @@ def build_vehicle():
         suffix = "R" if side > 0 else "L"
         body_parts.extend([
             beam(builder, "APillar" + suffix, (side * .94, .90, .99),
-                 (side * .70, .28, 1.50), .075, material),
+                 (side * .70, .28, 1.50), .060, "METAL"),
             beam(builder, "RoofRail" + suffix, (side * .70, .28, 1.50),
-                 (side * .72, -.80, 1.49), .070, material),
+                 (side * .72, -.80, 1.49), .048, "METAL"),
             beam(builder, "BPost" + suffix, (side * .99, -.14, .98),
                  (side * .73, -.16, 1.49), .078, material),
             beam(builder, "CPost" + suffix, (side * .72, -.80, 1.49),
@@ -363,9 +504,9 @@ def build_vehicle():
 
     body_parts.extend([
         beam(builder, "WindshieldHeader", (-.70, .28, 1.50),
-             (.70, .28, 1.50), .075, "BODY_TOP"),
+             (.70, .28, 1.50), .045, "METAL"),
         beam(builder, "RearHeader", (.72, -.80, 1.49),
-             (-.72, -.80, 1.49), .075, "BODY_TOP"),
+             (-.72, -.80, 1.49), .045, "METAL"),
     ])
 
     panes["windshield"] = closed_pane(builder, "Windshield", [
@@ -503,48 +644,76 @@ def build_vehicle():
                     (.56, .80, .435), "METAL"),
     ])
 
-    # Four inset sealed beams, period rear lenses, bumpers and push hardware.
-    body_parts.append(builder.panel("FrontLampPocket", [(-.96, 2.667, .54),
-                      (.96, 2.667, .54), (.96, 2.667, .78),
-                      (-.96, 2.667, .78)], "BLACK", (0, 1, 0)))
-    for index, (x0, x1) in enumerate(((-.91, -.50), (-.46, -.08),
-                                      (.08, .46), (.50, .91))):
+    # Recessed front bay: fascia 75 mm behind the nose brow, four sealed beams
+    # and a grille inside it, then the bumper and push hardware standing out in
+    # front.  Three depth planes where there used to be one.
+    body_parts.extend(bay_walls(builder, "FrontBay", FRONT_BAY, FASCIA_Y, 1.))
+    body_parts.append(builder.panel("FrontFascia", [
+        (-.855, FASCIA_Y, .585), (.855, FASCIA_Y, .585),
+        (.855, FASCIA_Y, .800), (-.855, FASCIA_Y, .800)], "BLACK", (0, 1, 0)))
+    # Quad beams outboard, grille filling the centre: the bay is used up
+    # instead of leaving the lamps floating in a black void.
+    body_parts.append(builder.panel("FrontGrille", [
+        (-.440, FASCIA_Y + .004, .595), (.440, FASCIA_Y + .004, .595),
+        (.440, FASCIA_Y + .004, .792), (-.440, FASCIA_Y + .004, .792)],
+        "GRILLE", (0, 1, 0)))
+    for index, (x0, x1) in enumerate(((-.830, -.648), (-.638, -.460),
+                                      (.460, .638), (.648, .830))):
         body_parts.append(builder.panel("Headlight" + str(index), [
-            (x0, 2.669, .58), (x1, 2.669, .58),
-            (x1, 2.669, .74), (x0, 2.669, .74),
+            (x0, FASCIA_Y + .007, .600), (x1, FASCIA_Y + .007, .600),
+            (x1, FASCIA_Y + .007, .790), (x0, FASCIA_Y + .007, .790),
         ], "HEADLIGHT", (0, 1, 0)))
     body_parts.extend([
-        builder.panel("FrontGrille", [(-.58, 2.670, .38),
-                      (.58, 2.670, .38), (.58, 2.670, .53),
-                      (-.58, 2.670, .53)], "BLACK", (0, 1, 0)),
-        builder.box("FrontBumper", (-1.05, 2.62, .30),
-                    (1.05, 2.68, .41), "BLACK"),
-        builder.box("PushTop", (-.82, 2.675, .68),
-                    (.82, 2.71, .74), "BLACK"),
-        builder.box("PushLower", (-.87, 2.675, .40),
-                    (.87, 2.71, .47), "BLACK"),
-        builder.box("PushPostL", (-.68, 2.675, .35),
-                    (-.58, 2.71, .78), "BLACK"),
-        builder.box("PushPostR", (.58, 2.675, .35),
-                    (.68, 2.71, .78), "BLACK"),
-        builder.box("RearBumper", (-1.05, -2.71, .30),
-                    (1.05, -2.62, .43), "BLACK"),
+        # Tapered, not a plank: the nose narrows to 0.905 half-width, so a
+        # constant +/-0.95 bumper left black corners poking out past the body.
+        builder.loft("FrontBumper", [
+            (2.575, [(-.945, .300), (-.945, .585), (.945, .585), (.945, .300)]),
+            (2.680, [(-.900, .300), (-.900, .585), (.900, .585), (.900, .300)]),
+        ], "BLACK"),
+        # A real bright bumper face, not a 65 mm strip: Legacy Car 5 reads at
+        # distance because its chrome is a value block, not a pinstripe.
+        builder.panel("FrontBumperChrome", [(-.875, 2.6815, .345),
+            (.875, 2.6815, .345), (.875, 2.6815, .520), (-.875, 2.6815, .520)],
+            "METAL", (0, 1, 0)),
+        # Two posts and two rails, clear of both lamp-region centres so
+        # vehicle_headlight_origin still finds the recessed beam and not a bar.
+        builder.box("PushRailUpper", (-.700, 2.681, .800),
+                    (.700, 2.710, .858), "BLACK"),
+        builder.box("PushRailLower", (-.780, 2.681, .360),
+                    (.780, 2.710, .420), "BLACK"),
+        builder.box("PushPostL", (-.500, 2.681, .330),
+                    (-.440, 2.710, .858), "BLACK"),
+        builder.box("PushPostR", (.440, 2.681, .330),
+                    (.500, 2.710, .858), "BLACK"),
     ])
+
+    # Recessed rear bay on the same principle.
+    body_parts.extend(bay_walls(builder, "RearBay", REAR_BAY, TAIL_Y, -1.))
+    body_parts.append(builder.panel("RearFascia", [
+        (.855, TAIL_Y, .505), (-.855, TAIL_Y, .505),
+        (-.855, TAIL_Y, .775), (.855, TAIL_Y, .775)], "BLACK", (0, -1, 0)))
     for side in (-1., 1.):
-        x0, x1 = sorted((side * .91, side * .53))
+        x0, x1 = sorted((side * .83, side * .52))
         body_parts.append(builder.panel("BrakeLamp" + str(side), [
-            (x0, -2.669, .58), (x1, -2.669, .58),
-            (x1, -2.669, .75), (x0, -2.669, .75),
+            (x0, TAIL_Y - .007, .560), (x1, TAIL_Y - .007, .560),
+            (x1, TAIL_Y - .007, .735), (x0, TAIL_Y - .007, .735),
         ], "TAIL_RED", (0, -1, 0)))
-        ax0, ax1 = sorted((side * .50, side * .31))
+        ax0, ax1 = sorted((side * .49, side * .30))
         body_parts.append(builder.panel("RearAmber" + str(side), [
-            (ax0, -2.670, .58), (ax1, -2.670, .58),
-            (ax1, -2.670, .75), (ax0, -2.670, .75),
+            (ax0, TAIL_Y - .007, .560), (ax1, TAIL_Y - .007, .560),
+            (ax1, TAIL_Y - .007, .735), (ax0, TAIL_Y - .007, .735),
         ], "TAIL_AMBER", (0, -1, 0)))
     body_parts.extend([
-        builder.panel("RearPlate", [(-.24, -2.671, .46),
-                      (.24, -2.671, .46), (.24, -2.671, .59),
-                      (-.24, -2.671, .59)], "LENS_CLEAR", (0, -1, 0)),
+        builder.loft("RearBumper", [
+            (-2.575, [(-.945, .300), (-.945, .505), (.945, .505), (.945, .300)]),
+            (-2.7105, [(-.900, .300), (-.900, .505), (.900, .505), (.900, .300)]),
+        ], "BLACK"),
+        builder.panel("RearBumperChrome", [(.875, -2.712, .345),
+            (-.875, -2.712, .345), (-.875, -2.712, .490),
+            (.875, -2.712, .490)], "METAL", (0, -1, 0)),
+        builder.panel("RearPlate", [(-.24, TAIL_Y - .010, .520),
+                      (.24, TAIL_Y - .010, .520), (.24, TAIL_Y - .010, .650),
+                      (-.24, TAIL_Y - .010, .650)], "LENS_CLEAR", (0, -1, 0)),
         builder.box("LightbarBase", (-.76, -.37, 1.55),
                     (.76, -.12, 1.61), "BLACK"),
         builder.box("LightbarRed", (-.70, -.35, 1.61),
@@ -569,7 +738,9 @@ def build_vehicle():
         bm = bmesh.new()
         bm.from_mesh(obj.data)
         bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=1e-6)
-        bmesh.ops.dissolve_degenerate(bm, edges=list(bm.edges), dist=1e-7)
+        # 1e-7 left boolean slivers whose UV jacobian is numerically
+        # singular even when the projection is correct.
+        bmesh.ops.dissolve_degenerate(bm, edges=list(bm.edges), dist=2e-4)
         bm.to_mesh(obj.data)
         bm.free()
         obj.data.update()

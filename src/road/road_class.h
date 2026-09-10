@@ -44,7 +44,7 @@ enum class RoadClass : uint8_t {
     Freeway = 0,   // Route 1 only. Grade separated, ramps only.
     Arterial = 1,  // District spines and inter-district links.
     Street = 2,    // Everywhere urban.
-    Alley = 3,     // Saltmarsh, Vellum Row, the docks. No sidewalk.
+    Alley = 3,     // Saltmarsh, Pinatty Row, the docks. No sidewalk.
     Dirt = 4,      // Meadows, Marrow, the fire road.
 };
 

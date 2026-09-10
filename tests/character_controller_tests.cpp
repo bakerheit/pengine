@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 
 #include "game/character.h"
@@ -106,10 +107,97 @@ void raised_rotated_plot_pavement_supports_feet() {
         "raised rotated plot pavement plants feet on its visible top only");
 }
 
+// A raised flat fixture keeps terrain noise out of the jump measurements.
+void jump_has_an_arc_and_requires_a_new_press() {
+    TerrainCollider collider{0xC0FFEEu};
+    const float floor = collider.height(0, 0) + 2.0f;
+    collider.add_static_box(AABB{{-10, floor - 0.2f, -10}, {10, floor, 10}});
+    CharacterTuning tuning;
+    auto state = spawn_character(collider, 0, 0);
+    const auto start = state;
+    InputFrame input;
+    input.pressed = kBtnJump;
+    input.held = kBtnJump;
+    state = step_character(state, tuning, input, collider, kDt);
+    REQUIRE(!state.grounded);
+    REQUIRE(state.velocity.y > 0);
+    float apex = state.position.y;
+    int airborne_ticks = 1;
+    for (int i = 0; i < 160; ++i) {
+        // Another press mid-flight must not reset the jump.
+        input.pressed = i == 20 ? kBtnJump : 0u;
+        state = step_character(state, tuning, input, collider, kDt);
+        apex = std::max(apex, state.position.y);
+        if (!state.grounded) ++airborne_ticks;
+    }
+    REQUIRE_NEAR(apex - floor, tuning.jump_speed_mps * tuning.jump_speed_mps /
+                               (2 * tuning.gravity_mps2), 0.005f);
+    REQUIRE(airborne_ticks >= 79 && airborne_ticks <= 82);
+    REQUIRE(state.grounded);
+    REQUIRE_NEAR(state.position.y, floor, 1e-4f);
+    REQUIRE_NEAR(state.velocity.y, 0, 1e-5f);
+    input.pressed = kBtnJump;
+    REQUIRE(!step_character(state, tuning, input, collider, kDt).grounded);
+    REQUIRE(step_character(start, tuning, input, collider, 0).grounded);
+    apricot_test::pass("jump follows gravity, lands, ignores air presses and held repeat");
+}
+
+void jumping_hits_ceilings_and_lands_on_raised_props() {
+    TerrainCollider collider{0xC0FFEEu};
+    const float floor = collider.height(0, 0) + 2.0f;
+    collider.add_static_box(AABB{{-10, floor - 0.2f, -10}, {10, floor, 10}});
+    CharacterTuning tuning;
+    auto state = spawn_character(collider, 0, 0);
+    const float ceiling = floor + tuning.height_m + 0.25f;
+    collider.add_static_box(AABB{{-2, ceiling, -2}, {2, ceiling + 0.1f, 2}});
+    InputFrame input;
+    input.pressed = kBtnJump;
+    bool bumped = false;
+    for (int i = 0; i < 100; ++i) {
+        state = step_character(state, tuning, input, collider, kDt);
+        input.pressed = 0;
+        REQUIRE(state.position.y + tuning.height_m <= ceiling + 0.001f);
+        if (!state.grounded && state.velocity.y == 0) bumped = true;
+    }
+    REQUIRE(bumped);
+    REQUIRE(state.grounded);
+    REQUIRE_NEAR(state.position.y, floor, 1e-4f);
+
+    TerrainCollider platform{0xC0FFEEu};
+    platform.add_static_box(AABB{{-10, floor - 0.2f, -10}, {10, floor, 10}});
+    platform.add_static_box(AABB{{0.8f, floor, -2}, {2, floor + 0.5f, 2}});
+    state = spawn_character(platform, 0, 0);
+    input.pressed = kBtnJump;
+    input.steer = 1;
+    for (int i = 0; i < 100; ++i) {
+        if (state.position.x > 1.3f) input.steer = 0;
+        state = step_character(state, tuning, input, platform, kDt);
+        input.pressed = 0;
+    }
+    REQUIRE(state.position.x > 1.3f);
+    REQUIRE(state.grounded);
+    REQUIRE_NEAR(state.position.y, floor + 0.5f, 1e-4f);
+    // Leaving a platform must fall, never snap down half a metre.
+    input.steer = 1;
+    bool fell = false;
+    for (int i = 0; i < 150; ++i) {
+        const float before = state.position.y;
+        state = step_character(state, tuning, input, platform, kDt);
+        if (!state.grounded) fell = true;
+        REQUIRE(before - state.position.y < 0.1f);
+    }
+    REQUIRE(fell);
+    REQUIRE(state.grounded);
+    REQUIRE_NEAR(state.position.y, floor, 1e-4f);
+    apricot_test::pass("jump respects ceilings, lands on props, and falls off edges");
+}
+
 }  // namespace
 
 int main() {
     std::printf("character_controller_tests\n");
+    jump_has_an_arc_and_requires_a_new_press();
+    jumping_hits_ceilings_and_lands_on_raised_props();
     spawn_uses_the_visible_ground();
     movement_is_camera_relative_and_sprint_is_faster();
     visual_facing_matches_sideways_movement();

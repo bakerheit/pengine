@@ -19,6 +19,7 @@ struct PlayerCharacterState {
     float view_pitch = -0.16f;
     float distance_walked_m = 0.0f;
     bool sprinting = false;
+    bool grounded = true;
 };
 
 struct CharacterTuning {
@@ -29,6 +30,8 @@ struct CharacterTuning {
     float height_m = 1.76f;
     float max_step_m = 0.34f;
     float max_drop_m = 1.25f;
+    float jump_speed_mps = 5.4f;
+    float gravity_mps2 = 16.0f;
 };
 
 PlayerCharacterState spawn_character(const TerrainCollider& collider,

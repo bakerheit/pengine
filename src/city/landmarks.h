@@ -44,7 +44,7 @@ inline constexpr Landmark kLandmarks[] = {
      .height_m = 88.0f,
      .tier = LandmarkTier::Island,
      .kind = LandmarkKind::Tower,
-     .district = DistrictId::VellumRow},
+     .district = DistrictId::PinattyRow},
 
     {.name = "Kepler flare stack",
      .pos = {-520.0f, -1800.0f},
@@ -147,12 +147,12 @@ inline constexpr Landmark kLandmarks[] = {
      .kind = LandmarkKind::Steps,
      .district = DistrictId::HallowaySquare},
 
-    {.name = "Vellum Row cinema neon",
+    {.name = "Pinatty Row cinema neon",
      .pos = {-240.0f, 120.0f},
      .height_m = 12.0f,
      .tier = LandmarkTier::Corner,
      .kind = LandmarkKind::Neon,
-     .district = DistrictId::VellumRow,
+     .district = DistrictId::PinattyRow,
      .lit = true},
 
     {.name = "Strand pier head",
@@ -183,7 +183,7 @@ inline constexpr Landmark kLandmarks[] = {
      .height_m = 16.0f,
      .tier = LandmarkTier::Corner,
      .kind = LandmarkKind::Mural,
-     .district = DistrictId::VellumRow},
+     .district = DistrictId::PinattyRow},
 
     {.name = "Mural: the long shift",
      .pos = {-700.0f, -1880.0f},

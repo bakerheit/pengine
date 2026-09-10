@@ -43,7 +43,8 @@ namespace apricot {
 // v5: appended the trailer coupling button; the byte layout is unchanged.
 // v6: appended the settings menu direction buttons; the byte layout is
 // unchanged.
-inline constexpr uint32_t kReplayTapeVersion = 6;
+// v7: appended the on-foot jump button and airborne character movement.
+inline constexpr uint32_t kReplayTapeVersion = 7;
 
 struct ReplayTape {
     uint32_t version = kReplayTapeVersion;

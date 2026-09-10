@@ -37,7 +37,7 @@ inline constexpr std::array<GraffitiPlacement, kGraffitiTagCount>
         {&kGunStoreSite,   {  3.8f, -10.16f}, 2.45f, 3.1f, 2.8f, 180.0f, 6u},
         {&kNeighborhoodBarSite, {-6.6f, -8.02f}, 2.35f, 3.2f, 2.7f, 180.0f, 7u},
         {&kBankSite,       { 10.2f,  15.16f}, 2.70f, 3.8f, 2.8f,   0.0f, 8u},
-        {&kTacomacoSite,   {  2.6f,  11.16f}, 2.10f, 3.5f, 2.5f,   0.0f, 9u},
+        {&kTacomacoSite,   {  2.6f, -14.08f}, 2.10f, 3.5f, 2.5f, 180.0f, 9u},
     }};
 
 }  // namespace apricot::city

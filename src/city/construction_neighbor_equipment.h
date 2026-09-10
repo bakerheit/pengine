@@ -19,7 +19,7 @@ struct ConstructionNeighborEquipment {
 };
 
 inline constexpr ConstructionNeighborEquipment kConstructionNeighborEquipment{
-    {"Vellum Equipment & Site Services", construction_grid_point(138, -279),
+    {"Pinatty Equipment & Site Services", construction_grid_point(138, -279),
      kGridCos, kGridSin, {0.0f, 0.0f}, 52.0f, 30.0f, 12.0f, 1200.0f},
     20.0f, 12.0f, 5.6f};
 

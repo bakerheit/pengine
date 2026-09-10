@@ -121,11 +121,19 @@ struct RoadSpine {
     // this road is for. Carried through the graph untouched so police can read
     // it off an edge later; nothing in this module interprets it.
     uint8_t block_quality = 128;
+    // <= 0 inherits the class default when lanes are built.
+    float speed_limit_mps = 0.0f;
 
     // Population scalars from the district the spine runs through, carried
     // onto every lane. 1.0 is baseline.
     float traffic_density = 1.0f;
     float ped_density = 1.0f;
+    // How many cars are PARKED at this road's kerb, as a multiple of the
+    // ambient baseline. A separate number from traffic_density because they
+    // are not the same fact about a street: a quiet residential road can be
+    // nose-to-tail with parked cars and carry almost no moving traffic, and an
+    // arterial is the other way round. city/districts.h authors both.
+    float parked_density = 1.0f;
 
     // Stable authored identity. Entropy keyed to a road must key on THIS and
     // never on the spine's index in the input vector, which changes the moment
@@ -180,8 +188,10 @@ struct RoadEdge {
     uint8_t lanes_start_per_dir = 0;
     uint8_t lanes_end_per_dir = 0;
     uint8_t block_quality = 128;
+    float speed_limit_mps = 0.0f;
     float traffic_density = 1.0f;
     float ped_density = 1.0f;
+    float parked_density = 1.0f;
 
     // Planar length of `points`, metres.
     float length_m = 0.0f;

@@ -11,19 +11,19 @@
 
 namespace apricot::city {
 
-// Small finished buildings for the empty west and south edges of Vellum Row.
+// Small finished buildings for the empty west and south edges of Pinatty Row.
 // They deliberately stay non-enterable: the street doors are solid pieces,
 // while the shallow lobby slabs give the facade a believable threshold and a
 // stable support surface. World can render every returned piece and use the
 // same `solid` records for collision, so the visible massing cannot drift away
 // from the blocking geometry.
-enum class VellumInfillRoofline : uint8_t {
+enum class PinattyInfillRoofline : uint8_t {
     FlatParapet,
     Stepped,
     Gabled,
 };
 
-struct VellumInfillParcel {
+struct PinattyInfillParcel {
     StartSite site;
     int floors = 4;
     int setback_floors = 0;
@@ -34,10 +34,10 @@ struct VellumInfillParcel {
     StartFinish facade_finish = StartFinish::Brick;
     StartFinish side_finish = StartFinish::WarmWall;
     StartFinish trim_finish = StartFinish::TealDoor;
-    VellumInfillRoofline roofline = VellumInfillRoofline::FlatParapet;
+    PinattyInfillRoofline roofline = PinattyInfillRoofline::FlatParapet;
 };
 
-constexpr Vec2 vellum_infill_grid_point(float east, float south) {
+constexpr Vec2 pinatty_infill_grid_point(float east, float south) {
     return {70.0f + kGridCos * east + kGridSin * south,
             -40.0f - kGridSin * east + kGridCos * south};
 }
@@ -45,85 +45,85 @@ constexpr Vec2 vellum_infill_grid_point(float east, float south) {
 // Twelve occupied cells form an L around the genuinely vacant west and south
 // edges plus two holes in the older central fabric. The skipped west-column cells are intentional:
 // (-322,-31) is the steel-frame annex and (-322,155) is the demolition site.
-// Every lot remains within the standard 92 x 62 m Vellum block.
-inline constexpr std::array<VellumInfillParcel, 12> kVellumInfillParcels{{
-    {{"Briar Needleworks", vellum_infill_grid_point(-322.0f, -279.0f),
+// Every lot remains within the standard 92 x 62 m Pinatty block.
+inline constexpr std::array<PinattyInfillParcel, 12> kPinattyInfillParcels{{
+    {{"Briar Needleworks", pinatty_infill_grid_point(-322.0f, -279.0f),
       kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 38.0f, 12.0f, 1500.0f},
      4, 0, 4, 42.0f, 27.0f, 0.5f, StartFinish::WarmWall,
      StartFinish::Brick, StartFinish::TealDoor,
-     VellumInfillRoofline::Gabled},
-    {{"Briar Cold Storage", vellum_infill_grid_point(-322.0f, -217.0f),
+     PinattyInfillRoofline::Gabled},
+    {{"Briar Cold Storage", pinatty_infill_grid_point(-322.0f, -217.0f),
       kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 38.0f, 12.0f, 1500.0f},
      6, 0, 5, 46.0f, 29.0f, 1.0f, StartFinish::Brick,
      StartFinish::Concrete, StartFinish::Steel,
-     VellumInfillRoofline::FlatParapet},
-    {{"West Vellum Mercantile", vellum_infill_grid_point(-322.0f, -155.0f),
+     PinattyInfillRoofline::FlatParapet},
+    {{"West Pinatty Mercantile", pinatty_infill_grid_point(-322.0f, -155.0f),
       kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 38.0f, 12.0f, 1500.0f},
      8, 2, 4, 40.0f, 30.0f, 1.0f, StartFinish::WarmWall,
      StartFinish::Brick, StartFinish::RedTrim,
-     VellumInfillRoofline::Stepped},
-    {{"Foundry Court Apartments", vellum_infill_grid_point(-322.0f, -93.0f),
+     PinattyInfillRoofline::Stepped},
+    {{"Foundry Court Apartments", pinatty_infill_grid_point(-322.0f, -93.0f),
       kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 38.0f, 12.0f, 1500.0f},
      5, 0, 5, 45.0f, 26.0f, 0.5f, StartFinish::Brick,
      StartFinish::WarmWall, StartFinish::White,
-     VellumInfillRoofline::FlatParapet},
-    {{"Copperleaf House", vellum_infill_grid_point(-322.0f, 31.0f),
+     PinattyInfillRoofline::FlatParapet},
+    {{"Copperleaf House", pinatty_infill_grid_point(-322.0f, 31.0f),
       kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 30.0f, 12.0f, 1500.0f},
      7, 1, 4, 38.0f, 22.0f, 0.0f, StartFinish::WarmWall,
      StartFinish::Concrete, StartFinish::TealDoor,
-     VellumInfillRoofline::Stepped},
-    {{"Vellum Printworks", vellum_infill_grid_point(-322.0f, 93.0f),
+     PinattyInfillRoofline::Stepped},
+    {{"Pinatty Printworks", pinatty_infill_grid_point(-322.0f, 93.0f),
       kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 38.0f, 12.0f, 1500.0f},
      9, 0, 5, 48.0f, 29.0f, 1.0f, StartFinish::Brick,
      StartFinish::Steel, StartFinish::Yellow,
-     VellumInfillRoofline::FlatParapet},
-    {{"Mercer Arcade", vellum_infill_grid_point(-230.0f, 155.0f),
+     PinattyInfillRoofline::FlatParapet},
+    {{"Mercer Arcade", pinatty_infill_grid_point(-230.0f, 155.0f),
       kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 38.0f, 12.0f, 1500.0f},
      6, 0, 4, 44.0f, 28.0f, 0.5f, StartFinish::WarmWall,
      StartFinish::Brick, StartFinish::RedTrim,
-     VellumInfillRoofline::Gabled},
-    {{"Bellweather Rooms", vellum_infill_grid_point(-138.0f, 155.0f),
+     PinattyInfillRoofline::Gabled},
+    {{"Bellweather Rooms", pinatty_infill_grid_point(-138.0f, 155.0f),
       kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 38.0f, 12.0f, 1500.0f},
      4, 0, 3, 40.0f, 25.0f, 0.5f, StartFinish::Brick,
      StartFinish::WarmWall, StartFinish::White,
-     VellumInfillRoofline::Gabled},
-    {{"Rookery House", vellum_infill_grid_point(-46.0f, 155.0f),
+     PinattyInfillRoofline::Gabled},
+    {{"Rookery House", pinatty_infill_grid_point(-46.0f, 155.0f),
       kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 38.0f, 12.0f, 1500.0f},
      8, 2, 5, 46.0f, 30.0f, 1.0f, StartFinish::Concrete,
      StartFinish::Brick, StartFinish::TealDoor,
-     VellumInfillRoofline::Stepped},
-    {{"Juniper Market Flats", vellum_infill_grid_point(46.0f, 155.0f),
+     PinattyInfillRoofline::Stepped},
+    {{"Juniper Market Flats", pinatty_infill_grid_point(46.0f, 155.0f),
       kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 38.0f, 12.0f, 1500.0f},
      7, 0, 4, 42.0f, 27.0f, 0.5f, StartFinish::WarmWall,
      StartFinish::Brick, StartFinish::RedTrim,
-     VellumInfillRoofline::FlatParapet},
-    {{"Mercer Textile Exchange", vellum_infill_grid_point(-230.0f, -155.0f),
+     PinattyInfillRoofline::FlatParapet},
+    {{"Mercer Textile Exchange", pinatty_infill_grid_point(-230.0f, -155.0f),
       kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 38.0f, 12.0f, 1500.0f},
      6, 1, 5, 46.0f, 29.0f, 1.0f, StartFinish::Brick,
      StartFinish::Concrete, StartFinish::Yellow,
-     VellumInfillRoofline::Stepped},
-    {{"Bellweather Pharmacy Offices", vellum_infill_grid_point(-230.0f, 93.0f),
+     PinattyInfillRoofline::Stepped},
+    {{"Bellweather Pharmacy Offices", pinatty_infill_grid_point(-230.0f, 93.0f),
       kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 38.0f, 12.0f, 1500.0f},
      5, 0, 4, 43.0f, 27.0f, 0.5f, StartFinish::WarmWall,
      StartFinish::Brick, StartFinish::White,
-     VellumInfillRoofline::Gabled},
+     PinattyInfillRoofline::Gabled},
 }};
 
-inline constexpr float kVellumInfillFloorHeightM = 3.15f;
+inline constexpr float kPinattyInfillFloorHeightM = 3.15f;
 
-inline float vellum_infill_eave_height(const VellumInfillParcel& parcel) {
-    return static_cast<float>(parcel.floors) * kVellumInfillFloorHeightM;
+inline float pinatty_infill_eave_height(const PinattyInfillParcel& parcel) {
+    return static_cast<float>(parcel.floors) * kPinattyInfillFloorHeightM;
 }
 
-inline bool vellum_infill_ground_piece(const StartPart& part) {
+inline bool pinatty_infill_ground_piece(const StartPart& part) {
     return part.name != nullptr &&
            (std::strcmp(part.name, "infill lot") == 0 ||
             std::strcmp(part.name, "infill entrance walk") == 0 ||
             std::strcmp(part.name, "infill lobby floor") == 0);
 }
 
-inline std::vector<StartPart> bake_vellum_infill(std::size_t index) {
-    const auto& parcel = kVellumInfillParcels.at(index);
+inline std::vector<StartPart> bake_pinatty_infill(std::size_t index) {
+    const auto& parcel = kPinattyInfillParcels.at(index);
     const float width = parcel.building_width_m;
     const float depth = parcel.building_depth_m;
     const float centre_z = parcel.building_centre_z_m;
@@ -133,10 +133,10 @@ inline std::vector<StartPart> bake_vellum_infill(std::size_t index) {
     const float rear_z = centre_z + half_depth;
     const int main_floors = parcel.floors - parcel.setback_floors;
     const float main_top =
-        static_cast<float>(main_floors) * kVellumInfillFloorHeightM;
-    const float total_top = vellum_infill_eave_height(parcel);
-    const bool stepped = parcel.roofline == VellumInfillRoofline::Stepped;
-    const bool gabled = parcel.roofline == VellumInfillRoofline::Gabled;
+        static_cast<float>(main_floors) * kPinattyInfillFloorHeightM;
+    const float total_top = pinatty_infill_eave_height(parcel);
+    const bool stepped = parcel.roofline == PinattyInfillRoofline::Stepped;
+    const bool gabled = parcel.roofline == PinattyInfillRoofline::Gabled;
     const float upper_width = stepped ? width - 6.0f : width;
     const float upper_depth = stepped ? depth - 5.0f : depth;
     const float upper_centre_z = stepped ? centre_z + 1.0f : centre_z;
@@ -202,13 +202,13 @@ inline std::vector<StartPart> bake_vellum_infill(std::size_t index) {
         add("infill upper setback mass", 0.0f, upper_centre_z, main_top,
             upper_width,
             static_cast<float>(parcel.setback_floors) *
-                kVellumInfillFloorHeightM,
+                kPinattyInfillFloorHeightM,
             upper_depth, parcel.side_finish, true);
         add("infill upper facade field", 0.0f,
             upper_centre_z - upper_depth * 0.5f - 0.07f, main_top,
             upper_width - 0.50f,
             static_cast<float>(parcel.setback_floors) *
-                kVellumInfillFloorHeightM,
+                kPinattyInfillFloorHeightM,
             0.10f, parcel.facade_finish);
     }
 
@@ -267,7 +267,7 @@ inline std::vector<StartPart> bake_vellum_infill(std::size_t index) {
         const float floor_front = floor_centre_z - floor_depth * 0.5f;
         const float floor_rear = floor_centre_z + floor_depth * 0.5f;
         const float sill_y = static_cast<float>(floor) *
-                                 kVellumInfillFloorHeightM +
+                                 kPinattyInfillFloorHeightM +
                              0.72f;
         const float usable_width = floor_width - 4.0f;
         const float bay_width = usable_width /
@@ -280,7 +280,7 @@ inline std::vector<StartPart> bake_vellum_infill(std::size_t index) {
                 StartFinish::Glass);
         }
         add("infill facade floor band", 0.0f, floor_front - 0.20f,
-            static_cast<float>(floor) * kVellumInfillFloorHeightM + 0.42f,
+            static_cast<float>(floor) * kPinattyInfillFloorHeightM + 0.42f,
             floor_width + 0.20f, 0.14f, 0.16f, parcel.trim_finish);
         for (float side : {-1.0f, 1.0f})
             add("infill side apartment window",

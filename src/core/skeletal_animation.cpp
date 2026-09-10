@@ -93,6 +93,27 @@ glm::vec3 dqs_position(const EmeshSkinnedVertex& vertex,
 
 }  // namespace
 
+BonePose decompose_bone_pose(const glm::mat4& matrix) {
+    BonePose pose;
+    pose.translation = glm::vec3{matrix[3]};
+    glm::mat3 basis{glm::vec3{matrix[0]}, glm::vec3{matrix[1]},
+                    glm::vec3{matrix[2]}};
+    for (int axis = 0; axis < 3; ++axis) {
+        const float length = glm::length(basis[axis]);
+        pose.scale[axis] = length;
+        if (length > 1e-8f) basis[axis] /= length;
+    }
+    pose.rotation = glm::normalize(glm::quat_cast(basis));
+    return pose;
+}
+
+void decompose_local_poses(const std::vector<glm::mat4>& local,
+                           std::vector<BonePose>& out_poses) {
+    out_poses.resize(local.size());
+    for (std::size_t i = 0; i < local.size(); ++i)
+        out_poses[i] = decompose_bone_pose(local[i]);
+}
+
 bool Skeleton::load(const std::string& path) {
     std::FILE* file = std::fopen(path.c_str(), "rb");
     if (!file) {
@@ -301,6 +322,74 @@ bool Animation::load(const std::string& path, const Skeleton& skeleton) {
     return true;
 }
 
+glm::mat4 bone_pose_matrix(const BonePose& pose) {
+    return glm::translate(glm::mat4{1.0f}, pose.translation) *
+           glm::mat4_cast(pose.rotation) *
+           glm::scale(glm::mat4{1.0f}, pose.scale);
+}
+
+void compose_local_poses(const std::vector<BonePose>& poses,
+                         std::vector<glm::mat4>& out_local) {
+    out_local.resize(poses.size());
+    for (std::size_t i = 0; i < poses.size(); ++i) {
+        out_local[i] = bone_pose_matrix(poses[i]);
+    }
+}
+
+void blend_bone_poses(const std::vector<BonePose>& from,
+                      const std::vector<BonePose>& to, float weight,
+                      std::vector<BonePose>& out) {
+    if (from.size() != to.size()) {
+        AP_ERROR("animation: refusing to blend %zu bones against %zu",
+                 from.size(), to.size());
+        out.clear();
+        return;
+    }
+    const float alpha = std::clamp(weight, 0.0f, 1.0f);
+    out.resize(from.size());
+    for (std::size_t i = 0; i < from.size(); ++i) {
+        out[i].translation = glm::mix(from[i].translation, to[i].translation,
+                                      alpha);
+        // glm::slerp takes the shortest arc (it negates one input when their
+        // dot is negative), so a fade never spins the bone the long way round.
+        out[i].rotation = glm::normalize(
+            glm::slerp(from[i].rotation, to[i].rotation, alpha));
+        out[i].scale = glm::mix(from[i].scale, to[i].scale, alpha);
+    }
+}
+
+void Animation::sample_parts(float time, const Skeleton& skeleton,
+                             std::vector<BonePose>& out_parts) const {
+    const int count = skeleton.bone_count();
+    out_parts.assign(static_cast<std::size_t>(count), BonePose{});
+    for (int i = 0; i < count; ++i) {
+        // A bone the clip does not animate holds its BIND transform, so a clip
+        // that keys only part of the rig still produces a whole character.
+        // Decomposed rather than kept as a matrix because a blend has to
+        // interpolate the parts; these are rigid transforms, so the round trip
+        // through parts and back is exact to float rounding.
+        out_parts[static_cast<std::size_t>(i)] =
+            decompose_bone_pose(skeleton.bone(i).bind_local);
+    }
+    if (duration_ > 0.0f) {
+        time = std::fmod(time, duration_);
+        if (time < 0.0f) time += duration_;
+    }
+    for (const Channel& channel : channels_) {
+        if (channel.bone_index < 0) continue;
+        // An ANIMATED bone is replaced outright, and a track the clip omits
+        // falls back to the identity part rather than to bind. That is what
+        // sample() has always done; the two must not disagree, because one
+        // feeds the crossfade and the other feeds every existing pose solver.
+        BonePose& pose = out_parts[static_cast<std::size_t>(channel.bone_index)];
+        pose.translation = sample_vector(channel.position, time,
+                                         glm::vec3{0.0f});
+        pose.rotation = sample_rotation(channel.rotation, time,
+                                        glm::quat{1.0f, 0.0f, 0.0f, 0.0f});
+        pose.scale = sample_vector(channel.scale, time, glm::vec3{1.0f});
+    }
+}
+
 void Animation::sample(float time, const Skeleton& skeleton,
                        std::vector<glm::mat4>& out_local) const {
     const int count = skeleton.bone_count();
@@ -334,6 +423,32 @@ void strip_root_motion_xz(const Skeleton& skeleton,
         const glm::vec3 bind_translation{skeleton.bone(i).bind_local[3]};
         translation.x = bind_translation.x;
         translation.z = bind_translation.z;
+        translation.w = 1.0f;
+    }
+}
+
+glm::vec2 root_translation_xz(const Skeleton& skeleton,
+                              const std::vector<glm::mat4>& local_poses) {
+    for (int i = 0; i < skeleton.bone_count(); ++i) {
+        if (skeleton.bone(i).parent >= 0) continue;
+        const std::size_t index = static_cast<std::size_t>(i);
+        if (index >= local_poses.size()) break;
+        return glm::vec2{local_poses[index][3].x, local_poses[index][3].z};
+    }
+    return glm::vec2{0.0f};
+}
+
+void anchor_root_motion_xz(const Skeleton& skeleton,
+                           std::vector<glm::mat4>& local_poses,
+                           const glm::vec2& reference_xz) {
+    for (int i = 0; i < skeleton.bone_count(); ++i) {
+        if (skeleton.bone(i).parent >= 0) continue;
+        const std::size_t index = static_cast<std::size_t>(i);
+        if (index >= local_poses.size()) continue;
+        glm::vec4& translation = local_poses[index][3];
+        const glm::vec3 bind_translation{skeleton.bone(i).bind_local[3]};
+        translation.x = bind_translation.x + (translation.x - reference_xz.x);
+        translation.z = bind_translation.z + (translation.z - reference_xz.y);
         translation.w = 1.0f;
     }
 }

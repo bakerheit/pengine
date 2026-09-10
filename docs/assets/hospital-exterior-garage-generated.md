@@ -29,7 +29,7 @@ Style/medium: flat albedo texture, crisp screen-printed industrial graphics, sli
 Composition/framing: exact 2:3 portrait aspect ratio, orthographic straight-on, edge-to-edge panel face, all important content inside safe margins
 Color palette: dark charcoal, hospital teal, off-white, tiny amber accent
 Materials/textures: subtle paint wear and fingerprints only; surface information without directional light
-Text (verbatim): "VELLUM REGIONAL HOSPITAL"; "PARKING"; "TAKE TICKET"; render each phrase exactly once, clean uppercase sans-serif, no other letters or numbers
+Text (verbatim): "PINATTY REGIONAL HOSPITAL"; "PARKING"; "TAKE TICKET"; render each phrase exactly once, clean uppercase sans-serif, no other letters or numbers
 Constraints: unique non-seamless one-off receiver texture; original design; transparent effects are not needed; opaque background; no logos, trademarks, brand marks, watermark, tiny legal text, QR code, arrows made from letters, fake emissive glow, or repeated pattern
 Avoid: GTA branding or copied game assets; wall texture; texture atlas; kiosk product shot; perspective; lighting baked into color
 ```

@@ -9,6 +9,7 @@
 #include "app/traffic_visual_layout.h"
 #include "city/airport.h"
 #include "road/lane_graph.h"
+#include "gfx/street_lamp_light.h"
 #include "traffic/crowd.h"
 
 namespace apricot {
@@ -16,7 +17,6 @@ namespace apricot {
 inline constexpr float kFixtureSideClearanceM = kSidewalkWidthM + 0.35f;
 inline constexpr float kStreetLampHeightM = 8.0f;
 inline constexpr float kStreetLampDrawDistanceM = 420.0f;
-inline constexpr float kStreetLampLightDistanceM = 260.0f;
 inline constexpr float kStreetLampMinSeparationM = 24.0f;
 
 inline float street_lamp_spacing(RoadClass cls) {

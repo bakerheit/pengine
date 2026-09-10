@@ -1,4 +1,4 @@
-# Vellum Regional Hospital overhaul: logistics layer
+# Pinatty Regional Hospital overhaul: logistics layer
 
 ## Scope
 

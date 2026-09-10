@@ -6,7 +6,7 @@
 #include <set>
 
 #include "city/roads.h"
-#include "city/vellum_infill.h"
+#include "city/pinatty_infill.h"
 #include "terrain/chunk.h"
 #include "test_assert.h"
 
@@ -59,7 +59,7 @@ bool sites_are_separate(const city::StartSite& a, const city::StartSite& b,
 }
 
 void exact_perimeter_and_central_infill_is_authored() {
-    REQUIRE(city::kVellumInfillParcels.size() == 12u);
+    REQUIRE(city::kPinattyInfillParcels.size() == 12u);
     const std::array<city::Vec2, 12> expected{{
         {-322.0f, -279.0f}, {-322.0f, -217.0f}, {-322.0f, -155.0f},
         {-322.0f, -93.0f}, {-322.0f, 31.0f}, {-322.0f, 93.0f},
@@ -67,32 +67,32 @@ void exact_perimeter_and_central_infill_is_authored() {
         {46.0f, 155.0f}, {-230.0f, -155.0f}, {-230.0f, 93.0f},
     }};
     for (std::size_t i = 0; i < expected.size(); ++i) {
-        const auto& site = city::kVellumInfillParcels[i].site;
+        const auto& site = city::kPinattyInfillParcels[i].site;
         REQUIRE(site.name != nullptr);
         REQUIRE_NEAR(site.cos_yaw, city::kGridCos, 1e-6f);
         REQUIRE_NEAR(site.sin_yaw, city::kGridSin, 1e-6f);
         REQUIRE(site.lot_width_m <= 54.0f);
         REQUIRE(site.lot_depth_m <= 38.0f);
         const city::Vec2 origin =
-            city::vellum_infill_grid_point(expected[i].x, expected[i].z);
+            city::pinatty_infill_grid_point(expected[i].x, expected[i].z);
         REQUIRE_NEAR(site.origin.x, origin.x, 1e-4f);
         REQUIRE_NEAR(site.origin.z, origin.z, 1e-4f);
     }
-    for (std::size_t i = 0; i < city::kVellumInfillParcels.size(); ++i) {
+    for (std::size_t i = 0; i < city::kPinattyInfillParcels.size(); ++i) {
         for (std::size_t j = i + 1;
-             j < city::kVellumInfillParcels.size(); ++j) {
+             j < city::kPinattyInfillParcels.size(); ++j) {
             REQUIRE_MSG(sites_are_separate(
-                            city::kVellumInfillParcels[i].site,
-                            city::kVellumInfillParcels[j].site),
-                        "Vellum infill lots overlap",
-                        city::kVellumInfillParcels[i].site.name);
+                            city::kPinattyInfillParcels[i].site,
+                            city::kPinattyInfillParcels[j].site),
+                        "Pinatty infill lots overlap",
+                        city::kPinattyInfillParcels[i].site.name);
         }
     }
     apricot_test::pass("twelve infill lots fill the intended perimeter and central gaps");
 }
 
 void parcels_are_flat_and_clear_of_road_ribbons() {
-    for (const auto& parcel : city::kVellumInfillParcels) {
+    for (const auto& parcel : city::kPinattyInfillParcels) {
         const auto& site = parcel.site;
         for (int xi = -2; xi <= 2; ++xi) {
             for (int zi = -2; zi <= 2; ++zi) {
@@ -135,9 +135,9 @@ void require_low_part_inside_lot(const city::StartSite& site,
 void baked_parts_are_valid_bounded_and_collidable() {
     std::size_t total_parts = 0;
     std::size_t total_solids = 0;
-    for (std::size_t i = 0; i < city::kVellumInfillParcels.size(); ++i) {
-        const auto& parcel = city::kVellumInfillParcels[i];
-        const auto parts = city::bake_vellum_infill(i);
+    for (std::size_t i = 0; i < city::kPinattyInfillParcels.size(); ++i) {
+        const auto& parcel = city::kPinattyInfillParcels[i];
+        const auto parts = city::bake_pinatty_infill(i);
         REQUIRE(!parts.empty());
         REQUIRE(city::valid_start_parts(parts.data(), parts.size()));
         REQUIRE(parts.size() >= 55u);
@@ -188,9 +188,9 @@ void facades_massing_and_roofs_really_vary() {
     std::array<std::size_t, 3> roofline_counts{};
     float shortest = 1e9f;
     float tallest = 0.0f;
-    for (std::size_t i = 0; i < city::kVellumInfillParcels.size(); ++i) {
-        const auto& parcel = city::kVellumInfillParcels[i];
-        const auto parts = city::bake_vellum_infill(i);
+    for (std::size_t i = 0; i < city::kPinattyInfillParcels.size(); ++i) {
+        const auto& parcel = city::kPinattyInfillParcels[i];
+        const auto parts = city::bake_pinatty_infill(i);
         floor_counts.insert(parcel.floors);
         piece_counts.insert(static_cast<int>(parts.size()));
         const auto facade = static_cast<unsigned int>(parcel.facade_finish);
@@ -199,8 +199,8 @@ void facades_massing_and_roofs_really_vary() {
         const auto roofline = static_cast<std::size_t>(parcel.roofline);
         REQUIRE(roofline < roofline_counts.size());
         ++roofline_counts[roofline];
-        shortest = std::min(shortest, city::vellum_infill_eave_height(parcel));
-        tallest = std::max(tallest, city::vellum_infill_eave_height(parcel));
+        shortest = std::min(shortest, city::pinatty_infill_eave_height(parcel));
+        tallest = std::max(tallest, city::pinatty_infill_eave_height(parcel));
 
         REQUIRE(has_part(parts, "infill shopfront glass"));
         REQUIRE(has_part(parts, "infill apartment window"));
@@ -209,9 +209,9 @@ void facades_massing_and_roofs_really_vary() {
         REQUIRE(has_part(parts, "infill rooftop water tank") ||
                 has_part(parts, "infill rooftop hvac") ||
                 has_part(parts, "infill rooftop stair house"));
-        if (parcel.roofline == city::VellumInfillRoofline::Stepped)
+        if (parcel.roofline == city::PinattyInfillRoofline::Stepped)
             REQUIRE(has_part(parts, "infill upper setback mass"));
-        if (parcel.roofline == city::VellumInfillRoofline::Gabled)
+        if (parcel.roofline == city::PinattyInfillRoofline::Gabled)
             REQUIRE(has_part(parts, "infill gable end wall"));
     }
     REQUIRE(floor_counts.size() >= 6u);
@@ -232,5 +232,5 @@ int main() {
     parcels_are_flat_and_clear_of_road_ribbons();
     baked_parts_are_valid_bounded_and_collidable();
     facades_massing_and_roofs_really_vary();
-    return apricot_test::done("vellum_infill_tests");
+    return apricot_test::done("pinatty_infill_tests");
 }

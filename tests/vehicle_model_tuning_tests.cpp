@@ -125,6 +125,14 @@ void catalog_has_one_distinct_tune_per_model() {
         REQUIRE(profile.top_speed_scale >= .35f &&
                 profile.top_speed_scale <= 1.25f);
         REQUIRE(profile.brake_scale >= .70f && profile.brake_scale <= 1.20f);
+        // apply_vehicle_impact clamps this to [0, 1], so a row above 1 is data
+        // that reads as tuning and does nothing. FangVenom shipped 1.18 and
+        // dented exactly like 1.f. Catch the next one here rather than in a
+        // catalog-wide invariant somewhere else that goes red months later.
+        REQUIRE_MSG(profile.body_damage_gain > 0.f &&
+                    profile.body_damage_gain <= 1.f,
+                    "body_damage_gain must sit in (0, 1]; above 1 is discarded",
+                    model.model);
     }
     for (std::size_t i=0;i<seen.size();++i) {
         const auto id=static_cast<PlayerCarId>(i);

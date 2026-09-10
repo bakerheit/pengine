@@ -177,7 +177,7 @@ void the_load_radius_fills_and_settles() {
 // --- the instance budget --------------------------------------------------------
 // Wooded ground, deliberately NOT the origin.
 //
-// The origin is Vellum Row, and since scatter learned to read
+// The origin is Pinatty Row, and since scatter learned to read
 // PropParams::wild a paved district scatters nothing at all. Both of the
 // anti-vacuity guards below sampled there and correctly reported that they
 // were measuring nothing — which is the guard doing its job, not a bug.

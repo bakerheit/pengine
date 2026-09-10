@@ -15,7 +15,10 @@
 #include "city/east_arm_plaza.h"
 #include "city/hospital_campus.h"
 #include "city/neighborhood_bar.h"
+#include "city/loom_cultural.h"
+#include "city/burgerpiz.h"
 #include "city/luxury_neighborhood.h"
+#include "city/north_pinatty_gas_station.h"
 #include "city/miandi_bayfront.h"
 #include "city/miandi_calle_noche.h"
 #include "city/miandi_mariposa_motel.h"
@@ -40,7 +43,7 @@ inline constexpr float kAccessSeamLiftM = 0.003f;
 inline constexpr float kAccessMaxGrade = 0.12f;
 inline constexpr float kAccessFixtureMarginM = 0.45f;
 
-enum class BuildingAccessUse { PublicParking, LandsideService };
+enum class BuildingAccessUse { PublicParking, LandsideService, PedestrianPath };
 
 struct BuildingAccessLot {
     const char* name = nullptr;
@@ -106,17 +109,9 @@ inline std::vector<BuildingAccessLot> authored_building_access_lots(GroundSample
     add(kApartmentSite, bake_building(kApartmentPlan), "apartment lot", {0, -1}, 27);
     add(kFastFoodSite, bake_building(kFastFoodPlan), "restaurant lot", {0, -1}, 28);
     out.back().parking_tracks_frontage = false;
-    add(kTacomacoSite, bake_building(kTacomacoPlan), "restaurant lot", {0, -1}, 28);
-    out.back().parking_tracks_frontage = false;
-    auto quickbite_exit=out.back();
-    quickbite_exit.name="Quickbite drive-through exit";
-    quickbite_exit.preferred_entry_local=14;
-    quickbite_exit.generate_frontage=false;
-    out.push_back(quickbite_exit);
-    auto quickbite_parking=quickbite_exit;
-    quickbite_parking.name="Quickbite parking entrance";
-    quickbite_parking.preferred_entry_local=-25;
-    out.push_back(quickbite_parking);
+    add(kTacomacoSite,bake_burgerpiz_lot(),"imported restaurant parking lot",{0,1},-24,{33});
+    out.back().driveway_width_m=6.0f;
+    out.back().parking_tracks_frontage=false;
     add(kCarWashSite, bake_building(kCarWashPlan), "wash lot", {0, 1}, 0);
     out.back().driveway_width_m = 5.0f;
     add(kBankSite, bake_building(kBankPlan), "bank parking lot", {0, -1}, 24);
@@ -139,6 +134,19 @@ inline std::vector<BuildingAccessLot> authored_building_access_lots(GroundSample
     // The bar's customer lot sits to its left as seen from Halloway Street.
     // Its side inlet belongs on Mercer Avenue, not across the front pavement.
     add(kNeighborhoodBarSite,bake_neighborhood_bar(),"bar lot",{-1,0},2,{21});
+    add(kFreakyFranksSite,bake_burgerpiz_lot(),"imported restaurant parking lot",{0,1},-24,{36});
+    out.back().driveway_width_m=6.0f;
+    out.back().parking_tracks_frontage=false;
+    add(kBurgerPizSite,bake_burgerpiz_lot(),"imported restaurant parking lot",{0,1},-24,{39});
+    out.back().driveway_width_m=6.0f;
+    out.back().parking_tracks_frontage=false;
+    add(kLoomMuseumSite,bake_loom_museum(),"museum lot",{0,1},0,{209},BuildingAccessUse::PedestrianPath);
+    out.back().driveway_width_m=5.0f;
+    out.back().parking_tracks_frontage=false;
+    add(kLoomParkSite,bake_loom_park(),"garden entrance walk",{0,-1},0,{209},BuildingAccessUse::PedestrianPath);
+    out.back().driveway_width_m=3.2f;
+    out.back().parking_tracks_frontage=false;
+
     add(kFireStationSite,bake_emergency_station(true),"fire station lot",{0,1},-13.4f);
     out.back().driveway_width_m=27.5f;
     add(kPoliceStationSite,bake_emergency_station(false),"police station lot",{0,1},22.f);
@@ -190,6 +198,16 @@ inline std::vector<BuildingAccessLot> authored_building_access_lots(GroundSample
     add(kAirportSite, airport, "rental car lot", {0, 1}, 230, {150, 154});
     add(kAirportSite, airport, "air cargo yard", {1, 0}, 170, {155},
         BuildingAccessUse::LandsideService);
+
+    add(kMiandiGasStationSite,bake_miandi_gas_station_lot(),
+        "miandi gas parking lot",{0,1},-2.5f,{230});
+    out.back().driveway_width_m=10.0f;
+    out.back().parking_tracks_frontage=false;
+
+    add(kNorthPinattyGasStationSite,bake_miandi_gas_station_lot(),
+        "miandi gas parking lot",{0,1},-2.5f,{90});
+    out.back().driveway_width_m=10.0f;
+    out.back().parking_tracks_frontage=false;
 
     // Miandi's public walks terminate at the generated sidewalk edge in their
     // authored site bakes. These three records are vehicle/service curb cuts:
@@ -385,10 +403,9 @@ inline bool access_parking_marker(const StartPart& p) {
 
 inline bool access_neighborhood_plot(const StartSite& site,const StartPart& part) {
     if(!part.name) return false;
-    const std::array<std::pair<const StartSite*,const char*>,11> plots{{
+    const std::array<std::pair<const StartSite*,const char*>,10> plots{{
         {&kGasStationSite,"gas lot"},{&kMotelSite,"motel lot"},
         {&kApartmentSite,"apartment lot"},{&kFastFoodSite,"restaurant lot"},
-        {&kTacomacoSite,"restaurant lot"},
         {&kCarWashSite,"wash lot"},{&kBankSite,"bank parking lot"},
         {&kAutoRepairSite,"repair lot"},{&kLaundromatSite,"laundry lot"},
         {&kPawnShopSite,"pawn lot"},{&kNeighborhoodBarSite,"bar lot"}}};

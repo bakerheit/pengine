@@ -6,7 +6,7 @@ impact placeholders are not connected to the live vehicle mix. A missing
 recording means silence, not a generated substitute.
 
 `CityAudio` owns one non-spatial `Category::World` loop made from the recorded
-O'Haven city ambience. It runs at 22% emitter gain beneath the engine and keeps
+Pinatty city ambience. It runs at 22% emitter gain beneath the engine and keeps
 playing behind title/pause overlays. The checked-in WAV rotates the source and
 crossfades its last three seconds into its first three seconds, so the original
 fade cannot pulse at the 33.86-second loop boundary.

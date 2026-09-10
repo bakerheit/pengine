@@ -1,4 +1,5 @@
 #include "app/traffic_visual.h"
+#include "app/snowplow_mesh.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,6 +11,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "app/vehicle_lamp_mesh.h"
+#include "app/vehicle_snow_mesh.h"
 #include "app/vehicle_headlight_profile.h"
 #include "app/vehicle_driver_door.h"
 #include "app/vehicle_driver_pose.h"
@@ -57,6 +59,59 @@ void set_draw_distance(Scene& scene, NodeId id, float distance) {
     if (SceneNode* node = scene.get(id)) node->max_draw_distance = distance;
 }
 
+template <std::size_t N>
+bool break_roadside_fixture(Scene& scene, TerrainCollider& collider,
+                            TrafficSignalDamage& damage,
+                            RoadsideDebrisState& debris,
+                            std::size_t collider_id,
+                            const std::array<NodeId,N>& nodes,
+                            const std::array<Transform,N>& standing,
+                            glm::vec3 velocity, float break_speed) {
+    if (!damage.hit(velocity, break_speed)) return false;
+    collider.set_kinematic_enabled(collider_id, false);
+    std::array<AABB, N> local_bounds{};
+    for (std::size_t n = 0; n < nodes.size(); ++n) {
+        if (const SceneNode* node = scene.get(nodes[n]))
+            local_bounds[n] = node->local_bounds;
+    }
+    start_roadside_debris(debris, standing, local_bounds, velocity);
+    return true;
+}
+
+template <std::size_t N>
+void step_roadside_fixture(Scene& scene, const TerrainCollider& collider,
+                           const TrafficSignalDamage& damage,
+                           RoadsideDebrisState& debris,
+                           const std::array<NodeId,N>& nodes,
+                           float dt) {
+    if (!damage.broken) return;
+    step_roadside_debris(debris, collider, dt);
+    for (std::size_t n = 0; n < nodes.size(); ++n) {
+        if (SceneNode* node = scene.get(nodes[n]))
+            node->visible = !debris.expired;
+        if (debris.expired) continue;
+        scene.set_transform(nodes[n], debris.pieces[n].pose);
+    }
+}
+
+template <std::size_t N>
+void reset_roadside_fixture(Scene& scene, TerrainCollider& collider,
+                            TrafficSignalDamage& damage,
+                            RoadsideDebrisState& debris,
+                            std::size_t collider_id,
+                            const std::array<NodeId,N>& nodes,
+                            const std::array<Transform,N>& standing) {
+    const uint64_t key = damage.lane_key;
+    damage = {};
+    damage.lane_key = key;
+    debris = {};
+    collider.set_kinematic_enabled(collider_id, true);
+    for (std::size_t n = 0; n < nodes.size(); ++n) {
+        if (SceneNode* node = scene.get(nodes[n])) node->visible = true;
+        scene.set_transform(nodes[n], standing[n]);
+    }
+}
+
 }  // namespace
 
 PoliceOfficerVehicleLayout TrafficVisual::police_officer_vehicle_layout() const {
@@ -82,7 +137,7 @@ bool TrafficVisual::load_model(Renderer& renderer, const char* mesh_path,
                                float wheel_rear_z_native, Model& out) {
     StaticEmesh body;
     if (!read_static_emesh(asset_path(mesh_path), body)) return false;
-    out.mesh = renderer.add_mesh(body);
+    out.mesh = renderer.add_mesh(make_vehicle_snow_mesh(body, mesh_path));
     out.bounds = body.bounds;
     if (out.mesh == kInvalidId) return false;
 
@@ -99,7 +154,8 @@ bool TrafficVisual::load_model(Renderer& renderer, const char* mesh_path,
             return false;
         // Use the authored open shell throughout, so the door and its glass
         // can move without leaving a second, closed panel in the doorway.
-        out.mesh=renderer.add_mesh(open_body);
+        out.mesh=renderer.add_mesh(
+            make_vehicle_snow_mesh(open_body, root + "body_open.emesh"));
         out.driver_door_mesh=renderer.add_mesh(driver_door);
         out.driver_door_bounds=driver_door.bounds;
         if (out.mesh==kInvalidId || out.driver_door_mesh==kInvalidId) return false;
@@ -109,7 +165,9 @@ bool TrafficVisual::load_model(Renderer& renderer, const char* mesh_path,
             StaticEmesh glass;
             if (!read_static_emesh(asset_path(root+kGlassNames[i]+".emesh"),glass))
                 return false;
-            out.glass_meshes[i]=renderer.add_mesh(glass);
+            out.glass_meshes[i] = i == 0u
+                ? renderer.add_mesh(make_windshield_snow_mesh(glass))
+                : renderer.add_mesh(glass);
             out.glass_bounds[i]=glass.bounds;
             if (out.glass_meshes[i]==kInvalidId) return false;
         }
@@ -231,6 +289,35 @@ bool TrafficVisual::init(Renderer& renderer, Scene& scene,
     flat_material_ = renderer.white_material();
     if (box_mesh_ == kInvalidId || flat_material_ == kInvalidId) return false;
 
+    const auto snowplow = make_snowplow_meshes();
+    auto& plow = models_[static_cast<std::size_t>(TrafficVehicleKind::Snowplow)];
+    plow.mesh = renderer.add_mesh(snowplow[0]);
+    plow.bounds = snowplow[0].bounds;
+    for (const auto& part : snowplow) {
+        plow.bounds.expand(part.bounds.min);
+        plow.bounds.expand(part.bounds.max);
+    }
+    plow.layout = make_snowplow_visual_layout(plow.bounds);
+    plow.paints.push_back(flat_material_);
+    plow.exposed_headlights = true;
+    if (plow.mesh == kInvalidId) return false;
+    for (std::size_t i=0; i<snowplow_detail_meshes_.size(); ++i) {
+        snowplow_detail_meshes_[i] = renderer.add_mesh(snowplow[i+1]);
+        snowplow_detail_bounds_[i] = snowplow[i+1].bounds;
+        if (snowplow_detail_meshes_[i] == kInvalidId) return false;
+    }
+    for (std::size_t i=0; i<plow.lamp_meshes.size(); ++i) {
+        MeshData lamp;
+        const bool front=i<2u;
+        const glm::vec3 origin{i%2u==0u ? -.84f : .84f,
+            front ? 1.11f : 1.16f, front ? -2.682f : 2.854f};
+        snowplow_mesh_detail::box(lamp,origin,{.28f,.20f,.035f});
+        plow.lamp_meshes[i]=renderer.add_mesh(lamp);
+        plow.lamp_bounds[i]=lamp.bounds;
+        plow.lamp_origins[i]=origin;
+        if (plow.lamp_meshes[i] == kInvalidId) return false;
+    }
+
     const std::array<MeshData,5> signal_geometry{
         make_traffic_signal_pole(), make_traffic_signal_arm(),
         make_traffic_signal_housing(), make_traffic_signal_lens(),
@@ -258,10 +345,11 @@ bool TrafficVisual::init(Renderer& renderer, Scene& scene,
     if (yield_marking_mesh_ == kInvalidId) return false;
 
     tuning_ = tuning;
+    breakaway_fixture_owners_.clear();
     build_signals(scene, lanes, collider);
     build_street_lamps(scene, lanes, collider);
     build_road_controls(scene, lanes, collider);
-    AP_INFO("traffic visual: 8 bodies, shared moving wheels, %zu signal "
+    AP_INFO("traffic visual: 9 bodies, shared moving wheels, %zu signal "
             "heads, %zu street lamps, %zu stop/yield signs ready",
             signals_.size(), street_lamps_.size(), road_sign_count_);
     return true;
@@ -284,13 +372,32 @@ TrafficVisual::Rig TrafficVisual::create_rig(
     body.mesh = model.mesh;
     body.material = model.paints[static_cast<std::size_t>(
         (h >> 8) % static_cast<uint64_t>(model.paints.size()))];
+    const bool snowplow = traffic_vehicle_kind(agent) == TrafficVehicleKind::Snowplow;
+    if (snowplow) body.tint = kSnowplowPartColors[0];
     rig.body = scene.create(body, Transform{}, model.bounds);
-    set_draw_distance(scene, rig.body, 420.0f);
+    if (snowplow) {
+        for (std::size_t i=0; i<rig.snowplow_details.size(); ++i) {
+            Renderable detail;
+            detail.mesh=snowplow_detail_meshes_[i];
+            detail.material=flat_material_;
+            detail.tint=kSnowplowPartColors[i+1];
+            rig.snowplow_details[i]=scene.create(detail,Transform{},snowplow_detail_bounds_[i]);
+            set_draw_distance(scene,rig.snowplow_details[i],vehicle_draw_distance_);
+        }
+        for (NodeId& id : rig.emergency) {
+            Renderable beacon;
+            beacon.mesh=box_mesh_;
+            beacon.material=flat_material_;
+            id=scene.create(beacon,Transform{},box_bounds_);
+            set_draw_distance(scene,id,vehicle_draw_distance_);
+        }
+    }
+    set_draw_distance(scene, rig.body, vehicle_draw_distance_);
     if (model.driver_door_mesh != kInvalidId) {
         Renderable door=body;
         door.mesh=model.driver_door_mesh;
         rig.driver_door=scene.create(door,Transform{},model.driver_door_bounds);
-        set_draw_distance(scene,rig.driver_door,420.0f);
+        set_draw_distance(scene,rig.driver_door,vehicle_draw_distance_);
     }
 
     for (std::size_t i=0;i<model.glass_count;++i) {
@@ -298,7 +405,7 @@ TrafficVisual::Rig TrafficVisual::create_rig(
         glass.mesh=model.glass_meshes[i];
         glass.material=model.glass_material;
         rig.glass[i]=scene.create(glass,Transform{},model.glass_bounds[i]);
-        set_draw_distance(scene,rig.glass[i],420.0f);
+        set_draw_distance(scene,rig.glass[i],vehicle_draw_distance_);
     }
 
     Renderable wheel;
@@ -306,16 +413,16 @@ TrafficVisual::Rig TrafficVisual::create_rig(
     wheel.material = wheel_material_;
     for (NodeId& id : rig.wheels) {
         id = scene.create(wheel, Transform{}, wheel_bounds_);
-        set_draw_distance(scene, id, 420.0f);
+        set_draw_distance(scene, id, vehicle_draw_distance_);
     }
     for (std::size_t i = 0; i < rig.lamps.size(); ++i) {
         Renderable lamp;
         lamp.mesh = model.lamp_meshes[i];
         lamp.material = body.material;
-        lamp.uv_scale = vehicle_lamp_surface_uv(i, model.headlight_profile);
+        if (!snowplow) lamp.uv_scale = vehicle_lamp_surface_uv(i, model.headlight_profile);
         rig.lamps[i] = scene.create(
             lamp, Transform{}, model.lamp_bounds[i]);
-        set_draw_distance(scene, rig.lamps[i], 420.0f);
+        set_draw_distance(scene, rig.lamps[i], vehicle_draw_distance_);
     }
     if (traffic_vehicle_kind(agent) == TrafficVehicleKind::Police) {
         for (std::size_t i = 0; i < rig.emergency.size(); ++i) {
@@ -327,7 +434,7 @@ TrafficVisual::Rig TrafficVisual::create_rig(
             if (SceneNode* node = scene.get(rig.emergency[i])) {
                 node->visible = false;
             }
-            set_draw_distance(scene, rig.emergency[i], 420.0f);
+            set_draw_distance(scene, rig.emergency[i], vehicle_draw_distance_);
         }
     }
     return rig;
@@ -350,6 +457,10 @@ void TrafficVisual::destroy_rig(Scene& scene, Rig& rig) const {
         scene.remove(id);
         id = kInvalidId;
     }
+    for (NodeId& id : rig.snowplow_details) {
+        if (id != kInvalidId) scene.remove(id);
+        id = kInvalidId;
+    }
     for (NodeId& id : rig.glass) {
         if (id != kInvalidId) scene.remove(id);
         id = kInvalidId;
@@ -365,6 +476,9 @@ void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
 
     const Transform body_transform = chassis * model.layout.body;
     scene.set_transform(rig.body, body_transform);
+    const bool snowplow = traffic_vehicle_kind(agent) == TrafficVehicleKind::Snowplow;
+    for (NodeId id : rig.snowplow_details)
+        if (id != kInvalidId) scene.set_transform(id,body_transform);
     const float door_open = agent.police_unit
         ? police_officer_door_open(agent.officer,alpha) : 0.0f;
     const Transform door_transform = vehicle_driver_door_transform(
@@ -388,6 +502,13 @@ void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
         body->renderable.body_damage0 = damage0;
         body->renderable.body_damage1 = packed_damage1;
         body->renderable.deform_frame = deform_frame;
+    }
+    for (NodeId id : rig.snowplow_details) {
+        if (SceneNode* detail = scene.get(id)) {
+            detail->renderable.body_damage0 = damage0;
+            detail->renderable.body_damage1 = packed_damage1;
+            detail->renderable.deform_frame = deform_frame;
+        }
     }
     if (SceneNode* door = scene.get(rig.driver_door)) {
         door->renderable.body_damage0 = damage0;
@@ -421,6 +542,7 @@ void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
         // which would count the recovery yaw a second time.
         steer=(agent.turn_from_lane!=kInvalidLane ? agent.turn_steer_rad:0.f)-agent.collision_steer_rad;
     }
+    if (agent.maneuver.active()) steer = agent.maneuver_steer_rad;
     const float spin = static_cast<float>(step) * static_cast<float>(kSimDt) *
                        agent.speed_mps / model.layout.wheel_radius;
     const float wheel_scale = model.layout.wheel_radius / native_wheel_radius_;
@@ -481,6 +603,13 @@ void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
     for (std::size_t i = 0; i < rig.emergency.size(); ++i) {
         SceneNode* node = scene.get(rig.emergency[i]);
         if (!node) continue;
+        if (snowplow) {
+            const float power=snowplow_beacon_power(step,i);
+            node->visible=true;
+            node->renderable.tint={1.f,.48f,.025f,1.f+power*3.f};
+            scene.set_transform(rig.emergency[i],chassis*snowplow_beacon_transform(i));
+            continue;
+        }
         node->visible = emergency_power[i] > 0.01f;
         if (!node->visible) continue;
         node->renderable.body_damage0 = damage0;
@@ -642,59 +771,90 @@ void TrafficVisual::build_signals(Scene& scene, const LaneGraph& lanes,
         pole.rotation = rotation;
         pole.scale = {kPoleThick, kSignalPoleHeight, kPoleThick};
         rig.collider_id = collider.add_kinematic_box(box_bounds_.transformed(pole.matrix()));
-        collider.set_kinematic_breakaway(rig.collider_id,
-            static_cast<uint32_t>(signals_.size()), kSignalBreakSpeed);
+        const uint32_t owner = static_cast<uint32_t>(
+            breakaway_fixture_owners_.size());
+        breakaway_fixture_owners_.push_back(
+            {BreakawayFixtureKind::Signal, signals_.size()});
+        collider.set_kinematic_breakaway(
+            rig.collider_id, owner, kSignalBreakSpeed);
         signals_.push_back(rig);
     }
 }
 
 void TrafficVisual::step_signals(Scene& scene, TerrainCollider& collider,
                                  const VehicleState& car, float dt) {
-    if (car.breakaway_id < signals_.size()) {
-        auto& rig = signals_[car.breakaway_id];
-        if (rig.damage.hit(car.breakaway_velocity)) {
-            collider.set_kinematic_enabled(rig.collider_id, false);
-            // Debris is deliberately non-solid: no invisible upright blocker,
-            // moving AABB wall, or fallen arm trapping a junction indefinitely.
-            auto resting = rig.damage;
-            resting.fall_seconds = kSignalFallSeconds;
-            const Transform fall = resting.pose(rig.base);
-            float lift = 0.0f;
-            for (std::size_t n = 0; n < rig.all.size(); ++n) {
-                const auto* node = scene.get(rig.all[n]);
-                const AABB bounds = node->local_bounds;
-                for (int corner = 0; corner < 8; ++corner) {
-                    const glm::vec3 p{(corner&1) ? bounds.max.x : bounds.min.x,
-                        (corner&2) ? bounds.max.y : bounds.min.y,
-                        (corner&4) ? bounds.max.z : bounds.min.z};
-                    const glm::vec3 world = (fall * rig.standing[n]).transform_point(p);
-                    lift = std::max(lift, collider.height(world.x, world.z) + .025f - world.y);
-                }
+    if (car.breakaway_id < breakaway_fixture_owners_.size()) {
+        const auto owner = breakaway_fixture_owners_[car.breakaway_id];
+        bool broken = false;
+        uint64_t lane_key = 0;
+        const char* label = "road fixture";
+        switch (owner.kind) {
+            case BreakawayFixtureKind::Signal: {
+                auto& rig = signals_[owner.index];
+                broken = break_roadside_fixture(
+                    scene, collider, rig.damage, rig.debris, rig.collider_id,
+                    rig.all, rig.standing, car.breakaway_velocity,
+                    kSignalBreakSpeed);
+                lane_key = rig.damage.lane_key;
+                label = "traffic signal";
+                break;
             }
-            rig.damage.resting_lift = lift;
-            AP_INFO("signal broken: lane %llu, impact %.1f m/s",
-                static_cast<unsigned long long>(rig.damage.lane_key),
+            case BreakawayFixtureKind::StreetLamp: {
+                auto& rig = street_lamps_[owner.index];
+                broken = break_roadside_fixture(
+                    scene, collider, rig.damage, rig.debris, rig.collider_id,
+                    rig.nodes, rig.standing, car.breakaway_velocity,
+                    kStreetLampBreakSpeed);
+                lane_key = rig.damage.lane_key;
+                label = "street lamp";
+                break;
+            }
+            case BreakawayFixtureKind::StopSign: {
+                auto& rig = stop_signs_[owner.index];
+                broken = break_roadside_fixture(
+                    scene, collider, rig.damage, rig.debris, rig.collider_id,
+                    rig.nodes, rig.standing, car.breakaway_velocity,
+                    kStopSignBreakSpeed);
+                if (broken) {
+                    weld_roadside_debris_piece(
+                        rig.debris, kRoadSignWhitePart,
+                        kRoadSignBackingPart);
+                    weld_roadside_debris_piece(
+                        rig.debris, kRoadSignRedPart,
+                        kRoadSignBackingPart);
+                }
+                lane_key = rig.damage.lane_key;
+                label = "stop sign";
+                break;
+            }
+        }
+        if (broken) {
+            AP_INFO("%s broken: lane %llu, impact %.1f m/s", label,
+                static_cast<unsigned long long>(lane_key),
                 static_cast<double>(glm::length(car.breakaway_velocity)));
         }
     }
-    for (auto& rig : signals_) {
-        if (!rig.damage.broken || rig.damage.fall_seconds >= kSignalFallSeconds) continue;
-        rig.damage.step(dt);
-        const Transform fall = rig.damage.pose(rig.base);
-        for (std::size_t n = 0; n < rig.all.size(); ++n)
-            scene.set_transform(rig.all[n], fall * rig.standing[n]);
-    }
+    for (auto& rig : signals_)
+        step_roadside_fixture(scene, collider, rig.damage, rig.debris,
+                              rig.all, dt);
+    for (auto& rig : street_lamps_)
+        step_roadside_fixture(scene, collider, rig.damage, rig.debris,
+                              rig.nodes, dt);
+    for (auto& rig : stop_signs_)
+        step_roadside_fixture(scene, collider, rig.damage, rig.debris,
+                              rig.nodes, dt);
 }
 
 void TrafficVisual::reset_signals(Scene& scene, TerrainCollider& collider) {
-    for (auto& rig : signals_) {
-        const uint64_t key = rig.damage.lane_key;
-        rig.damage = {};
-        rig.damage.lane_key = key;
-        collider.set_kinematic_enabled(rig.collider_id, true);
-        for (std::size_t n = 0; n < rig.all.size(); ++n)
-            scene.set_transform(rig.all[n], rig.standing[n]);
-    }
+    for (auto& rig : signals_)
+        reset_roadside_fixture(scene, collider, rig.damage, rig.debris,
+                               rig.collider_id, rig.all, rig.standing);
+    for (auto& rig : street_lamps_)
+        reset_roadside_fixture(scene, collider, rig.damage, rig.debris,
+                               rig.collider_id, rig.nodes, rig.standing);
+    for (auto& rig : stop_signs_)
+        reset_roadside_fixture(scene, collider, rig.damage, rig.debris,
+                               rig.collider_id, rig.nodes, rig.standing);
 }
 
 void TrafficVisual::build_street_lamps(Scene& scene, const LaneGraph& lanes,
@@ -722,6 +882,8 @@ void TrafficVisual::build_street_lamps(Scene& scene, const LaneGraph& lanes,
         const glm::vec3 top = base + up * kStreetLampHeightM;
         const glm::vec3 end = top + layout.arm_end - layout.pole_top;
         StreetLampRig rig;
+        rig.damage.lane_key = layout.lane_key;
+        rig.base = base;
         rig.bulb_position = end - up * 0.22f;
         const std::array<glm::vec3, 4> positions{
             base + up * (kStreetLampHeightM * 0.5f), (top + end) * 0.5f,
@@ -741,9 +903,20 @@ void TrafficVisual::build_street_lamps(Scene& scene, const LaneGraph& lanes,
             transform.scale = scales[i];
             rig.nodes[i] = scene.create(renderable, transform, box_bounds_);
             set_draw_distance(scene, rig.nodes[i], kStreetLampDrawDistanceM);
-            if (i == 0u)
-                collider.add_static_box(box_bounds_.transformed(transform.matrix()), Surface::Rock);
+            rig.standing[i] = transform;
         }
+        Transform pole;
+        pole.position = positions[0];
+        pole.rotation = layout.rotation;
+        pole.scale = scales[0];
+        rig.collider_id = collider.add_kinematic_box(
+            box_bounds_.transformed(pole.matrix()));
+        const uint32_t owner = static_cast<uint32_t>(
+            breakaway_fixture_owners_.size());
+        breakaway_fixture_owners_.push_back(
+            {BreakawayFixtureKind::StreetLamp, street_lamps_.size()});
+        collider.set_kinematic_breakaway(
+            rig.collider_id, owner, kStreetLampBreakSpeed);
         street_lamps_.push_back(rig);
     }
 }
@@ -760,10 +933,17 @@ void TrafficVisual::build_road_controls(Scene& scene, const LaneGraph& lanes,
         // same deck height as their lane instead of planting a pole below it.
         if (std::fabs(ground_y - sign.position.y) < 1.0f) sign.position.y = ground_y;
         sign.rotation = layout.rotation;
-        const std::array<glm::vec4, 3> colors{
+        const std::array<glm::vec4, kRoadSignPartCount> colors{
+            glm::vec4{0.40f, 0.43f, 0.45f, 1},
             glm::vec4{0.40f, 0.43f, 0.45f, 1},
             glm::vec4{0.95f, 0.95f, 0.89f, 1},
             glm::vec4{0.72f, 0.025f, 0.018f, 1}};
+        StopSignRig stop_rig;
+        const bool destructible = layout.control == JunctionControl::Stop;
+        if (destructible) {
+            stop_rig.damage.lane_key = lanes.lane(layout.incoming).key;
+            stop_rig.base = sign.position;
+        }
         for (std::size_t part = 0; part < colors.size(); ++part) {
             Renderable renderable;
             renderable.mesh = road_sign_meshes_[kind][part];
@@ -772,10 +952,27 @@ void TrafficVisual::build_road_controls(Scene& scene, const LaneGraph& lanes,
             const auto node = scene.create(renderable, sign, road_sign_bounds_[kind][part]);
             set_draw_distance(scene, node, 220.0f);
             road_control_nodes_.push_back(node);
+            if (destructible) {
+                stop_rig.nodes[part] = node;
+                stop_rig.standing[part] = sign;
+            }
         }
         ++road_sign_count_;
-        collider.add_static_box(AABB{sign.position + glm::vec3{-0.04f, 0, -0.04f},
-            sign.position + glm::vec3{0.04f, 2.6f, 0.04f}}, Surface::Rock);
+        const AABB collision{
+            sign.position + glm::vec3{-0.04f, 0, -0.04f},
+            sign.position + glm::vec3{0.04f, 2.6f, 0.04f}};
+        if (destructible) {
+            stop_rig.collider_id = collider.add_kinematic_box(collision);
+            const uint32_t owner = static_cast<uint32_t>(
+                breakaway_fixture_owners_.size());
+            breakaway_fixture_owners_.push_back(
+                {BreakawayFixtureKind::StopSign, stop_signs_.size()});
+            collider.set_kinematic_breakaway(
+                stop_rig.collider_id, owner, kStopSignBreakSpeed);
+            stop_signs_.push_back(stop_rig);
+        } else {
+            collider.add_static_box(collision, Surface::Rock);
+        }
         if (!layout.painted) continue;
         Renderable paint;
         paint.material = flat_material_;
@@ -800,12 +997,10 @@ void TrafficVisual::sync_street_lights(Scene& scene, glm::vec3 camera_position,
     const float power = std::clamp(night_level, 0.0f, 1.0f);
     for (const StreetLampRig& rig : street_lamps_) {
         if (SceneNode* bulb = scene.get(rig.nodes[3]))
-            bulb->renderable.tint = {1.0f, 0.80f, 0.52f, 1.0f + 2.3f * power};
-        const glm::vec3 delta = rig.bulb_position - camera_position;
-        if (power <= 0.001f || glm::dot(delta, delta) >
-            kStreetLampLightDistanceM * kStreetLampLightDistanceM) continue;
-        headlights_.push_back({glm::vec4{rig.bulb_position, 15.0f},
-                               glm::vec4{0.0f, -1.0f, 0.0f, 5.0f * power}});
+            bulb->renderable.tint = street_lamp_lens_tint(rig.damage.broken ? 0.f : power);
+        if (rig.damage.broken) continue;
+        if(const auto light=street_lamp_light(rig.bulb_position,camera_position,power))
+            headlights_.push_back(*light);
     }
 }
 
@@ -828,6 +1023,8 @@ void TrafficVisual::destroy(Scene& scene) {
     for (const StreetLampRig& rig : street_lamps_)
         for (NodeId id : rig.nodes) scene.remove(id);
     street_lamps_.clear();
+    stop_signs_.clear();
+    breakaway_fixture_owners_.clear();
 }
 
 }  // namespace apricot

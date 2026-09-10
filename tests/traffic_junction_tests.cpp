@@ -219,6 +219,75 @@ void active_green_is_not_vetoed_by_an_aged_red_queue(const Network& n) {
     }
     apricot_test::pass("active green drains before an aged red queue, and a failed red car cannot veto it");
 }
+// A DISPATCHED cruiser does not sit out the red.
+//
+// This is the whole difference between a chase and a commute, and it was
+// missing: a pursuer went through the same signal gate as the delivery van
+// behind it, so a player who crossed one junction on green was clear. What the
+// override does NOT buy is the box — the cross-traffic negotiation below it is
+// untouched — so this test seeds the approach ALONE and asks only about the
+// bulb.
+void a_dispatched_pursuer_runs_the_red(const Network& net) {
+    CrowdTuning tuning;tuning.max_peds=0;tuning.police.patrol_fraction=0;
+    const uint32_t junction=net.junction({950,200});
+    const float clear=traffic_junction_clearance(net.lanes,junction,tuning);
+    const int64_t start=tuning.signal_period_steps;
+    const int64_t window=tuning.signal_period_steps/2-tuning.signal_yellow_steps;
+    LaneRef red=kInvalidLane;
+    for (LaneRef approach:net.lanes.junction(junction).incoming) {
+        if (net.lanes.length(approach)<clear+40.0f) continue;
+        bool red_throughout=true;
+        for (int64_t step=start;step<start+window;++step)
+            red_throughout&=traffic_signal_phase(net.lanes,junction,approach,step,
+                tuning)==TrafficSignalPhase::Red;
+        if (red_throughout) { red=approach; break; }
+    }
+    REQUIRE(net.lanes.valid(red));
+
+    // Same car, same lane, same steps: the ONLY difference is the dispatch.
+    const auto cross_the_line=[&](bool pursuing) {
+        // Thirty metres out and rolling, so the approach is what is measured
+        // and not a standing start that would read as "stopped" either way.
+        auto seed_car=car_at(net.lanes,red,net.lanes.length(red)-clear-30.0f);
+        seed_car.slot=3;
+        seed_car.speed_mps=12.0f;
+        seed_car.police_unit=seed_car.police_pursuit=pursuing;
+        Crowd crowd;crowd.build(net.lanes,city::kMapSeed,{},tuning);
+        // Far enough ahead that no roadside pull, turnaround or ram is in
+        // range: this asks about the signal and nothing else.
+        const auto beyond=net.lanes.junction(junction).pos;
+        crowd.set_police_context(pursuing?2:0,
+            glm::vec2{beyond.x,beyond.z}+glm::vec2{260.0f,0.0f});
+        seed(crowd,{seed_car});
+        bool entered=false;
+        float slowest=1e9f;
+        for (int64_t step=start;step<start+window;++step) {
+            crowd.rebuild_buckets();crowd.step_vehicles(step);
+            for (const auto& car:crowd.vehicles()) {
+                if (car.committed_junction==junction) entered=true;
+                slowest=std::min(slowest,car.speed_mps);
+            }
+            if (entered) break;
+        }
+        return std::pair<bool,float>{entered,slowest};
+    };
+
+    const auto ordinary=cross_the_line(false);
+    REQUIRE_MSG(!ordinary.first,"an ordinary car entered the box on red","ordinary");
+    // It has shed almost all of 12 m/s and is creeping the last metres to
+    // the line; the hold clamp approaches zero rather than snapping to it.
+    REQUIRE_MSG(ordinary.second<1.5f,"an ordinary car never braked for the red","ordinary");
+
+    const auto pursuer=cross_the_line(true);
+    std::printf("      red approach: ordinary slowest %.2f m/s (held), "
+                "pursuer slowest %.2f m/s (crossed)\n",
+        static_cast<double>(ordinary.second),static_cast<double>(pursuer.second));
+    REQUIRE_MSG(pursuer.first,"a dispatched pursuer waited out the red","pursuer");
+    // And it ran it at a pace, not by creeping over the line at walking speed.
+    REQUIRE_MSG(pursuer.second>3.0f,"the pursuer stopped dead at the line anyway","pursuer");
+    apricot_test::pass("a dispatched pursuer crosses on red at speed where ordinary traffic waits");
+}
+
 void authored_healthy_leads_do_not_starve(const Network& n) {
     using Id=std::pair<uint64_t,uint32_t>;
     struct Trace {int64_t stopped=0; LaneRef last=kInvalidLane;};
@@ -261,6 +330,12 @@ void authored_healthy_leads_do_not_starve(const Network& n) {
         REQUIRE(transitions>=8u);
         // Four cycles include long corridor clearance and competing aged leads.
         // The previous green-only aging allowed a healthy loop lead to wait 95s.
+        //
+        // THIS IS ALSO THE NEGATIVE CONTROL for the storage/conflict split in
+        // Crowd::exit_ready. Measuring exit storage against the acute-merge
+        // envelope instead of the plain junction box puts 950,200 back to
+        // 49.61 s across 17,387 steps of green; measuring it against the box
+        // gives 40.28 s across 12,165. Verified by A/B on this exact suite.
         REQUIRE(longest<tuning.signal_period_steps*4);
         if (n.lanes.junction_control(junction)==JunctionControl::Signal) REQUIRE(green_waits>0u);
     }
@@ -273,6 +348,7 @@ int main() {
     acute_parallel_movements_are_serialized(n);
     fresh_cars_avoid_both_ends_of_the_box(n);
     active_green_is_not_vetoed_by_an_aged_red_queue(n);
+    a_dispatched_pursuer_runs_the_red(n);
     authored_healthy_leads_do_not_starve(n);
     return apricot_test::done("traffic_junction_tests");
 }

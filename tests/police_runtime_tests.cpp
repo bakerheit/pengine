@@ -12,6 +12,8 @@
 #include <glm/glm.hpp>
 
 #include "road/lane_graph.h"
+#include "core/fixed_step.h"
+#include "physics/vehicle.h"
 #include "road/road_graph.h"
 #include "road_fixture.h"
 #include "terrain/heightmap.h"
@@ -71,7 +73,7 @@ bool route_is_contiguous(const LaneGraph& graph,
         return false;
     }
     for (std::size_t i = 0; i + 1u < agent.police_route.size(); ++i) {
-        const auto& outgoing = graph.outgoing(agent.police_route[i]);
+        const auto& outgoing = graph.outgoing(agent.police_route[i], true);
         if (std::none_of(outgoing.begin(), outgoing.end(),
                          [&](const TurnLink& link) {
                              return link.to == agent.police_route[i + 1u];
@@ -311,6 +313,281 @@ void dispatcher_prefers_the_alpha_ring_then_uses_distant_patrols() {
     pass("dispatch prefers 55-135 m, then fills from a distant existing patrol");
 }
 
+VehicleAgent pursuit_car(const LaneGraph& lanes, LaneRef lane, float station) {
+    VehicleAgent car;
+    car.lane = lane;
+    car.lane_key = lanes.lane(lane).key;
+    car.slot = 17;
+    car.dist_along_m = car.last_dist_m = station;
+    car.speed_mps = 8.0f;
+    car.cruise_mps = 11.0f;
+    car.mode = AgentMode::Integrating;
+    car.police_unit = car.police_pursuit = true;
+    const auto pose = lanes.pose(lane, station);
+    car.pos = pose.position;
+    car.fwd = pose.tangent;
+    return car;
+}
+
+void pursuit_returns_for_a_target_behind_and_stops_to_approach() {
+    Network network;
+    network.roads.build(make_grid_spines(5, 160.0f), {}, {});
+    network.lanes.build(network.roads, {});
+    const auto start = network.lanes.nearest_lane_along({275, 322}, {1, 0});
+    REQUIRE(start.valid());
+    const LaneRef reverse = network.lanes.opposing(start.lane);
+    REQUIRE(network.lanes.valid(reverse));
+    REQUIRE(std::none_of(network.lanes.outgoing(start.lane).begin(),
+        network.lanes.outgoing(start.lane).end(), [&](const TurnLink& t) {
+            return t.to == reverse;
+        }));
+    const auto back = network.lanes.project_onto(start.lane, {210, 322});
+    const auto return_route = network.lanes.plan_route(start, back, true);
+    REQUIRE(return_route.size() > 2u);
+    REQUIRE(return_route.front() == start.lane);
+    REQUIRE(return_route.back() == start.lane);
+
+    Crowd crowd;
+    CrowdTuning tuning;
+    tuning.max_peds = 0;
+    crowd.build(network.lanes, 905, {}, tuning);
+    auto& cars = const_cast<std::vector<VehicleAgent>&>(crowd.vehicles());
+    cars = {pursuit_car(network.lanes, start.lane, start.dist_along_m)};
+    glm::vec2 target{210, 318};
+    bool turned = false;
+    bool exited = false;
+    float biggest_step = 0.0f;
+    glm::vec3 previous = cars.front().pos;
+    for (int64_t step = 0; step < 7200; ++step) {
+        // The suspect initially drives away in the opposite direction, then
+        // pulls over once the cruiser has actually reversed its heading.
+        const glm::vec2 velocity = turned ? glm::vec2{0} : glm::vec2{-3, 0};
+        target += velocity * static_cast<float>(kSimDt);
+        crowd.set_police_context(1, target);
+        crowd.set_police_officer_context(false, false, velocity);
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step);
+        const auto& cop = cars.front();
+        biggest_step = std::max(biggest_step, glm::distance(previous, cop.pos));
+        previous = cop.pos;
+        REQUIRE(crowd.stats().ai_collisions == 0);
+        if (cop.lane == reverse && cop.fwd.x < -0.9f) turned = true;
+        if (cop.officer.phase == PoliceOfficerPhase::Pursuing) {
+            REQUIRE(turned);
+            REQUIRE(glm::distance(glm::vec2{cop.pos.x, cop.pos.z}, target) < 32.0f);
+            REQUIRE(cop.speed_mps < 0.08f);
+            exited = true;
+            std::printf("      turnaround + pull-over approach: %.2f s, %.2f m away\n",
+                double(step) * kSimDt,
+                double(glm::distance(glm::vec2{cop.pos.x, cop.pos.z}, target)));
+            break;
+        }
+    }
+    REQUIRE(turned);
+    REQUIRE(exited);
+    REQUIRE(biggest_step < 0.3f);
+    pass("pursuer turns at the next junction, closes in, and exits after the suspect stops");
+}
+
+void replanning_keeps_a_committed_exit() {
+    Network network;
+    network.roads.build(make_grid_spines(5, 160.0f), {}, {});
+    network.lanes.build(network.roads, {});
+    const auto start = network.lanes.nearest_lane_along({310, 322}, {1, 0});
+    REQUIRE(start.valid());
+    const auto& links = network.lanes.outgoing(start.lane);
+    const auto straight = std::find_if(links.begin(), links.end(), [](const auto& t) {
+        return t.kind == TurnKind::Straight;
+    });
+    REQUIRE(straight != links.end());
+    Crowd crowd;
+    CrowdTuning tuning;
+    tuning.max_peds = 0;
+    crowd.build(network.lanes, 905, {}, tuning);
+    auto car = pursuit_car(network.lanes, start.lane,
+        network.lanes.length(start.lane) -
+        traffic_junction_clearance(network.lanes, straight->junction, tuning));
+    car.committed_junction = straight->junction;
+    car.committed_approach_lane = car.lane;
+    car.committed_exit_lane = straight->to;
+    car.police_route = {car.lane, straight->to};
+    auto& cars = const_cast<std::vector<VehicleAgent>&>(crowd.vehicles());
+    cars = {car};
+    bool cleared = false;
+    for (int64_t step = 0; step < 1200; ++step) {
+        crowd.set_police_context(1, glm::vec2{280, (step / 30) % 2 ? 400 : 240});
+        crowd.set_police_officer_context(false, false, {0, 6});
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step);
+        const auto& cop = cars.front();
+        if (cop.committed_junction != 0xFFFFFFFFu)
+            REQUIRE(cop.committed_exit_lane == straight->to);
+        if (cop.lane == straight->to && cop.committed_junction == 0xFFFFFFFFu) {
+            cleared = true;
+            break;
+        }
+    }
+    REQUIRE(cleared);
+    pass("moving target cannot replace the exit of an admitted cruiser");
+}
+
+void turnaround_yields_to_an_oncoming_car_in_either_update_order() {
+    Network network;
+    network.roads.build(make_grid_spines(5, 160.0f), {}, {});
+    network.lanes.build(network.roads, {});
+    const auto start = network.lanes.nearest_lane_along({310, 322}, {1, 0});
+    const auto opposite = network.lanes.nearest_lane_along({330, 318}, {-1, 0});
+    REQUIRE(start.valid() && opposite.valid());
+    const LaneRef reverse = network.lanes.opposing(start.lane);
+    const uint32_t junction = network.lanes.lane(start.lane).junction_to;
+    const auto& links = network.lanes.outgoing(opposite.lane);
+    REQUIRE(std::any_of(links.begin(), links.end(), [&](const TurnLink& t) {
+        return t.to == reverse && t.kind == TurnKind::Straight;
+    }));
+    CrowdTuning tuning;
+    tuning.max_peds = 0;
+    const float clear = traffic_junction_clearance(network.lanes, junction, tuning);
+    auto cop = pursuit_car(network.lanes, start.lane,
+        network.lanes.length(start.lane) - clear);
+    cop.speed_mps = 0;
+    cop.police_route = {start.lane, reverse};
+    cop.stop_junction = junction;
+    cop.stop_wait_steps = 1000;
+    cop.stop_completed = true;
+    cop.stop_arrival_step = 0;
+    auto oncoming = pursuit_car(network.lanes, opposite.lane,
+        network.lanes.length(opposite.lane) - clear + 0.5f);
+    oncoming.slot = 18;
+    oncoming.police_unit = oncoming.police_pursuit = false;
+    oncoming.committed_junction = junction;
+    oncoming.committed_approach_lane = opposite.lane;
+    oncoming.committed_exit_lane = reverse;
+    for (uint32_t d = 0; d < 1000u; ++d) {
+        if (network.lanes.choose_next(opposite.lane, 905, d) == reverse) {
+            oncoming.decisions = d;
+            break;
+        }
+    }
+    REQUIRE(network.lanes.choose_next(opposite.lane, 905, oncoming.decisions) == reverse);
+    Crowd forward, backward;
+    forward.build(network.lanes, 905, {}, tuning);
+    backward.build(network.lanes, 905, {}, tuning);
+    const_cast<std::vector<VehicleAgent>&>(forward.vehicles()) = {cop, oncoming};
+    const_cast<std::vector<VehicleAgent>&>(backward.vehicles()) = {oncoming, cop};
+    bool yielded = false;
+    bool turned = false;
+    for (int64_t step = 1; step < 2400; ++step) {
+        for (Crowd* crowd : {&forward, &backward}) {
+            crowd->set_police_context(1, glm::vec2{220, 318});
+            crowd->set_police_officer_context(false, false, {-3, 0});
+            crowd->rebuild_buckets();
+            crowd->step_vehicles(step);
+            REQUIRE(crowd->stats().ai_collisions == 0);
+        }
+        const auto& a = forward.vehicles().front();
+        const auto& b = backward.vehicles().back();
+        REQUIRE(a.lane == b.lane && a.pos == b.pos && a.speed_mps == b.speed_mps);
+        if (step == 1) {
+            REQUIRE(a.lane == start.lane);
+            REQUIRE(a.committed_junction == 0xFFFFFFFFu);
+            REQUIRE(a.speed_mps < 0.001f);
+            REQUIRE(forward.stats().junction_yields > 0);
+            yielded = true;
+        }
+        if (a.lane == reverse && a.turn_from_lane == kInvalidLane) {
+            turned = true;
+            break;
+        }
+    }
+    REQUIRE(yielded && turned);
+    pass("turnaround yields to oncoming traffic and is identical in reversed update order");
+}
+
+void blocked_cruiser_approaches_a_stopped_suspect_on_foot() {
+    Network network;
+    network.roads.build(make_grid_spines(5, 160.0f), {}, {});
+    network.lanes.build(network.roads, {});
+    const auto start = network.lanes.nearest_lane_along({220, 322}, {1, 0});
+    REQUIRE(start.valid());
+    auto cop = pursuit_car(network.lanes, start.lane, start.dist_along_m);
+    auto blocker = pursuit_car(network.lanes, start.lane, start.dist_along_m + 10.0f);
+    blocker.police_pursuit = blocker.police_unit = false;
+    blocker.slot = 18;
+    cop.speed_mps = blocker.speed_mps = blocker.cruise_mps = 0.0f;
+    CrowdTuning tuning;
+    tuning.max_peds = 0;
+    Crowd crowd;
+    crowd.build(network.lanes, 905, {}, tuning);
+    auto& cars = const_cast<std::vector<VehicleAgent>&>(crowd.vehicles());
+    cars = {cop, blocker};
+    // Neither driver has a safe lateral escape in this queued-officer case.
+    // The dedicated emergency suite exercises the open-shoulder alternative.
+    std::vector<glm::vec3> parked;
+    for (float d = 2.f; d < 50.f; d += 4.f)
+        for (float side : {-4.f, 4.f})
+            parked.push_back(network.lanes.pose(start.lane, start.dist_along_m+d, side).position);
+    crowd.set_parked_vehicle_poses(parked);
+    const auto target = network.lanes.pose(start.lane, start.dist_along_m + 42.0f).position;
+    bool exited = false;
+    for (int64_t step = 0; step < 1800; ++step) {
+        crowd.set_police_context(1, target);
+        // Waiting traffic alone must not make a cop abandon a moving chase.
+        crowd.set_police_officer_context(false, false,
+            step < 480 ? glm::vec2{4, 0} : glm::vec2{0});
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step);
+        const auto& police = cars.front();
+        REQUIRE(crowd.stats().ai_collisions == 0);
+        if (step < 480) REQUIRE(police.officer.phase == PoliceOfficerPhase::Seated);
+        if (police.officer.phase == PoliceOfficerPhase::Pursuing) {
+            REQUIRE(police.delay_seconds >= 2.0f);
+            REQUIRE(police.speed_mps < 0.08f);
+            REQUIRE(glm::distance(police.pos, target) > 32.0f);
+            exited = true;
+            break;
+        }
+    }
+    REQUIRE(exited);
+    pass("queued officer leaves the cruiser for a nearby stopped suspect, but keeps driving after a moving one");
+}
+
+void low_heat_pursuit_follows_instead_of_ramming() {
+    Network network;
+    network.roads.build(make_grid_spines(3, 600.0f), {}, {});
+    network.lanes.build(network.roads, {});
+    const auto start = network.lanes.nearest_lane_along({200, 602}, {1, 0});
+    REQUIRE(start.valid());
+    auto cop = pursuit_car(network.lanes, start.lane, start.dist_along_m);
+    cop.speed_mps = 16.0f;
+    CrowdTuning tuning;
+    tuning.max_peds = 0;
+    Crowd crowd;
+    crowd.build(network.lanes, 905, {}, tuning);
+    auto& cars = const_cast<std::vector<VehicleAgent>&>(crowd.vehicles());
+    cars = {cop};
+    VehicleState player;
+    const auto pose = network.lanes.pose(start.lane, start.dist_along_m + 35.0f);
+    player.position = pose.position;
+    player.velocity = pose.tangent * 8.0f;
+    float closest = 1000.0f;
+    for (int64_t step = 0; step < 1440; ++step) {
+        player.position += player.velocity * static_cast<float>(kSimDt);
+        crowd.set_police_context(1, player.position);
+        crowd.set_police_officer_context(false, false, {8, 0});
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step, &player);
+        const auto& police = cars.front();
+        const float gap = glm::dot(player.position - police.pos, pose.tangent);
+        closest = std::min(closest, gap);
+        REQUIRE(gap >= 5.5f);
+        REQUIRE(police.officer.phase == PoliceOfficerPhase::Seated);
+    }
+    REQUIRE(closest < 15.0f);
+    REQUIRE(cars.front().pos.x - cop.pos.x > 90.0f);
+    REQUIRE(std::fabs(cars.front().speed_mps - 8.0f) < 1.0f);
+    pass("low-heat cruiser closes on a moving suspect and matches speed without bumper contact");
+}
+
 }  // namespace
 
 int main() {
@@ -318,6 +595,11 @@ int main() {
     ambient_patrols_and_response_are_deterministic();
     patrol_witnessing_requires_that_patrols_own_los();
     dispatcher_prefers_the_alpha_ring_then_uses_distant_patrols();
+    pursuit_returns_for_a_target_behind_and_stops_to_approach();
+    replanning_keeps_a_committed_exit();
+    turnaround_yields_to_an_oncoming_car_in_either_update_order();
+    blocked_cruiser_approaches_a_stopped_suspect_on_foot();
+    low_heat_pursuit_follows_instead_of_ramming();
     std::puts("PASS police_runtime_tests");
     return 0;
 }

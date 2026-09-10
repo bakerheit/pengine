@@ -332,6 +332,57 @@ void moving_sky_does_not_break_suite_dwell() {
         "moving day clock preserves every suite's minimum dwell");
 }
 
+void emissive_changes_are_slewed_instead_of_popping() {
+    city::SkyscraperWindowPresentationState state;
+    const city::SkyscraperWindowLight off{
+        false, 1.0f, {0.075f, 0.12f, 0.15f}};
+    const city::SkyscraperWindowLight on{
+        true, 1.0f + city::kSkyscraperWindowMaxEmissivePower,
+        {0.95f, 0.90f, 0.70f}};
+
+    const auto loaded = city::skyscraper_window_smoothed_light(
+        state, off, 1000u);
+    REQUIRE(!loaded.lit);
+    REQUIRE(loaded.emissive_alpha == 1.0f);
+
+    // A newly occupied suite starts from dark on the decision step rather
+    // than flashing to full emissive power in one render.
+    const auto switched_on = city::skyscraper_window_smoothed_light(
+        state, on, 1000u);
+    REQUIRE(!switched_on.lit);
+    REQUIRE(switched_on.emissive_alpha == 1.0f);
+
+    float previous_alpha = switched_on.emissive_alpha;
+    for (uint64_t frame = 1; frame <= 240u; ++frame) {
+        const auto fading = city::skyscraper_window_smoothed_light(
+            state, on, 1000u + frame * 2u);
+        REQUIRE(fading.emissive_alpha >= previous_alpha);
+        REQUIRE(fading.emissive_alpha - previous_alpha <= 0.006f);
+        previous_alpha = fading.emissive_alpha;
+    }
+    REQUIRE_NEAR(previous_alpha, on.emissive_alpha, 1e-5);
+
+    // Turning off follows the same bounded slope and reaches exact zero so
+    // hidden overlay panes do not linger forever.
+    const auto switched_off = city::skyscraper_window_smoothed_light(
+        state, off, 1480u);
+    REQUIRE(switched_off.lit);
+    REQUIRE_NEAR(switched_off.emissive_alpha, on.emissive_alpha, 1e-5);
+    previous_alpha = switched_off.emissive_alpha;
+    for (uint64_t frame = 1; frame <= 240u; ++frame) {
+        const auto fading = city::skyscraper_window_smoothed_light(
+            state, off, 1480u + frame * 2u);
+        REQUIRE(fading.emissive_alpha <= previous_alpha);
+        REQUIRE(previous_alpha - fading.emissive_alpha <= 0.006f);
+        previous_alpha = fading.emissive_alpha;
+    }
+    REQUIRE(!city::skyscraper_window_smoothed_light(
+                 state, off, 1960u).lit);
+    REQUIRE(state.emissive_power == 0.0f);
+    apricot_test::pass(
+        "window emissive changes fade over four seconds without frame pops");
+}
+
 void distance_lod_handoff_is_static_continuous_and_hysteretic() {
     constexpr uint64_t seed = 0xd76c1d4a6853b92full;
     constexpr std::size_t kWindowCount = 320u;
@@ -435,7 +486,8 @@ void distance_lod_handoff_is_static_continuous_and_hysteretic() {
 }
 
 void authored_skyscrapers_expose_one_light_per_window_bay() {
-    constexpr std::array<city::SkyscraperUse, 17> expected_uses{{
+    constexpr std::array<city::SkyscraperUse,
+                         city::kNeighborhoodTowers.size()> expected_uses{{
         city::SkyscraperUse::Office, city::SkyscraperUse::Office,
         city::SkyscraperUse::Residential, city::SkyscraperUse::Mixed,
         city::SkyscraperUse::Office, city::SkyscraperUse::Office,
@@ -445,6 +497,10 @@ void authored_skyscrapers_expose_one_light_per_window_bay() {
         city::SkyscraperUse::Residential, city::SkyscraperUse::Office,
         city::SkyscraperUse::Mixed, city::SkyscraperUse::Residential,
         city::SkyscraperUse::Office, city::SkyscraperUse::Mixed,
+        city::SkyscraperUse::Office, city::SkyscraperUse::Residential,
+        city::SkyscraperUse::Mixed, city::SkyscraperUse::Office,
+        city::SkyscraperUse::Mixed, city::SkyscraperUse::Mixed,
+        city::SkyscraperUse::Residential, city::SkyscraperUse::Office,
     }};
     std::size_t neighborhood_lights = 0;
     for (std::size_t i = 0; i < city::kNeighborhoodTowers.size(); ++i) {
@@ -482,7 +538,7 @@ void authored_skyscrapers_expose_one_light_per_window_bay() {
                 static_cast<std::size_t>(twin_floor_totals[i] * 20));
         twin_lights += lights;
     }
-    REQUIRE(neighborhood_lights == 12124u);
+    REQUIRE(neighborhood_lights == 18340u);
     REQUIRE(twin_lights == 1960u);
     std::printf("      authored dynamic panes: neighborhood=%zu twins=%zu\n",
                 neighborhood_lights, twin_lights);
@@ -500,6 +556,7 @@ int main() {
     daylight_is_dark_and_twilight_only_adds_light();
     fixed_midnight_still_evolves_without_flicker_or_facade_beats();
     moving_sky_does_not_break_suite_dwell();
+    emissive_changes_are_slewed_instead_of_popping();
     distance_lod_handoff_is_static_continuous_and_hysteretic();
     authored_skyscrapers_expose_one_light_per_window_bay();
     return apricot_test::done("skyscraper_window_lighting_tests");

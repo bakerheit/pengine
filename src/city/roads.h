@@ -8,7 +8,7 @@
 namespace apricot {
 namespace city {
 
-// O'HAVEN'S ROAD NETWORK — the authored spines, as compiled C++ data.
+// PINATTY'S ROAD NETWORK — the authored spines, as compiled C++ data.
 //
 // This is the table `map_spines()` turns into `RoadSpine`s for src/road/, and
 // it is ALSO the table the Grade terrain operators are derived from. Those are
@@ -38,7 +38,7 @@ namespace city {
 // A district is not its palette, it is how it CHASES. Every shape below is
 // chosen for that and nothing else:
 //
-//   Vellum Row     a true grid. Every junction is four choices, so escape is
+//   Pinatty Row     a true grid. Every junction is four choices, so escape is
 //                  about reading the pursuit rather than out-driving it.
 //   Saltmarsh      6 m alleys, no sidewalk, no through route, and cut-throughs
 //                  a local knows. A cruiser cannot swing these corners.
@@ -97,7 +97,7 @@ inline constexpr int kMaxRoadPoints = 16;
 //
 // The second kind earns its keep. It caught three Saltmarsh alleys meeting on
 // what turned out to be Route 1's embankment, two and a half metres above the
-// marsh they are supposed to be part of, and it is why Vellum Row's southern
+// marsh they are supposed to be part of, and it is why Pinatty Row's southern
 // streets read 12.5 and 13.5 rather than a tidy 12.0 — Halloway Square's plate
 // feathers 660 m and genuinely lifts that edge of downtown.
 struct RoadPoint {
@@ -206,6 +206,11 @@ struct Road {
     // the player with a cutscene (pinatty section 3.1).
     uint8_t block_quality = 128;
 
+    // Posted speed for this authored road section, metres per second. <= 0
+    // inherits the road-class default. The value follows the named road
+    // through graph splits, so a junction cannot silently change the limit.
+    float speed_limit_mps = 0.0f;
+
     // Deck height for Bridge / Tunnel, metres. Ignored otherwise.
     float deck_y_m = 0.0f;
 
@@ -231,7 +236,7 @@ struct Road {
     //     fill in the channel it was built to cross. That is a compile-time
     //     error below, not a convention.
     //   * A road lying entirely on a district plate that is already flat at
-    //     full strength — Vellum Row's 12.0 m, Halloway's 14.0 m, Saltmarsh's
+    //     full strength — Pinatty Row's 12.0 m, Halloway's 14.0 m, Saltmarsh's
     //     5.5 m, Ostend's 5.0 m, Kepler's 9.0 m, Camber's 6.0 m — is already
     //     exact at every level, because a constant is as planar as a plane
     //     gets. An operator there would be pure cost, and a hundred of them
@@ -388,7 +393,7 @@ struct Road {
 // blocks so inserting a road into a district does not want a renumber.
 //
 //     1-19    Route 1, the fixed crossings, and the causeway
-//    20-49    Vellum Row: the grid
+//    20-49    Pinatty Row: the grid
 //    50-59    Halloway Square: the plaza and its arms
 //    60-79    Saltmarsh: lanes, cut-throughs and the four creek crossings
 //    80-89    Ostend Docks
@@ -399,11 +404,12 @@ struct Road {
 //   150-159   Camber Point
 //   160-179   Marrow
 //   180-199   inter-district links
-//   200-206   Vellum hospital-superblock split stubs and north extension
+//   200-209   Pinatty hospital stubs, north extension and southwest crescent
 //   220-221   Florangia Highway and airport access
 //   222-229   Miandi first-pass street grid
+//   244-249   Halberd Field: the north shore air station
 
-constexpr RoadPoint vellum_road_point(float east, float south,
+constexpr RoadPoint pinatty_road_point(float east, float south,
                                       float elevation_m = 12.0f) {
     constexpr float c = 0.9945218954f;
     constexpr float s = -0.1045284633f;
@@ -442,6 +448,7 @@ inline constexpr Road kRoads[] = {
      .cls = RoadClass::Freeway,
      .structure = RoadStructure::Bridge,
      .block_quality = 255,
+     .speed_limit_mps = 24.6f,  // 55 mph on the exposed bridge deck
      .deck_y_m = 12.0f,
      .path = {{-1500.0f, -1524.0f, 12.0f}, {-1500.0f, -1064.0f, 12.0f}},
      .count = 2},
@@ -483,9 +490,9 @@ inline constexpr Road kRoads[] = {
      .count = 2,
      .bridge_detail_style = BridgeDetailStyle::Municipal},
 
-    {.name = "Route 1 - the Vellum Reach",
+    {.name = "Route 1 - the Pinatty Reach",
      .id = 6,
-     .district = DistrictId::VellumRow,
+     .district = DistrictId::PinattyRow,
      .cls = RoadClass::Freeway,
      .block_quality = 120,  // in town a block is a suggestion, not a wall
      .shapes_ground = true,
@@ -500,7 +507,7 @@ inline constexpr Road kRoads[] = {
     // of the viaduct. The first three lane centres stay fixed while the outer
     // shoulder opens by 5 m per carriageway over an 84 m taper.
     {.name = "Route 1 - Halloway West Taper", .id = 18,
-     .district = DistrictId::VellumRow, .cls = RoadClass::Freeway,
+     .district = DistrictId::PinattyRow, .cls = RoadClass::Freeway,
      .block_quality = 120, .width_start_m = 30.0f, .width_end_m = 40.0f,
      .lanes_start_per_dir = 3, .lanes_end_per_dir = 4, .shapes_ground = true,
      .path = {{-540.0f, 423.33f, 16.0f}, {-460.0f, 446.67f, 21.0f}}, .count = 2},
@@ -560,8 +567,8 @@ inline constexpr Road kRoads[] = {
      .lanes_start_per_dir = 4, .lanes_end_per_dir = 3,
      .path = {{480.0f, 523.429f, 22.0f}, {600.0f, 530.286f, 22.0f}}, .count = 2,
      .bridge_detail_style = BridgeDetailStyle::Viaduct},
-    {.name = "Route 1 - Vellum East Approach", .id = 12,
-     .district = DistrictId::VellumRow, .cls = RoadClass::Freeway,
+    {.name = "Route 1 - Pinatty East Approach", .id = 12,
+     .district = DistrictId::PinattyRow, .cls = RoadClass::Freeway,
      .shapes_ground = true,
      .path = {{600.0f, 530.286f, 22.0f}, {640.0f, 532.571f, 22.0f},
               {700.0f, 536.0f, 20.0f}, {760.0f, 539.429f, 17.0f},
@@ -613,7 +620,7 @@ inline constexpr Road kRoads[] = {
      .count = 7, .deck_profile = true, .one_way = true,
      .lane_connect_start = true},
     {.name = "Cinder Underpass", .id = 17,
-     .district = DistrictId::VellumRow, .cls = RoadClass::Street,
+     .district = DistrictId::PinattyRow, .cls = RoadClass::Street,
      .shapes_ground = true,
      .path = {{401.5f, 326.7f, 12.0f}, {401.5f, 600.0f, 12.0f},
               {480.0f, 800.0f, 13.0f}}, .count = 3},
@@ -680,7 +687,7 @@ inline constexpr Road kRoads[] = {
      .count = 3},
 
     // =======================================================================
-    //  20-49. VELLUM ROW — the grid.
+    //  20-49. PINATTY ROW — the grid.
     // =======================================================================
     //
     // Nine north-south streets 92 m apart and eleven full cross streets 62 m
@@ -690,7 +697,7 @@ inline constexpr Road kRoads[] = {
     // three superblock and clips five internal runs; the rest remains a dense
     // four-choice grid, so pursuits route around the campus perimeter.
     //
-    // None of them shapes the ground and none of them needs to. The Vellum Row
+    // None of them shapes the ground and none of them needs to. The Pinatty Row
     // plate is a Flatten at strength 1.0, so the whole grid stands on ground
     // that is exactly 12.0 m at every sample — and a constant is as planar as a
     // plane gets, so every LOD level already agrees to the bit.
@@ -699,137 +706,165 @@ inline constexpr Road kRoads[] = {
     // eleven times: centre (70, -40), north (sin 6, -cos 6), east (cos 6, sin 6).
 
     // The two-row north extension is deliberately east-side only. Ferrone Road
-    // leaves the core from Vellum Row at Tenth; extending the whole grid past
+    // leaves the core from Pinatty Row at Tenth; extending the whole grid past
     // that fork creates a field of dead-end asphalt and crosses its approach.
-    {.name = "Briar Street", .id = 20, .district = DistrictId::VellumRow,
+    {.name = "Briar Street", .id = 20, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(-368.0f, -330.0f),
+     .path = {pinatty_road_point(-368.0f, -330.0f),
               {-330.5f, 249.7f, 12.5f}}, .count = 2},
-    {.name = "Mercer Avenue", .id = 21, .district = DistrictId::VellumRow,
+    {.name = "Mercer Avenue", .id = 21, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(-276.0f, -330.0f),
+     .path = {pinatty_road_point(-276.0f, -330.0f),
               {-239.0f, 259.3f, 13.0f}}, .count = 2},
-    {.name = "Bellweather Road", .id = 22, .district = DistrictId::VellumRow,
+    {.name = "Bellweather Road", .id = 22, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(-184.0f, -330.0f),
+     .path = {pinatty_road_point(-184.0f, -330.0f),
               {-147.5f, 269.0f, 12.0f}}, .count = 2},
     // The hospital superblock removes the middle of Rook Lane. Keep the
     // stable id on its longer south half; id 200 owns the short north stub.
-    {.name = "Rook Lane", .id = 23, .district = DistrictId::VellumRow,
+    {.name = "Rook Lane", .id = 23, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(-92.0f, -62.0f),
-              vellum_road_point(-92.0f, 330.0f, 13.5f)}, .count = 2},
+     .path = {pinatty_road_point(-92.0f, -62.0f),
+              pinatty_road_point(-92.0f, 330.0f, 13.5f)}, .count = 2},
 
     // The middle north-south run is the district spine and carries the traffic,
     // so it is the one street here wide enough to be worth blocking.
-    // Vellum Row bends around the hospital instead of cutting through it. Its
+    // Pinatty Row bends around the hospital instead of cutting through it. Its
     // stable id remains on the long south arterial; id 201 is the north stub.
-    {.name = "Vellum Row", .id = 24, .district = DistrictId::VellumRow,
+    {.name = "Pinatty Row", .id = 24, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Arterial, .block_quality = 160,
-     .path = {vellum_road_point(0.0f, -124.0f),
-              vellum_road_point(0.0f, 330.0f, 13.5f)}, .count = 2},
-    {.name = "Juniper Avenue", .id = 25, .district = DistrictId::VellumRow,
+     .path = {pinatty_road_point(0.0f, -124.0f),
+              pinatty_road_point(0.0f, 330.0f, 13.5f)}, .count = 2},
+    {.name = "Juniper Avenue", .id = 25, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(92.0f, -434.0f),
+     .path = {pinatty_road_point(92.0f, -434.0f),
               {127.0f, 297.8f, 13.0f}}, .count = 2},
-    {.name = "Ashford Street", .id = 26, .district = DistrictId::VellumRow,
+    {.name = "Ashford Street", .id = 26, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(184.0f, -434.0f),
+     .path = {pinatty_road_point(184.0f, -434.0f),
               {218.5f, 307.4f, 12.0f}}, .count = 2},
-    {.name = "Wren Road", .id = 27, .district = DistrictId::VellumRow,
+    {.name = "Wren Road", .id = 27, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(276.0f, -434.0f),
+     .path = {pinatty_road_point(276.0f, -434.0f),
               {310.0f, 317.0f, 12.5f}}, .count = 2},
-    {.name = "Cinder Street", .id = 28, .district = DistrictId::VellumRow,
+    {.name = "Cinder Street", .id = 28, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(368.0f, -434.0f),
+     .path = {pinatty_road_point(368.0f, -434.0f),
               {401.5f, 326.7f, 12.0f}}, .count = 2},
 
-    {.name = "First Street", .id = 30, .district = DistrictId::VellumRow,
+    // The museum campus absorbs First between Briar and Mercer. Keep id 30
+    // on the long east section; 210 preserves the connected west section.
+    {.name = "First Street", .id = 30, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {{-380.1f, 224.4f, 11.0f}, {455.3f, 312.2f, 12.0f}}, .count = 2},
-    {.name = "Second Street", .id = 31, .district = DistrictId::VellumRow,
+     .path = {{-236.9129f,239.4489f,13.0f}, {455.3f,312.2f,12.0f}}, .count = 2},
+    {.name = "First Street", .id = 210, .district = DistrictId::PinattyRow,
+     .cls = RoadClass::Street, .block_quality = 90,
+     .path = {{-380.1f,224.4f,11.0f}, {-328.4111f,229.8325f,12.5f}}, .count = 2},
+    {.name = "Second Street", .id = 31, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-373.6f, 162.7f, 11.5f}, {461.8f, 250.5f, 12.0f}}, .count = 2},
-    {.name = "Third Street", .id = 32, .district = DistrictId::VellumRow,
+    {.name = "Third Street", .id = 32, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-367.1f, 101.1f, 11.5f}, {468.3f, 188.9f, 12.0f}}, .count = 2},
-    {.name = "Fourth Street", .id = 33, .district = DistrictId::VellumRow,
+    {.name = "Fourth Street", .id = 33, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-360.7f, 39.4f, 11.5f}, {474.7f, 127.2f, 12.0f}}, .count = 2},
-    {.name = "Fifth Street", .id = 34, .district = DistrictId::VellumRow,
+    {.name = "Fifth Street", .id = 34, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-354.2f, -22.2f, 12.0f}, {481.2f, 65.6f, 12.0f}}, .count = 2},
 
-    // The east-west counterpart of Vellum Row itself: the two arterials cross
+    // The east-west counterpart of Pinatty Row itself: the two arterials cross
     // at the centre of the district, which is where its tallest buildings and
     // its worst traffic are.
-    {.name = "Halloway Street", .id = 35, .district = DistrictId::VellumRow,
+    {.name = "Halloway Street", .id = 35, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Arterial, .block_quality = 160,
      .path = {{-347.7f, -83.9f, 12.0f}, {487.7f, 3.9f, 11.5f}}, .count = 2},
-    {.name = "Sixth Street", .id = 36, .district = DistrictId::VellumRow,
+    {.name = "Sixth Street", .id = 36, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-341.2f, -145.6f, 12.0f}, {494.2f, -57.8f, 11.5f}}, .count = 2},
-    {.name = "Seventh Street", .id = 37, .district = DistrictId::VellumRow,
+    {.name = "Seventh Street", .id = 37, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(0.0f, -124.0f),
-              vellum_road_point(420.0f, -124.0f, 11.5f)}, .count = 2},
-    {.name = "Eighth Street", .id = 38, .district = DistrictId::VellumRow,
+     .path = {pinatty_road_point(0.0f, -124.0f),
+              pinatty_road_point(420.0f, -124.0f, 11.5f)}, .count = 2},
+    {.name = "Eighth Street", .id = 38, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(92.0f, -186.0f),
-              vellum_road_point(420.0f, -186.0f, 11.5f)}, .count = 2},
-    {.name = "Ninth Street", .id = 39, .district = DistrictId::VellumRow,
+     .path = {pinatty_road_point(92.0f, -186.0f),
+              pinatty_road_point(420.0f, -186.0f, 11.5f)}, .count = 2},
+    {.name = "Ninth Street", .id = 39, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(92.0f, -248.0f),
-              vellum_road_point(420.0f, -248.0f)}, .count = 2},
-    {.name = "Tenth Street", .id = 40, .district = DistrictId::VellumRow,
+     .path = {pinatty_road_point(92.0f, -248.0f),
+              pinatty_road_point(420.0f, -248.0f)}, .count = 2},
+    {.name = "Tenth Street", .id = 40, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
      .path = {{-315.3f, -392.2f, 12.0f}, {520.1f, -304.4f, 12.0f}}, .count = 2},
-    {.name = "Eleventh Street", .id = 205, .district = DistrictId::VellumRow,
+    {.name = "Eleventh Street", .id = 205, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(92.0f, -372.0f),
-              vellum_road_point(368.0f, -372.0f)}, .count = 2},
-    {.name = "Twelfth Street", .id = 206, .district = DistrictId::VellumRow,
+     .path = {pinatty_road_point(92.0f, -372.0f),
+              pinatty_road_point(368.0f, -372.0f)}, .count = 2},
+    {.name = "Twelfth Street", .id = 206, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(92.0f, -434.0f),
-              vellum_road_point(368.0f, -434.0f)}, .count = 2},
+     .path = {pinatty_road_point(92.0f, -434.0f),
+              pinatty_road_point(368.0f, -434.0f)}, .count = 2},
 
     // Matching perimeter stubs stop at the campus boundary. Their names
     // intentionally match the surviving halves so the map shows one street
     // name while the graph sees separate roads with stable unique ids.
-    {.name = "Rook Lane", .id = 200, .district = DistrictId::VellumRow,
+    {.name = "Rook Lane", .id = 200, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Street, .block_quality = 90,
-     .path = {vellum_road_point(-92.0f, -330.0f),
-              vellum_road_point(-92.0f, -310.0f)}, .count = 2},
-    {.name = "Vellum Row", .id = 201, .district = DistrictId::VellumRow,
+     .path = {pinatty_road_point(-92.0f, -330.0f),
+              pinatty_road_point(-92.0f, -310.0f)}, .count = 2},
+    {.name = "Pinatty Row", .id = 201, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Arterial, .block_quality = 160,
-     .path = {vellum_road_point(0.0f, -330.0f),
-              vellum_road_point(0.0f, -310.0f)}, .count = 2},
+     .path = {pinatty_road_point(0.0f, -330.0f),
+              pinatty_road_point(0.0f, -310.0f)}, .count = 2},
     {.name = "Seventh Street", .id = 202,
-     .district = DistrictId::VellumRow, .cls = RoadClass::Street,
+     .district = DistrictId::PinattyRow, .cls = RoadClass::Street,
      .block_quality = 90,
-     .path = {vellum_road_point(-420.0f, -124.0f),
-              vellum_road_point(-184.0f, -124.0f)}, .count = 2},
+     .path = {pinatty_road_point(-420.0f, -124.0f),
+              pinatty_road_point(-184.0f, -124.0f)}, .count = 2},
     {.name = "Eighth Street", .id = 203,
-     .district = DistrictId::VellumRow, .cls = RoadClass::Street,
+     .district = DistrictId::PinattyRow, .cls = RoadClass::Street,
      .block_quality = 90,
-     .path = {vellum_road_point(-420.0f, -186.0f),
-              vellum_road_point(-184.0f, -186.0f)}, .count = 2},
+     .path = {pinatty_road_point(-420.0f, -186.0f),
+              pinatty_road_point(-184.0f, -186.0f)}, .count = 2},
     {.name = "Ninth Street", .id = 204,
-     .district = DistrictId::VellumRow, .cls = RoadClass::Street,
+     .district = DistrictId::PinattyRow, .cls = RoadClass::Street,
      .block_quality = 90,
-     .path = {vellum_road_point(-420.0f, -248.0f),
-              vellum_road_point(-184.0f, -248.0f)}, .count = 2},
+     .path = {pinatty_road_point(-420.0f, -248.0f),
+              pinatty_road_point(-184.0f, -248.0f)}, .count = 2},
+
+    // Southwest Pinatty: a rounded outer crescent, a north-south seam and an
+    // offset cross street form four unequal blocks below First Street. The
+    // three mouths reuse First, Briar and Mercer endpoints. All remain north
+    // of Route 1 and west of the West Ramp, with no new freeway junction.
+    // This pocket leaves the flat downtown plate, so its own road profiles
+    // grade the terrain and carry the sidewalks with them.
+    {.name = "Sable Crescent", .id = 207, .district = DistrictId::PinattyRow,
+     .cls = RoadClass::Street, .block_quality = 100, .shapes_ground = true,
+     .path = {{-380.1f, 224.4f, 11.0f}, {-405.0f, 246.0f, 12.0f},
+              {-420.0f, 278.0f, 13.0f}, {-418.0f, 313.0f, 13.0f},
+              {-400.0f, 343.0f, 13.0f}, {-370.0f, 365.0f, 13.0f},
+              {-330.0f, 369.0f, 13.0f}, {-290.0f, 364.0f, 13.0f},
+              {-260.0f, 341.0f, 13.0f}, {-245.0f, 309.0f, 13.0f},
+              {-239.0f, 259.3f, 13.0f}}, .count = 11},
+    {.name = "Shuttle Street", .id = 208, .district = DistrictId::PinattyRow,
+     .cls = RoadClass::Street, .block_quality = 90, .shapes_ground = true,
+     .path = {{-330.5f, 249.7f, 12.5f}, {-332.0f, 300.0f, 13.0f},
+              {-330.0f, 369.0f, 13.0f}}, .count = 3},
+    {.name = "Loom Way", .id = 209, .district = DistrictId::PinattyRow,
+     .cls = RoadClass::Street, .block_quality = 90, .shapes_ground = true,
+     .path = {{-418.0f, 313.0f, 13.0f}, {-332.0f, 300.0f, 13.0f},
+              {-245.0f, 309.0f, 13.0f}}, .count = 3},
 
     // The two ramps that put the grid on Route 1. Only two, and that is the
     // point: nine streets spilling straight onto a freeway would make the
     // south edge of downtown a slip road instead of a decision.
-    {.name = "the West Ramp", .id = 41, .district = DistrictId::VellumRow,
+    {.name = "the West Ramp", .id = 41, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Arterial, .block_quality = 170, .shapes_ground = true,
      .path = {{-147.5f, 269.0f, 12.0f}, {-160.0f, 380.0f, 12.0f},
               {-147.5f, 483.7f, 12.0f}},
      .count = 3},
-    {.name = "the East Ramp", .id = 42, .district = DistrictId::VellumRow,
+    {.name = "the East Ramp", .id = 42, .district = DistrictId::PinattyRow,
      .cls = RoadClass::Arterial, .block_quality = 170, .shapes_ground = true,
      .path = {{218.5f, 307.4f, 12.0f}, {215.0f, 400.0f, 12.0f},
               {218.5f, 506.9f, 12.0f}},
@@ -853,7 +888,7 @@ inline constexpr Road kRoads[] = {
               {-45.714f, 440.0f, 12.357f},
               {-48.0f, 420.0f, 12.5f},
               {-55.0f, 380.0f, 13.0f},
-              vellum_road_point(0.0f, 330.0f, 13.5f)},
+              pinatty_road_point(0.0f, 330.0f, 13.5f)},
      .count = 8},
     {.name = "the East Arm", .id = 51, .district = DistrictId::HallowaySquare,
      .cls = RoadClass::Arterial, .block_quality = 150, .shapes_ground = true,
@@ -877,13 +912,13 @@ inline constexpr Road kRoads[] = {
     // boxes that no driver could read as separate junctions.
     {.name = "the Plaza Ring (west)", .id = 54,
      .district = DistrictId::HallowaySquare, .cls = RoadClass::Arterial,
-     .block_quality = 110, .shapes_ground = true,
+     .block_quality = 110, .speed_limit_mps = 8.9f, .shapes_ground = true,
      .path = {{-56.552f, 650.0f, 14.0f}, {-230.0f, 700.0f, 14.0f},
               {-230.0f, 860.0f, 14.0f}, {-70.0f, 940.0f, 14.0f}},
      .count = 4},
     {.name = "the Plaza Ring (east)", .id = 55,
      .district = DistrictId::HallowaySquare, .cls = RoadClass::Arterial,
-     .block_quality = 110, .shapes_ground = true,
+     .block_quality = 110, .speed_limit_mps = 8.9f, .shapes_ground = true,
      .path = {{-56.552f, 650.0f, 14.0f}, {90.0f, 700.0f, 14.0f},
               {90.0f, 860.0f, 14.0f}, {-70.0f, 940.0f, 14.0f}},
      .count = 4},
@@ -1118,6 +1153,35 @@ inline constexpr Road kRoads[] = {
      .count = 2},
 
     // =======================================================================
+    //  244-249. HALBERD FIELD — the north shore air station.
+    // =======================================================================
+    //
+    // One way in. The station sits on the coastal shelf beyond the refinery,
+    // and the Yard Road already runs along the foot of it, so the approach is
+    // a 52 m stub off an existing junction rather than a new arterial. That is
+    // the point of the place: a single guarded gate is only a decision if
+    // there is no second way round the back.
+    //
+    // Both ends sit on the Halberd plate at its 9 m target, so the stub needs
+    // no corridor of its own; city_roads_tests measures the drape and will say
+    // so if that ever stops being true.
+    {.name = "the Halberd Approach", .id = 244, .district = DistrictId::Count,
+     .cls = RoadClass::Street, .block_quality = 200,
+     .path = {{-500.0f, -1930.0f, 9.0f}, {-500.0f, -1990.0f, 9.0f}},
+     .count = 2},
+
+    // AND IT STOPS AT THE GATE. There was an internal "apron road" here, and it
+    // described the same ground the station's own paving already describes: a
+    // draped ribbon crowns about 12 cm above its authored bed, the paving is a
+    // flat plane, and the two swapped depending on where the camera stood. It
+    // read in game as two road surfaces sliding over each other.
+    //
+    // Inside the wire the paving is the only surface, for the same reason the
+    // runway is not a road: nothing should route through a military station,
+    // so it needs no lanes, and one description of a piece of ground is the
+    // only number of descriptions that can be right.
+
+    // =======================================================================
     //  100-119. FERRONE HILL — vertical.
     // =======================================================================
 
@@ -1151,7 +1215,7 @@ inline constexpr Road kRoads[] = {
      .count = 2},
 
     // THE FIRE ROAD. Unmarked, unpaved, and the single most valuable piece of
-    // local knowledge O'Haven has to teach: it is the way off the hill when the
+    // local knowledge Pinatty has to teach: it is the way off the hill when the
     // Shoulder is shut. Never stage a block on it — a player who has earned
     // this route has earned the escape.
     {.name = "the fire road", .id = 102, .district = DistrictId::FerroneHill,
@@ -1428,7 +1492,7 @@ inline constexpr Road kRoads[] = {
     // widens after the bridge, stays north of the runway protection area,
     // wraps outside the east airport edge, clears the cargo parcel, and lands
     // on the public frontage road. There is no public-to-airside junction.
-    {.name = "O'Haven Airport Parkway", .id = 157,
+    {.name = "Pinatty Airport Parkway", .id = 157,
      .district = DistrictId::CamberPoint, .cls = RoadClass::Arterial,
      .block_quality = 150, .shapes_ground = true,
      .path = {{185.0f, 1880.0f, 7.0f},
@@ -1507,7 +1571,7 @@ inline constexpr Road kRoads[] = {
     // leaves a district plate and crosses ground the noise shaped, so every one
     // of them grades its corridor.
 
-    // Vellum Row to Ferrone Hill's foot: the only road onto the northern
+    // Pinatty Row to Ferrone Hill's foot: the only road onto the northern
     // massif that does not involve the Kessel Bridge.
     {.name = "the Ferrone Road", .id = 180, .district = DistrictId::Count,
      .cls = RoadClass::Arterial, .block_quality = 230, .shapes_ground = true,
@@ -1516,7 +1580,7 @@ inline constexpr Road kRoads[] = {
               {470.0f, -900.0f, 13.0f}},
      .count = 5},
 
-    // Vellum Row to Saltmarsh.
+    // Pinatty Row to Saltmarsh.
     {.name = "the Marsh Road", .id = 181, .district = DistrictId::Count,
      .cls = RoadClass::Arterial, .block_quality = 150, .shapes_ground = true,
      .path = {{-347.7f, -83.9f, 12.0f}, {-420.0f, -290.0f, 12.0f},

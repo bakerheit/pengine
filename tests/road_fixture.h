@@ -8,7 +8,7 @@
 //
 // WHY IT IS STILL HAND-MADE, now that `city::map_spines()` exists. The road
 // module takes spines as a parameter precisely so it never has to know a city
-// is there, and these suites test the GRAPH, not O'Haven. The layout below
+// is there, and these suites test the GRAPH, not Pinatty. The layout below
 // contains one of each thing the graph has to notice, in eight roads you can
 // hold in your head; the real map contains all of them too, buried in ninety,
 // which is a far worse place to debug a weld tolerance from.
@@ -81,6 +81,7 @@ inline std::vector<apricot::RoadSpine> make_test_spines() {
     f.cls = RoadClass::Freeway;
     f.structure = RoadStructure::Bridge;
     f.deck_y_m = 26.0f;
+    f.speed_limit_mps = 24.6f;
     f.points = {{-320.0f, -250.0f}, {320.0f, -250.0f}};
     f.block_quality = 255;
     s.push_back(f);

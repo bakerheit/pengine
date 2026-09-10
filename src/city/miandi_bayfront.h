@@ -7,7 +7,7 @@
 
 namespace apricot::city {
 
-// BF-2 is deliberately independent of the older Vellum tower inventory.  The
+// BF-2 is deliberately independent of the older Pinatty tower inventory.  The
 // site is axis aligned because Miandi's first-wave grid is the source of truth
 // for this parcel, not the downtown six-degree basis.
 inline constexpr StartSite kMiandiBayfrontSite{

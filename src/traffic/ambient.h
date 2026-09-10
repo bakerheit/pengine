@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 
 #include <glm/glm.hpp>
 
@@ -42,6 +43,19 @@ inline constexpr uint32_t kChannelPhantomDepart    = 0x2100u;
 inline constexpr uint32_t kChannelPhantomSlotSpeed = 0x2200u;
 inline constexpr uint32_t kChannelPhantomPedSpeed  = 0x2300u;
 inline constexpr uint32_t kChannelPhantomPedSide   = 0x2400u;
+// What a pedestrian does besides walk (traffic/crowd.h, PedActivity). Four
+// channels and not one, because "do I stop here", "for how long", "where along
+// this pavement" and "how long am I on the floor" are four unrelated
+// questions: share a channel between them and a person who stops for a long
+// time always stops in the same place, which reads as a pattern immediately.
+inline constexpr uint32_t kChannelPedIdleChance    = 0x2500u;
+inline constexpr uint32_t kChannelPedIdleLength    = 0x2600u;
+inline constexpr uint32_t kChannelPedLoiterAt      = 0x2700u;
+inline constexpr uint32_t kChannelPedKerbWait      = 0x2800u;
+inline constexpr uint32_t kChannelPedDowned        = 0x2900u;
+// Where a parked car sits along its kerb, and which way round it is.
+inline constexpr uint32_t kChannelParkedAlong      = 0x2A00u;
+inline constexpr uint32_t kChannelParkedFacing     = 0x2B00u;
 
 // Presentation and collision choose the same legacy body from stable phantom
 // identity. Keeping this recipe here prevents the renderer from showing a
@@ -56,7 +70,13 @@ enum class TrafficVehicleKind : uint8_t {
     MontroseRegentEight = 5,
     VesperVx91 = 6,
     Police = 7,
+    Snowplow = 8,
 };
+
+inline constexpr float kSnowplowBladeForwardM = 2.95f;
+inline constexpr float kSnowplowBladeWidthM = 2.70f;
+inline constexpr float kSnowplowWorkSpeedMps = 6.0f;
+inline constexpr std::size_t kMaxSnowplowFleet = 4;
 
 struct TrafficVehicleFootprint {
     float half_width_m = 1.0f;
@@ -92,7 +112,8 @@ inline TrafficVehicleKind traffic_vehicle_kind(uint64_t lane_key,
 
 inline TrafficVehicleFootprint traffic_vehicle_footprint(
     TrafficVehicleKind kind) {
-    // Measured after the real make_traffic_visual_layout() 5 m fit.
+    // Legacy bodies measured after make_traffic_visual_layout() 5 m fit;
+    // the authored service truck keeps its full body and blade dimensions.
     switch (kind) {
         case TrafficVehicleKind::Sedan: return {0.943954f, 2.5f};
         case TrafficVehicleKind::BoxTruck: return {1.148594f, 2.5f};
@@ -103,6 +124,7 @@ inline TrafficVehicleFootprint traffic_vehicle_footprint(
             return {0.929577f, 2.5f};
         case TrafficVehicleKind::VesperVx91: return {0.970497f, 2.5f};
         case TrafficVehicleKind::Police: return {1.018182f, 2.5f};
+        case TrafficVehicleKind::Snowplow: return {1.35f, 3.3f};
     }
     return {1.0f, 2.5f};
 }
@@ -129,6 +151,64 @@ struct AmbientTuning {
     // Pedestrian walking speed, absolute (m/s).
     float ped_speed_lo = 1.10f;
     float ped_speed_hi = 1.70f;
+
+    // WHERE THE CROWD CLUMPS, and why it is junction arity and not something
+    // that sounds more like "interest".
+    //
+    // A uniform ped density over every metre of pavement reads as a conveyor
+    // belt: a cul-de-sac behind a warehouse carries exactly as many people as
+    // the four-way in the middle of the shopping street. Corners are where the
+    // shopfronts are, and how many roads meet at a corner is authored — it is
+    // the map — so a lane running between two crossroads carries more people
+    // than one that dead-ends.
+    //
+    // Lane::block_quality was the obvious candidate and it is the WRONG one:
+    // city/roads.h authors it as ROADBLOCK STAGING QUALITY ("0 means never
+    // stage here; 255 means this is what this road is for"), which describes a
+    // long open road with clear sightlines. That is the opposite of a busy
+    // shopfront street, so using it would have clumped the crowd onto exactly
+    // the roads it should have thinned.
+    //
+    // The gain multiplies the district's authored ped_density. Keep the two
+    // ends either side of 1.0 or this quietly becomes a global population
+    // knob wearing a clumping name.
+    // These two are CENTRED ON THE REAL ISLAND, not chosen to look tidy. The
+    // first pass used 0.55 / 1.85, which reads as a symmetric spread about 1.0
+    // and is not: most of Pinatty's junctions are three- or four-way, so the
+    // length-weighted mean gain came out at 1.38 and the island's pedestrian
+    // total moved by 28%. That is a density change wearing a clumping name,
+    // and it would have quietly invalidated every measured cost beside it.
+    // tests/ped_life_tests.cpp measures the mean and fails if it drifts again.
+    float ped_hotspot_quiet = 0.40f;  // a lane whose both ends are stubs
+    float ped_hotspot_busy = 1.35f;   // a lane between two four-way corners
+
+    // --- kerbside parking ---------------------------------------------------
+    //
+    // Nose-to-tail spacing at density 1.0. The lane's authored parked_density
+    // divides it, exactly the way traffic_density divides vehicle_spacing_m,
+    // so a district authored full of parked cars is full because
+    // city/districts.h says so.
+    float parked_spacing_m = 11.0f;
+    uint32_t max_parked_slots = 40;
+
+    // Half the width of a parked body, and the gap it leaves to the kerb line.
+    // Together they place the car centre at
+    // `carriageway_half - kerb_gap - half_width` from the road centreline.
+    float parked_half_width_m = 0.95f;
+    float parked_kerb_gap_m = 0.30f;
+
+    // HOW MUCH ROOM A PARKED CAR MUST LEAVE THE TRAFFIC, measured from the
+    // travel lane's centreline to the parked car's near side. This is the gate
+    // that decides which roads get kerbside parking at all, and it is a gate
+    // rather than a nudge for one reason: nothing here is in the moving cars'
+    // obstacle set, so a parked car that overlaps a lane centre is a car the
+    // AI drives straight through. On the authored class table it admits
+    // Streets (1.30 m of clearance on a 14 m carriageway) and excludes
+    // Arterials (0.55 m), which is also where a city would paint the bays.
+    float parked_lane_clearance_m = 1.00f;
+
+    // No parking across a junction mouth. Measured from each end of the lane.
+    float parked_junction_setback_m = 9.0f;
 
     // Where the footway sits, measured out from the carriageway centreline:
     // half the road width plus this. Peds ride the vehicle lane's arc because
@@ -207,10 +287,20 @@ constexpr uint64_t phantom_key(uint64_t map_seed, uint64_t lane_key,
 LaneSchedule vehicle_schedule(uint64_t map_seed, const Lane& lane,
                               const AmbientTuning& t);
 
+// How much busier than baseline this lane's pavements are, from the arity of
+// the junctions at its two ends. Pure in (graph, lane) — it is a fact about
+// the authored map, so it carries no seed and no step.
+float ped_hotspot_gain(const LaneGraph& graph, LaneRef lane,
+                       const AmbientTuning& t);
+
 // The pedestrian schedule for one lane's pair of footways. `slots` counts BOTH
 // sides: even slots ride the right-hand footway, odd slots the left.
+//
+// `density_gain` is ped_hotspot_gain()'s answer, threaded in rather than
+// looked up, so this stays a pure function of one lane and the caller keeps
+// the graph. It defaults to 1.0, which is a flat, unclumped city.
 LaneSchedule ped_schedule(uint64_t map_seed, const Lane& lane,
-                          const AmbientTuning& t);
+                          const AmbientTuning& t, float density_gain = 1.0f);
 
 // Slot k of `sched` at absolute sim step `step`. Pure. No state, no clock, no
 // dependence on which slots have been asked about before.
@@ -221,5 +311,79 @@ PhantomState phantom_vehicle(uint64_t map_seed, const Lane& lane,
 PhantomState phantom_ped(uint64_t map_seed, const Lane& lane,
                          const LaneSchedule& sched, uint32_t slot,
                          int64_t step, const AmbientTuning& t);
+
+// Which LAP of its schedule slot `slot` is on at absolute step `step`.
+//
+// A phantom slot is not one car. `phantom_*` takes the REMAINDER of
+// (step - depart - slot*headway) over the period; this is the matching
+// QUOTIENT, so `lap * period + phase` reconstructs the numerator exactly. Slot
+// k re-departs the lane once per period, and each departure is a different car
+// that no one has simulated.
+//
+// This is what separates the two identities retirement has to tell apart: the
+// instance that was perturbed and left, which must never come back, and the
+// next departure of the same slot, which was never simulated and is described
+// by the closed form exactly. Pure in (step, schedule) — no clock, no RNG.
+int64_t phantom_lap(const LaneSchedule& sched, uint32_t slot, int64_t step);
+
+// ---------------------------------------------------------------------------
+//  Kerbside parking
+// ---------------------------------------------------------------------------
+//
+// PARKED CARS ARE NOT AGENTS, and the distinction is the whole reason they get
+// their own three functions instead of a third phantom schedule.
+//
+// A phantom has a position that depends on the step. A parked car does not
+// depend on the step at all: it is a pure function of (map_seed, lane, slot),
+// so there is nothing to promote, nothing to integrate, and nothing to retire.
+// It costs one hash to place and it is identical on every machine on every run
+// forever.
+//
+// That also fixes the boundary. The day one of these becomes something a
+// player can shunt, steal or blow up, it stops being describable by this
+// function and has to become a real agent with permanent retirement — the
+// identical argument traffic/README.md makes about promotion. It is cheap
+// street density precisely BECAUSE it has no state, and the moment it has
+// state it is not this any more.
+struct ParkedLaneBay {
+    // TWO SEPARATE ANSWERS, and keeping them apart matters more than it looks.
+    //
+    // `lateral_m` non-zero means THE ROAD HAS ROOM: it has a kerb, this is its
+    // outermost lane, and a parked body there still leaves the traffic the
+    // authored clearance. That is a fact about the road's geometry and the
+    // class table, and no district can change it.
+    //
+    // `slots` is how many cars the DISTRICT chose to put in that room. It can
+    // be zero on a road with plenty of room — Marrow authors 0.05 and its
+    // kerbs are meant to be empty.
+    //
+    // Collapsing the two into "slots == 0" makes every measurement of authored
+    // density secretly a measurement of how many arterials a district has,
+    // which is the shape the first draft of tests/parked_density_tests.cpp
+    // came out and the reason it read as non-monotonic.
+    uint32_t slots = 0;
+    // Signed lateral offset in the LANE's own frame: positive is to the right
+    // of travel, which is the kerb side. Zero when the road has no room.
+    float lateral_m = 0.0f;
+    float first_m = 0.0f;   // where the bay starts along the lane
+    float pitch_m = 0.0f;   // centre-to-centre spacing of the slots
+    float usable_m = 0.0f;  // kerb left after the junction setbacks
+};
+
+// The bay one lane carries. Pure in (lane, tuning) — no seed, because how much
+// room a road has and how busy its district is are both authored facts.
+ParkedLaneBay parked_lane_bay(const Lane& lane, const AmbientTuning& t);
+
+struct ParkedSlot {
+    float dist_along_m = 0.0f;
+    float lateral_m = 0.0f;
+    // Parked facing back down the lane. Roughly a third of them, because a
+    // street on which every car faces the same way reads as a car park.
+    bool reversed = false;
+};
+
+ParkedSlot parked_slot(uint64_t map_seed, const Lane& lane,
+                       const ParkedLaneBay& bay, uint32_t slot,
+                       const AmbientTuning& t);
 
 }  // namespace apricot

@@ -1,6 +1,6 @@
 # Tractor and trailer
 
-The Harrow Hauler semi and Harrow Freight Trailer are parked at Camber Air Cargo, at O'Haven International Airport. F1 → Teleport → CAMBER AIR CARGO gets you beside the truck. The tractor can also be selected through F1 → Vehicle → Choose Car → HARROW → HAULER SEMI.
+The Harrow Hauler semi and Harrow Freight Trailer are parked at Camber Air Cargo, at Pinatty International Airport. F1 → Teleport → CAMBER AIR CARGO gets you beside the truck. The tractor can also be selected through F1 → Vehicle → Choose Car → HARROW → HAULER SEMI.
 
 Enter the tractor with E / controller A. Back its fifth wheel underneath the trailer's front pin, straighten up, stop, and press **T / D-pad Right**. Press the same button while stopped on level ground to drop the trailer. Coupling requires the pin to be within 0.65 m horizontally and 0.25 m vertically, alignment within about 11 degrees, and speed below 0.35 m/s. The HUD explains a rejected attempt.
 

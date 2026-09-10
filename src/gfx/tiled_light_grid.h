@@ -22,7 +22,7 @@ inline int light_depth_slice(float depth) {
     return std::clamp(static_cast<int>(t * kLightDepthSlices),0,kLightDepthSlices-1);
 }
 
-// Conservative clipped projection of the spotlight's enclosing pyramid.
+// Conservative clipped projection of the spotlight pyramid and radial range.
 // No selection budget: every relevant lamp survives, including off-screen
 // lamps whose cones reach the view. Lists have no per-tile truncation.
 struct TiledLightGrid {
@@ -71,27 +71,61 @@ struct TiledLightGrid {
             for (int y : {-1,1}) for (int x : {-1,1})
                 clip[static_cast<std::size_t>(v++)] = vp * glm::vec4{p+d*range+
                     right*(radius*static_cast<float>(x))+up*(radius*static_cast<float>(y)),1};
+            // The shader measures radial distance, not distance along the
+            // cone axis. Wide ceiling cones otherwise get a huge pyramid
+            // (a 7 m / .35 cosine lamp has an 18.7 m base radius). Bound the
+            // spherical sector too, then intersect its projected footprint
+            // with the pyramid in each depth band. Both bounds are conservative.
+            const float sine=std::sqrt(1-outer*outer);
+            const auto axial_max=[&](float component) {
+                return component>=outer ? 1.f : component*outer+
+                    std::sqrt(std::max(0.f,1-component*component))*sine;
+            };
+            glm::vec3 sector_lo,sector_hi;
+            for(int axis=0;axis<3;++axis) {
+                sector_lo[axis]=p[axis]-range*std::max(0.f,axial_max(-d[axis]))-.0001f;
+                sector_hi[axis]=p[axis]+range*std::max(0.f,axial_max(d[axis]))+.0001f;
+            }
+            std::array<glm::vec4,8> sector_clip;
+            v=0;
+            for(int z:{0,1})for(int y:{0,1})for(int x:{0,1})
+                sector_clip[static_cast<std::size_t>(v++)]=vp*glm::vec4{
+                    x?sector_hi.x:sector_lo.x,y?sector_hi.y:sector_lo.y,
+                    z?sector_hi.z:sector_lo.z,1};
             float depth_min=clip[0].w, depth_max=clip[0].w;
             for (const auto& c : clip) { depth_min=std::min(depth_min,c.w); depth_max=std::max(depth_max,c.w); }
+            float sector_front=sector_clip[0].w,sector_back=sector_clip[0].w;
+            for(const auto& c:sector_clip) {
+                sector_front=std::min(sector_front,c.w);sector_back=std::max(sector_back,c.w);
+            }
+            depth_min=std::max(depth_min,sector_front);
+            depth_max=std::min(depth_max,sector_back);
             if (depth_max<kLightNear || depth_min>kLightFar) continue;
             bool added=false;
             for(int slice=light_depth_slice(depth_min);slice<=light_depth_slice(depth_max);++slice) {
                 const float front=std::max(kLightNear,depth_edges[static_cast<std::size_t>(slice)]-0.0001f);
                 const float back=depth_edges[static_cast<std::size_t>(slice+1)]+0.0001f;
                 glm::vec2 lo{1e10f}, hi{-1e10f};
-                const auto include = [&](glm::vec4 c) {
-                    const glm::vec2 xy = glm::vec2{c}/c.w;
-                    lo=glm::min(lo,xy); hi=glm::max(hi,xy);
+                const auto projected_bounds = [&](const auto& vertices,glm::vec2& lower,glm::vec2& upper) {
+                    const auto include = [&](glm::vec4 c) {
+                        const glm::vec2 xy = glm::vec2{c}/c.w;
+                        lower=glm::min(lower,xy); upper=glm::max(upper,xy);
+                    };
+                    for(const auto& c:vertices) if(c.w>=front && c.w<=back) include(c);
+                    // Project only the cone section inside THIS depth band. A
+                    // cone crossing the camera must not cover every far tile.
+                    for(float plane:{front,back}) for(std::size_t a=0;a<vertices.size();++a)
+                        for(std::size_t b=a+1;b<vertices.size();++b) {
+                            if((vertices[a].w<plane)==(vertices[b].w<plane)) continue;
+                            const float t=(plane-vertices[a].w)/(vertices[b].w-vertices[a].w);
+                            include(glm::mix(vertices[a],vertices[b],t));
+                        }
                 };
-                for(const auto& c:clip) if(c.w>=front && c.w<=back) include(c);
-                // Project only the cone section inside THIS depth band. A
-                // cone crossing the camera must not cover every far tile.
-                for(float plane:{front,back}) for(std::size_t a=0;a<clip.size();++a)
-                    for(std::size_t b=a+1;b<clip.size();++b) {
-                        if((clip[a].w<plane)==(clip[b].w<plane)) continue;
-                        const float t=(plane-clip[a].w)/(clip[b].w-clip[a].w);
-                        include(glm::mix(clip[a],clip[b],t));
-                    }
+                projected_bounds(clip,lo,hi);
+                glm::vec2 sector_lower{1e10f},sector_upper{-1e10f};
+                projected_bounds(sector_clip,sector_lower,sector_upper);
+                lo=glm::max(lo,sector_lower);hi=glm::min(hi,sector_upper);
+                if(lo.x>hi.x || lo.y>hi.y)continue;
                 if(hi.x < -1 || hi.y < -1 || lo.x > 1 || lo.y > 1) continue;
                 lo=glm::clamp(lo,glm::vec2{-1},glm::vec2{1});
                 hi=glm::clamp(hi,glm::vec2{-1},glm::vec2{1});

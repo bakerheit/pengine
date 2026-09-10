@@ -315,16 +315,23 @@ void bench_shipping_ladder(const LaneGraph& lanes, bool full) {
         float veh_m;
         float ped_m;
     };
+    // 220 / 165 is the SHIPPING DEFAULT in CrowdTuning, measured here so the
+    // number that ships has a cost printed beside it on every run rather than
+    // one interpolated between two rungs that move the vehicle radius too.
     const std::vector<Rung> rungs = {{110.0f, 55.0f},  {220.0f, 110.0f},
-                                     {320.0f, 150.0f}, {450.0f, 200.0f},
-                                     {650.0f, 260.0f}, {900.0f, 340.0f}};
+                                     {220.0f, 165.0f}, {320.0f, 150.0f},
+                                     {450.0f, 200.0f}, {650.0f, 260.0f},
+                                     {900.0f, 340.0f}};
     Run doc_config;
     for (const Rung& g : rungs) {
         const Run r = measure(lanes, tuning_for_radius(g.veh_m, g.ped_m),
                               AmbientTuning{}, full ? 900 : 300, 240);
         check_not_vacuous(r, "ladder1");
         print_row("", r);
-        if (g.veh_m == 220.0f) doc_config = r;
+        // Both 220 m rungs match on the vehicle radius, so the doc's config
+        // has to be identified by BOTH numbers or the note below quotes the
+        // shipping rung's counts under the doc rung's name.
+        if (g.veh_m == 220.0f && g.ped_m == 110.0f) doc_config = r;
     }
     std::printf("\n   The design doc's first-pass config (220 m / 110 m) lands "
                 "at %zu cars + %zu peds\n"

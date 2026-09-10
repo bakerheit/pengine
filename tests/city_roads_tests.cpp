@@ -1,4 +1,4 @@
-// O'Haven's roads — is the network a place you can drive, and does it sit on
+// Pinatty's roads — is the network a place you can drive, and does it sit on
 // the ground?
 //
 // Two jobs, and like city_map_tests.cpp they are different jobs.
@@ -190,6 +190,20 @@ void the_network_is_the_size_the_table_says() {
     REQUIRE_MSG(centreline > 40000.0,
                 "the island lost most of its road network", "network");
     apricot_test::pass("the network builds, and it is the size the table says");
+}
+
+void named_sections_publish_their_posted_limits() {
+    const Built& b = built();
+    auto limit = [&](uint32_t id) {
+        const auto found = std::find_if(b.spines.begin(), b.spines.end(),
+            [&](const RoadSpine& spine) { return spine.id == id; });
+        REQUIRE(found != b.spines.end());
+        return found->speed_limit_mps;
+    };
+    REQUIRE_NEAR(limit(2), 24.6f, 1e-6f);
+    REQUIRE_NEAR(limit(54), 8.9f, 1e-6f);
+    REQUIRE_NEAR(limit(55), 8.9f, 1e-6f);
+    apricot_test::pass("Kessel Bridge and both Plaza Ring sections publish their posted limits");
 }
 
 void rimway_creek_bridge_uses_its_own_municipal_profile() {
@@ -520,9 +534,9 @@ void you_can_drive_from_any_district_to_any_other() {
                     city::district_name(static_cast<city::DistrictId>(d)));
     }
 
-    // Breadth-first over the graph from Vellum Row, carrying distance so the
+    // Breadth-first over the graph from Pinatty Row, carrying distance so the
     // report says how far apart the districts actually are.
-    const uint32_t start = anchor[static_cast<std::size_t>(city::DistrictId::VellumRow)];
+    const uint32_t start = anchor[static_cast<std::size_t>(city::DistrictId::PinattyRow)];
     std::vector<float> dist(nodes, -1.0f);
     std::vector<int> hops(nodes, 0);
     std::queue<uint32_t> q;
@@ -541,7 +555,7 @@ void you_can_drive_from_any_district_to_any_other() {
         }
     }
 
-    std::printf("\n  from Vellum Row, by road:\n");
+    std::printf("\n  from Pinatty Row, by road:\n");
     for (int d = 0; d < city::kDistrictCount; ++d) {
         const uint32_t a = anchor[static_cast<std::size_t>(d)];
         std::printf("    %-16s %s",
@@ -556,11 +570,11 @@ void you_can_drive_from_any_district_to_any_other() {
 
     for (int d = 0; d < city::kDistrictCount; ++d) {
         REQUIRE_MSG(dist[anchor[static_cast<std::size_t>(d)]] >= 0.0f,
-                    "you cannot drive to this district from Vellum Row",
+                    "you cannot drive to this district from Pinatty Row",
                     city::district_name(static_cast<city::DistrictId>(d)));
     }
 
-    // O'Haven is one connected road component. Florangia is a separate state
+    // Pinatty is one connected road component. Florangia is a separate state
     // across open water, so its first highway is deliberately a second
     // component until a ferry or bridge is actually authored.
     std::size_t reached = 0;
@@ -579,7 +593,7 @@ void you_can_drive_from_any_district_to_any_other() {
                                    id <= 234u;
         }
         REQUIRE_MSG(belongs_to_florangia,
-                    "an O'Haven road fell out of its connected component",
+                    "an Pinatty road fell out of its connected component",
                     "connectivity");
         if (florangia_start == static_cast<uint32_t>(b.graph.node_count()))
             florangia_start = node;
@@ -612,37 +626,37 @@ void you_can_drive_from_any_district_to_any_other() {
     REQUIRE(florangia_nodes >= 16);
     REQUIRE(reached + florangia_nodes == nodes);
 
-    apricot_test::pass("O'Haven stays connected and Florangia forms one road component");
+    apricot_test::pass("Pinatty stays connected and Florangia forms one road component");
 }
 
 // ---------------------------------------------------------------------------
 //  4. the districts have to CHASE differently, and that is geometry
 // ---------------------------------------------------------------------------
 
-void vellum_row_is_a_grid_of_four_way_junctions() {
+void pinatty_row_is_a_grid_of_four_way_junctions() {
     const Built& b = built();
     int four_way = 0;
     int lesser = 0;
     for (const uint32_t ni : b.graph.junctions()) {
         const RoadNode& n = b.graph.node(ni);
-        if (city::district_at(n.pos.x, n.pos.y) != city::DistrictId::VellumRow) {
+        if (city::district_at(n.pos.x, n.pos.y) != city::DistrictId::PinattyRow) {
             continue;
         }
         if (n.edges.size() >= 4) ++four_way;
         else ++lesser;
     }
-    std::printf("\n  Vellum Row: %d four-way junctions, %d three-way\n",
+    std::printf("\n  Pinatty Row: %d four-way junctions, %d three-way\n",
                 four_way, lesser);
 
     // The regional-hospital superblock deliberately removes fourteen internal
     // crossings. The surrounding district remains a dense choice-heavy grid.
     REQUIRE_MSG(four_way >= 80,
-                "Vellum Row lost too much of its surrounding street grid",
-                "vellum grid");
-    apricot_test::pass("Vellum Row stays a dense grid around the hospital superblock");
+                "Pinatty Row lost too much of its surrounding street grid",
+                "pinatty grid");
+    apricot_test::pass("Pinatty Row stays a dense grid around the hospital superblock");
 }
 
-void vellum_north_extension_has_two_connected_streets() {
+void pinatty_north_extension_has_two_connected_streets() {
     const Built& b = built();
     const auto road_with_id = [](uint32_t id) -> const Road* {
         for (const auto& road : kRoads) {
@@ -659,14 +673,14 @@ void vellum_north_extension_has_two_connected_streets() {
         const Road* road = road_with_id(extension_ids[row]);
         REQUIRE(road != nullptr);
         REQUIRE(road->count == 2);
-        const auto west = city::vellum_road_point(92.0f, extension_south[row]);
-        const auto east = city::vellum_road_point(368.0f, extension_south[row]);
+        const auto west = city::pinatty_road_point(92.0f, extension_south[row]);
+        const auto east = city::pinatty_road_point(368.0f, extension_south[row]);
         REQUIRE_NEAR(road->path[0].x, west.x, 0.01f);
         REQUIRE_NEAR(road->path[0].z, west.z, 0.01f);
         REQUIRE_NEAR(road->path[1].x, east.x, 0.01f);
         REQUIRE_NEAR(road->path[1].z, east.z, 0.01f);
         for (const float local_east : north_south_east) {
-            const auto point = city::vellum_road_point(local_east,
+            const auto point = city::pinatty_road_point(local_east,
                                                         extension_south[row]);
             const std::size_t expected_edges =
                 row == 0 ? (local_east == 92.0f || local_east == 368.0f ? 3u : 4u)
@@ -681,14 +695,78 @@ void vellum_north_extension_has_two_connected_streets() {
                     break;
                 }
             }
-            REQUIRE_MSG(connected, "north Vellum cross street did not connect",
+            REQUIRE_MSG(connected, "north Pinatty cross street did not connect",
                         road->name);
         }
     }
-    apricot_test::pass("Eleventh and Twelfth form a compact east-side Vellum extension");
+    apricot_test::pass("Eleventh and Twelfth form a compact east-side Pinatty extension");
 }
 
-void vellum_connectors_reach_the_requested_arterials() {
+void southwest_pinatty_has_connected_crescent_blocks() {
+    const Built& b = built();
+    struct JunctionCase {
+        glm::vec2 point;
+        std::vector<uint32_t> roads;
+        std::size_t degree;
+    };
+    const JunctionCase cases[] = {
+        {{-380.1f,224.4f}, {210,207}, 2},
+        {{-328.4111f,229.8325f}, {210,20}, 3},
+        {{-236.9129f,239.4489f}, {30,21}, 3},
+        {{-330.5f,249.7f}, {20,208}, 2},
+        {{-239.0f,259.3f}, {21,207}, 2},
+        {{-418.0f,313.0f}, {207,209}, 3},
+        {{-330.0f,369.0f}, {207,208}, 3},
+        {{-245.0f,309.0f}, {207,209}, 3},
+        {{-332.0f,300.0f}, {208,209}, 4},
+    };
+    for (const auto& item : cases) {
+        bool found = false;
+        for (uint32_t ni = 0; ni < b.graph.node_count(); ++ni) {
+            const auto& node = b.graph.node(ni);
+            if (glm::length(node.pos - item.point) > .25f) continue;
+            REQUIRE(node.edges.size() == item.degree);
+            for (uint32_t id : item.roads) {
+                bool present = false;
+                for (uint32_t edge : node.edges)
+                    present |= b.graph.edge(edge).spine_id == id;
+                REQUIRE(present);
+            }
+            found = true;
+        }
+        REQUIRE_MSG(found, "southwest crescent has a disconnected junction", "Pinatty");
+    }
+    // The two connected stubs leave a genuine gap in the shared road graph.
+    const glm::vec2 removed_mid{-282.662f,234.641f};
+    for(uint32_t i=0;i<b.graph.edge_count();++i) {
+        const auto& edge=b.graph.edge(i);
+        if(edge.spine_id!=30 && edge.spine_id!=210)continue;
+        for(std::size_t j=1;j<edge.points.size();++j) {
+            const auto a=edge.points[j-1],v=edge.points[j]-a;
+            const float t=glm::clamp(glm::dot(removed_mid-a,v)/glm::dot(v,v),0.f,1.f);
+            REQUIRE(glm::length(a+t*v-removed_mid)>40.f);
+        }
+    }
+    // New spines must remain in Pinatty and must not gain an accidental ramp
+    // or freeway connection as graph intersection tolerances change.
+    for (uint32_t ni = 0; ni < b.graph.node_count(); ++ni) {
+        const auto& node = b.graph.node(ni);
+        bool southwest = false;
+        for (uint32_t edge : node.edges) {
+            const uint32_t id = b.graph.edge(edge).spine_id;
+            southwest |= id >= 207 && id <= 209;
+        }
+        if (!southwest) continue;
+        REQUIRE(city::district_at(node.pos.x, node.pos.y) == city::DistrictId::PinattyRow);
+        for (uint32_t edge : node.edges) {
+            const uint32_t id = b.graph.edge(edge).spine_id;
+            REQUIRE(id == 20 || id == 21 || id == 30 || id == 210 || (id >= 207 && id <= 209));
+        }
+    }
+    apricot_test::pass("southwest Pinatty has three entrances and four connected crescent blocks");
+}
+
+void pinatty_connectors_reach_the_requested_arterials() {
     const Built& b = built();
     const auto road_with_id = [](uint32_t id) -> const Road* {
         for (const auto& road : kRoads)
@@ -696,11 +774,11 @@ void vellum_connectors_reach_the_requested_arterials() {
         return nullptr;
     };
     const Road* rook = road_with_id(23u);
-    const Road* vellum = road_with_id(24u);
+    const Road* pinatty = road_with_id(24u);
     const Road* halloway = road_with_id(35u);
     const Road* north_arm = road_with_id(50u);
     const Road* nickel = road_with_id(182u);
-    REQUIRE(rook != nullptr && vellum != nullptr && halloway != nullptr);
+    REQUIRE(rook != nullptr && pinatty != nullptr && halloway != nullptr);
     REQUIRE(north_arm != nullptr && nickel != nullptr);
 
     const auto halloway_end = halloway->path[halloway->count - 1];
@@ -709,12 +787,12 @@ void vellum_connectors_reach_the_requested_arterials() {
     REQUIRE(std::fabs(nickel->path[0].z - 65.6f) > 40.0f);
 
     const auto north_end = north_arm->path[north_arm->count - 1];
-    const auto vellum_end = vellum->path[vellum->count - 1];
+    const auto pinatty_end = pinatty->path[pinatty->count - 1];
     const auto rook_end = rook->path[rook->count - 1];
     const glm::vec2 north_point{north_end.x, north_end.z};
-    REQUIRE_NEAR(north_end.x, vellum_end.x, 0.001f);
-    REQUIRE_NEAR(north_end.z, vellum_end.z, 0.001f);
-    REQUIRE_NEAR(north_end.y, vellum_end.y, 0.001f);
+    REQUIRE_NEAR(north_end.x, pinatty_end.x, 0.001f);
+    REQUIRE_NEAR(north_end.z, pinatty_end.z, 0.001f);
+    REQUIRE_NEAR(north_end.y, pinatty_end.y, 0.001f);
     REQUIRE(glm::length(north_point - glm::vec2{rook_end.x, rook_end.z}) >
             80.0f);
 
@@ -741,10 +819,10 @@ void vellum_connectors_reach_the_requested_arterials() {
                                {35u, 182u}, 2u),
                 "Nickel Road did not join Halloway Street", "road graph");
     REQUIRE_MSG(node_has_roads(north_point, {24u, 50u}, 2u),
-                "North Arm did not join Vellum Row", "road graph");
+                "North Arm did not join Pinatty Row", "road graph");
     REQUIRE_MSG(!node_has_roads({rook_end.x, rook_end.z}, {23u, 50u}, 2u),
                 "North Arm still joins Rook Lane", "road graph");
-    apricot_test::pass("Nickel Road joins Halloway Street and North Arm joins Vellum Row");
+    apricot_test::pass("Nickel Road joins Halloway Street and North Arm joins Pinatty Row");
 }
 
 void the_strand_has_no_turnoffs() {
@@ -1340,7 +1418,7 @@ struct OnLine {
 // Project onto the polyline, searching FORWARD ONLY from `cursor`.
 //
 // Forward only, because a route can double back on itself — it does, out of
-// Vellum Row, where the only merge onto Route 1 faces west — and a free search
+// Pinatty Row, where the only merge onto Route 1 faces west — and a free search
 // would let the car "progress" by snapping to the far arm.
 //
 // The search window is at least kMinSegs segments AND at least kMinM metres,
@@ -1616,6 +1694,57 @@ void run_journey(const LaneGraph& lanes, const TerrainCollider& collider,
                 "the car sank below the drawn ground on this journey", what);
 }
 
+void a_real_car_drives_southwest_pinatty_both_ways() {
+    const Built& b = built();
+    LaneGraph lanes;
+    lanes.build(b.graph, b.ground.sampler(), LaneBuildParams{});
+    TerrainCollider collider{kMapSeed};
+    collider.set_road_collision(build_road_collision(b.bake));
+    for (uint32_t id : {207u,208u,209u}) {
+        const Road* road = nullptr;
+        for (const auto& candidate : kRoads)
+            if (candidate.id == id) road = &candidate;
+        REQUIRE(road != nullptr);
+        for (bool forward : {true,false}) {
+            const auto start = road->path[forward ? 0 : road->count-1];
+            const auto finish = road->path[forward ? road->count-1 : 0];
+            LaneRef first = kInvalidLane;
+            for (LaneRef ref = 0; ref < lanes.lane_count(); ++ref) {
+                const auto& lane = lanes.lane(ref);
+                if (b.graph.edge(lane.edge).spine_id == id && lane.index == 0 &&
+                    glm::length(b.graph.node(lane.junction_from).pos -
+                                glm::vec2{start.x,start.z}) < .25f) first = ref;
+            }
+            REQUIRE(lanes.valid(first));
+            std::vector<LaneRef> route{first};
+            while (glm::length(b.graph.node(lanes.lane(route.back()).junction_to).pos -
+                               glm::vec2{finish.x,finish.z}) > .25f) {
+                LaneRef next = kInvalidLane;
+                for (const auto& turn : lanes.outgoing(route.back())) {
+                    const auto& lane = lanes.lane(turn.to);
+                    if (b.graph.edge(lane.edge).spine_id == id && lane.index == 0 &&
+                        lane.edge != lanes.lane(route.back()).edge)
+                        next = turn.to;
+                }
+                REQUIRE_MSG(lanes.valid(next), "crescent through lane is disconnected", road->name);
+                REQUIRE(std::find(route.begin(),route.end(),next) == route.end());
+                route.push_back(next);
+            }
+            const auto line = route_line(lanes,route);
+            const Journey j = drive(line, {line.back().x,line.back().z}, collider, 9.0f, 18000);
+            std::printf("    %s %s: %s, %.0f m driven, %.2f m off lane, sank %.3f m\n",
+                        road->name, forward ? "forward" : "reverse", j.arrived ? "ARRIVED" : "FAILED",
+                        j.driven_m,j.worst_off_route_m,j.worst_below_ground_m);
+            REQUIRE_MSG(j.arrived, "production vehicle could not finish southwest road", road->name);
+            REQUIRE_MSG(j.worst_off_route_m < 4.0f, "vehicle left southwest carriageway", road->name);
+            REQUIRE_MSG(j.worst_below_ground_m < .08f, "vehicle sank through southwest road", road->name);
+        }
+    }
+    run_journey(lanes,collider,"Shuttle -> Loom interior turn",
+                {-331.0f,274.0f},{-273.0f,306.0f},9.0f,18000,{208u,209u});
+    apricot_test::pass("real car drives all southwest roads in both directions and the interior turns");
+}
+
 void a_real_car_drives_from_district_to_district() {
     const Built& b = built();
     LaneGraph lanes;
@@ -1633,35 +1762,35 @@ void a_real_car_drives_from_district_to_district() {
     run_journey(lanes, collider, "Nickel Road -> Halloway Street",
                 glm::vec2{650.0f, 61.0f}, glm::vec2{350.0f, -10.5f},
                 12.0f, 30000, {182u, 35u});
-    run_journey(lanes, collider, "North Arm -> Vellum Row",
+    run_journey(lanes, collider, "North Arm -> Pinatty Row",
                 glm::vec2{-50.0f, 450.0f}, glm::vec2{60.0f, 100.0f},
                 12.0f, 30000, {50u, 24u});
 
-    // Downtown to the airport's public frontage: out of Vellum Row's grid,
+    // Downtown to the airport's public frontage: out of Pinatty Row's grid,
     // onto Route 1, along the Camber Reach, over the one land bridge in 2.5 km
     // of water, then around runway 09-27 on the airport parkway.
-    run_journey(lanes, collider, "Vellum Row -> Camber Point",
+    run_journey(lanes, collider, "Pinatty Row -> Camber Point",
                 glm::vec2{70.0f, -40.0f}, glm::vec2{600.0f, 2410.0f}, 17.0f,
                 180000);
 
     // Downtown to the top of the hill: the Shoulder's switchbacks at 9.5 per
     // cent. If the hairpin platforms are wrong, this is where it shows.
-    run_journey(lanes, collider, "Vellum Row -> Ferrone Hill (the Shoulder)",
+    run_journey(lanes, collider, "Pinatty Row -> Ferrone Hill (the Shoulder)",
                 glm::vec2{70.0f, -40.0f}, glm::vec2{880.0f, -1580.0f}, 14.0f,
                 180000);
 
     // Across the water, over the Kessel Bridge. The longest drive on the map.
-    run_journey(lanes, collider, "Vellum Row -> Kepler Flats",
+    run_journey(lanes, collider, "Pinatty Row -> Kepler Flats",
                 glm::vec2{70.0f, -40.0f}, glm::vec2{-500.0f, -1900.0f}, 17.0f,
                 240000);
 
     // Out to the 2.2 km straight, which is the one place the answer is speed.
-    run_journey(lanes, collider, "Vellum Row -> The Strand",
+    run_journey(lanes, collider, "Pinatty Row -> The Strand",
                 glm::vec2{70.0f, -40.0f}, glm::vec2{1900.0f, -300.0f}, 20.0f,
                 180000);
 
     // And out to the dirt.
-    run_journey(lanes, collider, "Vellum Row -> Marrow",
+    run_journey(lanes, collider, "Pinatty Row -> Marrow",
                 glm::vec2{70.0f, -40.0f}, glm::vec2{-1100.0f, 1200.0f}, 15.0f,
                 240000);
 
@@ -1673,6 +1802,7 @@ void a_real_car_drives_from_district_to_district() {
 int main() {
     std::printf("city_roads_tests\n");
     the_network_is_the_size_the_table_says();
+    named_sections_publish_their_posted_limits();
     rimway_creek_bridge_uses_its_own_municipal_profile();
     // The per-road diagnostic runs BEFORE the assertion it diagnoses. A suite
     // that asserts first and explains second tells you the number is wrong and
@@ -1680,9 +1810,10 @@ int main() {
     which_roads_are_worst();
     the_road_sits_on_the_ground_at_every_level();
     you_can_drive_from_any_district_to_any_other();
-    vellum_row_is_a_grid_of_four_way_junctions();
-    vellum_north_extension_has_two_connected_streets();
-    vellum_connectors_reach_the_requested_arterials();
+    pinatty_row_is_a_grid_of_four_way_junctions();
+    pinatty_north_extension_has_two_connected_streets();
+    southwest_pinatty_has_connected_crescent_blocks();
+    pinatty_connectors_reach_the_requested_arterials();
     the_strand_has_no_turnoffs();
     there_is_one_paved_way_up_ferrone_hill();
     the_kessel_bridge_is_the_only_crossing();
@@ -1695,6 +1826,7 @@ int main() {
     no_freeway_crosses_anything_at_grade();
     the_operator_table_is_still_cheap();
     a_real_car_drives_every_halloway_ramp();
+    a_real_car_drives_southwest_pinatty_both_ways();
     a_real_car_drives_from_district_to_district();
     return apricot_test::done("city_roads_tests");
 }

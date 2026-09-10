@@ -1,4 +1,4 @@
-# Vellum Regional Hospital: Emergency and Service Plan
+# Pinatty Regional Hospital: Emergency and Service Plan
 
 ## Status and scope
 
@@ -12,7 +12,7 @@ The design assumes:
 
 - all clinical hospital mass follows the live `kHospitalFloorCount = 4`,
   `kHospitalFloorHeightM = 3.4`, and `kHospitalHeightM = 13.6` constants; the
-  main roof finishes around 14.15 m above the 12 m Vellum plate, while the
+  main roof finishes around 14.15 m above the 12 m Pinatty plate, while the
   clerestory/mechanical crown may reach about 16.7 m without becoming a fifth
   occupied story;
 - no public or AI-traffic road crosses the hospital interior;
@@ -23,7 +23,7 @@ The design assumes:
 
 ## Site frame and street edges
 
-`kHospitalSite` uses the Vellum Row basis: local +X is east, local +Z is south,
+`kHospitalSite` uses the Pinatty Row basis: local +X is east, local +Z is south,
 world +Z is south, and the whole site is yawed -6 degrees. Keep all emergency
 geometry in site-local coordinates and transform it through the shared
 `StartSite` basis.
@@ -38,7 +38,7 @@ The old four-row block rhythm puts the perimeter road centerlines at:
 | South | Sixth Street | 36 | z = 217 m |
 
 The former crossing alignments inside the parcel are Rook Lane at x = 46 m,
-Vellum Row at x = 138 m, Ninth Street at z = 31 m, Eighth Street at z = 93 m,
+Pinatty Row at x = 138 m, Ninth Street at z = 31 m, Eighth Street at z = 93 m,
 and Seventh Street at z = 155 m. Remove only their campus-crossing segments;
 keep their ids stable outside the superblock. Reclaimed corridors may become
 building links, planted courts, pedestrian paths, or emergency hardstand, but

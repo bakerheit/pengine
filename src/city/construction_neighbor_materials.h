@@ -6,12 +6,12 @@
 
 namespace apricot::city {
 
-// A compact supplier on the block just north of the active Vellum build. It
+// A compact supplier on the block just north of the active Pinatty build. It
 // reads as a working materials yard without competing with the unfinished
 // tower: low depot mass, a truck apron, open storage racks, and a few parking
 // bays all fit inside one modest parcel.
 inline constexpr StartSite kConstructionNeighborMaterialsSite{
-    "Vellum Materials Depot", construction_grid_point(138.0f, -155.0f),
+    "Pinatty Materials Depot", construction_grid_point(138.0f, -155.0f),
     kGridCos, kGridSin, {0.0f, 0.0f}, 36.0f, 28.0f, 12.0f, 1300.0f};
 
 inline std::vector<StartPart> bake_construction_neighbor_materials() {

@@ -1,4 +1,4 @@
-# Vellum Materials Depot prop textures
+# Pinatty Materials Depot prop textures
 
 Generated 2026-09-05 with the built-in `image_gen` tool through the imagegen
 skill. These are project-local, opaque RGB, 1254 x 1254 PNG swatches intended
@@ -17,7 +17,7 @@ for seamless low-resolution PSX construction props.
 
 ```text
 Use case: stylized-concept
-Asset type: seamless low-resolution game texture for Vellum Materials Depot props
+Asset type: seamless low-resolution game texture for Pinatty Materials Depot props
 Primary request: a square tileable albedo texture for weathered corrugated galvanized metal and aggregate-silo steel
 Scene/backdrop: flat material swatch, evenly lit, orthographic, no perspective
 Subject: repeated industrial corrugated metal panels with shallow horizontal ridges
@@ -35,7 +35,7 @@ Avoid: photorealism, smooth gradients, dramatic lighting, standalone silo, fence
 
 ```text
 Use case: stylized-concept
-Asset type: seamless low-resolution game texture for Vellum Materials Depot props
+Asset type: seamless low-resolution game texture for Pinatty Materials Depot props
 Primary request: a square tileable albedo texture for rough precast concrete and pale aggregate-cement surfaces used on loading docks, barriers, and supplier yard fixtures
 Scene/backdrop: flat material swatch, evenly lit, orthographic, no perspective
 Subject: repeated weathered concrete slabs and chipped aggregate patches

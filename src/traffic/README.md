@@ -41,6 +41,21 @@ Retirement is **permanent**. An agent that leaves the radius is never
 re-instantiated, because a car you rammed cannot be described by a closed form
 any more and pretending otherwise is the promotion bug wearing a hat.
 
+**What is permanent is the DEPARTURE, not the slot**, and the difference is the
+whole of `phantom_lap()`. A slot is a recurring departure: the closed form takes
+the *remainder* of `(step - depart - slot*headway)` over the period, so slot `k`
+leaves the lane again every `period_steps`. Identity is therefore
+`(lane_key, slot, lap)` — `lap` being the *quotient* of that same division — and
+retirement bans that triple forever. The next lap is a car nobody has simulated,
+described by the closed form exactly, so instantiating it is not promotion.
+
+Banning the `(lane_key, slot)` pair instead looks identical until you stand
+still. It throws away every future departure along with the one car that was
+simulated, and because a stationary player sees a fixed set of lanes, every slot
+is eventually consumed: measured on the authored city, **104 cars fell to 26
+over 270 seconds and were still falling**. That is the cost of conflating the two
+identities, and it is pinned in `tests/traffic_runtime_tests.cpp`.
+
 ---
 
 ## Analytic and Integrating, and why the boundary is where it is
@@ -140,8 +155,8 @@ read that as "indices are fine".
 ```cpp
 if (step % refresh_every_steps == 0) crowd.refresh(step, player_xz);
 crowd.rebuild_buckets();
-crowd.step_vehicles(step);
-crowd.step_peds(step);
+crowd.step_vehicles(step, &player);
+crowd.step_peds(step, &player);   // the player's car is a hazard on the pavement too
 crowd.publish(scene);
 ```
 
@@ -172,12 +187,19 @@ would depend on the display.
   `tests/traffic_determinism_tests.cpp` and that test is *expected to fail* the
   day it is fixed.
 
-- **`retired_` only grows.** Permanence is the rule and permanence has a cost:
-  every retirement is a permanent 12-byte entry. At the retire rates the bench
-  measures this is small for a session and unbounded for a long one, and it
-  needs a bounded policy before anything ships. Forgetting an entry is *not* the
-  fix on its own — a forgotten agent is re-instantiable, which is demotion back
-  to a phantom by another name.
+- **`retired_` holds one entry per `(lane, slot)`, never one per retirement.**
+  Permanence is the rule and permanence has a cost, and lap-aware identity could
+  easily have made it worse: a slot can be retired on lap after lap. It does not,
+  because an entry keeps only the *newest* retired lap. The lap a slot is on
+  rises monotonically with the step, so an entry for an older lap can never be
+  asked about again — dropping it forgets nothing that could return, which is
+  the distinction a naive purge gets wrong ("a forgotten agent is
+  re-instantiable, which is demotion back to a phantom by another name"). The
+  entry is now 24 bytes rather than 12; the *count* is bounded exactly as it was
+  before laps existed, at one per distinct identity ever retired. **That bound is
+  still per-`(lane, slot)`-ever-visited, so a very long drive still grows it** —
+  this narrows the open item rather than closing it. Pinned by
+  `retirement_memory_is_bounded_by_identities_not_retirements`.
 
 - **A population cap that actually binds is scan-order dependent**, because
   which agents survive it depends on which were reached first.
@@ -191,6 +213,15 @@ would depend on the display.
   for the *cost*: the per-ped work — one `pose()`, one advance, one separation
   solve against a gathered neighbour list — is the work the real network will
   also demand.
+
+- **PEDESTRIANS ARE NOT ANALYTIC, and this file used to say they were 96%.**
+  `refresh()` sets `p.mode = AgentMode::Integrating` at spawn and nothing ever
+  sets a pedestrian back, so `CrowdStats::peds_analytic` is identically zero and
+  the "cars 51% / pedestrians 96%" line under **Measured** was describing a
+  build that no longer exists. The number is not wrong by a little; the column
+  it came from cannot be non-zero. The design reason for the change is sound —
+  an active walker has to keep real path progress across a schedule wrap, and a
+  closed form cannot — but the measurement did not follow it. Corrected below.
 
 - **Junction negotiation is local, frozen, and deterministic.** The app uses
   the same signal phase for its visible bulbs and driver decisions. Cars make
@@ -223,6 +254,121 @@ would depend on the display.
   Parallel arrivals which merge into one exit are serialized before entry.
 
 ---
+
+## What a pedestrian does besides walk
+
+`PedAgent::activity` is a `PedActivity` — a POD enum with six values and no
+presentation concept anywhere near it:
+
+| State | What it means |
+|---|---|
+| `Walking` | making progress along the footway |
+| `Idling` | stopped and loitering, of its own accord |
+| `Waiting` | held at a kerb because crossing now would be stupid |
+| `Alarmed` | has noticed a car bearing down and has not yet run |
+| `Fleeing` | panic run, pulled away from the kerb |
+| `Downed` | knocked over by the player's car |
+
+**`src/app/` reads `activity` and chooses a clip. The sim never names one.**
+That is the boundary, and it is the same shape `core/input_frame.h` uses: plain
+data across, no clip name, no blend weight, no animation timer on the agent. A
+clip name in `PedAgent` makes the sim depend on which model is loaded, and the
+first thing that breaks is a headless test.
+
+**Nothing here is a new concept.** `Alarmed` and `Fleeing` are the two halves of
+`city/traffic_ai.h`'s `PanicPhase`, driven by the same `panic_should_trigger()`
+and `panic_tick()` the cars use — including that kernel's "the timer always
+decays" guarantee, which is what makes it impossible to get stuck panicking. The
+hidden nerve is `city/pedestrian_reactions.h`'s `Disposition`, the same one the
+punch reaction uses, and it is rolled **in the spawner** off `kChannelPedNerve`
+keyed to `(map_seed, lane key, slot)` exactly as that header demands. The
+disposition scales the kernel's closing-speed gate and nothing else, so there is
+still one definition of "reckless" and the nerve only says who agrees with it.
+
+**Every timed transition counts STEPS and every roll is keyed.** `ped_roll()`
+folds the slot *and the person's own decision ordinal* into the channel. That
+ordinal is a count of **this person's** decisions, never of the population —
+which is the whole difference between a keyed draw and a sequential one, and it
+is why the activity machine survives `tests/ped_life_tests.cpp`'s reversed-scan
+comparison with `population_hash()` equal on every step. The digest folds
+`activity`, `disposition`, `activity_steps`, `activity_decisions` and
+`panic_seconds` in, because a state the digest cannot see is a state that
+comparison is not proving anything about.
+
+**Two things are deliberately not here.** A knockdown changes the *person* and
+applies no impulse to the car — a pedestrian that stops a vehicle is a worse bug
+than one that ignores it. And the kerb gate reads the signal and the frozen lane
+buckets, never a live agent, so it does not become a second way for iteration
+order to reach a result.
+
+**The kerb gate is what releases `Waiting`, not the hesitation timer**, and that
+is not a style choice: clearing the state when the timer expires puts a person
+back to `Walking` at a kerb, where the gate immediately holds them again and
+rolls a *fresh* hesitation, every step, forever.
+
+## Kerbside parking
+
+`city/districts.h` has authored `.pop = {.traffic, .ped, .parked}` per district
+since the table was written. `.traffic` and `.ped` were carried onto every lane;
+**`.parked` was read by nothing at all**, so Nickel Heights — which authors 1.2
+parked against 0.8 traffic — had exactly as many cars at its kerb as Marrow's
+quarry, which authors 0.05. It now runs
+`districts.h` → `spines.cpp` → `RoadSpine` → `RoadEdge` → `Lane::parked_density`.
+
+**A parked car is not an agent**, and `ambient.h` says so at length. It has no
+speed, no mode and no retirement because it is a pure function of
+`(map_seed, lane key, slot)`: there is nothing to promote and nothing to lose,
+so `Crowd::refresh()` rebuilds the resident list wholesale. The day one becomes
+something a player can shunt or steal it stops being describable by that
+function and has to become a real `VehicleAgent` with permanent retirement —
+the same argument this file makes about promotion, which is why the type already
+carries the identity a real agent would.
+
+`ParkedLaneBay` splits **has this road got room** (`lateral_m`, from the class
+table and the lane geometry) from **how many the district puts there**
+(`slots`). Collapsing the two makes every measurement of authored density
+secretly a measurement of road class: the first draft of
+`tests/parked_density_tests.cpp` came out non-monotonic, and the cause was that
+Arterials leave only 0.55 m between their outer lane centre and a kerbside body
+against the authored 1.00 m clearance, so they get no bay whatever the district
+says.
+
+Measured on the real island: **438 bays, 2,512 parked cars**, worst lane
+clearance 1.30 m, worst junction setback 11.61 m, tightest neighbouring pair
+5.39 m. Nickel Heights comes out at **89.2 cars per km of usable kerb against
+Marrow's 3.2**.
+
+**Nothing draws them yet.** `Crowd::ambient_parked()` hands out identity, world
+pose and `TrafficVehicleKind`; `src/app/traffic_visual.*` has not been wired to
+it and neither has collision, so this is a sim-side population with a test and
+no presentation. Do not describe it as visible.
+
+**`set_parked_vehicle_poses()` is a different thing** and always was: that is
+the *app's* list of cars the **player** abandoned, which AI drivers treat as
+hazards. The ambient population never enters it.
+
+## Where the crowd clumps
+
+`ped_hotspot_gain()` multiplies a lane's authored `ped_density` by a factor
+derived from the **arity of the junctions at its two ends**. Corners are where
+the shopfronts are, and how many roads meet at a corner is authored — it is the
+map — so a lane between two crossroads carries more people than one that
+dead-ends.
+
+`Lane::block_quality` was the obvious candidate and it is the **wrong** one:
+`city/roads.h` authors it as *roadblock staging quality* ("0 means never stage
+here; 255 means this is what this road is for"), which describes a long open
+road with clear sightlines. Using it would have clumped the crowd onto exactly
+the roads it should have thinned.
+
+**The two ends are centred on the real island, not chosen to look tidy.** The
+first pass used 0.55 / 1.85, which reads as symmetric about 1.0 and is not: most
+of Pinatty's junctions are three- or four-way, so the length-weighted mean gain
+came out at **1.38** and the island's pedestrian total moved by 28% — a density
+change wearing a clumping name, which would have quietly invalidated every
+measured cost beside it. At 0.40 / 1.35 the island measures **gain 0.56–1.35,
+length-weighted mean 1.01, 390 lanes quieter and 798 busier, total ×1.10**.
+`tests/ped_life_tests.cpp` fails if that mean drifts again.
 
 ## Measured
 
@@ -283,9 +429,23 @@ of the budget, and nothing ever asks for all of them.
 Render side, separately: **74,367 agent nodes cull in 0.158 ms** (2.1 ns/node,
 0.9% of a 60 Hz frame). Culling agents is not a problem at any scale reached here.
 
-**Analytic share**, at 450 m / 200 m over 7.5 s of sim: cars **51%**, pedestrians
-**96%**. Turning `per_slot_speed` on moves that by less than a point (51.2% /
-95.0%), which refutes the thing it was added to test: **the dominant reason a car
-leaves its closed form is reaching the end of its lane, not catching another
-car.** Pedestrians stay analytic because separation is lateral and does not touch
-their along-lane schedule.
+**Analytic share**, at 450 m / 200 m over 7.5 s of sim: cars **51%**. Turning
+`per_slot_speed` on moves that by less than a point (51.2%), which refutes the
+thing it was added to test: **the dominant reason a car leaves its closed form is
+reaching the end of its lane, not catching another car.**
+
+**Pedestrians are 0%, and this paragraph used to claim 96%.** It is not a
+measurement that drifted — `refresh()` sets `p.mode = AgentMode::Integrating` at
+spawn and nothing sets it back, so the column cannot be non-zero. The old figure
+described a build in which a walker was reproduced from its schedule; that stopped
+being true when active walkers started keeping real path progress across a
+schedule wrap, which a closed form cannot express. Nothing about the ped cost
+below changes: the per-step work was always measured on stepped agents.
+
+**And the ped radius moved.** `CrowdTuning::ped_activate_m` is now **165 m**
+(retire 230 m), up from 110/160, because 110 m is close enough that a person can
+appear inside the draw distance. The ladder below carries a rung at the shipping
+`220 m / 165 m` for exactly this reason — so the configuration that ships has a
+cost printed beside it on every bench run instead of one interpolated between two
+rungs that move the vehicle radius as well. On this machine: 220/110 is 0.153 ms
+per step (1.8% of budget), 220/165 is 0.262 ms (3.1%).

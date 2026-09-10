@@ -25,7 +25,7 @@ copied unchanged into the project asset path above.
 ```text
 Use case: stylized-concept
 Asset type: project-bound game environment texture for one unique hospital courtyard receiver plane
-Primary request: create one original non-seamless decorative relief panel artwork for the quiet healing garden at Vellum Regional Hospital
+Primary request: create one original non-seamless decorative relief panel artwork for the quiet healing garden at Pinatty Regional Hospital
 Subject: an abstract botanical composition of layered ginkgo-like leaves, gentle water ripples, and rounded river-stone forms; no literal scene and no text
 Style/medium: refined low-poly relief and glazed ceramic mosaic translated into chunky PSX-era pixel clusters, restrained high-end civic architecture craft, original design
 Composition/framing: exact 3:2 landscape canvas, perfectly front-on orthographic flat panel face, full-bleed intentional composition with a thin dark teal perimeter border; designed to map exactly once onto a 3.6 metre wide by 2.4 metre tall vertical plane

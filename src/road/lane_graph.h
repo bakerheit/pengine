@@ -137,6 +137,7 @@ struct Lane {
     // Carried straight off the authored spine. Nothing here interprets them.
     float traffic_density = 1.0f;
     float ped_density = 1.0f;
+    float parked_density = 1.0f;
     uint8_t block_quality = 128;
 };
 
@@ -232,7 +233,10 @@ public:
                                       float max_radius_m = 60.0f) const;
 
     // --- adjacency --------------------------------------------------------
-    const std::vector<TurnLink>& outgoing(LaneRef r) const;
+    // Pursuit routing may reverse at an ordinary two-way junction. Ambient
+    // wandering retains its original links, including dead-end turns only.
+    const std::vector<TurnLink>& outgoing(LaneRef r,
+                                          bool pursuit = false) const;
 
     // A wandering driver's next lane, weighted by TurnLink::weight.
     //
@@ -253,7 +257,14 @@ public:
     // handle is invalid. An empty result is a real answer — the target is on a
     // disconnected piece of the network — and a caller that treats it as an
     // error stalls the pursuit instead of falling back to a direct steer.
-    std::vector<LaneRef> plan_route(LaneRef from, LaneRef to) const;
+    std::vector<LaneRef> plan_route(LaneRef from, LaneRef to,
+                                    bool pursuit = false) const;
+
+    // Position-aware routing must leave and return when the target is behind
+    // the start on the same directed lane. Matching lane IDs is not arrival.
+    std::vector<LaneRef> plan_route(const LaneProjection& from,
+                                    const LaneProjection& to,
+                                    bool pursuit = false) const;
 
     // --- junctions --------------------------------------------------------
     std::size_t junction_count() const { return junctions_.size(); }
@@ -304,6 +315,7 @@ private:
     std::vector<Lane> lanes_;
     std::vector<LaneJunction> junctions_;
     std::vector<std::vector<TurnLink>> out_links_;
+    std::vector<std::vector<TurnLink>> pursuit_links_;
     std::vector<EdgeLanes> edge_lanes_;
 
     // Uniform grid over lane geometry, for nearest_lane. std::map so no

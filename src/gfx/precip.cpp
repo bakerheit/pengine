@@ -190,7 +190,9 @@ void Precipitation::update(const Camera& camera, float intensity, float dt) {
 
 void Precipitation::render(const Camera& camera, const SkyEnv& env,
                            const HeadlightRig& headlights,
-                           const CanopyLightRig& canopy_lights) {
+                           const CanopyLightRig& canopy_lights,
+                           const TerrainCollider& collider,
+                           const std::vector<StaticBox>& roofs) {
     drawn_quads_ = 0;
     if (!valid() || live_drops_ <= 0 || intensity_ <= 0.0f) return;
 
@@ -216,6 +218,13 @@ void Precipitation::render(const Camera& camera, const SkyEnv& env,
     verts_.clear();
     verts_.reserve(drops_.size() * 6u);
 
+    const glm::vec3 span = rain ? tuning_.span : snow.span;
+    const glm::vec3 centre = camera.position + glm::vec3{0, span.y * 0.15f, 0};
+    const float padding = rain ? tuning_.streak_len + tuning_.half_width
+                               : snow.half_size * 2.0f;
+    const glm::vec3 extent = span * 0.5f + glm::vec3{padding};
+    shelter_.rebuild(collider.static_boxes(), {centre - extent, centre + extent}, roofs);
+
     for (std::size_t i = 0; i < drops_.size(); ++i) {
         const glm::vec3 head = drops_[i];
         const float a = drop_alpha_[i];
@@ -239,6 +248,10 @@ void Precipitation::render(const Camera& camera, const SkyEnv& env,
             t1 = {head + right - up, {1.0f, -1.0f}, a};
             t0 = {head - right - up, {-1.0f, -1.0f}, a};
         }
+
+        // Test the whole streak/flake, including its width and tail, so a
+        // particle crossing a roof edge cannot poke through the ceiling.
+        if (shelter_.sheltered({h0.pos, h1.pos, t1.pos, t0.pos})) continue;
 
         verts_.push_back(h0);
         verts_.push_back(h1);

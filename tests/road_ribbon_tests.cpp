@@ -626,7 +626,7 @@ void test_normals_follow_a_grade() {
 
     // Sampled through a shift onto sloping ground, and that shift is the whole
     // point of this paragraph. The fixture sits at the origin, and since PENG-41
-    // the origin is Vellum Row — an authored FLAT plate, 99.8% under 5 degrees.
+    // the origin is Pinatty Row — an authored FLAT plate, 99.8% under 5 degrees.
     // A road draped there is legitimately dead level, so this control measured
     // nothing and failed. Ferrone Hill is 45.6% flat over a 131 m range, so a
     // road across it has to grade or the drape is broken.

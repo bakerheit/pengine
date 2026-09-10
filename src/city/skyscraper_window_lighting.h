@@ -21,6 +21,12 @@ inline constexpr float kSkyscraperWindowDynamicEnterDistanceM = 300.0f;
 inline constexpr float kSkyscraperWindowDynamicExitDistanceM = 420.0f;
 inline constexpr uint64_t kSkyscraperWindowMinDwellSeconds = 60u;
 inline constexpr uint64_t kSkyscraperWindowMaxDwellSeconds = 180u;
+// Occupancy decisions are intentionally abrupt, but their emissive result is
+// not. A four-second slew keeps thousands of independently scheduled panes
+// from reading as city-wide sparkle when several decisions land close
+// together.
+inline constexpr float kSkyscraperWindowFadeSeconds = 4.0f;
+inline constexpr float kSkyscraperWindowMaxEmissivePower = 1.20f;
 
 // Stable authored identity. These are deliberately keys rather than array
 // indices: inserting a new tower or pane must not reshuffle every existing
@@ -36,6 +42,16 @@ struct SkyscraperWindowLight {
     bool lit = false;
     float emissive_alpha = 1.0f;
     glm::vec3 tint{0.075f, 0.12f, 0.15f};
+};
+
+// Render-only smoothing. The deterministic occupancy/LOD state above remains
+// the source of truth; this state merely eases the shader's emissive channel
+// toward that target without changing which suite is occupied.
+struct SkyscraperWindowPresentationState {
+    uint64_t last_step = 0;
+    bool initialized = false;
+    float emissive_power = 0.0f;
+    glm::vec3 lit_tint{0.92f, 0.90f, 0.82f};
 };
 
 // Per-pane state for the lighting LOD handoff. Static mode keeps occupied
@@ -220,6 +236,54 @@ inline SkyscraperWindowLight skyscraper_window_light_from_occupancy(
                                    0x9c30d5392af26013ull));
     result.emissive_alpha = 1.0f + safe_darkness * strength;
     result.tint = skyscraper_building_window_tint(address.building_key);
+    return result;
+}
+
+// Smooth a scheduled light for presentation. The rate is based on the saved
+// 120 Hz simulation clock, so a 30, 60 or 144 Hz render produces the same
+// result. Initial load snaps to its authored state; only later changes fade.
+inline SkyscraperWindowLight skyscraper_window_smoothed_light(
+    SkyscraperWindowPresentationState& state,
+    const SkyscraperWindowLight& target, uint64_t absolute_step) {
+    using namespace skyscraper_window_detail;
+
+    const float target_power = target.lit &&
+                                       std::isfinite(target.emissive_alpha)
+                                   ? std::clamp(target.emissive_alpha - 1.0f,
+                                                0.0f,
+                                                kSkyscraperWindowMaxEmissivePower)
+                                   : 0.0f;
+    if (target.lit) state.lit_tint = target.tint;
+
+    if (!state.initialized || absolute_step < state.last_step) {
+        state.initialized = true;
+        state.last_step = absolute_step;
+        state.emissive_power = target_power;
+    } else if (absolute_step > state.last_step) {
+        const uint64_t elapsed_steps = absolute_step - state.last_step;
+        const float max_change =
+            static_cast<float>(elapsed_steps) /
+            (static_cast<float>(kStepsPerSecond) *
+             kSkyscraperWindowFadeSeconds) *
+            kSkyscraperWindowMaxEmissivePower;
+        if (state.emissive_power < target_power)
+            state.emissive_power =
+                std::min(target_power, state.emissive_power + max_change);
+        else
+            state.emissive_power =
+                std::max(target_power, state.emissive_power - max_change);
+        state.last_step = absolute_step;
+    }
+
+    // Collapse the tiny tail to exact-off so overlay panes can disappear and
+    // existing glass can return to its normal non-emissive material.
+    if (target_power == 0.0f && state.emissive_power < 0.001f)
+        state.emissive_power = 0.0f;
+
+    SkyscraperWindowLight result;
+    result.lit = state.emissive_power > 0.0f;
+    result.emissive_alpha = 1.0f + state.emissive_power;
+    result.tint = state.lit_tint;
     return result;
 }
 

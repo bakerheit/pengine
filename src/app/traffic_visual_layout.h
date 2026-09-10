@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include "app/presentation_budgets.h"
 #include "core/aabb.h"
 #include "core/transform.h"
 

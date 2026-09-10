@@ -1,9 +1,9 @@
-# Vellum Regional Hospital exterior grounds
+# Pinatty Regional Hospital exterior grounds
 
 ## Scope
 
 `src/city/hospital_exterior_grounds.h` is a header-only landscape sidecar for
-the four open-air courts and the pedestrian ground around Vellum Regional
+the four open-air courts and the pedestrian ground around Pinatty Regional
 Hospital. It exposes exactly:
 
 ```cpp

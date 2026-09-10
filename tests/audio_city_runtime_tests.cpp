@@ -16,7 +16,7 @@ void the_recorded_city_bed_loops_at_background_level() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kCarSoundUseCount * // Eight vehicle roles, ambience, rain and mission sting.
+            11u + kTrafficHornClipCount + kCarSoundUseCount * // Eight vehicle roles, ambience, rain and mission sting.
                      static_cast<std::size_t>(kCarSoundVariantCount));
 
     CityAudio city;

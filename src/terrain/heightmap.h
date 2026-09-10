@@ -163,9 +163,9 @@ inline constexpr float kIslandPlatform = 0.235f;
 // kHomeRadiusMetres used to lift a 380 m dome of terrain at the world origin
 // so that a random seed could not drop the car into a lagoon. It was the right
 // answer for a rally island generated fresh per seed. It is the wrong answer
-// here for a specific reason: O'HAVEN'S ORIGIN IS DOWNTOWN. That dome would
+// here for a specific reason: PINATTY'S ORIGIN IS DOWNTOWN. That dome would
 // not have been a safety net, it would have BEEN the terrain under the
-// financial district -- a 42%-of-headroom bulge in the middle of Vellum Row
+// financial district -- a 42%-of-headroom bulge in the middle of Pinatty Row
 // that nobody authored and no district polygon knows about.
 //
 // An authored map does not need a spawn guarantee, because the spawn is

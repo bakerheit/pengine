@@ -1,4 +1,4 @@
-# Vellum Regional Hospital Exterior Arrivals
+# Pinatty Regional Hospital Exterior Arrivals
 
 ## Scope and integration contract
 
