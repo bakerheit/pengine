@@ -15,7 +15,7 @@ service, or alley wall.
 | `bolt-tag.png` | purple bolt | Second Chance Pawn rear wall |
 | `serpent-tag.png` | teal serpent | Brassline Arms rear wall |
 | `flower-tag.png` | hot-pink flower | The Bent Elbow back alley wall |
-| `mask-tag.png` | golden theatre mask | O'Haven Savings rear wall |
+| `mask-tag.png` | golden theatre mask | Pinatty Savings rear wall |
 | `halo-tag.png` | sky-blue ring and stars | Tacomaco rear wall |
 
 Prompt family: original, readable aerosol handstyle; transparent background;

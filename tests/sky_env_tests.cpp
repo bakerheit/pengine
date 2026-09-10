@@ -294,6 +294,140 @@ void weather_moves_the_look_in_the_direction_it_claims() {
     apricot_test::pass("weather moves cloud, light, ambient, sheen and stars");
 }
 
+void a_sunshower_keeps_its_sun_while_the_rain_still_falls() {
+    // THE test for the axis split. Precipitation and deck opacity used to be
+    // summed, so asking for heavy rain closed the sky whether you wanted it or
+    // not and this look was unreachable. If it ever regresses, the two axes
+    // have been welded back together.
+    const SkyEnv clear = compute_sky_env(0.5f);
+
+    // PRECIPITATION ALONE MUST NEVER HIDE THE SUN. At any rate of rain or snow,
+    // with no deck authored, cover has to stay on the clear side of the
+    // shader's swallow threshold. Only `overcast` may take the sun away.
+    for (int i = 0; i <= 20; ++i) {
+        const float amount = static_cast<float>(i) / 20.0f;
+        WeatherParams wet;
+        wet.rain = amount;
+        REQUIRE_MSG(compute_sky_env(0.5f, wet).cloud_cover <
+                        kSunSwallowedCloudCover,
+                    "rain alone must never swallow the sun", "sunshower");
+        WeatherParams flurry;
+        flurry.snow = amount;
+        REQUIRE_MSG(compute_sky_env(0.5f, flurry).cloud_cover <
+                        kSunSwallowedCloudCover,
+                    "snow alone must never swallow the sun", "sunshower");
+    }
+
+    WeatherParams sunshower;
+    sunshower.rain = 1.0f;      // absolutely pouring
+    sunshower.overcast = 0.12f; // ...through almost no cloud
+    const SkyEnv bright = compute_sky_env(0.5f, sunshower);
+
+    REQUIRE_MSG(luminance(bright.sky_bottom) > luminance(clear.sky_bottom) * 0.85f,
+                "a sunshower sky stays bright", "sunshower");
+    REQUIRE_MSG(bright.specular_strength > clear.specular_strength,
+                "and the roads are still wet", "sunshower");
+
+    // Same rain, thick deck: that IS allowed to go dark. The axis has to move
+    // the look on its own, or splitting it bought nothing.
+    WeatherParams downpour = sunshower;
+    downpour.overcast = 1.0f;
+    const SkyEnv grey = compute_sky_env(0.5f, downpour);
+    REQUIRE_MSG(luminance(grey.sky_bottom) < luminance(bright.sky_bottom) * 0.5f,
+                "deck opacity alone must be able to darken the sky", "sunshower");
+    apricot_test::pass("rain and cloud are separate axes: sunshowers exist");
+}
+
+void the_same_storm_is_darker_when_the_sun_is_lower() {
+    // The weighting. One deck, three sun heights, three different skies. A flat
+    // multiplier gave the same grey at every hour, which is why a dusk storm
+    // used to read as a noon storm with the brightness pulled down.
+    WeatherParams storm;
+    storm.rain = 1.0f;
+    storm.overcast = 1.0f;
+    storm.fog = 0.85f;
+
+    const float noon = luminance(compute_sky_env(0.50f, storm).sky_bottom);
+    const float dusk = luminance(compute_sky_env(0.72f, storm).sky_bottom);
+    const float night = luminance(compute_sky_env(0.00f, storm).sky_bottom);
+
+    REQUIRE_MSG(dusk < noon, "a storm at dusk is darker than one at noon",
+                "weighting");
+    REQUIRE_MSG(night < dusk, "and one at midnight is darker still", "weighting");
+
+    // Not merely ordered — the deck has to bite HARDER as the sun drops, or all
+    // this is measuring is the base day/night curve it was already riding on.
+    const float clear_noon = luminance(compute_sky_env(0.50f).sky_bottom);
+    const float clear_dusk = luminance(compute_sky_env(0.72f).sky_bottom);
+    REQUIRE_MSG(dusk / clear_dusk < noon / clear_noon,
+                "the deck must take a bigger bite from a low sun", "weighting");
+    apricot_test::pass("one deck reads differently at noon, dusk and midnight");
+}
+
+void the_cloud_deck_is_never_brighter_than_the_sky_behind_it() {
+    // Heavy weather used to LIFT screen brightness: at a full deck the cloud
+    // colour sat at 0.75 luminance over a sky greyed to 0.46, so the harder it
+    // stormed the brighter the screen got.
+    for (int i = 0; i < 24; ++i) {
+        const float t = static_cast<float>(i) / 24.0f;
+
+        // Thickening the deck must only ever darken it. That is the regression
+        // stated directly: more cloud, less light, at every hour.
+        float previous = luminance(compute_sky_env(t).cloud_color);
+        for (int j = 1; j <= 10; ++j) {
+            WeatherParams w;
+            w.overcast = static_cast<float>(j) / 10.0f;
+            const float now = luminance(compute_sky_env(t, w).cloud_color);
+            REQUIRE_MSG(now <= previous + 1e-6f,
+                        "a thicker deck must never be a brighter deck", "deck");
+            previous = now;
+        }
+
+        // In daylight the deck also has to sit below the sky showing between
+        // the gaps. NOT asserted at night: an overcast midnight genuinely does
+        // glow above a dark horizon, and forcing the deck under the sky there
+        // reads as a hole punched in the cloud rather than as cloud.
+        WeatherParams full;
+        full.overcast = 1.0f;
+        const SkyEnv e = compute_sky_env(t, full);
+        if (e.sun_dir.y > 0.25f) {
+            REQUIRE_MSG(luminance(e.cloud_color) < luminance(e.sky_bottom),
+                        "by day the deck must not out-shine the sky it hangs "
+                        "under", "deck");
+        }
+    }
+    apricot_test::pass("a thicker deck is always a darker deck");
+}
+
+void heavy_haze_does_not_light_up_a_midnight_horizon() {
+    // The haze colour was an absolute light grey with no daylight term, so a
+    // foggy midnight painted a bright band right around the horizon — brighter
+    // than the sky above it, which is the one place the eye checks.
+    WeatherParams w;
+    w.rain = 1.0f;
+    w.overcast = 1.0f;
+    w.fog = 1.0f;
+
+    for (float t : {0.0f, 0.05f, 0.95f}) {
+        SkyEnv night = compute_sky_env(t, w);
+        DistanceHazeParams haze;
+        haze.weather_fog = 1.0f;
+        apply_distance_haze(night, haze);
+        REQUIRE_MSG(luminance(night.fog_color) <
+                        luminance(compute_sky_env(t).sky_bottom) + 0.02f,
+                    "night haze must not out-shine a clear night sky", "haze");
+    }
+
+    // And it still has to do its job in daylight, or the world edge shows.
+    SkyEnv day = compute_sky_env(0.5f, w);
+    DistanceHazeParams haze;
+    haze.weather_fog = 1.0f;
+    apply_distance_haze(day, haze);
+    REQUIRE(day.fog_density == 1.0f);
+    REQUIRE(day.fog_end > day.fog_start);
+    apricot_test::pass("haze follows the sky's own brightness, day and night");
+}
+
 }  // namespace
 
 int main() {
@@ -306,6 +440,10 @@ int main() {
     distance_haze_hides_the_world_edge_and_weather_pulls_it_in();
     weather_moves_the_look_in_the_direction_it_claims();
     a_blizzard_is_dark_and_grey_instead_of_bright_blue();
+    a_sunshower_keeps_its_sun_while_the_rain_still_falls();
+    the_same_storm_is_darker_when_the_sun_is_lower();
+    the_cloud_deck_is_never_brighter_than_the_sky_behind_it();
+    heavy_haze_does_not_light_up_a_midnight_horizon();
     snow_cover_only_collects_on_upward_surfaces();
     return apricot_test::done("sky_env_tests");
 }

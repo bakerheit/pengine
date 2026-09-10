@@ -1,4 +1,5 @@
 #include "gfx/renderer.h"
+#include "gfx/snow_clearance_visual.h"
 
 #include <algorithm>
 #include <utility>
@@ -14,6 +15,8 @@ namespace {
 // Texture unit the material diffuse lives on for the whole lit pass.
 constexpr GLuint kDiffuseUnit = 0;
 constexpr GLuint kVehicleDamageUnit = 1;
+constexpr GLuint kSnowClearanceUnit = 2;
+constexpr std::array<GLuint,3> kSnowShelterUnits{3,7,8};
 
 // Unpack the batch key scene/draw_batch.h builds. Kept next to its only
 // consumer so a change to batch_key() breaks here loudly rather than producing
@@ -46,11 +49,38 @@ bool Renderer::init() {
         destroy();
         return false;
     }
+    glGenTextures(1, &snow_clearance_texture_);
+    gl_state::bind_texture(kSnowClearanceUnit, snow_clearance_texture_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F,
+                 static_cast<GLsizei>(SnowClearanceField::kMaxStrips * 2), 1,
+                 0, GL_RGBA, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     return true;
 }
 
 void Renderer::destroy() {
     lit_.destroy();
+    if (snow_clearance_texture_) {
+        glDeleteTextures(1, &snow_clearance_texture_);
+        gl_state::on_texture_deleted(snow_clearance_texture_);
+        snow_clearance_texture_ = 0;
+    }
+    snow_clearance_count_ = 0;
+    snow_clearance_dirty_ = false;
+    for (auto& texture:snow_shelter_textures_) if(texture) {
+        glDeleteTextures(1,&texture);
+        gl_state::on_texture_deleted(texture);
+        texture=0;
+    }
+    for (auto& buffer:snow_shelter_buffers_) if(buffer) {
+        glDeleteBuffers(1,&buffer);
+        gl_state::on_buffer_deleted(buffer);
+        buffer=0;
+    }
+    snow_shelter_grid_={};
     vehicle_damage_atlas_.destroy();
     meshes_.clear();      // each Mesh destructor pairs its own gl_state hooks
     free_mesh_slots_.clear();
@@ -171,11 +201,12 @@ bool Renderer::remove_mesh(MeshId id) {
 
 MaterialId Renderer::add_material(Texture&& diffuse, bool alpha_blended,
                                   float specular_scale, DepthBias depth_bias,
-                                  bool receives_snow) {
+                                  bool receives_snow, bool early_opaque) {
     Material m;
     m.diffuse = std::move(diffuse);
     m.alpha_blended = alpha_blended;
     m.receives_snow = receives_snow;
+    m.early_opaque = early_opaque && !alpha_blended;
     m.specular_scale = std::clamp(specular_scale, 0.0f, 1.0f);
     m.depth_bias = depth_bias;
     materials_.push_back(std::move(m));
@@ -190,6 +221,53 @@ MaterialId Renderer::add_glass_material() {
     return id;
 }
 
+void Renderer::set_snow_clearance(const SnowClearanceField& field,
+                                   float global_depth_m) {
+    snow_clearance_count_ = 0;
+    AABB bounds;
+    for (const auto& strip : field.strips()) {
+        if (snow_clearance_count_ >= static_cast<int>(SnowClearanceField::kMaxStrips)) break;
+        const std::size_t index=static_cast<std::size_t>(snow_clearance_count_)*2;
+        snow_clearance_data_[index]={strip.a,strip.half_width};
+        snow_clearance_data_[index+1]={strip.b,
+            snow_clearance_visual_cover(strip.residual_depth, global_depth_m)};
+        const glm::vec3 radius{strip.half_width,0.f,strip.half_width};
+        bounds.expand(strip.a-radius); bounds.expand(strip.a+radius);
+        bounds.expand(strip.b-radius); bounds.expand(strip.b+radius);
+        ++snow_clearance_count_;
+    }
+    if (bounds.valid())
+        snow_clearance_bounds_={bounds.min.x,bounds.min.z,bounds.max.x,bounds.max.z};
+    snow_clearance_dirty_ = true;
+}
+
+bool Renderer::set_snow_shelter(const SnowShelterField& field) {
+    GLint max_texels=0;
+    glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE,&max_texels);
+    SnowShelterGrid grid;
+    if(max_texels<=0 || !grid.build(field,static_cast<std::size_t>(max_texels))) {
+        AP_ERROR("snow shelter: complete roof field exceeds texture capacity; refusing partial shelter");
+        return false;
+    }
+    const auto upload=[&](std::size_t slot,GLenum format,std::size_t bytes,const void* data) {
+        if(!snow_shelter_textures_[slot]) glGenTextures(1,&snow_shelter_textures_[slot]);
+        if(!snow_shelter_buffers_[slot]) glGenBuffers(1,&snow_shelter_buffers_[slot]);
+        gl_state::bind_texture(kSnowShelterUnits[slot],snow_shelter_textures_[slot],GL_TEXTURE_BUFFER);
+        gl_state::bind_buffer(GL_TEXTURE_BUFFER,snow_shelter_buffers_[slot]);
+        const glm::vec4 zero{0.f};
+        if(bytes==0) {bytes=sizeof(zero);data=&zero;}
+        glBufferData(GL_TEXTURE_BUFFER,static_cast<GLsizeiptr>(bytes),data,GL_STATIC_DRAW);
+        glTexBuffer(GL_TEXTURE_BUFFER,format,snow_shelter_buffers_[slot]);
+    };
+    upload(0,GL_RGBA32F,grid.roofs.size()*sizeof(glm::vec4),grid.roofs.data());
+    upload(1,GL_RG32UI,grid.cells.size()*sizeof(glm::uvec2),grid.cells.data());
+    upload(2,GL_R32UI,grid.indices.size()*sizeof(uint32_t),grid.indices.data());
+    AP_INFO("snow shelter: %zu roofs indexed in %dx%d cells (%.0fm); %zu references",
+        grid.roofs.size()/4u,grid.columns,grid.rows,grid.cell_size,grid.indices.size());
+    snow_shelter_grid_=std::move(grid);
+    return true;
+}
+
 void Renderer::begin_frame(const Camera& camera, const SkyEnv& env,
                            const HeadlightRig& headlights,
                            const CanopyLightRig& canopy_lights) {
@@ -198,6 +276,25 @@ void Renderer::begin_frame(const Camera& camera, const SkyEnv& env,
     lit_.set_int("u_diffuse", static_cast<int>(kDiffuseUnit));
     lit_.set_int("u_vehicle_damage", static_cast<int>(kVehicleDamageUnit));
     vehicle_damage_atlas_.bind(kVehicleDamageUnit);
+    gl_state::bind_texture(kSnowClearanceUnit, snow_clearance_texture_);
+    if (snow_clearance_dirty_ && snow_clearance_count_ > 0) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, snow_clearance_count_*2, 1,
+                        GL_RGBA, GL_FLOAT, snow_clearance_data_.data());
+    }
+    snow_clearance_dirty_=false;
+    lit_.set_int("u_snow_clearance",static_cast<int>(kSnowClearanceUnit));
+    lit_.set_int("u_snow_clearance_count",snow_clearance_count_);
+    lit_.set_vec4("u_snow_clearance_bounds",snow_clearance_bounds_);
+    lit_.set_float("u_snow_clearance_height_tolerance",SnowClearanceField::kHeightTolerance);
+    for(std::size_t slot=0;slot<snow_shelter_textures_.size();++slot)
+        gl_state::bind_texture(kSnowShelterUnits[slot],snow_shelter_textures_[slot],GL_TEXTURE_BUFFER);
+    lit_.set_int("u_snow_shelter_roofs",static_cast<int>(kSnowShelterUnits[0]));
+    lit_.set_int("u_snow_shelter_cells",static_cast<int>(kSnowShelterUnits[1]));
+    lit_.set_int("u_snow_shelter_indices",static_cast<int>(kSnowShelterUnits[2]));
+    lit_.set_int("u_snow_shelter_columns",snow_shelter_grid_.columns);
+    lit_.set_int("u_snow_shelter_rows",snow_shelter_grid_.rows);
+    lit_.set_vec2("u_snow_shelter_origin",snow_shelter_grid_.origin);
+    lit_.set_float("u_snow_shelter_cell_size",snow_shelter_grid_.cell_size);
     // One call, one env, every lit shader. See gfx/sky.h.
     apply_lighting(lit_, env, camera.position, headlights, canopy_lights);
 }
@@ -304,6 +401,14 @@ const Renderer::Stats& Renderer::render(const Scene& scene,
             materials_[node->renderable.material].glass;
     };
 
+    enum class OpaquePhase { All, Early, Regular };
+    const auto matches_phase = [&](const SceneNode* node, OpaquePhase phase) {
+        if (phase == OpaquePhase::All) return true;
+        const bool early = node && node->renderable.material < materials_.size() &&
+            materials_[node->renderable.material].early_opaque;
+        return early == (phase == OpaquePhase::Early);
+    };
+
     const auto begin_alpha_pass = [] {
         glEnable(GL_BLEND);
         glBlendEquation(GL_FUNC_ADD);
@@ -330,18 +435,20 @@ const Renderer::Stats& Renderer::render(const Scene& scene,
         // instance, through the same shader and the same buffers, so the only
         // thing that changes is the draw count.
         const auto draw_unbatched_pass = [&](const std::vector<NodeId>& nodes,
-                                             bool alpha_blended) {
+                                             bool alpha_blended, OpaquePhase phase = OpaquePhase::All) {
             for (std::size_t i = 0; i < nodes.size(); ++i) {
                 const SceneNode* n = scene.get(nodes[i]);
                 if (!n || node_is_glass(n) || !batchable(n->renderable) ||
-                    node_is_alpha_blended(n) != alpha_blended) {
+                    node_is_alpha_blended(n) != alpha_blended ||
+                    !matches_phase(n, phase)) {
                     continue;
                 }
                 draw_run(scene, nodes, i, 1, batch_key(n->renderable));
                 ++stats_.batches;
             }
         };
-        draw_unbatched_pass(passes.geometry, false);
+        draw_unbatched_pass(passes.geometry, false, OpaquePhase::Early);
+        draw_unbatched_pass(passes.geometry, false, OpaquePhase::Regular);
         begin_surface_pass();
         draw_unbatched_pass(passes.overlays, false);
         end_surface_pass();
@@ -359,11 +466,12 @@ const Renderer::Stats& Renderer::render(const Scene& scene,
 
     const auto draw_batched_pass = [&](const std::vector<NodeId>& nodes,
                                       const std::vector<DrawBatch>& batches,
-                                      bool alpha_blended) {
+                                      bool alpha_blended, OpaquePhase phase = OpaquePhase::All) {
         for (const DrawBatch& b : batches) {
             if (b.instanced) {
                 const SceneNode* first = scene.get(nodes[b.first]);
-                if (node_is_glass(first) || node_is_alpha_blended(first) != alpha_blended) continue;
+                if (node_is_glass(first) || node_is_alpha_blended(first) != alpha_blended ||
+                    !matches_phase(first, phase)) continue;
                 if (draw_run(scene, nodes, b.first, b.count, b.key)) {
                     ++stats_.instanced_batches;
                     stats_.largest_run = std::max(stats_.largest_run, b.count);
@@ -375,7 +483,8 @@ const Renderer::Stats& Renderer::render(const Scene& scene,
                 const std::size_t idx = b.first + static_cast<std::size_t>(i);
                 const SceneNode* n = scene.get(nodes[idx]);
                 if (!n || node_is_glass(n) || !batchable(n->renderable) ||
-                    node_is_alpha_blended(n) != alpha_blended) {
+                    node_is_alpha_blended(n) != alpha_blended ||
+                    !matches_phase(n, phase)) {
                     continue;
                 }
                 draw_run(scene, nodes, idx, 1, batch_key(n->renderable));
@@ -383,7 +492,10 @@ const Renderer::Stats& Renderer::render(const Scene& scene,
         }
     };
 
-    draw_batched_pass(passes.geometry, plan, false);
+    // Same batches and draw count, with enclosed opaque interiors ahead of
+    // the outdoor world. Their depth then rejects hidden city shading.
+    draw_batched_pass(passes.geometry, plan, false, OpaquePhase::Early);
+    draw_batched_pass(passes.geometry, plan, false, OpaquePhase::Regular);
     begin_surface_pass();
     draw_batched_pass(passes.overlays, surface_plan, false);
     end_surface_pass();

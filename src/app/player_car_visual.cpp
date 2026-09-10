@@ -9,6 +9,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "app/vehicle_lamp_mesh.h"
+#include "app/vehicle_snow_mesh.h"
 #include "app/emergency_lighting.h"
 #include "app/mistral_door.h"
 #include "app/workman_door.h"
@@ -76,11 +77,13 @@ bool PlayerCarVisual::load_model(
             AP_ERROR("player car: %s articulated meshes missing; recook the vehicle assets", definition.model);
             return false;
         }
-        out.body_mesh = renderer.add_mesh(open_body);
+        out.body_mesh = renderer.add_mesh(
+            make_vehicle_snow_mesh(open_body, root + "body_open.emesh"));
         out.driver_door_mesh = renderer.add_mesh(door);
         out.driver_door_bounds = door.bounds;
         if (out.driver_door_mesh == kInvalidId) return false;
-    } else out.body_mesh = renderer.add_mesh(body);
+    } else out.body_mesh = renderer.add_mesh(
+        make_vehicle_snow_mesh(body, definition.mesh_path));
     if (definition.id == PlayerCarId::HarrowWorkman ||
         definition.id == PlayerCarId::AlderPip ||
         is_municipal_cruiser_91(definition.id) ||
@@ -95,7 +98,9 @@ bool PlayerCarVisual::load_model(
         for (std::size_t i=0;i<pane_count;++i) {
             StaticEmesh glass;
             if (!read_static_emesh(asset_path(root+names[i]+".emesh"),glass)) return false;
-            out.glass_meshes[i]=renderer.add_mesh(glass);
+            out.glass_meshes[i] = i == 0u && !is_motorbike(definition.id)
+                ? renderer.add_mesh(make_windshield_snow_mesh(glass))
+                : renderer.add_mesh(glass);
             out.glass_bounds[i]=glass.bounds;
             if (out.glass_meshes[i]==kInvalidId) return false;
         }

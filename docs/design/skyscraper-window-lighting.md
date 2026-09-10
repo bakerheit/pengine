@@ -1,7 +1,7 @@
 # Skyscraper window lighting
 
-The finished O'Haven skyline has twenty rendered skyscraper shafts: sixteen
-active neighborhood towers and four towers on the two Vellum twin blocks.
+The finished Pinatty skyline has twenty rendered skyscraper shafts: sixteen
+active neighborhood towers and four towers on the two Pinatty twin blocks.
 Mercer Exchange is authored but not rendered because the hospital campus owns
 its parcel. The open construction frames and the airport control cab are not
 office-occupancy towers and stay outside this system.
@@ -15,7 +15,7 @@ box is authored for every suite window:
 - neighborhood towers: 8 bays on front and rear, 6 on each side, 28 per floor;
 - twin towers: 5 bays on all four faces, 20 per floor;
 - live finished skyline: 13,468 independently addressable tower panes;
-- occupied Vellum infill: 393 existing upper-floor apartment panes use the same
+- occupied Pinatty infill: 393 existing upper-floor apartment panes use the same
   schedule, without adding duplicate geometry.
 
 Every overlay shares the ordinary box mesh and opaque material. Per-instance

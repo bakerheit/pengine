@@ -1,6 +1,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include "city/construction_expansion.h"
+#include "city/construction_site.h"
 #include "city/neighborhood_towers.h"
 #include "city/neighborhood_bar.h"
 #include "city/neighborhood_shops.h"
@@ -31,9 +33,17 @@ float road_clearance(glm::vec2 p,bool sidewalk) {
 void plots_preserve_streets_and_neighbors() {
     const city::StartSite* neighbors[]={&city::kGasStationSite,&city::kMotelSite,
         &city::kApartmentSite,&city::kFastFoodSite,&city::kTacomacoSite,&city::kCarWashSite,&city::kBankSite,
-        &city::kAutoRepairSite,&city::kLaundromatSite,&city::kNeighborhoodBarSite};
+        &city::kAutoRepairSite,&city::kLaundromatSite,&city::kNeighborhoodBarSite,
+        &city::kConstructionSite.site,
+        &city::kAdditionalConstructionSites[0].site,
+        &city::kAdditionalConstructionSites[1].site,
+        &city::kAdditionalConstructionSites[2].site,
+        &city::kAdditionalConstructionSites[3].site,
+        &city::kTwinSkyscraperBlockSites[0],
+        &city::kTwinSkyscraperBlockSites[1]};
     std::size_t east_side_towers=0;
     std::size_t southeast_edge_towers=0;
+    std::size_t southeast_towers=0;
     std::size_t south_facing_towers=0;
     for(const auto& tower:city::kNeighborhoodTowers) {
         const auto& s=tower.site;
@@ -41,7 +51,8 @@ void plots_preserve_streets_and_neighbors() {
             city::kGridCos*(s.origin.x-70.f)-city::kGridSin*(s.origin.z+40.f),
             city::kGridSin*(s.origin.x-70.f)+city::kGridCos*(s.origin.z+40.f)};
         if(grid.x>180.f) ++east_side_towers;
-        if(grid.x>280.f && grid.y>100.f) ++southeast_edge_towers;
+        if(grid.x>280.f && grid.y>0.f) ++southeast_edge_towers;
+        if(grid.x>90.f && grid.y>0.f) ++southeast_towers;
         if(tower.frontage==city::TowerFrontage::South) ++south_facing_towers;
         const float half_width=s.lot_width_m*.5f;
         const float half_depth=s.lot_depth_m*.5f;
@@ -72,10 +83,11 @@ void plots_preserve_streets_and_neighbors() {
         REQUIRE(distance>130.f && distance<600.f);
         REQUIRE(std::atan2(city::neighborhood_tower_roof(tower),distance)>.15f);
     }
-    REQUIRE(east_side_towers==15u);
-    REQUIRE(southeast_edge_towers==2u);
+    REQUIRE(east_side_towers==18u);
+    REQUIRE(southeast_edge_towers==5u);
+    REQUIRE(southeast_towers==9u);
     REQUIRE(south_facing_towers==3u);
-    REQUIRE(city::kNeighborhoodTowers.size()==22u);
+    REQUIRE(city::kNeighborhoodTowers.size()==25u);
     for(std::size_t i=0;i<city::kNeighborhoodTowers.size();++i)
         for(std::size_t j=i+1;j<city::kNeighborhoodTowers.size();++j) {
             const auto& a=city::kNeighborhoodTowers[i].site;
@@ -86,7 +98,7 @@ void plots_preserve_streets_and_neighbors() {
             REQUIRE(std::fabs(local.x)>(a.lot_width_m+b.lot_width_m)*.5f+2.f ||
                     std::fabs(local.y)>(a.lot_depth_m+b.lot_depth_m)*.5f+2.f);
         }
-    apricot_test::pass("twenty-two tower plots fit existing blocks, including three Tenth Street frontages");
+    apricot_test::pass("twenty-five tower plots fit existing blocks, including nine southeast towers");
 }
 void towers_have_walkable_lobbies_and_restrained_piece_counts() {
     std::size_t total_parts=0;
@@ -140,7 +152,7 @@ void towers_have_walkable_lobbies_and_restrained_piece_counts() {
         std::printf("  %s: %.1fm, %zu pieces, %zu dynamic windows; sidewalk-to-lobby clear\n",
             site.name,top,parts.size(),window_lights);
     }
-    REQUIRE(total_parts<20000u);
+    REQUIRE(total_parts<25000u);
     apricot_test::pass("towers have suite-scale facade rhythm, distinct crowns, clear lobbies and bounded geometry");
 }
 }

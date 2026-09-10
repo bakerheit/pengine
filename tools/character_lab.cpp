@@ -5,6 +5,7 @@
 #include <glad/gl.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -18,6 +19,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
+#include "app/character_animation.h"
 #include "core/asset_root.h"
 #include "core/emesh_reader.h"
 #include "core/skeletal_animation.h"
@@ -47,12 +49,89 @@ struct Options {
     std::string animation;
     std::string texture;
     std::string screenshot;
+    std::string clip_name;
     int frame_limit = 0;
     float height = 1.76f;
     float yaw_degrees = 180.0f;
     float playback_speed = 1.0f;
     bool bind_pose = false;
+    bool states = false;
 };
+
+// --states drives the REAL CharacterAnimator through a scripted timeline, so
+// what the window shows is the state machine the game runs, crossfades and all
+// — not a hand-rolled clip player that agrees with it until somebody edits one.
+// Times are timeline seconds; at 60 Hz, --frames N lands on N/60 s, which makes
+// --screenshot repeatable at a chosen moment.
+struct ScriptStep {
+    float at_seconds;
+    const char* label;
+    apricot::CharacterAnimInput input;
+};
+
+apricot::CharacterAnimInput make_input(float speed, bool sprinting) {
+    apricot::CharacterAnimInput input;
+    input.identity = 0x1EAFBEEFull;
+    input.speed_mps = speed;
+    input.sprinting = sprinting;
+    return input;
+}
+
+apricot::CharacterAnimInput punch_input() {
+    apricot::CharacterAnimInput input = make_input(0.0f, false);
+    input.punch = true;
+    return input;
+}
+
+apricot::CharacterAnimInput flinch_input() {
+    apricot::CharacterAnimInput input = make_input(0.0f, false);
+    input.flinch = true;
+    return input;
+}
+
+apricot::CharacterAnimInput downed_input(bool down) {
+    apricot::CharacterAnimInput input = make_input(0.0f, false);
+    input.downed = down;
+    return input;
+}
+
+apricot::CharacterAnimInput dead_input() {
+    apricot::CharacterAnimInput input = make_input(0.0f, false);
+    input.dead = true;
+    return input;
+}
+
+const std::vector<ScriptStep>& script() {
+    static const std::vector<ScriptStep> steps = {
+        { 0.0f, "idle",            make_input(0.0f, false)},
+        { 4.0f, "walk",            make_input(1.6f, false)},
+        { 8.0f, "sprint",          make_input(6.25f, true)},
+        {12.0f, "idle",            make_input(0.0f, false)},
+        {13.0f, "punch (right)",   punch_input()},
+        {13.1f, "idle",            make_input(0.0f, false)},
+        {14.0f, "punch (left)",    punch_input()},
+        {14.1f, "idle",            make_input(0.0f, false)},
+        {15.0f, "flinch",          flinch_input()},
+        {15.1f, "idle",            make_input(0.0f, false)},
+        {17.0f, "knocked down",    downed_input(true)},
+        {23.0f, "get up",          downed_input(false)},
+        {28.0f, "walk",            make_input(1.6f, false)},
+        {31.0f, "die",             dead_input()},
+        {40.0f, "idle (restart)",  make_input(0.0f, false)},
+    };
+    return steps;
+}
+
+std::size_t script_index(float seconds) {
+    const std::vector<ScriptStep>& steps = script();
+    std::size_t index = 0;
+    for (std::size_t i = 0; i < steps.size(); ++i) {
+        if (seconds + 1e-4f >= steps[i].at_seconds) index = i;
+    }
+    return index;
+}
+
+float script_length() { return script().back().at_seconds; }
 
 void usage() {
     std::printf(
@@ -68,6 +147,9 @@ void usage() {
         "  --animation FILE .eanim clip\n"
         "  --texture FILE   diffuse PNG\n\n"
         "View:\n"
+        "  --states         drive the real CharacterAnimator through a scripted\n"
+        "                   idle/walk/sprint/punch/flinch/knockdown/get-up/die\n"
+        "                   timeline instead of looping one clip\n"
         "  --height METRES  displayed character height (default 1.76)\n"
         "  --yaw DEGREES    source-facing correction (default 180)\n"
         "  --speed SCALE    clip playback speed (default 1)\n"
@@ -111,6 +193,10 @@ bool parse(int argc, char** argv, Options& output) {
             output.bind_pose = true;
             continue;
         }
+        if (argument == "--states") {
+            output.states = true;
+            continue;
+        }
         const char* value = nullptr;
         if (!take_value(argc, argv, i, value)) {
             std::fprintf(stderr, "%s needs a value\n", argument.c_str());
@@ -147,6 +233,7 @@ bool parse(int argc, char** argv, Options& output) {
         output.skeleton = (directory / "skin.eskel").string();
         output.texture = (directory / "body.png").string();
         if (clip.empty()) clip = "walk";
+        output.clip_name = clip;
         output.animation = (directory.parent_path() / "animations" /
                             (clip + ".eanim")).string();
     }
@@ -255,15 +342,43 @@ int run(const Options& options) {
         return 1;
     }
 
+    // Look the clip up in the registry so a single-clip preview obeys the SAME
+    // root policy and plant rule the game does. Without it a death clip plays
+    // with its horizontal travel stripped and collapses on the spot, and the
+    // preview quietly disagrees with what the player will see.
+    const apricot::CharacterClipInfo* registered = nullptr;
+    for (const apricot::CharacterClipInfo& info : apricot::kCharacterClips) {
+        if (options.clip_name == info.name) registered = &info;
+    }
+    const bool planted = registered ? registered->planted : true;
     const float model_scale = options.height / source.bounds.size().y;
-    const float plant = options.bind_pose ? 0.0f
+    const float plant = (options.bind_pose || !planted) ? 0.0f
         : apricot::locomotion_plant_offset(
               source, skeleton, animation, model_scale);
+
+    // --states needs the whole set bound to THIS skeleton, not the single clip.
+    apricot::CharacterClipSet clips;
+    apricot::CharacterAnimator animator;
+    std::array<float, apricot::kCharacterClipCount> plants{};
+    if (options.states) {
+        if (!clips.load(skeleton)) {
+            std::fprintf(stderr, "--states needs the full clip set; run "
+                                 "tools/lift_character_animations.py\n");
+            return 1;
+        }
+        for (const apricot::CharacterClipInfo& info : apricot::kCharacterClips) {
+            plants[static_cast<std::size_t>(info.clip)] = info.planted
+                ? apricot::locomotion_plant_offset(
+                      source, skeleton, clips.clip(info.clip), model_scale)
+                : 0.0f;
+        }
+    }
     std::printf("character: %zu vertices, %zu triangles, %d bones, clip %.3f s, "
-                "plant %.4f m\n",
+                "plant %.4f m%s\n",
                 source.vertices.size(), source.indices.size() / 3u,
                 skeleton.bone_count(), static_cast<double>(animation.duration()),
-                static_cast<double>(plant));
+                static_cast<double>(plant),
+                options.states ? ", state machine" : "");
 
     apricot::Renderer renderer;
     if (!renderer.init()) return 1;
@@ -306,6 +421,24 @@ int run(const Options& options) {
     std::vector<glm::mat4> skin;
     std::vector<glm::vec4> dual_real;
     std::vector<glm::vec4> dual_part;
+    std::vector<apricot::BonePose> parts_a;
+    std::vector<apricot::BonePose> parts_b;
+    std::size_t script_step = script().size();
+    apricot::CharacterAnimState script_state = apricot::CharacterAnimState::Count;
+    // A single-clip preview of a one-shot needs the same anchor frame the game
+    // samples at load, or the preview and the game disagree about where the
+    // body ends up.
+    glm::vec2 clip_anchor{0.0f};
+    if (registered && registered->root != apricot::ClipRoot::Strip) {
+        std::vector<glm::mat4> reference;
+        const float reference_time =
+            registered->root == apricot::ClipRoot::AnchorEnd
+                ? std::max(0.0f, animation.duration() -
+                                     apricot::character_getup::SAMPLE_EPS)
+                : 0.0f;
+        animation.sample(reference_time, skeleton, reference);
+        clip_anchor = apricot::root_translation_xz(skeleton, reference);
+    }
     float animation_time = 0.0f;
     float interactive_yaw = 0.0f;
     float zoom = 1.0f;
@@ -355,7 +488,34 @@ int run(const Options& options) {
         if (keys[SDL_SCANCODE_E]) zoom = std::max(zoom - delta, 0.35f);
         if (playing) animation_time += delta * options.playback_speed;
 
-        if (options.bind_pose) {
+        float frame_plant = plant;
+        if (options.states) {
+            const float timeline = std::fmod(std::max(animation_time, 0.0f),
+                                             script_length());
+            const std::size_t step = script_index(timeline);
+            animator.advance(clips, script()[step].input,
+                             playing ? delta * options.playback_speed : 0.0f);
+            if (step != script_step || animator.state() != script_state) {
+                script_step = step;
+                script_state = animator.state();
+                std::printf("%7.2f s  %-16s -> %-10s %s\n",
+                            static_cast<double>(timeline),
+                            script()[step].label,
+                            apricot::character_anim_state_name(script_state),
+                            apricot::character_clip_name(
+                                animator.sample().clip));
+                std::fflush(stdout);
+            }
+            if (animator.consume_punch_contact()) {
+                std::printf("%7.2f s  CONTACT (%s fist)\n",
+                            static_cast<double>(timeline),
+                            animator.punching_right() ? "right" : "left");
+                std::fflush(stdout);
+            }
+            apricot::evaluate_character_pose(clips, skeleton, animator.sample(),
+                                             parts_a, parts_b, local);
+            frame_plant = animator.plant(plants);
+        } else if (options.bind_pose) {
             local.resize(static_cast<std::size_t>(skeleton.bone_count()));
             for (int bone = 0; bone < skeleton.bone_count(); ++bone) {
                 local[static_cast<std::size_t>(bone)] =
@@ -363,7 +523,12 @@ int run(const Options& options) {
             }
         } else {
             animation.sample(animation_time, skeleton, local);
-            apricot::strip_root_motion_xz(skeleton, local);
+            if (registered && registered->root != apricot::ClipRoot::Strip) {
+                apricot::anchor_root_motion_xz(
+                    skeleton, local, clip_anchor);
+            } else {
+                apricot::strip_root_motion_xz(skeleton, local);
+            }
         }
         skeleton.compute_skin_matrices(local, skin);
         apricot::skin_matrices_to_dual_quaternions(skin, dual_real, dual_part);
@@ -376,7 +541,7 @@ int run(const Options& options) {
         const glm::vec3 pivot{source.bounds.center().x, source.bounds.min.y,
                               source.bounds.center().z};
         model.position = -(model.rotation * (model.scale * pivot));
-        model.position.y += plant;
+        model.position.y += frame_plant;
 
         camera.position = target + (base_camera - target) * zoom;
         point_camera();
@@ -418,13 +583,24 @@ int run(const Options& options) {
             ++rendered;
         }
         char title[512];
-        std::snprintf(title, sizeof(title),
-                      "Apricot Character Lab | %s | %.3f / %.3f s | %s",
-                      model_path.filename().string().c_str(),
-                      static_cast<double>(std::fmod(
-                          std::max(animation_time, 0.0f), animation.duration())),
-                      static_cast<double>(animation.duration()),
-                      playing ? "playing" : "paused");
+        if (options.states) {
+            std::snprintf(title, sizeof(title),
+                          "Apricot Character Lab | %s | %.2f s | %s | %s | %s",
+                          model_path.filename().string().c_str(),
+                          static_cast<double>(std::fmod(
+                              std::max(animation_time, 0.0f), script_length())),
+                          apricot::character_anim_state_name(animator.state()),
+                          apricot::character_clip_name(animator.sample().clip),
+                          playing ? "playing" : "paused");
+        } else {
+            std::snprintf(title, sizeof(title),
+                          "Apricot Character Lab | %s | %.3f / %.3f s | %s",
+                          model_path.filename().string().c_str(),
+                          static_cast<double>(std::fmod(
+                              std::max(animation_time, 0.0f), animation.duration())),
+                          static_cast<double>(animation.duration()),
+                          playing ? "playing" : "paused");
+        }
         SDL_SetWindowTitle(window.sdl(), title);
         if (options.frame_limit > 0 && rendered >= options.frame_limit) {
             running = false;

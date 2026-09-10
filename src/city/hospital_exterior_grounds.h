@@ -6,7 +6,7 @@
 
 namespace apricot::city {
 
-// Exterior landscape sidecar for Vellum Regional Hospital. Coordinates are
+// Exterior landscape sidecar for Pinatty Regional Hospital. Coordinates are
 // local to kHospitalSite: +x follows grid east and +z follows grid south.
 // Four 38 x 25 m open-air courts sit between the occupied pavilion links.
 inline std::vector<StartPart> bake_hospital_exterior_grounds() {
@@ -93,7 +93,7 @@ inline std::vector<StartPart> bake_hospital_exterior_grounds() {
 
     // Supported perimeter walks stay in the narrow gap between pavilion
     // walls and Bellweather/Juniper. They stop short of every carriageway and
-    // do not recreate Rook Lane, Vellum Row, Seventh, Eighth, or Ninth.
+    // do not recreate Rook Lane, Pinatty Row, Seventh, Eighth, or Ninth.
     add("hospital grounds west perimeter walk", -31.5f, 26.0f, 0.11f, 3.2f,
         0.08f, 88.0f, StartFinish::Concrete);
     add("hospital grounds west perimeter walk", -31.5f, 106.0f, 0.11f,

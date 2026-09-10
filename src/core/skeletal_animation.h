@@ -38,6 +38,46 @@ private:
     std::vector<Bone> bones_;
 };
 
+// A bone's local transform kept in its authored PARTS rather than composed.
+//
+// Sampling produces these because a crossfade has to interpolate the parts.
+// Lerping two composed matrices element by element is not a rotation: halfway
+// between two poses a limb shears and shrinks, and the shorter it gets the more
+// the shoulder looks dislocated. Slerp the rotation, lerp the translation and
+// the scale, THEN compose. The composition order is the same one Animation
+// already used: translate * rotate * scale.
+struct BonePose {
+    glm::vec3 translation{0.0f};
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec3 scale{1.0f};
+};
+
+glm::mat4 bone_pose_matrix(const BonePose& pose);
+
+// The inverse. Exported for the same reason blend_bone_poses() is: anything
+// that has to CROSSFADE a pose needs it in parts, and a pose that arrives as
+// matrices — from a solver, from a procedural rig — has no other way back.
+// Exact for a rigid transform; a sheared basis is not representable and comes
+// back as the nearest rotation, which is the only sensible answer.
+BonePose decompose_bone_pose(const glm::mat4& matrix);
+
+void compose_local_poses(const std::vector<BonePose>& poses,
+                         std::vector<glm::mat4>& out_local);
+
+// compose_local_poses() the other way round.
+void decompose_local_poses(const std::vector<glm::mat4>& local,
+                           std::vector<BonePose>& out_poses);
+
+// out = from at weight 0, to at weight 1. Sizes must match; a mismatch clears
+// the output rather than blending half a skeleton, because a half-blended
+// palette draws as a body torn in two and points at nothing.
+//
+// `out` MAY alias `to` (each element is read before it is written), which is
+// what lets a caller fade into a buffer it already filled without a third one.
+void blend_bone_poses(const std::vector<BonePose>& from,
+                      const std::vector<BonePose>& to, float weight,
+                      std::vector<BonePose>& out);
+
 class Animation {
 public:
     struct PosKey { float time = 0.0f; glm::vec3 value{}; };
@@ -47,6 +87,10 @@ public:
     bool load(const std::string& path, const Skeleton& skeleton);
     float duration() const { return duration_; }
     int unresolved_channels() const { return unresolved_channels_; }
+
+    // The parts form. sample() is this plus compose_local_poses().
+    void sample_parts(float time, const Skeleton& skeleton,
+                      std::vector<BonePose>& out_parts) const;
 
     void sample(float time, const Skeleton& skeleton,
                 std::vector<glm::mat4>& out_local) const;
@@ -70,6 +114,29 @@ private:
 // character a second time.
 void strip_root_motion_xz(const Skeleton& skeleton,
                           std::vector<glm::mat4>& local_poses);
+
+// Read the root bone's horizontal translation out of a sampled pose. The
+// anchor reference for a one-shot clip is taken with this, once, at load.
+glm::vec2 root_translation_xz(const Skeleton& skeleton,
+                              const std::vector<glm::mat4>& local_poses);
+
+// The other half of the root-motion story, and the one a fall needs.
+//
+// strip_root_motion_xz() is right for locomotion: the game moves the character
+// and the clip must not move it again. It is WRONG for a knockdown or a death,
+// where the authored travel — the metre the body carries forward as it goes
+// down — is the whole point, and pinning the root to bind leaves the character
+// collapsing on the spot like a dropped puppet.
+//
+// So a one-shot keeps its authored travel RELATIVE to a reference frame:
+// bind XZ plus (sampled XZ - reference XZ). Which frame is the reference is
+// not always t=0. For a fall it is the clip's standing start; for a get-up it
+// is the clip's END, because that is where the character is standing — see
+// city/character_getup.h, which paid for that distinction with a body floating
+// a full body-length above the ground.
+void anchor_root_motion_xz(const Skeleton& skeleton,
+                           std::vector<glm::mat4>& local_poses,
+                           const glm::vec2& reference_xz);
 
 void skin_matrices_to_dual_quaternions(
     const std::vector<glm::mat4>& skin,

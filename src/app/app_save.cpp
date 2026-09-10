@@ -71,10 +71,14 @@ bool App::load_game() {
     player_character_.view_yaw=saved.view_yaw;player_character_.view_pitch=saved.view_pitch;
     prev_player_character_=player_character_; character_spawned_=true;
     mission_stage_=saved.mission; seed_=saved.session_seed; step_index_=saved.sim_step;
+    snow_clearance_ = {};
+    snowplow_service_.reset();
     game_ui_.clear_waypoint();
     wanted_.reset();
     police_offenses_.reset();
     police_arrest_.reset();
+    traffic_horn_audio_.reset();
+    vehicle_audio_.stop_horn(); player_horn_pending_=false;
     arrested_feedback_s_=0.0f;
     world_.set_police_context(0, player_focus_position());
     seen_impact_count_=0; impact_feedback_seconds_=0; police_emergency_enabled_=false;

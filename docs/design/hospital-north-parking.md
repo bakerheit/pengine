@@ -1,7 +1,7 @@
-# Vellum Regional Hospital North Visitor Parking
+# Pinatty Regional Hospital North Visitor Parking
 
 The north lot is one open 146 x 38 m surface lot directly across Tenth Street
-from the hospital. It uses the same six-degree Vellum basis as the campus but
+from the hospital. It uses the same six-degree Pinatty basis as the campus but
 is a separate `StartSite` centred at hospital-local `(46, -62)`. Its south
 edge is `z = -43`; the Tenth Street centreline is `z = -31`, leaving the full
 road and sidewalk ribbon between parking and clinical frontage.

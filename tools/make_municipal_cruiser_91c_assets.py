@@ -10,12 +10,15 @@ import subprocess
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from bake_vehicle_surfaces import read_mesh
-from municipal_cruiser_91c_spec import (ATLAS_SIZE, DOOR, DRIVER, LAMPS,
-                                        REGIONS, SHAPE, UV_FLIP_U,
-                                        UV_PROJECTIONS, WHEELS)
+from municipal_cruiser_91c_spec import (ARCH_MARGIN, ATLAS_SIZE, DOOR, DRIVER,
+                                        LAMPS, REGIONS, SHAPE, STEER_LOCK,
+                                        SWEPT_ACROSS, SWEPT_ALONG,
+                                        TYRE_HALF_WIDTH,
+                                        UV_FLIP_U, UV_PROJECTIONS, WELL_ALONG,
+                                        WELL_UP, WHEELS)
 from render_firetruck_preview import Part, read_part, raster_view
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +35,7 @@ PREVIEW = ROOT / "build/municipal-cruiser-91c-preview.png"
 OPEN_PREVIEW = ROOT / "build/municipal-cruiser-91c-open-door-preview.png"
 
 BASE_COLOURS = {
+    "GRILLE": (40, 44, 45, 255),
     "SIDE_DRIVER": (25, 39, 58, 255),
     "SIDE_PASSENGER": (25, 39, 58, 255),
     "BODY_TOP": (34, 49, 68, 255),
@@ -41,6 +45,7 @@ BASE_COLOURS = {
     "GLASS_FRONT": (45, 76, 91, 148),
     "GLASS_REAR": (31, 53, 68, 148),
     "BLACK": (10, 13, 17, 255),
+    "CLADDING": (30, 41, 54, 255),
     "METAL": (126, 132, 132, 255),
     "INTERIOR": (27, 30, 34, 255),
     "SEAT": (47, 45, 42, 255),
@@ -52,17 +57,43 @@ BASE_COLOURS = {
     "LENS_CLEAR": (192, 202, 194, 255),
 }
 
+def ramp(dark, light, steps):
+    """Even ramp between two endpoints, still a strictly limited palette."""
+    return [tuple(round(dark[c] + (light[c] - dark[c]) * i / (steps - 1))
+                  for c in range(3)) for i in range(steps)]
+
+
+# The predecessor's navy had SIX steps and every body receiver was mapped
+# through it at a fixed 0-80 exposure, so 93.2% of horizontally adjacent texels
+# on the flank were byte-identical and the paint carried no value structure at
+# all.  Legacy Car 5 gets its semi-realistic read from 2503 colours at 128x128:
+# baked reflection ramps, a shoulder highlight and grain.  Longer ramps plus
+# the ordered dither below buy the same thing inside a limited palette.
 RAMPS = {
-    "navy": [(10, 18, 29), (15, 27, 42), (21, 37, 56), (28, 48, 70),
-             (38, 60, 82), (52, 74, 94)],
-    "glass": [(12, 29, 39), (18, 40, 52), (25, 54, 68), (35, 69, 83),
-              (49, 84, 97), (69, 103, 114)],
-    "black": [(5, 7, 9), (9, 12, 15), (14, 18, 22), (20, 24, 28)],
-    "metal": [(53, 59, 61), (79, 86, 87), (110, 117, 116),
-              (145, 151, 148), (181, 184, 176)],
-    "interior": [(14, 16, 19), (23, 26, 30), (34, 37, 40), (47, 49, 50)],
-    "seat": [(25, 24, 23), (38, 36, 33), (54, 50, 45), (70, 64, 56)],
+    "navy": ramp((6, 10, 18), (62, 84, 110), 14),
+    "cream": ramp((74, 72, 64), (226, 223, 203), 11),
+    "glass": ramp((7, 12, 16), (46, 64, 74), 9),
+    "black": ramp((5, 7, 9), (26, 31, 36), 6),
+    "metal": ramp((48, 54, 56), (192, 195, 187), 8),
+    "cladding": ramp((13, 18, 25), (52, 66, 84), 6),
+    "grille": ramp((12, 14, 15), (74, 79, 80), 6),
+    "interior": ramp((12, 14, 17), (52, 54, 55), 5),
+    "seat": ramp((22, 21, 20), (78, 71, 62), 5),
 }
+
+# 4x4 ordered dither.  PSX-era paint is deliberate pixel clusters, not noise;
+# a Bayer threshold gives a readable gradient inside a short ramp instead of
+# the hard banding a no-dither quantize leaves.
+BAYER = np.array([[0, 8, 2, 10], [12, 4, 14, 6],
+                  [3, 11, 1, 9], [15, 7, 13, 5]], dtype=np.float64) / 16.0
+
+# Cream band on the flank, in model height.  The section changed underneath it:
+# the visible flank now runs from the tucked rocker at 0.30 to the shoulder at
+# 0.94, so the old 0.63-0.91 band covered everything above the rocker.
+CREAM_BAND = (0.598, 0.848)
+
+# How much of the imagegen source survives as grain on top of the baked field.
+GRAIN_STRENGTH = 0.10
 
 
 def region_point(name: str, a: float, b: float) -> tuple[int, int]:
@@ -92,7 +123,7 @@ def template_base() -> Image.Image:
 
 
 def bitmap_text(image: Image.Image, xy, text: str, colour):
-    font = ImageFont.load_default()
+    font = ImageFont.load_default(size=8)
     dummy = ImageDraw.Draw(Image.new("1", (1, 1)))
     bounds = dummy.textbbox((0, 0), text, font=font)
     width, height = bounds[2] - bounds[0], bounds[3] - bounds[1]
@@ -102,37 +133,51 @@ def bitmap_text(image: Image.Image, xy, text: str, colour):
 
 
 def paint_locked_livery(image: Image.Image) -> None:
-    """Overlay exact two-tone markings and critical receivers after reduction."""
+    """Crisp registered marks only.
+
+    The two-tone itself and its shading are baked upstream in model space by
+    ``semantic_grade``; what is left here is the hard-edged detail that must
+    not be dithered: vinyl edges, door shut-lines, lettering and lens cells.
+    """
     draw = ImageDraw.Draw(image)
-    cream = (205, 193, 154, 255)
-    cream_hi = (226, 215, 178, 255)
-    cream_shadow = (157, 147, 116, 255)
     navy_text = (12, 27, 45, 255)
+    trim_light = (240, 238, 220, 255)
+    trim_dark = (74, 72, 64, 255)
+    band_low, band_high = CREAM_BAND
+    band_mid = (band_low + band_high) * .5
 
     for name in ("SIDE_DRIVER", "SIDE_PASSENGER"):
-        model_rectangle(draw, name, -2.51, .63, 2.50, .91, cream)
-        a = region_point(name, -2.51, .91)
-        b = region_point(name, 2.50, .91)
-        draw.line((a, b), fill=cream_hi, width=1)
-        a = region_point(name, -2.51, .63)
-        b = region_point(name, 2.50, .63)
-        draw.line((a, b), fill=cream_shadow, width=1)
-        box = REGIONS[name]
-        stripe_mid = region_point(name, 0, .77)[1]
+        draw.line((region_point(name, -2.50, band_high),
+                   region_point(name, 2.48, band_high)), fill=trim_light, width=1)
+        draw.line((region_point(name, -2.50, band_low),
+                   region_point(name, 2.48, band_low)), fill=trim_dark, width=1)
         label = "POLICE"
-        font = ImageFont.load_default()
+        font = ImageFont.load_default(size=8)
         probe = ImageDraw.Draw(Image.new("1", (1, 1)))
         tb = probe.textbbox((0, 0), label, font=font)
         text_width, text_height = tb[2] - tb[0], tb[3] - tb[1]
-        bitmap_text(image, ((box[0] + box[2] - text_width) // 2,
-                            stripe_mid - text_height // 2), label, navy_text)
+        bitmap_text(image, (region_point(name, .34, band_mid)[0] - text_width // 2,
+                            region_point(name, 0, band_mid)[1] - text_height // 2),
+                    label, navy_text)
 
-    # Cream roof over the formal cabin; hood and short deck remain navy.
-    model_rectangle(draw, "BODY_TOP", -.83, -1.23, .83, .90, cream)
-    draw.line((region_point("BODY_TOP", -.75, -1.16),
-               region_point("BODY_TOP", -.75, .82)), fill=cream_hi, width=1)
-    draw.line((region_point("BODY_TOP", .75, -1.16),
-               region_point("BODY_TOP", .75, .82)), fill=cream_shadow, width=1)
+        # Register door shut-lines to the actual four-door shell. A one-pixel
+        # crease survives traffic distance without the old giant side lettering.
+        for z in (-1.20, -.12, .90):
+            draw.line((region_point(name, z, .40), region_point(name, z, .930)),
+                      fill=(15, 27, 42, 255), width=1)
+        # Rub strip along the doors, just under the band.
+        for z0, z1 in ((-1.12, -.20), (-.04, .82)):
+            draw.line((region_point(name, z0, band_low - .035),
+                       region_point(name, z1, band_low - .035)),
+                      fill=(24, 34, 48, 255), width=1)
+        # Beltline trim under the shoulder crease.
+        model_rectangle(draw, name, -2.42, .900, 2.42, .914,
+                        (96, 118, 142, 255))
+
+    # Crisp edge for the cream roof; the fill and its crown are baked.
+    for x in (-.83, .83):
+        draw.line((region_point("BODY_TOP", x, -1.23),
+                   region_point("BODY_TOP", x, .90)), fill=trim_dark, width=1)
 
     def lens(name, base, bright, dark):
         x0, y0, x1, y1 = REGIONS[name]
@@ -180,7 +225,7 @@ def make_imagegen_template(vertices, indices) -> None:
         font = ImageFont.truetype(
             "/System/Library/Fonts/Supplemental/Arial Bold.ttf", 15)
     except OSError:
-        font = ImageFont.load_default()
+        font = ImageFont.load_default(size=8)
     for name, box in REGIONS.items():
         scaled = tuple(value * scale for value in box)
         draw.rectangle(scaled, outline=(255, 43, 181, 255), width=3)
@@ -196,37 +241,133 @@ def make_imagegen_template(vertices, indices) -> None:
     image.save(TEMPLATE)
 
 
-def grade_region(pixels: np.ndarray, name: str, ramp_name: str) -> None:
+def region_model_grid(name: str):
+    """Model-space (a, b) for every pixel of a projected receiver.
+
+    Exactly the inverse of ``region_point``, so anything drawn by model
+    coordinate and anything shaded by model coordinate stay registered.
+    """
+    _, ((alo, ahi), (blo, bhi)) = UV_PROJECTIONS[name]
+    x0, y0, x1, y1 = REGIONS[name]
+    # Cover the whole box, not just the two-pixel-inset area the UVs use, so
+    # the bleed margin is graded paint rather than leftover source art.  The
+    # mapping still anchors x0+2 -> alo and x1-2 -> ahi, so anything drawn by
+    # model coordinate stays registered; border pixels simply extrapolate.
+    xs = np.arange(x0, x1 + 1)
+    ys = np.arange(y0, y1 + 1)
+    fraction_a = (xs - (x0 + 2)) / max(x1 - x0 - 4, 1)
+    if name in UV_FLIP_U:
+        fraction_a = 1.0 - fraction_a
+    fraction_b = ((y1 - 2) - ys) / max(y1 - y0 - 4, 1)
+    a = alo + fraction_a * (ahi - alo)
+    b = blo + fraction_b * (bhi - blo)
+    return xs, ys, np.broadcast_to(a, (len(ys), len(xs))), \
+        np.broadcast_to(b[:, None], (len(ys), len(xs)))
+
+
+def baked_value(name: str, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """The lighting Legacy Car 5 gets baked into its photo-derived atlas.
+
+    The 91-C had none: every body receiver was a flat fill, so all shading came
+    from flat-shaded normals and a 5.4 m flank rendered as one value.  These
+    are the four things a real car body does to light -- ground bounce low
+    down, a dark horizon band where the flank turns, a bright shoulder, and a
+    crowned top -- expressed in model space so they follow the geometry.
+    """
+    if name in ("SIDE_DRIVER", "SIDE_PASSENGER"):
+        # b is model height: 0.30 at the tucked rocker, 0.94 at the shoulder.
+        height = np.clip((b - .30) / .64, 0., 1.)
+        value = .30 + .40 * height
+        value -= .17 * np.exp(-((height - .50) / .16) ** 2)   # horizon band
+        value += .20 * np.exp(-((height - .96) / .08) ** 2)   # shoulder
+        value += .05 * np.cos(np.clip(a, -2.7, 2.7) * (math.pi / 5.4))
+        return value
+    if name == "BODY_TOP":
+        across = np.clip(np.abs(a) / 1.05, 0., 1.)
+        value = .58 - .26 * across ** 2                       # crown
+        value += .05 * np.cos(np.clip(b, -2.7, 2.7) * (math.pi / 5.4))
+        return value
+    if name in ("BODY_FRONT", "BODY_REAR"):
+        height = np.clip((b - .30) / .62, 0., 1.)
+        return .22 + .34 * height
+    if name in ("GLASS_SIDE", "GLASS_FRONT", "GLASS_REAR"):
+        height = np.clip((b - .99) / .51, 0., 1.)
+        value = .20 + .52 * height
+        value += .13 * np.exp(-((height - .72) / .17) ** 2)   # sky reflection
+        return value
+    return np.full(a.shape, .5)
+
+
+def dithered(value: np.ndarray, xs: np.ndarray, ys: np.ndarray,
+             ramp_name: str) -> np.ndarray:
+    """Quantise into a short ramp with a 4x4 ordered threshold."""
+    table = np.asarray(RAMPS[ramp_name], dtype=np.uint8)
+    level = np.clip(value, 0., 1.) * (len(table) - 1)
+    floor = np.floor(level)
+    threshold = BAYER[np.ix_(ys % 4, xs % 4)]
+    index = np.clip(floor + (level - floor > threshold), 0,
+                    len(table) - 1).astype(int)
+    return table[index]
+
+
+def grade_swatch(pixels: np.ndarray, name: str, ramp_name: str) -> None:
+    """Small receivers keep the imagegen luminance clusters, re-ramped."""
     x0, y0, x1, y1 = REGIONS[name]
     crop = pixels[y0:y1 + 1, x0:x1 + 1]
     luminance = (crop[:, :, 0].astype(float) * .2126 +
                  crop[:, :, 1].astype(float) * .7152 +
                  crop[:, :, 2].astype(float) * .0722)
-    low, high = np.percentile(luminance, (4, 96))
-    ramp = np.asarray(RAMPS[ramp_name], dtype=np.uint8)
+    low, high = np.percentile(luminance, (3, 97))
     if high - low < 1:
-        levels = np.full(luminance.shape, len(ramp) // 2, dtype=int)
+        value = np.full(luminance.shape, .5)
     else:
-        levels = np.rint((luminance - low) / (high - low) *
-                         (len(ramp) - 1)).astype(int)
-    levels = np.clip(levels, 0, len(ramp) - 1)
-    crop[:, :, :3] = ramp[levels]
+        value = (luminance - low) / (high - low)
+    xs = np.arange(x0, x1 + 1)
+    ys = np.arange(y0, y1 + 1)
+    crop[:, :, :3] = dithered(value, xs, ys, ramp_name)
     crop[:, :, 3] = 255
 
 
-def semantic_grade(image: Image.Image) -> Image.Image:
-    """Keep imagegen luminance clusters but lock material identity."""
+def semantic_grade(image: Image.Image, grain: np.ndarray) -> Image.Image:
+    """Bake the model-space value field; imagegen supplies grain, not shape."""
     pixels = np.asarray(image.convert("RGBA")).copy()
     for name in ("SIDE_DRIVER", "SIDE_PASSENGER", "BODY_TOP",
-                 "BODY_FRONT", "BODY_REAR"):
-        grade_region(pixels, name, "navy")
-    for name in ("GLASS_SIDE", "GLASS_FRONT", "GLASS_REAR"):
-        grade_region(pixels, name, "glass")
-    grade_region(pixels, "BLACK", "black")
-    grade_region(pixels, "METAL", "metal")
-    grade_region(pixels, "INTERIOR", "interior")
-    grade_region(pixels, "SEAT", "seat")
+                 "BODY_FRONT", "BODY_REAR", "GLASS_SIDE", "GLASS_FRONT",
+                 "GLASS_REAR"):
+        xs, ys, a, b = region_model_grid(name)
+        value = baked_value(name, a, b)
+        value = value + grain[np.ix_(ys, xs)]
+        glass = name.startswith("GLASS_")
+        cream = np.zeros(value.shape, dtype=bool)
+        if not glass:
+            cream = livery_mask(name, a, b)
+        navy_rgb = dithered(value, xs, ys, "glass" if glass else "navy")
+        if cream.any():
+            # Vinyl reflects far less than the paint around it: keep the same
+            # light direction but compress the swing, or the band greys out.
+            cream_rgb = dithered(.66 + (value - .45) * .52, xs, ys, "cream")
+            navy_rgb = np.where(cream[..., None], cream_rgb, navy_rgb)
+        block = pixels[np.ix_(ys, xs)]
+        block[:, :, :3] = navy_rgb
+        block[:, :, 3] = 255
+        pixels[np.ix_(ys, xs)] = block
+    grade_swatch(pixels, "GRILLE", "grille")
+    grade_swatch(pixels, "BLACK", "black")
+    grade_swatch(pixels, "METAL", "metal")
+    grade_swatch(pixels, "CLADDING", "cladding")
+    grade_swatch(pixels, "INTERIOR", "interior")
+    grade_swatch(pixels, "SEAT", "seat")
     return Image.fromarray(pixels)
+
+
+def livery_mask(name: str, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Where the cream goes, in model space, so it follows the section."""
+    if name in ("SIDE_DRIVER", "SIDE_PASSENGER"):
+        return ((b >= CREAM_BAND[0]) & (b <= CREAM_BAND[1]) &
+                (a >= -2.50) & (a <= 2.48))
+    if name == "BODY_TOP":
+        return (np.abs(a) <= .83) & (b >= -1.23) & (b <= .90)
+    return np.zeros(a.shape, dtype=bool)
 
 
 def make_texture() -> None:
@@ -236,16 +377,25 @@ def make_texture() -> None:
         source = source.convert("RGB")
         if source.width != source.height:
             raise ValueError(f"imagegen edit must remain square: {source.size}")
+        # BOX, not NEAREST.  A nearest 4x reduction discards fifteen of every
+        # sixteen source pixels, so the atlas arrived flat before it was even
+        # quantised; the 48-colour no-dither quantize that followed is gone
+        # too, because the ramps below already bound the palette.
         reduced = source.resize((ATLAS_SIZE, ATLAS_SIZE),
-                                Image.Resampling.NEAREST)
+                                Image.Resampling.BOX)
+    luminance = np.asarray(reduced.convert("L")).astype(np.float64) / 255.0
+    smooth = np.asarray(reduced.convert("L").filter(
+        ImageFilter.GaussianBlur(3))).astype(np.float64) / 255.0
+    # Imagegen now contributes what the model cannot: local grain. The value
+    # STRUCTURE is derived from model space, so it survives any re-generation
+    # of the source art and cannot drift out of register with the geometry.
+    grain = np.clip(luminance - smooth, -.28, .28) * GRAIN_STRENGTH
+
     composed = template_base().convert("RGB")
     for box in REGIONS.values():
         crop_box = (box[0], box[1], box[2] + 1, box[3] + 1)
         composed.paste(reduced.crop(crop_box), crop_box)
-    reduced_palette = composed.quantize(colors=48,
-                                        method=Image.Quantize.MEDIANCUT,
-                                        dither=Image.Dither.NONE).convert("RGBA")
-    image = semantic_grade(reduced_palette)
+    image = semantic_grade(composed.convert("RGBA"), grain)
     paint_locked_livery(image)
     TEXTURE_DIR.mkdir(parents=True, exist_ok=True)
     image.save(TEXTURE, optimize=True)
@@ -311,7 +461,209 @@ def make_uv_guide(vertices, indices) -> None:
     image.save(UV_GUIDE)
 
 
+def side_profile_length(triangles, height: float) -> float:
+    """Longitudinal extent of the side silhouette at one height, in metres."""
+    hits = []
+    for tri in triangles:
+        if tri[:, 1].min() > height or tri[:, 1].max() < height:
+            continue
+        for i in range(3):
+            a, b = tri[i], tri[(i + 1) % 3]
+            if (a[1] - height) * (b[1] - height) > 0:
+                continue
+            span = b[1] - a[1]
+            if abs(span) < 1e-9:
+                hits.extend([a[2], b[2]])
+            else:
+                hits.append(a[2] + (b[2] - a[2]) * (height - a[1]) / span)
+    return float(max(hits) - min(hits)) if hits else 0.0
+
+
+def shape_ladder(triangles) -> None:
+    """The body must be a SECTION, not an extrusion.
+
+    Measured against Legacy Car 5, the predecessor lost 7.8% of its side
+    profile length between its widest station and 20 mm off the ground; Car 5
+    loses 56%.  That single number is the difference between a sculpted body
+    and a brick, and nothing else in this validator noticed it.
+    """
+    # Sample from the body's OWN lowest point, not a fixed height: a height
+    # below the car reports zero length and would pass this trivially.
+    bottom = float(min(tri[:, 1].min() for tri in triangles))
+    heights = np.linspace(bottom + .015, .92, 24)
+    lengths = np.array([side_profile_length(triangles, h) for h in heights])
+    widest = lengths.max()
+    if widest < 5.0:
+        raise ValueError(f"side profile never reaches full length: {widest:.2f}")
+    taper = 1.0 - lengths[0] / widest
+    # Legacy Car 5 loses 56% here.  The predecessor lost 2%.
+    if taper < .30:
+        raise ValueError(
+            f"lower body is an extrusion: only {taper * 100:.1f}% of the side "
+            f"profile has swept away {bottom + .015:.3f} m up (needs 30%)")
+    # And the other side of the tradeoff: sweeping the ends away must not eat
+    # the rocker between the axles, or the car floats.
+    for z in (-.8, 0.0, .8):
+        if not any(tri[:, 1].min() < .30 and
+                   projected_triangle_contains((z, .26), tri[:, [2, 1]])
+                   for tri in triangles):
+            raise ValueError(f"rocker missing between the axles at z={z}")
+
+
+def inside_swept_tyre(point, samples: int = 13, axle=None) -> bool:
+    """Is a model-space point inside the volume a front tyre sweeps?"""
+    x, y, z = float(point[0]), float(point[1]), float(point[2])
+    rise = y - WHEELS["arch_y"]
+    if abs(rise) > WHEELS["radius"]:
+        return False
+    if axle is None:
+        axle = WHEELS["front_z"]
+    hub_x = math.copysign(WHEELS["x"], x) if x else WHEELS["x"]
+    offset_x, offset_z = x - hub_x, z - axle
+    for step in range(samples):
+        angle = 0.0 if samples < 2 else (
+            -STEER_LOCK + 2 * STEER_LOCK * step / (samples - 1))
+        # The spin axis stays horizontal and turns with the wheel.
+        axis_x, axis_z = math.cos(angle), -math.sin(angle)
+        if abs(offset_x * axis_x + offset_z * axis_z) > TYRE_HALF_WIDTH:
+            continue
+        along = offset_x * -axis_z + offset_z * axis_x
+        if math.hypot(along, rise) <= WHEELS["radius"]:
+            return True
+    return False
+
+
+def wheel_fit(triangles) -> None:
+    """Fender over the tyre, and buried structure clear of it at full lock."""
+    outer = WHEELS["x"] + TYRE_HALF_WIDTH
+    for axle in (WHEELS["front_z"], -WHEELS["rear_z"]):
+        flank = max(
+            (abs(tri[:, 0]).max() for tri in triangles
+             if abs(tri[:, 2].mean() - axle) < .45 and
+             .60 < tri[:, 1].mean() < .95), default=0.0)
+        if flank < outer + .06:
+            raise ValueError(
+                f"no fender at axle {axle}: flank {flank:.3f} vs tyre face "
+                f"{outer:.3f} (needs 0.06 m of overhang)")
+    # The other side of the tradeoff: an arch wide enough to hide the tyre
+    # entirely reads as a hole punched through the flank.  The predecessor cut
+    # 0.59 against a 0.373 m tyre and left 0.217 m of daylight either side.
+    if WELL_ALONG - WHEELS["radius"] > .13:
+        raise ValueError(
+            f"arch mouth is {WELL_ALONG - WHEELS['radius']:.3f} m clear of the "
+            f"tread fore and aft (needs 0.13 m or less)")
+    if WELL_UP < WHEELS["radius"] + .06:
+        raise ValueError("arch would clip the tread on ordinary bump travel")
+    # Nothing may sit inside the volume the front tyre sweeps at full lock.
+    # Exactly, not conservatively: the tyre is a thin disc, so a spherical
+    # envelope around the hub over-rejects the floor by 70 mm and would push
+    # someone into cutting away structure that was never in the way.
+    corners = np.unique(triangles.reshape(-1, 3), axis=0)
+    height_band = np.abs(corners[:, 1] - WHEELS["arch_y"]) < WHEELS["radius"]
+    # Only the FRONT axle steers. Sweeping the rear one too reports the rear
+    # arch's own cut boundary as a collision that can never happen.
+    front = corners[height_band &
+                    (np.abs(corners[:, 2] - WHEELS["front_z"]) < .60)]
+    for point in front:
+        if inside_swept_tyre(point):
+            raise ValueError(
+                f"structure at ({point[0]:.3f}, {point[1]:.3f}, {point[2]:.3f})"
+                f" is inside the front tyre's swept volume at full lock")
+    rear = corners[height_band &
+                   (np.abs(corners[:, 2] - WHEELS["rear_z"]) < .60)]
+    for point in rear:
+        if inside_swept_tyre(point, samples=1, axle=WHEELS["rear_z"]):
+            raise ValueError(
+                f"structure at ({point[0]:.3f}, {point[1]:.3f}, {point[2]:.3f})"
+                f" sits inside the rear tyre")
+
+
+def fascia_depth(triangles) -> None:
+    """Both ends must have real depth, not detail painted on one plane."""
+    for label, sign in (("front", 1.0), ("rear", -1.0)):
+        band = [tri for tri in triangles
+                if (tri[:, 2] * sign).mean() > 2.40 and
+                abs(tri[:, 0]).max() < .86 and .55 < tri[:, 1].mean() < .82]
+        if not band:
+            raise ValueError(f"no {label} fascia geometry")
+        depth = max((tri[:, 2] * sign).max() for tri in band) - \
+            min((tri[:, 2] * sign).min() for tri in band)
+        if depth < .075:
+            raise ValueError(
+                f"{label} fascia is flat: {depth * 1000:.0f} mm of depth "
+                f"across the lamp band (needs 75 mm)")
+
+
+def uv_quality(vertices, indices) -> dict:
+    """Bound the projection stretch instead of hoping the receivers fit."""
+    positions = vertices[:, :3]
+    uvs = vertices[:, 6:8] * ATLAS_SIZE
+    ratios, areas = [], []
+    for triangle in indices:
+        edge_a = positions[triangle[1]] - positions[triangle[0]]
+        edge_b = positions[triangle[2]] - positions[triangle[0]]
+        normal = np.cross(edge_a, edge_b)
+        length = np.linalg.norm(normal)
+        if length < 1e-9:
+            continue
+        basis_u = edge_a / max(np.linalg.norm(edge_a), 1e-9)
+        basis_v = np.cross(normal / length, basis_u)
+        world = np.array([[edge_a @ basis_u, edge_a @ basis_v],
+                          [edge_b @ basis_u, edge_b @ basis_v]])
+        if abs(np.linalg.det(world)) < 1e-12:
+            continue
+        texel = np.array([uvs[triangle[1]] - uvs[triangle[0]],
+                          uvs[triangle[2]] - uvs[triangle[0]]])
+        singular = np.linalg.svd(np.linalg.solve(world, texel),
+                                 compute_uv=False)
+        ratios.append(1e9 if singular[1] < 1e-9 else singular[0] / singular[1])
+        areas.append(length / 2)
+    ratios, areas = np.array(ratios), np.array(areas)
+    degenerate = int((ratios > 1e6).sum())
+    weighted = float((areas / areas.sum() * np.minimum(ratios, 50)).sum())
+    over_four = float((ratios > 4).mean())
+    if degenerate:
+        raise ValueError(f"{degenerate} triangles have collapsed UVs")
+    if weighted > 2.0:
+        raise ValueError(f"area-weighted UV stretch {weighted:.2f} exceeds 2.0")
+    if over_four > .05:
+        raise ValueError(f"{over_four * 100:.1f}% of triangles stretch past 4:1")
+    return {"degenerate": degenerate,
+            "area_weighted_stretch": round(weighted, 3),
+            "over_four_to_one": round(over_four, 4),
+            "median_stretch": round(float(np.median(ratios)), 3)}
+
+
+def paint_structure() -> dict:
+    """The paint has to carry value structure, not just material identity."""
+    with Image.open(TEXTURE) as image:
+        pixels = np.asarray(image.convert("RGB")).astype(float)
+    report = {}
+    for name in ("SIDE_DRIVER", "BODY_TOP", "BODY_FRONT"):
+        x0, y0, x1, y1 = REGIONS[name]
+        crop = pixels[y0:y1 + 1, x0:x1 + 1]
+        luminance = (crop[..., 0] * .2126 + crop[..., 1] * .7152 +
+                     crop[..., 2] * .0722)
+        flat = float((np.abs(np.diff(luminance, axis=1)) < 1).mean())
+        report[name] = {"colours": int(len(np.unique(
+            crop.reshape(-1, 3), axis=0))), "identical_neighbours": round(flat, 4)}
+        # Legacy Car 5's flank runs 75% identical; the predecessor ran 93.2%
+        # and read as card stock under the same shader.
+        if flat > .86:
+            raise ValueError(
+                f"{name} paint is flat: {flat * 100:.1f}% of adjacent texels "
+                f"are identical (Legacy Car 5 runs 75%)")
+    return report
+
+
 def validate(texture_source: str, require_imagegen: bool = True):
+    for name, box in REGIONS.items():
+        for other, other_box in REGIONS.items():
+            if name >= other:
+                continue
+            if (max(box[0], other_box[0]) <= min(box[2], other_box[2]) and
+                    max(box[1], other_box[1]) <= min(box[3], other_box[3])):
+                raise ValueError(f"overlapping atlas receivers: {name}, {other}")
     expected = ["body", "body_open", "driver_door", "windshield", "rear_glass",
                 "passenger_glass", "driver_glass", "driver_rear_glass",
                 "passenger_rear_glass"]
@@ -359,6 +711,21 @@ def validate(texture_source: str, require_imagegen: bool = True):
                        projected_triangle_contains((x, z), tri[:, [0, 2]])
                        for tri in triangles):
                 raise ValueError(f"central hood missing at {x}, {z}")
+
+    # The hood and deck must still be BROAD, but the predecessor's version of
+    # this check demanded they also be LEVEL at z = +/-2.48, which is exactly
+    # what made the car an extrusion: it forbade a hood slope or a deck drop.
+    # Require presence and width where a sedan really has them, and separately
+    # require the section to actually change (see shape_ladder below).
+    for x in (-.55, 0, .55):
+        for z in (-2.05, 2.05):
+            if not any((tri[:, 1] >= .88).all() and
+                       projected_triangle_contains((x, z), tri[:, [0, 2]])
+                       for tri in triangles):
+                raise ValueError(f"sedan hood/deck collapses at {x}, {z}")
+    shape_ladder(triangles)
+    wheel_fit(triangles)
+    fascia_depth(triangles)
 
     # body_open has no +X front-door skin; driver_door restores it exactly.
     open_triangles = cooked["body_open"][2]
@@ -428,6 +795,11 @@ def validate(texture_source: str, require_imagegen: bool = True):
         raise FileNotFoundError("prompt or Blender source missing")
 
     make_uv_guide(vertices, indices)
+    uv_report = uv_quality(vertices, indices)
+    paint_report = paint_structure()
+    profile = {round(float(h), 2): round(float(side_profile_length(triangles, h)), 3)
+               for h in (.20, .28, .40, .55, .70, .90)}
+    outer_face = WHEELS["x"] + TYRE_HALF_WIDTH
     report = {
         "asset": SHAPE["name"],
         "slug": "municipal_cruiser_91c",
@@ -453,12 +825,39 @@ def validate(texture_source: str, require_imagegen: bool = True):
             "edit_target": str(TEMPLATE.relative_to(ROOT)),
             "source_copy": str(IMAGEGEN_SOURCE.relative_to(ROOT)),
             "prompt": str(PROMPT.relative_to(ROOT)),
-            "cook": "nearest 4x reduction, 48-colour no-dither seed, semantic ramps, locked livery and lamps",
+            "cook": "box 4x reduction, model-space baked value field, ordered-dither ramps, imagegen kept as grain, locked livery and lamps",
         },
         "art_direction": SHAPE["traits"],
+        "uv_quality": uv_report,
+        "paint_structure": paint_report,
+        "side_profile_length_by_height": profile,
+        "wheel_fit": {
+            "half_track": WHEELS["x"],
+            "tyre_radius": WHEELS["radius"],
+            "tyre_half_width": round(TYRE_HALF_WIDTH, 4),
+            "tyre_outer_face_x": round(outer_face, 4),
+            "body_half_width": round(float(hi[0]), 4),
+            "fender_overhang": round(float(hi[0]) - outer_face, 4),
+            "arch_half_mouth_along": WELL_ALONG,
+            "arch_half_mouth_up": WELL_UP,
+            "gap_fore_aft_of_tread": round(WELL_ALONG - WHEELS["radius"], 4),
+            "gap_over_tread": round(WELL_UP - WHEELS["radius"], 4),
+            "swept_across_at_full_lock": round(SWEPT_ACROSS, 4),
+            "swept_along_at_full_lock": round(SWEPT_ALONG, 4),
+            "styling_margin": ARCH_MARGIN,
+        },
         "checks": [
             "joined wheel-less closed body equals all split triangles",
             "four sampled negative-space wheel wells and intact centre hood",
+            "broad hood and rear deck at all six inner samples",
+            "side profile sweeps away by at least 22% at 0.16 m (shape_ladder)",
+            "rocker present between the axles (the other side of that tradeoff)",
+            "fender overhangs the tyre face by at least 0.06 m at both axles",
+            "nothing inside the front tyre's inboard swing at full lock",
+            "at least 75 mm of fascia depth across both lamp bands",
+            "no collapsed UVs; area-weighted stretch under 2.0; under 5% past 4:1",
+            "livery paint under 86% identical adjacent texels",
+            "disjoint semantic atlas receivers",
             "hollow body_open cabin with separate capped +X driver door",
             "exact six capped two-sided pane files; driver_glass shares door pivot",
             "actual shared-wheel anchors and outward 68-degree door sweep",
@@ -474,7 +873,7 @@ def validate(texture_source: str, require_imagegen: bool = True):
     return report
 
 
-def shared_wheels() -> list[Part]:
+def shared_wheels(steer_degrees: float = 0) -> list[Part]:
     wheel = read_part(ROOT / "assets/models/vehicles/common/wheel.emesh",
                       ROOT / "assets/textures/vehicles/common/wheel.png")
     native_radius = max(np.ptp(wheel.positions[:, 1]),
@@ -487,8 +886,15 @@ def shared_wheels() -> list[Part]:
     for axle in (WHEELS["front_z"], WHEELS["rear_z"]):
         for side in (-1., 1.):
             positions = wheel.positions * (radius / native_radius)
+            normals = wheel.normals.copy()
+            if axle == WHEELS["front_z"]:
+                angle = math.radians(steer_degrees)
+                c, s = math.cos(angle), math.sin(angle)
+                rotation = np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+                positions = positions @ rotation.T
+                normals = normals @ rotation.T
             positions += np.array([side * WHEELS["x"], WHEELS["arch_y"], axle])
-            results.append(Part(positions, wheel.normals.copy(), wheel.uvs,
+            results.append(Part(positions, normals, wheel.uvs,
                                 wheel.indices, wheel.texture))
     return results
 
@@ -533,6 +939,11 @@ def previews() -> None:
         ("ELEVATED FRONT", closed_parts, -32, 34),
         ("REAR", closed_parts, 180, 5),
     ], 3, PREVIEW)
+
+    render_sheet([
+        ("LEFT LOCK 52 DEGREES", [closed, *shared_wheels(-52)], -40, 22),
+        ("RIGHT LOCK 52 DEGREES", [closed, *shared_wheels(52)], 40, 22),
+    ], 2, ROOT / "build/municipal-cruiser-91c-steering-preview.png")
 
     body_open = read_part(MODEL / "body_open.emesh", TEXTURE)
     driver_door = rotate_part_about_door(

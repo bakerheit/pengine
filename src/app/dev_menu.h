@@ -28,6 +28,10 @@ struct DevTeleportLocation {
 
 enum class DevWeatherPreset : uint8_t {
     Clear,
+    // Heavy rain under a thin deck with the sun still out. It exists to keep
+    // the two weather axes honest: if this preset ever stops looking bright,
+    // precipitation has been quietly welded back onto cloud opacity.
+    Sunshower,
     Overcast,
     Rain,
     Storm,
@@ -53,10 +57,15 @@ enum class DevTimePreset : uint8_t {
     kCount,
 };
 
-inline constexpr std::array<const char*, 12> kDevWeatherLabels{{
-    "CLEAR", "OVERCAST", "RAIN", "STORM", "THUNDERSTORM", "SNOW",
+inline constexpr std::array<const char*, 13> kDevWeatherLabels{{
+    "CLEAR", "SUNSHOWER", "OVERCAST", "RAIN", "STORM", "THUNDERSTORM", "SNOW",
     "BLIZZARD", "TORNADO", "FLOOD", "HAIL", "HEATWAVE", "DYNAMIC",
 }};
+// The menu indexes this array by the enum. Adding a preset without a label is
+// a read one past the end that a release build will happily perform.
+static_assert(kDevWeatherLabels.size() ==
+                  static_cast<std::size_t>(DevWeatherPreset::kCount),
+              "every DevWeatherPreset needs a label");
 inline constexpr std::array<const char*, 8> kDevTimeLabels{{
     "LIVE", "MIDNIGHT", "DAWN", "MORNING", "NOON", "AFTERNOON", "DUSK",
     "NIGHT",
@@ -82,28 +91,27 @@ inline constexpr std::array<const char*, 6> kDevWantedLevelLabels{{
 // Safe, authored arrival points rather than raw landmark centres. A landmark
 // may be inside the thing it names; these points sit on its forecourt, road or
 // flight surface so spawn_vehicle can place the car cleanly.
-inline constexpr std::array<DevTeleportLocation, 17> kDevTeleportLocations{{
+inline constexpr std::array<DevTeleportLocation, 18> kDevTeleportLocations{{
+    {"SIX TWELVE NORTH", {-257.7f,-1906.f}, 3.1415926536f},
     {"HALLOWAY GAS", {0.0f, 0.0f}, 0.0f},
     {"HALLOWAY CAR WASH", {3.05f, -63.12f}, 0.0f},
     {"CAUSEWAY COURT MOTEL", {-75.5f, 1.0f}, 0.0f},
     {"QUICKBITE GRILL", {14.0f, 33.5f}, 0.0f},
     {"TACOMACO", {
-        city::kTacomacoSite.origin.x + city::kTacomacoSite.cos_yaw * 14.0f +
-            city::kTacomacoSite.sin_yaw * -13.5f,
-        city::kTacomacoSite.origin.z - city::kTacomacoSite.sin_yaw * 14.0f +
-            city::kTacomacoSite.cos_yaw * -13.5f}, 0.0f},
+        city::kTacomacoSite.origin.x+city::kTacomacoSite.cos_yaw*-24+city::kTacomacoSite.sin_yaw*15,
+        city::kTacomacoSite.origin.z-city::kTacomacoSite.sin_yaw*-24+city::kTacomacoSite.cos_yaw*15},0.0f},
     {"HALLOWAY FLATS", {114.0f, 16.0f}, 0.0f},
     {"OSTEND BAIT & TACKLE", {-2033.0f, -600.0f}, 1.745329252f},
-    {"O'HAVEN AIRPORT DROPOFF", {115.0f, 2300.0f}, -1.5707963268f},
-    {"O'HAVEN AIRPORT APRON", {60.0f, 2195.0f}, -1.5707963268f},
+    {"PINATTY AIRPORT DROPOFF", {115.0f, 2300.0f}, -1.5707963268f},
+    {"PINATTY AIRPORT APRON", {60.0f, 2195.0f}, -1.5707963268f},
     {"CAMBER GATEWAY HOTEL", {-200.0f, 2360.0f}, 3.1415926536f},
-    {"O'HAVEN RENTAL CENTRE", {415.0f, 2360.0f}, 3.1415926536f},
+    {"PINATTY RENTAL CENTRE", {415.0f, 2360.0f}, 3.1415926536f},
     {"CAMBER AIR CARGO", {520.0f, 2355.0f}, 3.1415926536f},
     {"AIRPORT SECURITY GATE", {-348.0f, 2170.4f}, -1.5707963268f},
-    {"O'HAVEN AIRPORT ARRIVAL", {650.0f, 2390.0f}, 1.5707963268f},
+    {"PINATTY AIRPORT ARRIVAL", {650.0f, 2390.0f}, 1.5707963268f},
     {"FLORANGIA PALM COAST", {4670.0f, 5100.0f}, 0.7853981634f},
     {"FLORANGIA REGIONAL AIRPORT", {4800.0f, 4685.0f}, 3.1415926536f},
-    {"O'HAVEN RUNWAY 09", {-260.0f, 2046.0f}, -1.5707963268f},
+    {"PINATTY RUNWAY 09", {-260.0f, 2046.0f}, -1.5707963268f},
 }};
 
 // The teleport page is the tallest developer page. Keep its panel inside the
@@ -116,7 +124,19 @@ struct DevMenuPanelLayout {
     float row_height = 43.0f;
     float body_height = 0.0f;
     float bottom = 0.0f;
+    // How many rows the body actually draws, and whether that is fewer than
+    // the list holds. The panel used to draw every row however short it got.
+    int visible_rows = 0;
+    bool scrolls = false;
 };
+
+// A row's label is drawn at row_y + 11 at glyph height 20, and the HUD scales
+// text by kUiTextScale (1.21), so the label really occupies 24.2 px and ends
+// 35.2 px into its row. Anything shorter runs the label into the row beneath.
+// The old floor was 24 px, so every list past sixteen entries overlapped: at
+// seventeen teleport locations rows were 30.35 px, at eighteen 28.67 px. Rows
+// stop shrinking here and the panel scrolls instead of squashing.
+inline constexpr float kDevMenuMinRowHeight = 36.0f;
 
 inline DevMenuPanelLayout dev_menu_panel_layout(int item_count,
                                                  float viewport_height) {
@@ -127,12 +147,25 @@ inline DevMenuPanelLayout dev_menu_panel_layout(int item_count,
     if (item_count > 0) {
         const float fitted = available / static_cast<float>(item_count);
         if (fitted < out.row_height)
-            out.row_height = fitted > 24.0f ? fitted : 24.0f;
+            out.row_height = std::max(fitted, kDevMenuMinRowHeight);
+        const int fits = static_cast<int>(available / out.row_height);
+        out.visible_rows = std::max(1, std::min(item_count, fits));
     }
-    out.body_height = out.row_height * static_cast<float>(item_count);
+    out.scrolls = out.visible_rows < item_count;
+    out.body_height = out.row_height * static_cast<float>(out.visible_rows);
     out.bottom = out.top + out.header_height + out.body_height +
                  out.footer_height;
     return out;
+}
+
+// First row to draw. Derived from the selection rather than remembered, so
+// keyboard and controller navigation always keeps the highlighted row on
+// screen and the panel needs no scroll state of its own.
+inline int dev_menu_first_visible_row(int item_count, int selection,
+                                      int visible_rows) {
+    if (visible_rows >= item_count || visible_rows <= 0) return 0;
+    const int centred = selection - visible_rows / 2;
+    return std::clamp(centred, 0, item_count - visible_rows);
 }
 
 enum class DevMenuPage : uint8_t {

@@ -21,9 +21,14 @@
 #include "city/neighborhood_towers.h"
 #include "city/pawn_shop.h"
 #include "city/residential_neighborhood.h"
+#include "city/roads.h"
+#include "city/loom_cultural.h"
+#include "city/burgerpiz.h"
 #include "city/tacomaco.h"
+#include "city/north_pinatty_gas_station.h"
+#include "city/north_airbase.h"
 #include "city/tidewater_farm.h"
-#include "city/vellum_infill.h"
+#include "city/pinatty_infill.h"
 #include "terrain/chunk.h"
 #include "test_assert.h"
 
@@ -103,6 +108,13 @@ bool lots_are_separate(const AuthoredLot& a, const AuthoredLot& b,
 std::vector<AuthoredLot> active_lots() {
     std::vector<AuthoredLot> out{
         lot(city::kGasStationSite),
+        lot(city::kNorthPinattyGasStationSite),
+        lot(city::kMiandiGasStationSite),
+        lot(city::kHalberdFieldSite),
+        lot(city::kFreakyFranksSite),
+        lot(city::kBurgerPizSite),
+        lot(city::kLoomMuseumSite),
+        lot(city::kLoomParkSite),
         lot(city::kCarWashSite),
         lot(city::kMotelSite),
         lot(city::kApartmentSite),
@@ -122,10 +134,10 @@ std::vector<AuthoredLot> active_lots() {
         lot(city::kConstructionNeighborEquipment.site),
         lot(city::kConstructionStreetDetailSite),
         lot(city::kHospitalSite),
-        lot("Vellum Regional Hospital parking garage", city::kHospitalSite,
+        lot("Pinatty Regional Hospital parking garage", city::kHospitalSite,
             city::kHospitalGarageCentre, city::kHospitalGarageWidthM,
             city::kHospitalBlockDepthM),
-        lot("Vellum Regional Hospital service yard", city::kHospitalSite,
+        lot("Pinatty Regional Hospital service yard", city::kHospitalSite,
             {(city::kHospitalServiceYardMinX +
               city::kHospitalServiceYardMaxX) * .5f,
              (city::kHospitalServiceYardMinZ +
@@ -149,7 +161,7 @@ std::vector<AuthoredLot> active_lots() {
         out.push_back(lot(expansion.site));
     for (const auto& twin : city::kTwinSkyscraperBlockSites)
         out.push_back(lot(twin));
-    for (const auto& parcel : city::kVellumInfillParcels)
+    for (const auto& parcel : city::kPinattyInfillParcels)
         out.push_back(lot(parcel.site));
     for (const auto& house : city::kResidentialHouses)
         out.push_back(lot(house.site));
@@ -181,16 +193,16 @@ void no_active_authored_lots_overlap() {
         "whole-city active lot inventory has no accidental overlaps");
 }
 
-void vellum_lots_have_flat_ground_support() {
+void pinatty_lots_have_flat_ground_support() {
     const auto lots = active_lots();
     std::size_t checked = 0;
     for (const auto& item : lots) {
         const auto& site = *item.site;
-        const bool vellum_basis =
+        const bool pinatty_basis =
             std::fabs(site.cos_yaw - city::kGridCos) < 1e-5f &&
             std::fabs(site.sin_yaw - city::kGridSin) < 1e-5f &&
             std::fabs(site.ground_m - city::kStartAreaGroundM) < 1e-5f;
-        if (!vellum_basis) continue;
+        if (!pinatty_basis) continue;
         const auto points = corners(item);
         for (const auto& p : points) {
             const float height = mesh_height_at(city::kMapSeed, p.x, p.y);
@@ -201,8 +213,35 @@ void vellum_lots_have_flat_ground_support() {
         }
         ++checked;
     }
-    std::printf("  checked flat terrain under %zu Vellum lots\n", checked);
-    apricot_test::pass("Vellum lots sit on their authored 12 metre datum");
+    std::printf("  checked flat terrain under %zu Pinatty lots\n", checked);
+    apricot_test::pass("Pinatty lots sit on their authored 12 metre datum");
+}
+
+void southwest_roads_clear_all_active_lots() {
+    const auto lots = active_lots();
+    for (const auto& road : city::kRoads) {
+        if (road.id != 30 && (road.id < 207 || road.id > 210)) continue;
+        for (int i = 0; i + 1 < road.count; ++i) {
+            const auto a = road.path[i];
+            const auto b = road.path[i+1];
+            const glm::vec2 d{b.x-a.x,b.z-a.z};
+            const float length = glm::length(d);
+            city::StartSite corridor{};
+            corridor.name = road.name;
+            corridor.origin = {(a.x+b.x)*.5f,(a.z+b.z)*.5f};
+            corridor.cos_yaw = d.x/length;
+            corridor.sin_yaw = -d.y/length;
+            // Extend by a full ribbon radius at both ends, covering the
+            // outside of bends and their junction plates as well as asphalt.
+            const float radius = city::road_ribbon_half_m(road.cls);
+            corridor.lot_width_m = length + 2.0f*radius;
+            corridor.lot_depth_m = 2.0f*radius;
+            for (const auto& item : lots)
+                REQUIRE_MSG(lots_are_separate(lot(corridor),item),
+                            road.name,item.name);
+        }
+    }
+    apricot_test::pass("southwest road and sidewalk corridors clear every active authored lot");
 }
 
 void graffiti_is_a_complete_rear_wall_set() {
@@ -231,7 +270,8 @@ void graffiti_is_a_complete_rear_wall_set() {
 
 int main() {
     no_active_authored_lots_overlap();
-    vellum_lots_have_flat_ground_support();
+    pinatty_lots_have_flat_ground_support();
+    southwest_roads_clear_all_active_lots();
     graffiti_is_a_complete_rear_wall_set();
     return apricot_test::done("authored_city_layout_tests");
 }

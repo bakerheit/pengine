@@ -1,4 +1,4 @@
-# Vellum Regional Hospital: four-story interior plan
+# Pinatty Regional Hospital: four-story interior plan
 
 Status: planning/design sidecar for the road-free, four-story hospital revision.
 This document does not change the current shell, roads, collision, runtime

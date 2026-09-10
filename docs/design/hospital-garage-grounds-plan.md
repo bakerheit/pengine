@@ -1,4 +1,4 @@
-# Vellum Regional hospital garage and grounds plan
+# Pinatty Regional hospital garage and grounds plan
 
 Planning sidecar for the last-row, two-block parking garage in
 `src/city/hospital_campus.h`. This file does not change production geometry,
@@ -12,9 +12,9 @@ collision, roads, tests, CMake, or the parent hospital-campus brief.
 - The campus portions of Rook Lane and Seventh Street are removed. Their
   surviving perimeter stubs are not garage access and no garage vehicle
   movement in this plan depends on either alignment.
-- Bellweather Road, Sixth Street, and Vellum Row remain perimeter streets.
+- Bellweather Road, Sixth Street, and Pinatty Row remain perimeter streets.
   Garage entry is from Bellweather Road (road id 22), exit is to Sixth Street
-  (road id 36), and Vellum Row (road id 24) gets no curb cut.
+  (road id 36), and Pinatty Row (road id 24) gets no curb cut.
 - The garage remains in the current two-block cell. Do not move it to recover
   parking capacity; circulation and a safe hospital walk matter more than the
   last row of stalls.
@@ -37,7 +37,7 @@ coordinates into production code.
 | Former campus Rook Lane alignment | `x=46.0` |
 | Former campus Seventh Street alignment | `z=155.0` |
 | Sixth Street centreline | `z=217.0` |
-| Vellum Row centreline | `x=138.0` |
+| Pinatty Row centreline | `x=138.0` |
 
 Current deck-envelope corners, useful only for visual QA, are:
 
@@ -47,7 +47,7 @@ Current deck-envelope corners, useful only for visual QA, are:
 - southwest `(-27.0, 204.5)` -> world `(-86.3087, -131.3391)`.
 
 With current road widths, the campus-side edge of Bellweather's sidewalk is
-approximately `x=-36`, Sixth's is `z=207`, and Vellum Row's is `x=124`.
+approximately `x=-36`, Sixth's is `z=207`, and Pinatty Row's is `x=124`.
 Re-measure these from baked ribbons after the parent road edit. The current
 third-row hospital rear wall (source row index 2) is near `z=141.7`, leaving
 about 25.8 m between the wing and the garage's north face once the Seventh
@@ -61,7 +61,7 @@ at `x=46`, `z=155`, spanning approximately `z[143,167]`.
                  P2 skybridge over protected ground walk
             lawn / rain garden in former Seventh Street corridor
                              ||
- Bellweather      +---------------------------------------------+   Vellum Row
+ Bellweather      +---------------------------------------------+   Pinatty Row
  Road             | west stair | main lift | parking           |   (no access)
  entry ---------->| pay gate   | stacked ramp / circulation    |
                   |             dropoff pocket -----------> exit|
@@ -108,7 +108,7 @@ at `x=46`, `z=155`, spanning approximately `z[143,167]`.
   station and barrier pedestal. Begin the island only after the sidewalk
   crossing so a person following Bellweather is not pinched against equipment.
 - Restrict this access explicitly to road id 22. Nearest-road selection is not
-  safe here because the removed Rook/Seventh segments and the Vellum arterial
+  safe here because the removed Rook/Seventh segments and the Pinatty arterial
   are all close enough to be plausible wrong answers.
 
 ### Sixth Street exit
@@ -117,7 +117,7 @@ at `x=46`, `z=155`, spanning approximately `z[143,167]`.
   degrees. The gate line sits inside the structure around `z=200.5`, with at
   least 18 m of queue storage behind it.
 - Shape the curb return for a right turn toward grid west. Do not add a second
-  curb cut to Vellum Row or let the apron spread into the Vellum/Sixth
+  curb cut to Pinatty Row or let the apron spread into the Pinatty/Sixth
   intersection sight area.
 - Merge P1 parking and dropoff traffic before the gate, not on the sidewalk.
   Mark a yield line at that merge and keep a 6 m by 6 m clear sight box around
@@ -214,9 +214,9 @@ at `x=46`, `z=155`, spanning approximately `z[143,167]`.
   Nothing taller than 0.75 m belongs beside the entry throat or in its sight
   triangle.
 - **East drainage strip:** only about 5 m remains between the widened garage
-  and Vellum Row's sidewalk. A narrow slot drain or low planted run near
+  and Pinatty Row's sidewalk. A narrow slot drain or low planted run near
   `x[120,123]`, `z[171,198]` is enough. Do not place trees, benches, or a
-  driveway in it, and keep its south end low so the Sixth/Vellum corner remains
+  driveway in it, and keep its south end low so the Sixth/Pinatty corner remains
   readable.
 - **South edge:** space is tight between the garage and Sixth's sidewalk. Use
   flush paving and low groundcover only. No tree, bench, pay kiosk, or deep
@@ -250,7 +250,7 @@ at `x=46`, `z=155`, spanning approximately `z[143,167]`.
 Use exact, short copy and render it with geometry or the runtime font path so
 it stays readable. Do not bake these words into a generic repeating texture.
 
-- Bellweather entry sign: `VELLUM REGIONAL` / `PARKING` / `ENTRY`.
+- Bellweather entry sign: `PINATTY REGIONAL` / `PARKING` / `ENTRY`.
 - Dropoff fascia: `PATIENT DROPOFF` / `10 MIN`.
 - Main core, garage-facing: `HOSPITAL` / `ELEVATORS`.
 - Exit header: `EXIT` / `SIXTH STREET`.
@@ -341,7 +341,7 @@ not add or run them.
   and real hospital rear opening. Add blocked-wall/closed-door negative
   controls so a test cannot pass by walking through geometry.
 - Assert no garage access or lane-graph connection uses the removed Rook Lane
-  or Seventh Street campus segments and no curb cut touches Vellum Row.
+  or Seventh Street campus segments and no curb cut touches Pinatty Row.
 - Inspect daytime and nighttime screenshots from Bellweather, Sixth, the north
   hospital court, P1 dropoff, an upper deck, and both ramp endpoints. A clean
   GL queue or bounded smoke run is stability evidence, not circulation or

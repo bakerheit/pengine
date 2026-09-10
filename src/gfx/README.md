@@ -87,6 +87,30 @@ separate world-scale layer: clear weather keeps a long view, while weather pulls
 the fully opaque horizon inward. Keeping those jobs separate means storm tuning
 cannot quietly drift the clear-day lighting model.
 
+### Precipitation and cloud are two axes, not one
+
+`WeatherParams::overcast` is **deck opacity**; `rain` and `snow` are how much
+water is falling through it. They used to be summed into one cloud figure, which
+made the sky a function of the downpour: asking for heavy rain closed the deck
+whether you wanted it or not, so a bright sunshower was not a look this engine
+could express. Precipitation now only holds the deck to a **minimum**
+(`kPrecipCloudFloor`), bounded so that **precipitation alone can never hide the
+sun** — only `overcast` can. `DevWeatherPreset::Sunshower` exists to keep that
+honest; if it ever stops looking bright, the two axes have been welded back
+together.
+
+The deck's bite is weighted by the sun as well as by its own thickness
+(`deck_transmission`): a low sun's light takes a longer slant path through the
+same cloud, so one storm reads differently at noon, at dusk and at midnight. A
+single flat multiplier gave the same mid-grey at every hour, and heavy weather
+used to *lift* screen brightness, because the deck colour sat above the sky it
+hung under. Both are pinned in `tests/sky_env_tests.cpp`.
+
+Colours under weather derive from the environment's **own luminance**
+(`deck_grey`) rather than from absolute constants. An absolute grey reads as one
+flat tint at every hour, and the tell was a foggy midnight painting a horizon
+band brighter than the sky above it.
+
 ## Headless-testable by design
 
 `sky_env.h`, `rain_field.h`, `glyph_atlas.h`, `primitives.h` and `instance.h`

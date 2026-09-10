@@ -126,12 +126,30 @@ LaneSchedule vehicle_schedule(uint64_t map_seed, const Lane& lane,
     return build_schedule(map_seed, lane, spacing, t.max_vehicle_slots, v);
 }
 
+float ped_hotspot_gain(const LaneGraph& graph, LaneRef lane,
+                       const AmbientTuning& t) {
+    if (!graph.valid(lane)) return 1.0f;
+    const Lane& l = graph.lane(lane);
+    auto arms = [&](uint32_t j) {
+        // Capped at four: a five-way is not two and a half times busier than a
+        // crossroads, and one freak junction should not dominate the map.
+        return j < graph.junction_count()
+            ? std::min<uint32_t>(graph.junction(j).degree, 4u) : 1u;
+    };
+    // 1 is a stub at both ends, 4 is a crossroads at both.
+    const float corners = 0.5f * (static_cast<float>(arms(l.junction_from)) +
+                                  static_cast<float>(arms(l.junction_to)));
+    const float u = std::clamp((corners - 1.0f) / 3.0f, 0.0f, 1.0f);
+    return t.ped_hotspot_quiet + (t.ped_hotspot_busy - t.ped_hotspot_quiet) * u;
+}
+
 LaneSchedule ped_schedule(uint64_t map_seed, const Lane& lane,
-                          const AmbientTuning& t) {
+                          const AmbientTuning& t, float density_gain) {
     Rng r{phantom_key(map_seed, lane.key, 0u, kChannelPhantomPedSpeed)};
     const float v = r.range(t.ped_speed_lo, t.ped_speed_hi);
     // Two footways, so the same along-lane spacing yields twice the slots.
-    const float density = std::max(lane.ped_density * 2.0f, 0.0f);
+    const float density =
+        std::max(lane.ped_density * 2.0f * std::max(density_gain, 0.0f), 0.0f);
     const float spacing = density > 0.0f
         ? std::max(t.ped_spacing_m / density, 1.0f) : 0.0f;
     return build_schedule(map_seed, lane, spacing, t.max_ped_slots, v);
@@ -158,6 +176,18 @@ PhantomState phantom_vehicle(uint64_t map_seed, const Lane& lane,
     return p;
 }
 
+int64_t phantom_lap(const LaneSchedule& sched, uint32_t slot, int64_t step) {
+    if (sched.period_steps <= 0) return 0;
+    const int64_t v = step - sched.depart_step -
+                      static_cast<int64_t>(slot) * sched.headway_steps;
+    // Floor division, to match wrap()'s non-negative remainder. Truncation
+    // would make the lap jump back to 0 across the schedule epoch and hand two
+    // different departures the same identity.
+    int64_t q = v / sched.period_steps;
+    if (v % sched.period_steps < 0) --q;
+    return q;
+}
+
 PhantomState phantom_ped(uint64_t map_seed, const Lane& lane,
                          const LaneSchedule& sched, uint32_t slot,
                          int64_t step, const AmbientTuning& t) {
@@ -178,6 +208,80 @@ PhantomState phantom_ped(uint64_t map_seed, const Lane& lane,
     // traffic without a second hash and without a count that drifts.
     const float side = (slot & 1u) ? -1.0f : 1.0f;
     p.lateral_m = side * (lane.width_m * 0.5f + t.sidewalk_offset_m);
+    return p;
+}
+
+ParkedLaneBay parked_lane_bay(const Lane& lane, const AmbientTuning& t) {
+    ParkedLaneBay bay;
+    // Kerbs first: a class with no sidewalk has no kerb to park against, which
+    // takes out freeways, alleys and dirt roads without naming any of them.
+    if (!road_class_def(lane.cls).sidewalks) return bay;
+    // Then the OUTERMOST lane only. Lane 0 is nearest the centreline, so an
+    // inner lane on a wide road would otherwise also see room at the kerb and
+    // the road would come out double-parked.
+    const uint32_t outermost = static_cast<uint32_t>(
+        std::max<uint8_t>(1, std::max(lane.lanes_at_start, lane.lanes_at_end)));
+    if (static_cast<uint32_t>(lane.index) + 1u != outermost) return bay;
+
+    const float half = lane.width_m * 0.5f;
+    const float centre_from_road =
+        half - t.parked_kerb_gap_m - t.parked_half_width_m;
+    // In the lane's own frame. lateral_offset_m is how far right of the road
+    // centreline this lane sits, so subtracting it converts one to the other —
+    // the identical conversion the footway offset makes.
+    const float lateral = centre_from_road - lane.lateral_offset_m;
+    // The gate: room between the traffic and the parked bodies. Nothing in
+    // this module puts a parked car in a driver's obstacle set, so a bay that
+    // reaches the lane centre is a bay the AI drives through.
+    if (lateral - t.parked_half_width_m < t.parked_lane_clearance_m) return bay;
+
+    const float usable =
+        lane.length_m - 2.0f * t.parked_junction_setback_m;
+    if (!(usable > 0.0f)) return bay;
+
+    // The road has room. Everything from here decides how much of it the
+    // DISTRICT fills, and `slots == 0` past this point means an empty kerb by
+    // authorial choice rather than a road that could never have one.
+    bay.lateral_m = lateral;
+    bay.usable_m = usable;
+
+    const float density = std::max(lane.parked_density, 0.0f);
+    if (!(density > 0.0f)) return bay;
+    const float pitch = std::max(t.parked_spacing_m, 1.0f) / density;
+    const int64_t count = static_cast<int64_t>(std::floor(usable / pitch));
+    if (count <= 0) return bay;
+
+    bay.slots = static_cast<uint32_t>(
+        std::min<int64_t>(count, static_cast<int64_t>(t.max_parked_slots)));
+    // Re-spread over the usable run after the cap, for the same reason
+    // build_schedule() re-derives its headway: capping without re-spreading
+    // bunches every capped lane against the near junction.
+    bay.pitch_m = usable / static_cast<float>(bay.slots);
+    bay.first_m = t.parked_junction_setback_m + bay.pitch_m * 0.5f;
+    return bay;
+}
+
+ParkedSlot parked_slot(uint64_t map_seed, const Lane& lane,
+                       const ParkedLaneBay& bay, uint32_t slot,
+                       const AmbientTuning& t) {
+    ParkedSlot p;
+    if (bay.slots == 0 || slot >= bay.slots) return p;
+    p.lateral_m = bay.lateral_m;
+
+    // Jitter inside the slot's own share of the kerb, never across it, so two
+    // parked cars can never be placed on top of each other however the rolls
+    // fall. Half the pitch minus a body length is what is genuinely free.
+    Rng along{phantom_key(map_seed, lane.key, slot, kChannelParkedAlong)};
+    const float free = std::max(0.0f, bay.pitch_m * 0.5f - 2.6f);
+    const float centre = bay.first_m + bay.pitch_m * static_cast<float>(slot);
+    p.dist_along_m = std::clamp(centre + along.range(-free, free),
+                                t.parked_junction_setback_m,
+                                std::max(t.parked_junction_setback_m,
+                                         lane.length_m -
+                                             t.parked_junction_setback_m));
+
+    Rng facing{phantom_key(map_seed, lane.key, slot, kChannelParkedFacing)};
+    p.reversed = facing.next_float() < 0.34f;
     return p;
 }
 

@@ -1,4 +1,4 @@
-# `src/city/` — O'Haven, Florangia, and the city decision layers
+# `src/city/` — Pinatty, Florangia, and the city decision layers
 
 A sim-side module (`apricot_sim`) holding two things that arrived from different
 directions.
@@ -24,15 +24,137 @@ storage and deterministic alternate-turn planning keep queues out of the
 intersection box. Committed cars ignore later signals until their rear clears
 that computed box and use fast contact recovery, merge reservations, and an
 intersection-clearance watchdog rather than returning to ordinary queue
-behavior halfway through a turn. The deeper physical recovery/overtake/emergency maneuver
-stack, police, and pedestrians still compile and test headlessly but are not
-connected to the running city yet.
+behavior halfway through a turn. The overtake/emergency maneuver stack, the
+police, and the pedestrians are all connected too: cruisers yield to sirens,
+pull aside, pass stopped traffic, turn around mid-block and — once dispatched —
+run reds, stop signs, yields and right of way at a capped crossing speed, and
+leave the lane centre to make contact with the player. **An engaged unit is
+exempt from the RULE, never from the car**: it ignores the bulb and the
+priority, and still stops for a vehicle already committed to the junction box.
+
+**A pursuit is an outcome, not a rule, and that is why it was broken for so
+long.** Every police suite here passed while a chase read as nobody chasing
+you, because each one asked whether a rule fired — does a patrol witness, does
+a cruiser convert, does an officer dismount — and none measured the gap over a
+whole drive. `tests/police_chase_tests.cpp` now does: it flees down the real
+authored streets and asserts on the distance. What it found was four separate
+defects, none visible from any single rule. Pursuers were retired as ordinary
+traffic at ~320 m, so no cruiser ever stayed with you — the car behind you was
+never the same car twice. A pursuer whose route degraded picked its turns from
+`choose_next()`, the weighted **random** draw ambient traffic uses. Right of way
+could hold a stopped pursuer indefinitely, because a stopped car has a long ETA,
+a long ETA loses the compare, and losing keeps it stopped. And the overtake that
+exists to get a cruiser *out* of traffic ran at 5 m/s, so a suspect at 40 mph
+gained 120 m inside the one manoeuvre meant to save the chase. Measured on the
+authored city, fixing those took the mean gap from 82 m to 52 m, the worst gap
+from beyond 240 m to under 105 m, and mid-chase pursuer deletions from routine
+to zero. **Do not tune police driving without re-running that suite** — every
+one of those defects looked correct in isolation.
+
+**A fifth defect only showed up once the suite measured more than one street:
+a cruiser could not get past a queue.** `PoliceBypass` passes ONE stopped car
+mid-block — it needs 28 m of run and must finish before the junction clearance —
+and a car queued at a red has neither. Worse, `prepare_emergency_maneuvers`
+refused to plan anything at all inside the junction approach, which is the only
+place a queue ever forms, so the cruiser could not pass and the car in front of
+it could not yield. Units averaged 8.7 m/s against a suspect doing 18 and sat at
+a standstill for 29% of the chase. The queue jump runs the outside of the queue
+instead and deliberately finishes at the junction mouth at ZERO offset — ending
+beside the queue parks a car until it can merge, and it cannot merge inside the
+zone. That took time-at-a-standstill from 36% to 23% and the close-contact share
+from 34% to 43%.
+
+**What no amount of police work fixes, and the reason the suite runs three
+different starts:** in the densest authored districts ambient traffic itself
+averages about 4.5 m/s, and a pursuit cannot outrun the medium it is driving in.
+One of the four scenarios sits in such a district and the gap there stays above
+150 m however well the cruisers drive — verified by running the same district
+with the chase switched off and getting the same traffic speeds. That is a
+traffic-density and junction-throughput question, not a police one. The suite
+asserts on **time at a standstill** as well as the gap for exactly that reason:
+it is the half of "they just sit in traffic" that police code can actually move.
+
+**Then the real one: THEY STAY ON THE ROAD.** Everything above makes a cruiser
+a better piece of *traffic* — it runs the lights, it jumps the queue, it corners
+harder — and none of it can make a lane-following agent leave the road, because
+a lane-follower is defined by the lane. In this genre a police car stops using
+the road network in the last thirty metres and drives at you across whatever is
+in between. `police_terminal_pursuit_cmd` in `police_ai.{h,cpp}` is the command
+kernel for exactly that: it came across with the rest of the police lift and
+**was never called by anything**, so only the lane-following half of the port
+was ever wired up, and a pursuit here was a commute with a siren on.
+
+A dispatched cruiser inside `free_chase_range` now leaves the lane graph and is
+stepped by `step_vehicle` — the same physics, collider and fixed `dt` as the
+player's own car — with that kernel steering it. Its lane fields go stale for
+the duration and are re-anchored on release. Four guards keep it honest, and
+each one is load-bearing:
+
+- **line of sight.** Aiming is the whole controller, so a building in between
+  does not become a detour, it becomes the thing it drives into. No sight, no
+  hand-off; the lane path is what gets you round a corner.
+- **a stall timer.** Throttle open and not moving means the aim has walked the
+  car into something. Give the road back rather than sit there revving, and
+  stay on it for five seconds so it does not repeat the mistake immediately.
+- **never at a suspect on foot.** That case belongs to the officer — the
+  cruiser brakes, the door opens, somebody walks after you. Driving at a
+  pedestrian runs the dismount phase machine off stale lane fields and simply
+  drives over the arrest.
+- **wide hysteresis** (engage 34 m, release 90 m) so a cruiser does not flicker
+  between the two modes at the boundary.
+
+**The hand-off distance is `route_handoff_range` for a reason.** Set wider —
+34 m was tried — a cruiser spends the extra distance driving AT a moving target,
+overshoots it, and then has to turn around in front of the player. That
+turn-around is where "the police just reverse into things instead of trying to
+turn around" comes from, and the reverse itself was wrong twice over: the port
+reversed unconditionally whenever the target was behind, and reversed with the
+wheels pointed AT the target. The front wheels still steer in reverse, so the
+nose goes OPPOSITE them — steering at the target while backing up swings the
+car further away, it never comes round, and it goes on reversing into whatever
+is behind it. A car with room now turns around forwards at full lock, and only
+backs up when that has visibly failed, with the steering inverted so the reverse
+leg actually rotates the nose toward the target.
+
+**Two bugs hid inside that hand-off, and the screenshot found both.**
+
+The first: the free-drive seed built its orientation with `glm::quatLookAt(-forward, up)`. `quatLookAt` maps local **-Z** onto the direction it is given, and `vehicle_forward()` is `orientation * (0,0,-1)` — so it takes `forward` directly, and negating it seeds the car facing **exactly backwards**. That is a clean 180 degrees in a single step (21,600 deg/s at 120 Hz) in front of the player, on every single engagement, and it poisons everything downstream: a car seeded backwards reads "the target is behind me" from the first tick and spends the whole engagement turning around from a spin it never performed. It also flattered every measurement, because the resulting reverse ran the cruiser *toward* the player and closed the gap. `police_chase_tests` asserts free-driving cruisers stay under 400 deg/s; healthy is about 70.
+
+The second: the hand-off was distance-only, so a suspect who left the road entirely — a verge, a forecourt, a car park — was chased by cruisers that had nothing to route to and parked on the nearest tarmac. `police_target_offroad_m_` (set in `set_police_context` from the suspect's distance to the nearest lane centreline) widens the hand-off to the release radius once he is off the network, because that is precisely when the lane path cannot reach him. Measured on a player who pulls onto the verge and stops: closest approach 73 m → 1.2 m.
+
+**Known and NOT fixed here:** ordinary lane-following traffic has its own 180-degree pose snaps at junctions — the same 21,600 deg/s — and they persist with police free-drive switched off entirely. They predate all of this and live in the junction turn commit, not the police path. The suite prints both figures side by side and asserts only on the free-driving one, so nobody pins someone else's bug by accident.
+
+**Do not tune that pair on distance alone.** Reversing toward the player shrinks
+the gap, so at a wide hand-off the BROKEN controller scores a better mean gap
+than the fixed one while looking obviously wrong — which is exactly how it
+survived. `police_chase_tests` prints time-spent-reversing and
+time-spent-pointed-away for that reason. At the tuned 22 m neither of those
+separates the two (the gap does, 69 m against 93 m); they are there to stay
+honest if someone widens the hand-off again.
+
+In the jammed district this is the whole difference: mean gap 163 m → 62 m, and
+a cruiser within 60 m for **71%** of the chase instead of 12%. Across the four
+scenarios, 91 m → 69 m and 43% → 51% within 60 m. The suite asserts that
+pursuers spend real time OFF the lane graph, because no gap or speed figure
+catches "they never left the road" — and it fails with that hand-off disabled.
+
+The suite's world is filled with coarse block proxies (every patch of ground
+more than 13 m from a lane) for one reason: measuring free driving over bare
+terrain lets a cruiser cut across city blocks that hold buildings in the real
+game, which would flatter the feature into meaninglessness.
+
+One measurement trap worth keeping: the suite pins the app's own ambient density
+(`48 m` spacing, 16 slots — see `src/app/world.cpp`) rather than the
+`AmbientTuning` defaults (`34 m`, 32 slots). The defaults are close to double,
+gridlock the authored grid on their own, and made every pursuit look hopeless
+whether the police code was good or not.
 
 | File | What it decides |
 |---|---|
 | `traffic_ai.{h,cpp}` | Follow gaps, yellow lights, jam passing, the recovery ladder, permissive-left yield, overtake gap acceptance, player hazards, panic, emergency yield, go-around kinematics |
-| `police_ai.{h,cpp}` | Witness and contact gates, terminal pursuit, wanted heat decay, graceful stand-down, response delay, ram attribution, roadblock composition |
+| `police_ai.{h,cpp}` | Witness and contact gates, the free-drive pursuit command (`police_terminal_pursuit_cmd`) and its hand-off range, the engaged-unit control override and ram gate, wanted heat decay, graceful stand-down, response delay, ram attribution, roadblock composition |
 | `pedestrian_separation.h` | One pedestrian's per-frame sidestep |
+| `police_officer.h` | The officer occupancy phase machine, and his health: three pistol rounds put an on-foot officer down, which freezes his phase, disarms him and holds his cruiser for the window |
 | `pedestrian_reactions.h` | How a punched pedestrian reacts, and the fighter tunables |
 | `character_punch.h` / `character_getup.h` | The melee and get-up phase clocks |
 | `weather.{h,cpp}` | The weather state machine: kinds, scheduler, drift, Rain→Storm progression |
@@ -41,10 +163,10 @@ connected to the running city yet.
 | `mission_def.h` | The authored-mission data contract |
 | `road_author.{h,cpp}` + `road_types.h` | The authoring node/edge road graph and the road-type registry |
 | `building_creator.{h,cpp}` | Renderer-free Sims-style walls, openings, roofs, fixtures and stairs, baked into render/collision pieces |
-| `start_area.h` | Complete creator documents for Halloway Gas, Causeway Court Motel, Halloway Flats, Cloggers, and the enterable O'Haven Savings bank |
+| `start_area.h` | Complete creator documents for Halloway Gas, Causeway Court Motel, Halloway Flats, Cloggers, and the enterable Pinatty Savings bank |
 | `tacomaco.h` | Second site for the copied Cloggers fast-food shell, with independent parcel and brand identity |
 | `bank_vault_layout.h` | Hinged bank-vault geometry and the shared world/local transform for interactions and moving collision |
-| `roads.h` | **O'Haven's road network.** 99 authored spines, and the table every `Grade` terrain operator is derived from |
+| `roads.h` | **Pinatty's road network.** 99 authored spines, and the table every `Grade` terrain operator is derived from |
 | `spines.{h,cpp}` | `map_spines()` — the one file here that includes from `src/road/`, and the static_asserts that keep the two modules' width, sidewalk, class and structure tables from drifting |
 | `city_rng.h` | How this module draws randomness, and the channel list |
 
@@ -128,7 +250,7 @@ same reason. `kMaxCorridorPoints == kMaxRoadPoints` is what prevents it.
 
 ### `shapes_ground` is authored but not trusted
 
-A road on a district plate that is already flat at full strength — Vellum Row's
+A road on a district plate that is already flat at full strength — Pinatty Row's
 12.0 m, Saltmarsh's 5.5 m — is already exact at every level, because a constant
 is as planar as a plane gets, and an operator there would be pure cost. A decked
 road must **never** grade, or it fills in the channel it was built to cross;
@@ -147,7 +269,7 @@ cuts across the container apron.
 `RoadGraph` into a real `bake_ribbons()` on the real terrain — and then plans a
 route with the real `LaneGraph` and **drives a real `VehicleState` down it**
 through `step_vehicle()` against a real `TerrainCollider` at 120 Hz. Five
-journeys out of Vellum Row: to Camber Point over the causeway, up Ferrone Hill's
+journeys out of Pinatty Row: to Camber Point over the causeway, up Ferrone Hill's
 switchbacks, to Kepler Flats over the Kessel Bridge, out to the Strand, and out
 to Marrow's dirt. All five arrive and the car sinks 0.00 m below the drawn
 ground on every one.

@@ -7,7 +7,7 @@
 namespace apricot {
 namespace city {
 
-// O'HAVEN'S ROAD SPINES, as src/road/ wants them.
+// PINATTY'S ROAD SPINES, as src/road/ wants them.
 //
 // This is the seam road/road_graph.h names in its own header:
 //
@@ -39,6 +39,9 @@ std::vector<RoadSpine> map_spines();
 // FELT".
 inline constexpr float kMeadowsTrafficDensity = 0.20f;
 inline constexpr float kMeadowsPedDensity = 0.03f;
+// And nobody parks on a country road. Lower than Marrow's 0.05, which is the
+// emptiest kerb any district authors.
+inline constexpr float kMeadowsParkedDensity = 0.02f;
 
 }  // namespace city
 }  // namespace apricot

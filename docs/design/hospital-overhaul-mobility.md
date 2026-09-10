@@ -1,4 +1,4 @@
-# Vellum Regional Hospital public mobility layer
+# Pinatty Regional Hospital public mobility layer
 
 This layer implements the public-facing circulation from the hospital overhaul
 master contract. Every coordinate is local to `kHospitalSite`; `+x` is grid

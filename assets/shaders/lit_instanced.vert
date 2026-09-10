@@ -35,6 +35,9 @@ out vec3 v_normal;
 out vec2 v_uv;
 out vec4 v_tint;
 out vec4 v_terrain_weights;
+// Authored windshield coordinates share the otherwise unused vehicle splat
+// attribute. Negative W tags glass; XYZ are pane UV and width/height ratio.
+out vec4 v_windshield;
 flat out float v_vehicle_lamp;
 flat out int v_headlight_profile;
 out vec3 v_lamp_source_position;
@@ -319,6 +322,8 @@ void main() {
     // tiling interpolates and the texture lookup stays one instruction.
     bool terrain=a_inst_uv_scale.x>0.0 && a_inst_uv_scale.y<0.0;
     v_terrain_weights=terrain ? a_material_weights : vec4(0);
+    v_windshield=!terrain && a_material_weights.w<0.0
+        ? vec4(a_material_weights.xyz,1.0) : vec4(0.0);
     v_uv        = v_vehicle_lamp >= 0.0 ? a_uv : a_uv *
         (terrain ? abs(a_inst_uv_scale) : a_inst_uv_scale);
     v_tint      = a_inst_tint;

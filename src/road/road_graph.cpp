@@ -381,8 +381,10 @@ void RoadGraph::build(const std::vector<RoadSpine>& spines,
                 static_cast<float>(spine_lanes_start),
                 static_cast<float>(spine_lanes_end), end_t)));
             e.block_quality = sp.block_quality;
+            e.speed_limit_mps = sp.speed_limit_mps;
             e.traffic_density = sp.traffic_density;
             e.ped_density = sp.ped_density;
+            e.parked_density = sp.parked_density;
             e.spine_id = sp.id;
             e.spine_run = run++;
 

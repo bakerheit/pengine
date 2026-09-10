@@ -11,10 +11,10 @@ below do not. Where a rule is enforced by code that is currently a stub, that
 is called out explicitly rather than glossed — a doc that describes the engine
 you meant to write is worse than no doc.
 
-**The game world has two states.** O'Haven is the GTA-style authored city
-rebuilding `probablecause`; Florangia is its low subtropical neighbor to the
-southeast. Their briefs are [`docs/design/pinatty.md`](design/pinatty.md) (the
-legacy O'Haven filename) and [`docs/design/florangia.md`](design/florangia.md).
+**The game world has two states.** O'Haven holds Pinatty, the GTA-style authored
+city rebuilding `probablecause`; Florangia is its low subtropical neighbor to
+the southeast. Their briefs are [`docs/design/pinatty.md`](design/pinatty.md)
+and [`docs/design/florangia.md`](design/florangia.md).
 **Its MAP and its ROADS are implemented; the rest is not.** `src/city/` holds
 the ten district polygons, their character parameters, the landmark table, the
 terrain operators that `height_at()` evaluates (PENG-41), and the authored road
@@ -434,13 +434,13 @@ far side of the island passes either way.
 cached file on disk silently outranks a code change. Caching generated cells to
 disk once flooded pengine's working tree with hundreds of phantom files.
 
-**The seed is the world identity — and from O'Haven onward, so is the map.**
+**The seed is the world identity — and from Pinatty onward, so is the map.**
 This rule has been amended, deliberately, the amendment is narrow, and as of
 PENG-41 it is implemented: `city::kMapSeed` is pinned in the map tables and
 `App` builds its `TerrainCollider` from it, while `App::seed_` carries the
 session.
 
-O'Haven is an *authored* city: a specific place with named districts that a
+Pinatty is an *authored* city: a specific place with named districts that a
 player learns, not a fresh draw per seed. So the world is now a pure function
 of `(map, seed, coord)` rather than `(seed, coord)`, where `map` is a compact,
 human-editable, diffable definition in the repo — district polygons, road
@@ -578,6 +578,30 @@ object while still "working".
 **A per-node draw distance only ever shortens visibility.** Letting an authored
 value extend past the global limit means one node can defeat the streaming
 budget from the far side of the world.
+
+**A diagnostic camera must be able to reach the thing it exists to show, and
+nothing about the frame tells you when it cannot.** The `--overhead` QA camera
+sits at a fixed world height. Traffic cars were presented to 420 m and ambient
+characters to 175 m, both measured from the eye, so from that height the view
+culled **every car and every pedestrian at once**. Roads, buildings and signal
+heads carry longer budgets, so what came back was not a broken render — it was
+a clean, plausible, empty junction. It was read as evidence that a junction the
+sim was actively queueing cars through was clear, and it cost an entire
+investigation before anyone diffed two captures and found that ninety seconds
+of simulation had changed one pixel.
+
+The budgets and the camera height now live together in
+`src/app/presentation_budgets.h` with the policy that relates them, because
+holding them in three files with nothing connecting them is the whole bug.
+Derive such a distance, never pick it: the farthest actor that can exist is at
+its class's **retire** radius horizontally and at `kMinHeightMetres` — the
+terrain floor, which is below sea level — vertically. Two limits survive the
+fix and no draw distance can remove them: the crowd activates and retires
+against the **player focus**, so actors near the camera stop *existing* once
+the player leaves the anchor; and at that height the scale is 0.46 m per pixel, so a
+pedestrian measures one to four pixels (median three, measured). The view can
+show that people are present and moving; it cannot support a crossing-clearance
+judgement. Use a ground-level capture for that.
 
 **An inverted AABB passes every plane test.** A box that has never been
 expanded has `min = +inf, max = -inf`, which is inside every frustum plane and
@@ -727,7 +751,7 @@ targets would have to be authored in normalised shape units rather than metres,
 and a Carve could not reach a stated depth below sea level at all — but worse,
 the island mask MULTIPLIES the shape, so an operator applied before it gets
 scaled down by the mask and TILTED by the mask's gradient. Every flattened area
-in O'Haven is near the coast: the dock apron, the Strand promenade, the airfield
+in Pinatty is near the coast: the dock apron, the Strand promenade, the airfield
 on its spit, the causeway. A flatten inside the mask comes out neither flat nor
 at the height it was asked for, exactly where it matters most.
 

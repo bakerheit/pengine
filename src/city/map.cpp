@@ -40,7 +40,7 @@ DistrictId district_at(float x, float z) {
 const District& district(DistrictId id) {
     const int i = static_cast<int>(id);
     // Clamped rather than asserted. This is called from generation, which has
-    // no error channel worth the name; handing back Vellum Row for a corrupt
+    // no error channel worth the name; handing back Pinatty Row for a corrupt
     // id is wrong, but it is wrong in a way that draws a city, and the id is
     // dense-and-ordered by static_assert so the only way to get here is a cast
     // from an integer that was never a district.

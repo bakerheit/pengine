@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -143,11 +144,27 @@ void test_police_terminal_pursuit_characterization() {
         REQUIRE(c.throttle == 0.f);
         REQUIRE(c.brake == 0.75f);
     }
-    // Target behind, nearly stopped -> reverse to recover from the missed pass.
+    // Target behind, nearly stopped, ROOM AHEAD -> turn around forwards at
+    // full lock toward the target's side. This deliberately DIVERGES from the
+    // ported behaviour, which reversed here unconditionally: a car with space
+    // in front of it turns round in one forward arc, and the port's reverse
+    // left cruisers backing into walls for the rest of a chase.
     {
         PursuitCmd c = police_terminal_pursuit_cmd(30.f, -0.5f, 0.3f, 2.f);
+        REQUIRE(c.throttle == 1.f);
+        REQUIRE(c.brake == 0.f);
+        REQUIRE(c.steer == 1.f);
+        REQUIRE(police_terminal_pursuit_cmd(30.f, -0.5f, -0.3f, 2.f).steer == -1.f);
+    }
+    // Target behind, nearly stopped, BOXED IN -> back up, and steer the OTHER
+    // way. In reverse the nose goes opposite the front wheels, so steering at
+    // the target is what stops the car ever coming round.
+    {
+        PursuitCmd c = police_terminal_pursuit_cmd(30.f, -0.5f, 0.3f, 2.f, true);
         REQUIRE(c.throttle == -0.65f);
         REQUIRE(c.brake == 0.f);
+        REQUIRE(c.steer == -1.f);
+        REQUIRE(police_terminal_pursuit_cmd(30.f, -0.5f, -0.3f, 2.f, true).steer == 1.f);
     }
     // Ram window: lined up & close (<8 m) -> full throttle; point-blank (<2.5 m)
     // eases to 0.6 so a pressed cruiser keeps shoving without grinding.
@@ -622,6 +639,72 @@ void test_roadblock_dispatch_gate() {
     REQUIRE(roadblock_dispatch_step(true, 0.1f, 5, 0, 8, 1.f, t).cooldown == 0.f);
 }
 
+void test_predictive_pursuit_and_catchup_speed() {
+    REQUIRE(police_pursuit_intercept({10.0f, 20.0f}, {0.0f, 0.0f}) ==
+            glm::vec2(10.0f, 20.0f));
+    const glm::vec2 lead = police_pursuit_intercept(
+        {10.0f, 20.0f}, {18.0f, 0.0f});
+    REQUIRE(lead.x > 30.0f && lead.x <= 55.0f);
+    REQUIRE_NEAR(lead.y, 20.0f, 1e-6f);
+    const glm::vec2 capped = police_pursuit_intercept(
+        {0.0f, 0.0f}, {100.0f, 0.0f});
+    REQUIRE_NEAR(glm::length(capped), 45.0f, 1e-5f);
+
+    REQUIRE(police_pursuit_cruise_mps(30.0f, 30.0f, 1) > 30.0f);
+    REQUIRE(police_pursuit_cruise_mps(11.1f, 24.0f, 3) > 27.0f);
+    REQUIRE_NEAR(police_pursuit_cruise_mps(30.0f, 80.0f, 5), 38.0f, 1e-6f);
+}
+
+// A dispatched cruiser does not queue at the lights. What the override caps is
+// the CROSSING; what it must never do is touch a car that is not engaged, which
+// is why the disengaged answer is infinity — the identity for the caller's min.
+void test_police_control_override_speed() {
+    PoliceTuning t;
+    REQUIRE(!std::isfinite(police_control_override_speed(false, 0.f, t)));
+    REQUIRE(!std::isfinite(police_control_override_speed(false, 40.f, t)));
+
+    // At the line the cap IS the cap, and it is a roll-through, never a stop.
+    REQUIRE_NEAR(police_control_override_speed(true, 0.f, t),
+                 t.control_override_speed, 1e-5);
+    REQUIRE(police_control_override_speed(true, 0.f, t) > 0.f);
+    REQUIRE_NEAR(police_control_override_speed(true, -3.f, t),
+                 t.control_override_speed, 1e-5);
+
+    // Quick on the run-up: the cap opens up with the remaining approach, so a
+    // pursuer does not crawl the last hundred metres of a street it can see
+    // clear. Monotone, and never below the at-the-line cap.
+    float previous = police_control_override_speed(true, 0.f, t);
+    for (float slack : {5.f, 20.f, 60.f, 200.f}) {
+        const float now = police_control_override_speed(true, slack, t);
+        REQUIRE(now > previous);
+        previous = now;
+    }
+    // Degenerate slack falls back to the flat cap rather than a NaN target.
+    REQUIRE_NEAR(police_control_override_speed(
+                     true, std::numeric_limits<float>::quiet_NaN(), t),
+                 t.control_override_speed, 1e-5);
+}
+
+// Deliberate contact, and the four ways it is refused.
+void test_police_should_ram() {
+    PoliceTuning t;
+    const auto ram = [&](bool engaged, bool on_foot, int wanted, float ahead,
+                         float range, float speed) {
+        return police_should_ram(engaged, on_foot, wanted, ahead, range, speed, t);
+    };
+    REQUIRE(ram(true, false, 3, 12.f, 14.f, 18.f));
+
+    REQUIRE(!ram(false, false, 3, 12.f, 14.f, 18.f));   // not engaged
+    REQUIRE(!ram(true, true, 3, 12.f, 14.f, 18.f));     // suspect on foot
+    REQUIRE(!ram(true, false, t.ram_min_wanted - 1, 12.f, 14.f, 18.f));
+    REQUIRE(!ram(true, false, 3, t.ram_min_ahead - 0.1f, 14.f, 18.f)); // behind
+    REQUIRE(!ram(true, false, 3, 12.f, t.ram_range + 0.1f, 18.f));     // too far
+    REQUIRE(!ram(true, false, 3, 12.f, 14.f, 5.9f));    // a scrape, not a ram
+    REQUIRE(!ram(true, false, 3, std::numeric_limits<float>::quiet_NaN(),
+                 14.f, 18.f));
+    REQUIRE(ram(true, false, t.ram_min_wanted, t.ram_min_ahead, t.ram_range, 6.f));
+}
+
 }  // namespace
 
 int main() {
@@ -640,12 +723,17 @@ int main() {
     test_police_response_gate();
     test_wanted_report_blink_latch();
 
-    // Who rammed whom.
+    // Who rammed whom, and who decides to.
     test_police_ram_verdict();
+    test_police_should_ram();
+
+    // Running the lights while engaged.
+    test_police_control_override_speed();
 
     // Route-following hand-off (the pure halves of it).
     test_police_should_replan();
     test_police_terminal_handoff_boundary();
+    test_predictive_pursuit_and_catchup_speed();
 
     // Roadblocks, downstream of a chosen site.
     test_roadblock_layout_spans_width_no_overlap();

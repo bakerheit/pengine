@@ -22,12 +22,16 @@ target_sources(apricot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/game_ui.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/house_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/signal_check.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/traffic_horn_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/overlay.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/player_car_visual.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/police_gameplay.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/police_pursuit_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/traffic_visual.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/character_identity_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/vehicle_effects.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/vehicle_interaction.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/weapon_visual.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/weapon_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/world.cpp
 )

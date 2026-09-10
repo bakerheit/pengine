@@ -40,10 +40,10 @@ constexpr Vec2 tower_grid_point(float east,float south) {
             -40.f-kGridSin*east+kGridCos*south};
 }
 
-// Existing 92 x 62m downtown blocks. These sites are kept inside Vellum Row's
+// Existing 92 x 62m downtown blocks. These sites are kept inside Pinatty Row's
 // authored grid; none consumes its forecourt, nearby businesses or road
 // corridors.
-inline constexpr std::array<NeighborhoodTower,22> kNeighborhoodTowers{{
+inline constexpr std::array<NeighborhoodTower,25> kNeighborhoodTowers{{
     {{"Mercer Exchange",tower_grid_point(-138,-93),kGridCos,kGridSin,{0,0},54,38,12,1800},
         34.f,24.f,22,BuildingFinish::Brick,BuildingFinish::WarmWall,16,
         SkyscraperUse::Office,TowerCrownStyle::TwinFins},
@@ -68,7 +68,7 @@ inline constexpr std::array<NeighborhoodTower,22> kNeighborhoodTowers{{
     {{"Eastbank Crown",tower_grid_point(230,155),kGridCos,kGridSin,{0,0},54,38,12,1900},
         26.f,20.f,28,BuildingFinish::Steel,BuildingFinish::WarmWall,22,
         SkyscraperUse::Mixed,TowerCrownStyle::Lantern},
-    {{"Vellum Gate",tower_grid_point(230,217),kGridCos,kGridSin,{0,0},54,38,12,1700},
+    {{"Pinatty Gate",tower_grid_point(230,217),kGridCos,kGridSin,{0,0},54,38,12,1700},
         34.f,25.f,22,BuildingFinish::WarmWall,BuildingFinish::Brick,14,
         SkyscraperUse::Residential,TowerCrownStyle::Terrace},
     {{"Halloway Annex",tower_grid_point(230,-31),kGridCos,kGridSin,{0,0},54,30,12,1800},
@@ -80,7 +80,7 @@ inline constexpr std::array<NeighborhoodTower,22> kNeighborhoodTowers{{
     {{"Northline Tower",tower_grid_point(230,-279),kGridCos,kGridSin,{0,0},54,38,12,1600},
         30.f,23.f,25,BuildingFinish::WarmWall,BuildingFinish::Steel,19,
         SkyscraperUse::Mixed,TowerCrownStyle::BeaconMast},
-    // Six different towers populate the two new Vellum blocks north of Tenth.
+    // Six different towers populate the two new Pinatty blocks north of Tenth.
     // They all sit east of the arterial spine, keeping the western edge open
     // for the hospital approaches and the long Route 1 view.
     {{"Cinder North Court",tower_grid_point(322,-341),kGridCos,kGridSin,{0,0},54,30,12,1850},
@@ -101,7 +101,7 @@ inline constexpr std::array<NeighborhoodTower,22> kNeighborhoodTowers{{
     {{"Cinder Gate",tower_grid_point(230,-403),kGridCos,kGridSin,{0,0},54,30,12,2250},
         32.f,24.f,29,BuildingFinish::Brick,BuildingFinish::RedTrim,20,
         SkyscraperUse::Mixed,TowerCrownStyle::Lantern},
-    // Southeast Vellum fills five surveyed gaps on the district's flat 12 m
+    // Southeast Pinatty fills five surveyed gaps on the district's flat 12 m
     // plate. The two outer sites step eight metres west and use narrower lots
     // to stay clear of Nickel Heights' terrain feather and the avenue walk.
     {{"Bellweather Crown",tower_grid_point(312,155),kGridCos,kGridSin,{0,0},46,38,12,2400},
@@ -110,6 +110,18 @@ inline constexpr std::array<NeighborhoodTower,22> kNeighborhoodTowers{{
     {{"Mariner House",tower_grid_point(312,217),kGridCos,kGridSin,{0,0},46,38,12,1850},
         35.f,25.f,24,BuildingFinish::WarmWall,BuildingFinish::Brick,15,
         SkyscraperUse::Residential,TowerCrownStyle::Terrace},
+    // Three more towers fill the missing southeast rows and strengthen the run
+    // toward First Street. Their different massing and rooflines keep the
+    // expanded cluster from reading as a repeated prefab wall.
+    {{"Wren Glasshouse",tower_grid_point(312,31),kGridCos,kGridSin,{0,0},46,30,11.9805f,2050},
+        28.f,20.f,23,BuildingFinish::Steel,BuildingFinish::TealDoor,16,
+        SkyscraperUse::Mixed,TowerCrownStyle::Lantern},
+    {{"Cinder Meridian",tower_grid_point(312,93),kGridCos,kGridSin,{0,0},46,38,11.985f,2350},
+        29.f,22.f,27,BuildingFinish::Brick,BuildingFinish::RedTrim,20,
+        SkyscraperUse::Office,TowerCrownStyle::BeaconMast},
+    {{"Southpoint Spire",tower_grid_point(320,276),kGridCos,kGridSin,{0,0},46,30,12.0055f,2450},
+        30.f,22.f,31,BuildingFinish::Steel,BuildingFinish::WarmWall,23,
+        SkyscraperUse::Mixed,TowerCrownStyle::TwinFins},
     // Three west-side towers finish the block face north of Tenth Street.
     // Their lobbies face south toward the only public frontage; Eleventh
     // Street intentionally remains an east-side road beyond the Ferrone fork.

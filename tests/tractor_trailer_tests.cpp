@@ -1,3 +1,5 @@
+#include <cstring>
+
 #include "game/tractor_trailer.h"
 #include "app/vehicle_model_tuning.h"
 #include "app/dev_menu.h"
@@ -67,7 +69,28 @@ void articulation_and_obstacles() {
 void checkpoints_and_catalog() {
     REQUIRE(static_cast<int>(PlayerCarId::VesperVx91)==18);
     for(const auto& model:kPlayerCars) REQUIRE(player_car_definition(model.id).id==model.id);
-    REQUIRE(player_car_brand_index(PlayerCarId::HarrowHauler)==3);
+    // The contract is that the hauler is filed under its OWN brand and is
+    // reachable there, not that HARROW sits at any particular ordinal. This
+    // used to hard-code 3; inserting the FANG brand ahead of HARROW moved it
+    // to 4 and the assertion went stale without a single behaviour changing.
+    const auto& hauler=player_car_definition(PlayerCarId::HarrowHauler);
+    const auto& hauler_brand=kPlayerCarBrands[static_cast<std::size_t>(
+        player_car_brand_index(PlayerCarId::HarrowHauler))];
+    REQUIRE(std::strcmp(hauler_brand.name,"HARROW")==0);
+    REQUIRE(std::strcmp(hauler.brand,hauler_brand.name)==0);
+    // Every brand's declared span must really hold the cars that claim it, or
+    // the dev-menu brand pages silently list the wrong models.
+    for(const auto& brand:kPlayerCarBrands) {
+        REQUIRE(brand.car_count>0u);
+        REQUIRE(brand.first_car+brand.car_count<=kPlayerCars.size());
+        for(std::size_t i=brand.first_car;i<brand.first_car+brand.car_count;++i)
+            REQUIRE(std::strcmp(kPlayerCars[i].brand,brand.name)==0);
+    }
+    for(const auto& model:kPlayerCars) {
+        const auto& brand=kPlayerCarBrands[static_cast<std::size_t>(
+            player_car_brand_index(model.id))];
+        REQUIRE(std::strcmp(model.brand,brand.name)==0);
+    }
     GameSave save;save.has_trailer=true;save.trailer.position={10,5,20};save.trailer.yaw=1;
     std::string bytes,error;REQUIRE(encode_game_save(save,bytes,error));GameSave out;
     REQUIRE(decode_game_save(bytes,out,error));REQUIRE(out.has_trailer);REQUIRE(out.trailer.position==save.trailer.position);

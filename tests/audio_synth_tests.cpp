@@ -501,7 +501,7 @@ void the_shipped_recorded_vehicle_audio_loads() {
     const SfxOverridePaths paths = player_car_audio_overrides();
 
     REQUIRE(override_bank_from_wavs(bank, paths) ==
-            11u + kCarSoundUseCount * // Eight vehicle roles, ambience, rain and mission sting.
+            11u + kTrafficHornClipCount + kCarSoundUseCount * // Vehicle roles, traffic horns and ambience.
                      static_cast<std::size_t>(kCarSoundVariantCount));
     REQUIRE(bank.engine_power.front().samples == untouched_power.samples);
     REQUIRE(bank.engine_overrun.front().samples == untouched_overrun.samples);

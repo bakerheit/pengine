@@ -110,6 +110,7 @@ public:
     // True while a pad is attached and open. Diagnostics only — never branch
     // gameplay on it, or the tape stops being device-agnostic.
     bool gamepad_connected() const { return pad_ != nullptr; }
+    void set_weapon_controls(bool enabled) { weapon_controls_=enabled; }
 
 private:
     static constexpr std::size_t kKeyCount = 512;
@@ -121,6 +122,7 @@ private:
 
     InputFrame frame_{};
     std::array<bool, kKeyCount> key_down_{};
+    bool weapon_controls_ = false;
     bool quit_ = false;
     bool mouse_look_ = false;
     bool ui_mode_ = false;

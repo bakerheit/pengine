@@ -137,8 +137,13 @@ int main() {
     StaticEmesh cruiser;
     REQUIRE(read_static_emesh(asset_path(
         "models/vehicles/municipal_cruiser_91c/body.emesh"), cruiser));
-    const auto fit = make_traffic_visual_layout(cruiser.bounds,
-                                                .42f, .94f, 1.63f, 1.53f);
+    // Read the anchors instead of retyping them: these drifted silently when
+    // the 91-C's half-track moved and the test kept passing against a rig the
+    // game no longer builds.
+    const auto& cruiser_def = player_car_definition(kCruiser);
+    const auto fit = make_traffic_visual_layout(
+        cruiser.bounds, cruiser_def.arch_centre_y, cruiser_def.wheel_x,
+        cruiser_def.wheel_front_z, cruiser_def.wheel_rear_z);
     Transform chassis;
     chassis.position = {12, 3, -7};
     chassis.set_euler_deg(0, 73, 0);

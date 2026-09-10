@@ -205,6 +205,7 @@ enum class CarSoundUse : uint8_t {
 inline constexpr std::size_t kCarSoundUseCount =
     static_cast<std::size_t>(CarSoundUse::kCount);
 inline constexpr int kCarSoundVariantCount = 5;
+inline constexpr std::size_t kTrafficHornClipCount = 3;
 
 // Every sound in the game, generated once. Held by value and never mutated
 // after synth_bank() returns — the audio thread holds bare pointers into these
@@ -249,6 +250,8 @@ struct SfxBank {
     PcmClip player_burnout;
     PcmClip engine_start;
     PcmClip engine_idle;
+    // Recorded short car horn, double honk, and truck horn. Missing takes stay silent.
+    std::array<PcmClip, kTrafficHornClipCount> traffic_horns{};
 
     // Recorded non-spatial background bed. No generated fallback: if the file
     // is missing, the city is quiet instead of reverting to synthetic noise.
@@ -368,6 +371,7 @@ struct SfxOverridePaths {
     std::string player_burnout;
     std::string engine_start;
     std::string engine_idle;
+    std::array<std::string, kTrafficHornClipCount> traffic_horns{};
     std::string city_ambience;
     // Prepared seamless loop; no additional runtime seam folding.
     std::string rain;

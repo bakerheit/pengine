@@ -12,6 +12,7 @@
 #include <stb_image_write.h>
 
 #include "app/character_visual.h"
+#include "app/player_car_visual.h"
 #include "core/asset_root.h"
 #include "core/emesh_reader.h"
 #include "gfx/renderer.h"
@@ -38,19 +39,28 @@ bool screenshot(const Window& window, const std::string& path) {
 int main(int argc,char** argv) {
     std::string output="build/vesper_mistral-driver-front.png", view="front", sequence;
     int frames=120,sequence_step=0; bool occupied=true; bool other=false;
+    bool production_car=false;
+    float snow_cover=0.0f;
     PlayerCarId model=PlayerCarId::VesperMistral;
     VehicleTransitionDirection transition=VehicleTransitionDirection::None;
     for (int i=1;i<argc;++i) {
         const std::string arg=argv[i];
         if (arg=="--on-foot") occupied=false;
         else if (arg=="--other-car") other=true;
+        else if (arg=="--player-car") production_car=true;
+        else if (i+1<argc && arg=="--snow-cover") {
+            char* end=nullptr;
+            const char* value=argv[++i];
+            snow_cover=std::strtof(value,&end);
+            if (end==value || *end!='\0' || !std::isfinite(snow_cover) ||
+                snow_cover<0.0f || snow_cover>1.0f) return 2;
+        }
         else if (i+1<argc && arg=="--car") {
             const std::string car=argv[++i];
             const std::string key="/"+car+"/";
             bool found=false;
             for (const auto& candidate:kPlayerCars) {
-                if (std::string{candidate.mesh_path}.find(key)!=std::string::npos &&
-                    has_animated_driver(candidate.id)) {
+                if (std::string{candidate.mesh_path}.find(key)!=std::string::npos) {
                     model=candidate.id;found=true;break;
                 }
             }
@@ -66,8 +76,11 @@ int main(int argc,char** argv) {
         }
         else if (i+1<argc && arg=="--view") view=argv[++i];
         else if (i+1<argc && arg=="--frames") frames=std::max(1,std::atoi(argv[++i]));
-        else { std::fprintf(stderr,"--car MODEL_FOLDER --view front|rear|side|passenger|cockpit|inside --screenshot PNG --sequence DIR --sequence-step N --transition enter|exit --frames N --on-foot --other-car\n");return 2; }
+        else { std::fprintf(stderr,"--car MODEL_FOLDER --player-car --snow-cover 0..1 --view front|windshield|rear|side|passenger|cockpit|inside --screenshot PNG --sequence DIR --sequence-step N --transition enter|exit --frames N --on-foot --other-car\n");return 2; }
     }
+    if (!production_car && !has_animated_driver(model)) return 2;
+    if (view!="front" && view!="windshield" && view!="rear" && view!="side" &&
+        view!="passenger" && view!="cockpit" && view!="inside") return 2;
     const bool workman=model==PlayerCarId::HarrowWorkman;
     const auto& definition=player_car_definition(model);
     const auto& layout=vehicle_driver_layout(model);
@@ -81,21 +94,40 @@ int main(int argc,char** argv) {
     if (!window.init(config)) return 1;
     Renderer renderer;if (!renderer.init()) return 1;
     Scene scene;Transform body;
+    PlayerCarVisual player_car;
+    VehicleTuning vehicle_tuning;
+    VehicleState vehicle;
+    NodeId door_node=kInvalidId,driver_glass=kInvalidId;
+    AABB body_bounds;
     const float length_scale=2.7f/(definition.wheel_front_z+definition.wheel_rear_z);
     body.scale={.78f/definition.wheel_x,length_scale,length_scale};
+    if (production_car) {
+        // Use the exact game loader, including body glass metadata and glass
+        // materials. Orient its chassis so the authored front remains +Z,
+        // matching the existing lab views and character staging.
+        vehicle.orientation=glm::angleAxis(3.14159265359f,glm::vec3{0,1,0});
+        vehicle.position.y=vehicle_tuning.com_height_above_mount+
+            static_suspension_length(vehicle_tuning)+definition.arch_centre_y*length_scale;
+        vehicle.position.z=(definition.wheel_front_z-definition.wheel_rear_z)*length_scale*.5f;
+        for (auto& wheel_state:vehicle.wheels)
+            wheel_state.suspension_length=static_suspension_length(vehicle_tuning);
+        if (!player_car.init(renderer,scene,vehicle_tuning,vehicle,model)) return 1;
+        body=player_car.fitted_body_transform(vehicle);
+        Transform chassis;chassis.position=vehicle.position;chassis.rotation=vehicle.orientation;
+        body_bounds=player_car.placed_body_bounds().transformed(chassis.matrix());
+    } else {
     StaticEmesh car;Texture paint;
     if (!read_static_emesh(asset_path("models/vehicles/"+root+"/body_open.emesh"),car) ||
         !paint.load_file(asset_path("textures/vehicles/"+root+"/body.png"))) return 1;
     Renderable r;r.mesh=renderer.add_mesh(car);r.material=renderer.add_material(std::move(paint));
     scene.create(r,body,car.bounds);
-    NodeId door_node=kInvalidId;
+    body_bounds=car.bounds.transformed(body.matrix());
     {
         StaticEmesh door;
         if (!read_static_emesh(asset_path("models/vehicles/"+root+"/driver_door.emesh"),door)) return 1;
         Renderable door_renderable=r;door_renderable.mesh=renderer.add_mesh(door);
         door_node=scene.create(door_renderable,body,door.bounds);
     }
-    NodeId driver_glass=kInvalidId;
     if (workman || pip || is_municipal_cruiser_91(model)) {
         auto material=renderer.add_glass_material();
         for (const char* name:{"windshield","rear_glass","passenger_glass","driver_glass",
@@ -119,6 +151,7 @@ int main(int argc,char** argv) {
         Transform t;t.position=body.transform_point({x,definition.arch_centre_y,z});t.scale=glm::vec3{.32f/radius};
         scene.create(wr,t,wheel.bounds);
     }
+    }
     scene.update();
     PlayerCharacterState player;player.position={1.5f,0,0};
     if (transition!=VehicleTransitionDirection::None) {
@@ -135,10 +168,16 @@ int main(int argc,char** argv) {
     if (view=="inside") {camera.position={.34f,1.40f,-.18f};target={-.8f,1.3f,-.05f};}
     if (view=="cockpit") {camera.position={1.65f,2.5f,-1.95f};target={.35f,.95f,-.08f};}
     if (workman && view=="cockpit") {camera.position={2.4f,1.75f,.3f};target={.35f,1.10f,.1f};}
+    if (view=="windshield") {
+        const glm::vec3 size=body_bounds.size();
+        target=body_bounds.center()+glm::vec3{0,size.y*.12f,size.z*.12f};
+        camera.position=target+glm::vec3{size.x*.08f,size.y*.70f,size.z*.82f};
+    }
     const glm::vec3 d=glm::normalize(target-camera.position);
     camera.yaw=std::atan2(d.x,-d.z);camera.pitch=std::asin(d.y);
     SkyEnv env=compute_sky_env(.48f);env.ambient=glm::vec3{.42f};env.light_color=glm::vec3{.92f};
     env.fog_density=0;env.fog_start=0;env.fog_end=0;
+    env.snow_cover=snow_cover;
     HeadlightRig headlights;CanopyLightRig canopy;canopy.intensity=0;
     Renderer::Options options;int errors=0,draws=0;
     for (int frame=0;frame<frames;++frame) {
@@ -146,12 +185,15 @@ int main(int argc,char** argv) {
         // Exercise entry, a frame of exit/other-car suppression, then return.
         // Final image always shows the state selected by command-line flags.
         characters.sync(crowd,player,player,.5f,frame,!occupied,player.position);
+        if (production_car)
+            player_car.sync(scene,vehicle_tuning,vehicle,vehicle,1.0f,0.0f,0.0f);
         if (transition!=VehicleTransitionDirection::None) {
             const auto tick=static_cast<uint32_t>(static_cast<uint64_t>(frame)*kVehicleTransitionTicks/
                 static_cast<uint64_t>(std::max(1,frames-1)));
             characters.sync_transition(model,&body,{transition,tick},1.f);
-            scene.set_transform(door_node,vehicle_driver_door_transform(model,body,
-                vehicle_transition_door_open(sample_vehicle_transition({transition,tick}))));
+            const float door_open=vehicle_transition_door_open(sample_vehicle_transition({transition,tick}));
+            if (production_car) player_car.sync_driver_door(scene,door_open);
+            else scene.set_transform(door_node,vehicle_driver_door_transform(model,body,door_open));
         } else if (frame==frames/2) {
             characters.sync_driver(model,true,&body);
             characters.sync_driver(PlayerCarId::VesperVx91,true,&body);
@@ -167,7 +209,7 @@ int main(int argc,char** argv) {
         characters.render(camera,env,headlights,canopy);draws=characters.last_draw_count();
         renderer.render_glass(scene,visible.visible,camera,env,headlights,canopy);
         const int expected=transition!=VehicleTransitionDirection::None?1:
-            (frame==frames/2?0:((!occupied || !other)?1:0));
+            (frame==frames/2?0:((!occupied || (!other && has_animated_driver(model)))?1:0));
         if (draws!=expected) {std::fprintf(stderr,"driver visibility mismatch %d != %d\n",draws,expected);return 1;}
         while (glGetError()!=GL_NO_ERROR) ++errors;
         const int capture_step=sequence_step>0?sequence_step:std::max(1,(frames-1)/8);
@@ -178,6 +220,7 @@ int main(int argc,char** argv) {
         if (frame+1==frames && !screenshot(window,output)) return 1;
         window.swap();
     }
-    std::printf("%s driver lab: %d frames, %d character draws, %d GL errors; %s\n",root.c_str(),frames,draws,errors,output.c_str());
+    std::printf("%s driver lab: %d frames, %d character draws, %d GL errors, snow %.2f, %s loader; %s\n",root.c_str(),frames,draws,errors,static_cast<double>(snow_cover),production_car?"production":"driver",output.c_str());
+    if (production_car) player_car.destroy(scene);
     characters.destroy();renderer.destroy();window.shutdown();return errors==0?0:1;
 }

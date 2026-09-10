@@ -14,6 +14,8 @@
 namespace apricot {
 
 struct RoadCollision;
+class SnowClearanceField;
+class SnowShelterField;
 
 // Collision against the world the player can actually see.
 //
@@ -136,6 +138,13 @@ public:
     // as roofs, buildings or obstacles. Invalid/negative depths become zero.
     void set_snow_collision_depth(float depth_metres);
     float snow_collision_depth() const { return snow_collision_depth_metres_; }
+    // The field must outlive this collider; publish/update only between steps.
+    // Raw depth includes the compressed layer omitted from physical contact.
+    void set_snow_clearance(const SnowClearanceField* field, float raw_depth);
+    // Authored roofs suppress accumulation below their underside. The field
+    // must outlive the collider and be rebuilt only between simulation steps.
+    void set_snow_shelter(const SnowShelterField* field) { snow_shelter_ = field; }
+    float snow_depth_at(float x, float base_y, float z) const;
 
     // --- props ---------------------------------------------------------------
     // Static geometry is registered ONCE at world setup and never touched
@@ -234,6 +243,8 @@ public:
         // can therefore be distinguished from the terrain under it in tests
         // without mislabelling it as a prop box.
         bool road = false;
+        // Raw pack on the selected ground surface, zero on static prop tops.
+        float snow_depth_m = 0.0f;
     };
 
     // Straight-down probe from `origin`. Analytic rather than marched: the
@@ -246,7 +257,11 @@ public:
     // starts underneath a box (origin.y < box.min.y) ignores it entirely, so
     // driving under an overhang does not snap the car onto its roof. Bridge
     // undersides are not a thing this collider models.
-    GroundHit probe_down(glm::vec3 origin, float max_distance) const;
+    enum class ProbeVehicles { Include, Exclude };
+    // Ground decals can ignore vehicle bodies without changing collision for
+    // suspension, characters or any other caller.
+    GroundHit probe_down(glm::vec3 origin, float max_distance,
+                         ProbeVehicles vehicles = ProbeVehicles::Include) const;
 
     // General ray. `dir` need not be normalised. Terrain is marched and then
     // bisected — a height field has no closed-form intersection for an
@@ -263,7 +278,8 @@ private:
 
     bool road_surface_at(float x, float z, float origin_y, float max_distance,
                          float& out_y, glm::vec3& out_normal,
-                         Surface& out_material) const;
+                         Surface& out_material, float& out_snow_depth) const;
+    float local_snow_collision_depth(float x, float base_y, float z) const;
 
     uint64_t seed_;
     std::vector<StaticBox> boxes_;
@@ -276,6 +292,9 @@ private:
     std::vector<SurfacePaint> paint_;
     float wetness_ = 0.0f;
     float snow_collision_depth_metres_ = 0.0f;
+    const SnowClearanceField* snow_clearance_ = nullptr;
+    const SnowShelterField* snow_shelter_ = nullptr;
+    float raw_snow_depth_metres_ = 0.0f;
 };
 
 }  // namespace apricot

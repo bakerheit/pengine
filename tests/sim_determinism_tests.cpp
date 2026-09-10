@@ -91,7 +91,7 @@ constexpr int kRecordSteps = 2400;
 // IT MOVED IN PENG-41, and the reason is worth stating because it would look
 // arbitrary otherwise. It used to sit near the world origin, inside the 380 m
 // spawn-lift dome the height field carried so that no seed could drop the car
-// in a lagoon. That dome is gone, and the origin is now the middle of O'Haven's
+// in a lagoon. That dome is gone, and the origin is now the middle of Pinatty's
 // financial district: an AUTHORED Flatten at full weight, which returns its
 // target height for every seed.
 //
@@ -668,6 +668,7 @@ void test_the_tape_format_is_a_flat_block_of_bytes(const Recording& rec,
     REQUIRE(kBtnMenuUp == 1024u);
     REQUIRE(kBtnMenuDown == 2048u);
     REQUIRE(kBtnTrailer == 4096u);
+    REQUIRE(kBtnJump == 65536u);
 
     // And the consequence: a tape written out as raw bytes and read back drives
     // the identical run. If InputFrame ever stops being a flat block, this is
@@ -708,7 +709,7 @@ void test_the_tape_format_is_a_flat_block_of_bytes(const Recording& rec,
 // now, next to the layout above that it versions.
 void test_the_tape_version_is_pinned(const Recording& rec,
                                      const TerrainCollider& collider) {
-    REQUIRE_MSG(kReplayTapeVersion == 6u,
+    REQUIRE_MSG(kReplayTapeVersion == 7u,
                 "kReplayTapeVersion changed; every recorded tape is now junk, "
                 "which is fine if you meant it",
                 "tape version");
@@ -1011,7 +1012,7 @@ void test_terrain_generates_identically_from_one_seed() {
 
     // THE GRID WIDENED IN PENG-41, by a factor of ten in each axis, so it
     // spans the whole island rather than a 500 m square around the origin.
-    // That square is now O'Haven's downtown plate: an authored Flatten at full
+    // That square is now Pinatty's downtown plate: an authored Flatten at full
     // weight, identical on every seed, so `differed_from_other` counted zero
     // and the anti-vacuity control below failed -- correctly. The prime-ish
     // spacings are kept so the samples do not all land on the vertex lattice.

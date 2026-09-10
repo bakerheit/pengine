@@ -24,6 +24,8 @@ struct VehicleAudioFrame {
     float speed_mps = 0.0f;
     int gear = 1;
     glm::vec3 position{0.0f};
+    bool horn_available = false; // Seated in a road vehicle, including with its engine off.
+    bool horn_pressed = false;   // A fresh press, not the held key level.
 };
 
 // One menu audition. Kept as a pure lookup so tests can prove every visible
@@ -61,6 +63,8 @@ public:
     bool starting() const { return startup_remaining_ > 0.0f; }
     unsigned startup_count() const { return startup_count_; }
     void play_car_collision(float impact_mps, glm::vec3 position);
+    void stop_horn();
+    unsigned horn_count() const { return horn_count_; }
     void audition(CarSoundUse use, int variant);
 
     bool started() const { return mixer_ != nullptr && bank_ != nullptr; }
@@ -82,6 +86,10 @@ private:
     unsigned startup_count_ = 0;
     OneShotHandle acceleration_voice_{};
     OneShotHandle collision_voice_{};
+    OneShotHandle horn_voice_{};
+    VoiceParams horn_params_{};
+    float horn_remaining_ = 0.0f;
+    unsigned horn_count_ = 0;
     bool was_accelerating_ = false;
     float throttle_seconds_ = 0.0f;
     float attack_pitch_ = 1.0f;

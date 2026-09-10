@@ -7,6 +7,8 @@
 #include <limits>
 
 #include "road/ribbon.h"
+#include "game/snow_clearance.h"
+#include "physics/snow_shelter.h"
 #include "terrain/heightmap.h"
 #include "terrain/surface.h"  // surface_kind_at
 
@@ -121,8 +123,8 @@ float TerrainCollider::height(float x, float z) const {
     // this engine's collision rule forbids. The two agreed to 15 microns, so it
     // was not wrong; it was a copy waiting to drift the first time the mesher
     // changed its triangulation.
-    return with_ground_snow(mesh_height_at(seed_, x, z),
-                            snow_collision_depth_metres_);
+    const float base = mesh_height_at(seed_, x, z);
+    return with_ground_snow(base, local_snow_collision_depth(x, base, z));
 }
 
 glm::vec3 TerrainCollider::normal(float x, float z) const {
@@ -145,6 +147,26 @@ glm::vec3 TerrainCollider::normal(float x, float z) const {
 void TerrainCollider::set_snow_collision_depth(float depth_metres) {
     snow_collision_depth_metres_ =
         std::isfinite(depth_metres) ? std::max(depth_metres, 0.0f) : 0.0f;
+}
+
+void TerrainCollider::set_snow_clearance(const SnowClearanceField* field,
+                                        float raw_depth) {
+    snow_clearance_ = field;
+    raw_snow_depth_metres_ = std::isfinite(raw_depth) ? std::max(raw_depth, 0.0f) : 0.0f;
+}
+
+float TerrainCollider::snow_depth_at(float x, float base_y, float z) const {
+    if (snow_shelter_ && snow_shelter_->covered(x, base_y, z)) return 0.0f;
+    return snow_clearance_ ? snow_clearance_->depth_at(x, base_y, z,
+        raw_snow_depth_metres_) : raw_snow_depth_metres_;
+}
+
+float TerrainCollider::local_snow_collision_depth(float x, float base_y,
+                                                  float z) const {
+    if (snow_shelter_ && snow_shelter_->covered(x, base_y, z)) return 0.0f;
+    if (!snow_clearance_) return snow_collision_depth_metres_;
+    return std::min(snow_collision_depth_metres_, static_cast<float>(
+        snowpack_collision_from_depth(snow_depth_at(x, base_y, z)).depth_m));
 }
 
 // --- props -------------------------------------------------------------------
@@ -305,7 +327,7 @@ void TerrainCollider::clear_road_collision() {
 bool TerrainCollider::road_surface_at(float x, float z, float origin_y,
                                       float max_distance, float& out_y,
                                       glm::vec3& out_normal,
-                                      Surface& out_material) const {
+                                      Surface& out_material, float& out_snow_depth) const {
     const auto bucket = road_cells_.find(chunk_at(x, z));
     if (bucket == road_cells_.end()) return false;
 
@@ -338,9 +360,9 @@ bool TerrainCollider::road_surface_at(float x, float z, float origin_y,
             continue;
         }
 
-        const float y = with_ground_snow(
-            w0 * a.y + w1 * b.y + w2 * c.y,
-            snow_collision_depth_metres_);
+        const float base_y = w0 * a.y + w1 * b.y + w2 * c.y;
+        const float y = with_ground_snow(base_y,
+            local_snow_collision_depth(x, base_y, z));
         const float gap = origin_y - y;
         if (gap < -kPenetrationAllowance || gap > max_distance) continue;
         if (found && y <= highest) continue;
@@ -349,6 +371,7 @@ bool TerrainCollider::road_surface_at(float x, float z, float origin_y,
         out_y = y;
         out_normal = surface.geom.normal;
         out_material = surface.material;
+        out_snow_depth = snow_depth_at(x, base_y, z);
     }
     return found;
 }
@@ -396,23 +419,27 @@ float TerrainCollider::grip(float x, float z) const {
 // --- probes ------------------------------------------------------------------
 
 TerrainCollider::GroundHit TerrainCollider::probe_down(
-    glm::vec3 origin, float max_distance) const {
+    glm::vec3 origin, float max_distance, ProbeVehicles vehicles) const {
     float surface_y = height(origin.x, origin.z);
     glm::vec3 surface_n = normal(origin.x, origin.z);
     Surface mat = material(origin.x, origin.z);
     bool prop = false;
     bool road = false;
+    float snow_depth = snow_depth_at(origin.x,
+        mesh_height_at(seed_, origin.x, origin.z), origin.z);
 
     float road_y = 0.0f;
     glm::vec3 road_n{0.0f, 1.0f, 0.0f};
     Surface road_mat = Surface::Rock;
+    float road_snow_depth = 0.0f;
     if (road_surface_at(origin.x, origin.z, origin.y, max_distance, road_y,
-                        road_n, road_mat) &&
+                        road_n, road_mat, road_snow_depth) &&
         road_y > surface_y) {
         surface_y = road_y;
         surface_n = road_n;
         mat = road_mat;
         road = true;
+        snow_depth = road_snow_depth;
     }
 
     // Authored plot paving is top-only like a road slab, but keeps its exact
@@ -433,7 +460,7 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
             continue;
         }
         const float ground_y = with_ground_snow(
-            ground.height, snow_collision_depth_metres_);
+            ground.height, local_snow_collision_depth(origin.x, ground.height, origin.z));
         const float gap = origin.y - ground_y;
         if (gap < -kGroundRectPenetrationAllowance || gap > max_distance) {
             continue;
@@ -445,10 +472,11 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
         mat = ground.material;
         prop = false;
         road = false;
+        snow_depth = snow_depth_at(origin.x, ground.height, origin.z);
     }
 
     for (const StaticBox& b : boxes_) {
-        if (!b.enabled) continue;
+        if (!b.enabled || (b.is_vehicle && vehicles == ProbeVehicles::Exclude)) continue;
         if (origin.x < b.bounds.min.x || origin.x > b.bounds.max.x) continue;
         if (origin.z < b.bounds.min.z || origin.z > b.bounds.max.z) continue;
         if (b.oriented) {
@@ -466,6 +494,7 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
         mat = b.material;
         prop = true;
         road = false;
+        snow_depth = 0.0f;
     }
 
     GroundHit out;
@@ -480,6 +509,7 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
     out.grip = surface_grip(mat, wetness_);
     out.prop = prop;
     out.road = road;
+    out.snow_depth_m = snow_depth;
     return out;
 }
 
@@ -568,6 +598,8 @@ TerrainCollider::GroundHit TerrainCollider::raycast(glm::vec3 origin,
     out.material = best_mat;
     out.grip = surface_grip(best_mat, wetness_);
     out.prop = best_is_prop;
+    out.snow_depth_m = best_is_prop ? 0.0f : snow_depth_at(out.point.x,
+        mesh_height_at(seed_, out.point.x, out.point.z), out.point.z);
     return out;
 }
 

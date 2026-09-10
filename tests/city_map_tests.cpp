@@ -1,4 +1,4 @@
-// O'Haven — the map, and whether it is a real place.
+// Pinatty — the map, and whether it is a real place.
 //
 // Two jobs, and they are different jobs.
 //
@@ -23,6 +23,7 @@
 // whole argument for the map being C++ rather than a file, and a test that
 // re-checked them at runtime would be pretending the compiler had not.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -32,6 +33,7 @@
 #include "city/districts.h"
 #include "city/landmarks.h"
 #include "city/map.h"
+#include "city/miandi_layout.h"
 #include "city/terrain_ops.h"
 #include "terrain/heightmap.h"
 #include "terrain/noise.h"
@@ -261,10 +263,10 @@ void districts_do_not_overlap() {
                 "coverage");
 
     // The countryside is not a district and must answer to a name anyway.
-    REQUIRE(district_at(0.0f, 0.0f) == DistrictId::VellumRow);
+    REQUIRE(district_at(0.0f, 0.0f) == DistrictId::PinattyRow);
     REQUIRE(district_at(2900.0f, 2900.0f) == DistrictId::Count);
     REQUIRE(std::strcmp(district_name(DistrictId::Count), "the Meadows") == 0);
-    REQUIRE(std::strcmp(district_name(DistrictId::VellumRow), "Vellum Row") == 0);
+    REQUIRE(std::strcmp(district_name(DistrictId::PinattyRow), "Pinatty Row") == 0);
     for (int d = 0; d < kDistrictCount; ++d) {
         REQUIRE(district(static_cast<DistrictId>(d)).id ==
                 static_cast<DistrictId>(d));
@@ -388,7 +390,7 @@ void measure_and_print_every_district() {
 // ground? A city where downtown and the suburbs generate the same silhouette
 // has failed even if every other test passes.
 void the_districts_are_distinct_on_the_ground() {
-    const DistrictMeasure& vellum = g_measured[static_cast<int>(DistrictId::VellumRow)];
+    const DistrictMeasure& pinatty = g_measured[static_cast<int>(DistrictId::PinattyRow)];
     const DistrictMeasure& ferrone = g_measured[static_cast<int>(DistrictId::FerroneHill)];
     const DistrictMeasure& marrow = g_measured[static_cast<int>(DistrictId::Marrow)];
     const DistrictMeasure& camber = g_measured[static_cast<int>(DistrictId::CamberPoint)];
@@ -397,9 +399,9 @@ void the_districts_are_distinct_on_the_ground() {
     // Downtown is a plate. If it is not, a street grid has been laid on
     // rolling ground, which reads as a mistake even to a player who could not
     // say why.
-    REQUIRE_MSG(vellum.flat_frac > 0.97, "downtown is not flat", "Vellum Row");
-    REQUIRE_MSG(vellum.h_hi - vellum.h_lo < 25.0f,
-                "downtown has more than 25 m of relief in it", "Vellum Row");
+    REQUIRE_MSG(pinatty.flat_frac > 0.97, "downtown is not flat", "Pinatty Row");
+    REQUIRE_MSG(pinatty.h_hi - pinatty.h_lo < 25.0f,
+                "downtown has more than 25 m of relief in it", "Pinatty Row");
 
     // The hill is a hill. Half its land steeper than 5 degrees, a hundred
     // metres of relief, and a real fraction of it not drivable at all — that
@@ -414,10 +416,10 @@ void the_districts_are_distinct_on_the_ground() {
 
     // And it is genuinely different from downtown, not merely different by a
     // rounding error.
-    REQUIRE_MSG(vellum.flat_frac - ferrone.flat_frac > 0.35,
+    REQUIRE_MSG(pinatty.flat_frac - ferrone.flat_frac > 0.35,
                 "downtown and the hill have nearly the same flat fraction",
                 "distinctness");
-    REQUIRE_MSG(ferrone.h_hi - vellum.h_hi > 80.0f,
+    REQUIRE_MSG(ferrone.h_hi - pinatty.h_hi > 80.0f,
                 "the hill is not appreciably taller than downtown",
                 "distinctness");
 
@@ -436,7 +438,69 @@ void the_districts_are_distinct_on_the_ground() {
     apricot_test::pass("the districts are measurably different places");
 }
 
-// Both states, re-measured WITH the O'Haven operators in, because those change
+// A city label that misses its own city is worse than no label: it tells the
+// player the wrong place is Pinatty. The table's density and naming are already
+// static_asserts in states.h, so what is left to check at runtime is the part
+// the compiler cannot see — that each anchor lands on the city it names.
+//
+// Pinatty is checked against the ten district polygons, which ARE its urban
+// extent. Miandi has no district polygons of its own yet, so it is checked
+// against its authored half-extents; when it grows real districts this should
+// become the same bounding-box check.
+void every_city_label_sits_on_its_city() {
+    const auto& pinatty = city::city_at(city::CityId::Pinatty);
+    REQUIRE(std::strcmp(pinatty.name, "Pinatty") == 0);
+    REQUIRE(pinatty.state == city::StateId::OHaven);
+
+    float lo_x = 1e9f, hi_x = -1e9f, lo_z = 1e9f, hi_z = -1e9f;
+    for (const city::District& d : city::kDistricts) {
+        for (int i = 0; i < d.boundary.count; ++i) {
+            const city::Vec2& p = d.boundary.points[i];
+            lo_x = std::min(lo_x, p.x); hi_x = std::max(hi_x, p.x);
+            lo_z = std::min(lo_z, p.z); hi_z = std::max(hi_z, p.z);
+        }
+    }
+    std::printf("\n  Pinatty label (%.0f, %.0f) in districts x %.0f..%.0f "
+                "z %.0f..%.0f\n",
+                static_cast<double>(pinatty.map_label_anchor.x),
+                static_cast<double>(pinatty.map_label_anchor.z),
+                static_cast<double>(lo_x), static_cast<double>(hi_x),
+                static_cast<double>(lo_z), static_cast<double>(hi_z));
+    REQUIRE_MSG(pinatty.map_label_anchor.x > lo_x &&
+                    pinatty.map_label_anchor.x < hi_x &&
+                    pinatty.map_label_anchor.z > lo_z &&
+                    pinatty.map_label_anchor.z < hi_z,
+                "the Pinatty map label does not sit inside Pinatty",
+                "city label");
+    // Inside the box is not enough — a corner of the box is still inside it,
+    // and a city label on the docks names the wrong place. Pin it near the
+    // centre of the districts it is naming.
+    const float mid_x = (lo_x + hi_x) * 0.5f, mid_z = (lo_z + hi_z) * 0.5f;
+    REQUIRE_MSG(std::hypot(pinatty.map_label_anchor.x - mid_x,
+                           pinatty.map_label_anchor.z - mid_z) < 400.0f,
+                "the Pinatty label has drifted off the centre of the city",
+                "city label");
+
+    const auto& miandi = city::city_at(city::CityId::Miandi);
+    REQUIRE(miandi.state == city::StateId::Florangia);
+    REQUIRE_MSG(std::fabs(miandi.map_label_anchor.x -
+                          city::kMiandiWorldOrigin.x) <= city::kMiandiHalfWidthM &&
+                    std::fabs(miandi.map_label_anchor.z -
+                              city::kMiandiWorldOrigin.z) <= city::kMiandiHalfDepthM,
+                "the Miandi map label does not sit inside Miandi",
+                "city label");
+
+    // Two cities, two states, two names. A duplicate here would draw one label
+    // twice and silently lose the other.
+    for (int a = 0; a < city::kCityCount; ++a)
+        for (int b = a + 1; b < city::kCityCount; ++b)
+            REQUIRE(std::strcmp(city::kCities[a].name,
+                                city::kCities[b].name) != 0);
+
+    apricot_test::pass("every city label sits on the city it names");
+}
+
+// Both states, re-measured WITH the Pinatty operators in, because those change
 // its coast. The old state remains roughly 16 km2 and first-pass Florangia adds
 // roughly 5 km2; the only honest total is the one taken afterwards.
 void the_states_are_the_right_size() {
@@ -769,6 +833,7 @@ int main() {
     districts_do_not_overlap();
     measure_and_print_every_district();
     the_districts_are_distinct_on_the_ground();
+    every_city_label_sits_on_its_city();
     the_states_are_the_right_size();
     landmarks_stand_where_the_map_says();
     the_causeway_is_the_only_way_onto_camber_point();

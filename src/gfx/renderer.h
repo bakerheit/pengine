@@ -1,16 +1,19 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 #include <vector>
 
 #include <glm/glm.hpp>
 
 #include "gfx/camera.h"
+#include "game/snow_clearance.h"
 #include "gfx/instance.h"
 #include "gfx/lighting.h"
 #include "gfx/mesh.h"
 #include "gfx/shader.h"
 #include "gfx/sky_env.h"
+#include "gfx/snow_shelter_grid.h"
 #include "gfx/texture.h"
 #include "scene/draw_batch.h"
 #include "scene/scene.h"
@@ -35,6 +38,12 @@ public:
     bool init();
     void destroy();
     bool valid() const { return lit_.valid(); }
+
+    // Copies the exact simulation field; all retained strips reach the shader.
+    void set_snow_clearance(const SnowClearanceField& field, float global_depth_m);
+    // Static authored roof masks; upload once after the world's covers exist.
+    // Capacity failure is explicit: no roofs are silently discarded.
+    bool set_snow_shelter(const SnowShelterField& field);
 
     // --- resource tables ----------------------------------------------------
     //
@@ -92,10 +101,13 @@ public:
         }
     };
 
+    // Enclosed interiors can draw their opaque materials first so their walls
+    // reject hidden outdoor fragments before expensive shading. This changes
+    // draw order only; glass, alpha and depth-equal overlays retain their passes.
     MaterialId add_material(Texture&& diffuse, bool alpha_blended = false,
                             float specular_scale = 1.0f,
                             DepthBias depth_bias = DepthBias(),
-                            bool receives_snow = true);
+                            bool receives_snow = true, bool early_opaque = false);
     MaterialId add_glass_material();
     // Draw after opaque characters, so glass also covers occupants correctly.
     void render_glass(const Scene& scene, const std::vector<NodeId>& visible,
@@ -160,6 +172,7 @@ private:
         bool alpha_blended = false;
         bool glass = false;
         bool receives_snow = true;
+        bool early_opaque = false;
         float specular_scale = 1.0f;
         DepthBias depth_bias;
     };
@@ -203,6 +216,14 @@ private:
                      const CanopyLightRig& canopy_lights);
 
     Shader lit_;
+    GLuint snow_clearance_texture_ = 0;
+    std::array<glm::vec4, SnowClearanceField::kMaxStrips * 2> snow_clearance_data_{};
+    glm::vec4 snow_clearance_bounds_{0.f};
+    int snow_clearance_count_ = 0;
+    bool snow_clearance_dirty_ = false;
+    SnowShelterGrid snow_shelter_grid_;
+    std::array<GLuint,3> snow_shelter_textures_{};
+    std::array<GLuint,3> snow_shelter_buffers_{};
     Texture vehicle_damage_atlas_;
     std::vector<MeshSlot> meshes_;
     std::vector<uint16_t> free_mesh_slots_;

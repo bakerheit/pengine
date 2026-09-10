@@ -13,6 +13,13 @@ namespace city {
 // the rounded southeast tip of Florangia. Detailed district sites replace the
 // coarse massing below one block at a time.
 inline constexpr Vec2 kMiandiWorldOrigin{7500.0f, 8400.0f};
+
+// states.h carries Miandi's map label anchor as a literal so the city table
+// stays free of the layout headers. This is the check that stops the copy
+// drifting: move the city and the label follows, or the build stops.
+static_assert(city_at(CityId::Miandi).map_label_anchor.x == kMiandiWorldOrigin.x &&
+                  city_at(CityId::Miandi).map_label_anchor.z == kMiandiWorldOrigin.z,
+              "Miandi's map label anchor must track kMiandiWorldOrigin");
 inline constexpr float kMiandiGroundM = 8.0f;
 inline constexpr float kMiandiHalfWidthM = 900.0f;
 inline constexpr float kMiandiHalfDepthM = 700.0f;

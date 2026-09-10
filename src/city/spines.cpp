@@ -90,14 +90,16 @@ static_assert(kWalkWidthM == apricot::kSidewalkWidthM,
 struct Density {
     float traffic;
     float ped;
+    float parked;
 };
 
 Density density_for(DistrictId id) {
     if (id == DistrictId::Count) {
-        return Density{kMeadowsTrafficDensity, kMeadowsPedDensity};
+        return Density{kMeadowsTrafficDensity, kMeadowsPedDensity,
+                       kMeadowsParkedDensity};
     }
     const District& d = district(id);
-    return Density{d.pop.traffic, d.pop.ped};
+    return Density{d.pop.traffic, d.pop.ped, d.pop.parked};
 }
 
 }  // namespace
@@ -139,10 +141,18 @@ std::vector<RoadSpine> map_spines() {
         s.lane_connect_end = r.lane_connect_end;
 
         s.block_quality = r.block_quality;
+        s.speed_limit_mps = r.speed_limit_mps;
 
         const Density d = density_for(r.district);
         s.traffic_density = d.traffic;
         s.ped_density = d.ped;
+        // .pop.parked was authored per district from the start and nothing
+        // read it, so every kerb in Pinatty was equally empty. It is a
+        // separate number from .traffic on purpose: Nickel Heights authors
+        // 1.2 parked against 0.8 traffic and Marrow authors 0.05 against 0.15,
+        // and a street reads as residential or industrial largely on that
+        // ratio.
+        s.parked_density = d.parked;
         if (r.one_way) s.ped_density = 0.0f;
 
         // The AUTHORED id, never the loop counter. Everything downstream keys

@@ -375,7 +375,7 @@ float height_at(uint64_t seed, float x, float z) {
 
     // THE AUTHORED TERRAIN OPERATORS, LAST, ON METRES.
     //
-    // This is where the map stops being noise and starts being O'Haven: the
+    // This is where the map stops being noise and starts being Pinatty: the
     // flat plate under the financial district, the harbour deep enough for a
     // ship, the channel the bridge crosses, the terraces on Ferrone Hill and
     // the graded corridor up the Shoulder. See src/city/terrain_ops.h.
@@ -430,7 +430,7 @@ float height_at(uint64_t seed, float x, float z) {
         (city::kMiandiGroundM - supported_h) * city_plate;
 
     // Florangia's authored road grades must win over its procedural land
-    // blend, just as O'Haven's roads win over its noise. The legacy early
+    // blend, just as Pinatty's roads win over its noise. The legacy early
     // return above is unchanged, so O'Haven still evaluates the table once on
     // its bit-stable path.
     return city::apply_terrain_ops(city_supported_h, x, z);

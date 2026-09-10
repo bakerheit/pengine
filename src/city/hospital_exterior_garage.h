@@ -7,7 +7,7 @@
 
 namespace apricot::city {
 
-// Exterior-detail sidecar for the 146 x 38 m Vellum Regional Hospital garage.
+// Exterior-detail sidecar for the 146 x 38 m Pinatty Regional Hospital garage.
 // Coordinates are local to kHospitalSite. The parent owns the main decks and
 // road access; this bake only adds purposeful structure and set dressing.
 inline std::vector<StartPart> bake_hospital_exterior_garage() {
@@ -217,7 +217,7 @@ inline std::vector<StartPart> bake_hospital_exterior_garage() {
     }
 
     // Flush drainage has no raised collision. The east strip keeps water and
-    // planting out of the Vellum Row sidewalk; the exit trench catches the
+    // planting out of the Pinatty Row sidewalk; the exit trench catches the
     // southward garage fall before Sixth Street.
     add("hospital garage east slot drain", 121.0f, 186.0f, 0.305f,
         0.22f, 0.025f, 27.0f, StartFinish::Steel);

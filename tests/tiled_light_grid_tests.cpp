@@ -7,8 +7,9 @@
 using namespace apricot;
 namespace {
 const glm::mat4 projection=glm::perspective(glm::radians(60.0f),16.0f/9.0f,0.15f,2000.0f);
-bool has_light(const TiledLightGrid& grid,glm::vec3 p,uint32_t light,int width=1280,int height=720) {
-    const auto clip=projection*glm::vec4{p,1};
+bool has_light(const TiledLightGrid& grid,glm::vec3 p,uint32_t light,int width=1280,int height=720,
+               const glm::mat4& vp=projection) {
+    const auto clip=vp*glm::vec4{p,1};
     if(clip.w<kLightNear || clip.w>kLightFar) return true;
     const glm::vec2 ndc=glm::vec2{clip}/clip.w;
     if(std::fabs(ndc.x)>=1 || std::fabs(ndc.y)>=1) return true;
@@ -62,7 +63,9 @@ void clipped_cones_keep_every_visible_sample() {
             for(int distance=1;distance<32;++distance) for(int ring=0;ring<8;++ring) {
                 const float t=static_cast<float>(distance);
                 const float angle=static_cast<float>(ring)*glm::radians(45.0f);
-                const glm::vec3 sample=p+d*t+(right*std::cos(angle)+up*std::sin(angle))*t*.35f;
+                // Shader range is radial; sample the illuminated cone, not
+                // points beyond range along the old pyramid's base corners.
+                const glm::vec3 sample=p+glm::normalize(d+(right*std::cos(angle)+up*std::sin(angle))*.35f)*t;
                 REQUIRE(has_light(grid,sample,static_cast<uint32_t>(li),size.x,size.y));
             }
         }
@@ -87,7 +90,39 @@ void colored_wide_cones() {
     REQUIRE(grid.visible_lights==0);
     apricot_test::pass("colored wide cones retain road illumination and reject invalid data");
 }
+void ceiling_lights_respect_radial_range() {
+    TiledLightGrid grid;
+    const TrafficSpotLight ceiling{{0,2,-12,7},{0,-1,0,2.6f},{1,.92f,.80f,.35f}};
+    grid.build({ceiling},projection,1280,720);
+    REQUIRE(has_light(grid,{0,-2,-12},0));
+    REQUIRE(!has_light(grid,{0,-2,-30},0));
+    // Sweep wide/narrow cones, nearly horizontal directions, rotated cameras,
+    // near-plane crossings and almost-boundary samples. No influencing lamp
+    // may disappear merely because its enclosing range box was tightened.
+    const std::array<glm::mat4,3> cameras{{projection,
+        projection*glm::lookAt(glm::vec3{2,1,2},glm::vec3{0,1,-4},glm::vec3{0,1,0}),
+        projection*glm::lookAt(glm::vec3{0,3,0},glm::vec3{0,0,-5},glm::vec3{0,1,0})}};
+    for(const auto& vp:cameras)for(float outer:{.05f,.2f,.35f,.55f,.94f,.995f})
+    for(const auto direction:{glm::vec3{0,-1,0},glm::vec3{.4f,-.7f,-.2f},glm::vec3{1,.02f,0}})
+    for(float z:{1.f,-3.f,-12.f,-240.f}) {
+        const auto d=glm::normalize(direction);
+        const auto right=glm::normalize(glm::cross(d,glm::vec3{0,0,1}));
+        const auto up=glm::cross(right,d);
+        const glm::vec3 origin{0,2,z};
+        grid.build({{glm::vec4{origin,7},glm::vec4{d,2.6f},{1,.92f,.80f,outer}}},vp,1311,733);
+        for(float distance:{.05f,2.f,5.f,6.999f})for(float fraction:{0.f,.5f,.9999f})
+        for(int ring=0;ring<16;++ring) {
+            const float angle=static_cast<float>(ring)*glm::two_pi<float>()/16;
+            const float theta=std::acos(outer)*fraction;
+            const auto p=origin+distance*(d*std::cos(theta)+
+                (right*std::cos(angle)+up*std::sin(angle))*std::sin(theta));
+            REQUIRE(has_light(grid,p,0,1311,733,vp));
+        }
+    }
+    apricot_test::pass("wide ceiling lights exclude unreachable depth bands and retain all illuminated samples");
+}
 int main() {
+    ceiling_lights_respect_radial_range();
     colored_wide_cones();
     no_cap_and_depth_separation(); clipped_cones_keep_every_visible_sample();
     return apricot_test::done("tiled_light_grid_tests");

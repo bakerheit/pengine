@@ -117,8 +117,20 @@ void parcel_stays_clear_of_existing_sites_and_roads() {
         &city::kLaundromatSite,&city::kNessBillboardSite,&city::kPinnatyTaxiBillboardSite}) {
         // All sites use the same authored six-degree grid, so projected local
         // intervals give exact parcel separation rather than inflated AABBs.
-        REQUIRE_NEAR(other->cos_yaw,pawn.cos_yaw,.0001f);
-        REQUIRE_NEAR(other->sin_yaw,pawn.sin_yaw,.0001f);
+        // What that separating-axis test actually needs is that the lot axes
+        // are PARALLEL to the pawn shop's; it does not care which way a
+        // building faces, because a rectangle turned through 180 degrees
+        // occupies the identical footprint. Requiring an identical yaw was
+        // stricter than the maths and broke when Tacomaco was authored on the
+        // same grid facing the other way (174 degrees against -6). The dot
+        // product of the two headings is +-1 for exactly the turns that keep
+        // the axes parallel, and rejects the 6-degree reflection that an
+        // abs() comparison would have let through.
+        const float heading_dot=other->cos_yaw*pawn.cos_yaw+
+                                other->sin_yaw*pawn.sin_yaw;
+        REQUIRE_MSG(std::fabs(heading_dot)>.9999f,
+                    "site lot axes are not parallel to the pawn parcel, so the "
+                    "interval separation below would not be exact",other->name);
         const auto c=local_point({other->origin.x+other->cos_yaw*other->lot_centre.x+
             other->sin_yaw*other->lot_centre.z,other->ground_m,
             other->origin.z-other->sin_yaw*other->lot_centre.x+other->cos_yaw*other->lot_centre.z});

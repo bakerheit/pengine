@@ -58,6 +58,7 @@ enum ButtonBit : uint32_t {
     kBtnMenuLeft  = 1u << 13,
     kBtnMenuRight = 1u << 14,
     kBtnDrink     = 1u << 15,
+    kBtnJump      = 1u << 16,
 };
 
 struct InputFrame {

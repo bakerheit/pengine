@@ -15,23 +15,23 @@ struct ConstructionExpansionSite {
 
 // These four blocks deliberately use different construction stories: a
 // steel frame, a concrete parking deck, a facade retrofit, and a demolition
-// parcel. They continue the open Vellum Row perimeter without reusing one
+// parcel. They continue the open Pinatty Row perimeter without reusing one
 // giant prefab. The steel-frame and demolition sites use the outer Briar
 // column: their former (138,-31) and (138,155) cells were already occupied by
 // the police station and Tacomaco. The tempting outer Cinder column is inside
-// Nickel Heights' terrain feather and does not sit at the 12 m Vellum datum.
+// Nickel Heights' terrain feather and does not sit at the 12 m Pinatty datum.
 inline constexpr std::array<ConstructionExpansionSite, 4>
     kAdditionalConstructionSites{{
-        {{"Vellum Steel Frame Annex", construction_grid_point(-322, -31),
+        {{"Pinatty Steel Frame Annex", construction_grid_point(-322, -31),
           kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 30.0f, 12.0f, 1700.0f},
          "steel-frame"},
-        {{"Vellum Concrete Deck Works", construction_grid_point(138, 31),
+        {{"Pinatty Concrete Deck Works", construction_grid_point(138, 31),
           kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 30.0f, 12.0f, 1700.0f},
          "concrete-deck"},
-        {{"Vellum Facade Retrofit", construction_grid_point(138, 93),
+        {{"Pinatty Facade Retrofit", construction_grid_point(138, 93),
           kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 30.0f, 12.0f, 1700.0f},
          "facade-retrofit"},
-        {{"Vellum Demolition Parcel", construction_grid_point(-322, 155),
+        {{"Pinatty Demolition Parcel", construction_grid_point(-322, 155),
           kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 30.0f, 12.0f, 1700.0f},
          "demolition"},
     }};
@@ -42,9 +42,9 @@ inline constexpr std::array<ConstructionExpansionSite, 4>
 // northern Mercer-column cells on the exact 12 m plate. Their old southern
 // cells were being lifted by Halloway Square's terrain feather.
 inline constexpr std::array<StartSite, 2> kTwinSkyscraperBlockSites{{
-    {"Vellum Twin Towers Block A", construction_grid_point(-230, -279),
+    {"Pinatty Twin Towers Block A", construction_grid_point(-230, -279),
      kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 30.0f, 12.0f, 2100.0f},
-    {"Vellum Twin Towers Block B", construction_grid_point(-230, -217),
+    {"Pinatty Twin Towers Block B", construction_grid_point(-230, -217),
      kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 30.0f, 12.0f, 2100.0f},
 }};
 

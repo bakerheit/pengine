@@ -9,6 +9,7 @@ constexpr float kCrashGainBoost = 1.25f;
 
 bool has_recorded_car_audio(const SfxBank& bank) {
     if (!bank.engine_start.empty() || !bank.engine_idle.empty()) return true;
+    for (const auto& horn : bank.traffic_horns) if (!horn.empty()) return true;
     if (!bank.player_throttle_attack.empty() ||
         !bank.player_throttle_hold.empty() ||
         !bank.player_throttle_release.empty() ||
@@ -107,6 +108,7 @@ bool VehicleAudio::start(VoiceMixer& mixer, const SfxBank& bank) {
 }
 
 void VehicleAudio::exit_vehicle() {
+    stop_horn();
     if (!mixer_) return;
     mixer_->stop_oneshot(startup_voice_);
     mixer_->stop_oneshot(acceleration_voice_);
@@ -157,6 +159,8 @@ void VehicleAudio::open_throttle_loop(glm::vec3 position, float pitch) {
 }
 
 void VehicleAudio::stop() {
+    stop_horn();
+    horn_count_ = 0;
     if (mixer_) {
         mixer_->stop_oneshot(acceleration_voice_);
         mixer_->stop_oneshot(collision_voice_);
@@ -189,6 +193,37 @@ void VehicleAudio::set_listener(const Listener& listener) {
 
 void VehicleAudio::update(const VehicleAudioFrame& frame) {
     if (!mixer_ || !bank_) return;
+
+    if (!frame.active || !frame.horn_available) {
+        stop_horn();
+    } else {
+        horn_remaining_=std::max(0.f,horn_remaining_-std::clamp(frame.dt_seconds,0.f,.1f));
+        if (horn_remaining_<=0.f) stop_horn();
+        if (frame.horn_pressed && horn_remaining_<=0.f) {
+            const auto model=profile_.model_key;
+            const bool truck=model=="car8" || model=="firetruck" || model=="harrow_workman" ||
+                model=="harrow_cityliner" || model=="harrow_hauler" || model=="harrow_parcel";
+            const std::size_t clip=truck ? 2u : (profile_.pitch>1.05f ? 1u : 0u);
+            if (!bank_->traffic_horns[clip].empty()) {
+                horn_params_={};
+                horn_params_.category=Category::World;
+                horn_params_.spatial=true;
+                horn_params_.position=frame.position+glm::vec3{0,.8f,0};
+                horn_params_.attenuation={4.f,70.f,1.1f};
+                horn_params_.gain=.8f;
+                horn_params_.pitch=std::clamp(profile_.pitch,.94f,1.06f);
+                horn_voice_=mixer_->play_oneshot(&bank_->traffic_horns[clip],horn_params_);
+                if (horn_voice_.valid()) {
+                    horn_remaining_=bank_->traffic_horns[clip].duration_seconds()/horn_params_.pitch+.12f;
+                    ++horn_count_;
+                }
+            }
+        }
+        if (horn_voice_.valid()) {
+            horn_params_.position=frame.position+glm::vec3{0,.8f,0};
+            mixer_->set_oneshot(horn_voice_,horn_params_);
+        }
+    }
 
     if (!frame.active || !frame.engine_running) {
         mixer_->stop_oneshot(startup_voice_);
@@ -347,6 +382,11 @@ void VehicleAudio::update(const VehicleAudioFrame& frame) {
     was_accelerating_ = cranking ? false : frame.accelerating;
     startup_remaining_ = std::max(0.0f, startup_remaining_ - std::clamp(frame.dt_seconds, 0.0f, .1f));
     previous_gear_ = frame.gear;
+}
+
+void VehicleAudio::stop_horn() {
+    if (mixer_ && horn_voice_.valid()) mixer_->stop_oneshot(horn_voice_);
+    horn_voice_={}; horn_remaining_=0.f;
 }
 
 void VehicleAudio::play_car_collision(float impact_mps, glm::vec3 position) {

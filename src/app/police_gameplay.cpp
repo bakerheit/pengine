@@ -6,6 +6,21 @@
 
 namespace apricot {
 
+bool App::player_has_drawn_weapon() const {
+    return on_foot_ && !in_aircraft_ && !in_boat_ &&
+        !vehicle_transition_.active() && !boat_transition_.active() &&
+        weapon_use_.equipped == WeaponId::Pistol &&
+        weapon_use_.equip_blend >= 0.80f;
+}
+
+float App::current_speed_limit_mps() const {
+    if (on_foot_ || in_aircraft_ || in_boat_) return 0.0f;
+    const glm::vec3 forward3 = car_.orientation * glm::vec3{0.0f, 0.0f, -1.0f};
+    const auto lane = world_.lanes().nearest_lane_along(
+        {car_.position.x, car_.position.z}, {forward3.x, forward3.z}, 8.0f);
+    return lane.valid() ? world_.lanes().lane(lane.lane).speed_limit_mps : 0.0f;
+}
+
 void App::check_police_driving_offenses() {
     PoliceDrivingSample sample;
     sample.vehicle_identity=car_.mechanical_key;
@@ -31,10 +46,43 @@ void App::check_police_driving_offenses() {
         world_.traffic_tuning(),sample,witnesses,world_.traffic().police_tuning());
     if (report) {
         wanted_.add_heat(report.heat,report.crime);
-        ++police_red_light_reports_;
-        AP_INFO("police witnessed red-light crossing: lane %u; wanted %d",
-            report.incoming,wanted_.level());
+        if (report.kind == PoliceOffenseReport::Kind::RedLight) {
+            ++police_red_light_reports_;
+            AP_INFO("police witnessed red-light crossing: lane %u; wanted %d",
+                report.incoming,wanted_.level());
+        } else if (report.kind == PoliceOffenseReport::Kind::StopSign) {
+            ++police_stop_sign_reports_;
+            AP_INFO("police witnessed stop-sign run: lane %u; wanted %d",
+                report.incoming,wanted_.level());
+        } else if (report.kind == PoliceOffenseReport::Kind::Speeding) {
+            ++police_speeding_reports_;
+            AP_INFO("police witnessed speeding: %.1f mph in %.1f mph zone; wanted %d",
+                static_cast<double>(report.observed_speed_mps * 2.2369363f),
+                static_cast<double>(report.speed_limit_mps * 2.2369363f),
+                wanted_.level());
+        }
     }
+}
+
+void App::check_police_armed_offense(bool player_armed) {
+    std::vector<PoliceOffenseWitness> witnesses;
+    if (player_armed) {
+        const auto visible = visible_police(player_character_.position, true);
+        for (const auto& agent : world_.traffic().vehicles()) {
+            if (!agent.police_unit || std::find(visible.begin(), visible.end(),
+                    VisiblePoliceIdentity{agent.lane_key, agent.slot}) == visible.end())
+                continue;
+            witnesses.push_back({police_officer_eye_position(agent),
+                police_officer_forward(agent), true});
+        }
+    }
+    const auto report = police_offenses_.observe_armed(
+        player_character_.position, player_armed, witnesses,
+        world_.traffic().police_tuning());
+    if (!report) return;
+    wanted_.add_heat(report.heat, report.crime);
+    ++police_armed_reports_;
+    AP_INFO("police witnessed armed threat; wanted %d", wanted_.level());
 }
 
 void App::check_police_collision_offenses() {
@@ -56,7 +104,8 @@ void App::check_police_collision_offenses() {
 
 void App::check_police_arrest(const std::vector<VisiblePoliceIdentity>& visible) {
     const bool arrestable=on_foot_ && !in_aircraft_ && !in_boat_ &&
-        !vehicle_transition_.active() && !boat_transition_.active();
+        !vehicle_transition_.active() && !boat_transition_.active() &&
+        !player_has_drawn_weapon();
     const auto event=police_arrest_.observe(step_index_,arrestable,wanted_.level(),
         player_character_.position,world_.traffic().vehicles(),visible);
     if (!event) return;
@@ -69,9 +118,52 @@ void App::check_police_arrest(const std::vector<VisiblePoliceIdentity>& visible)
         kPoliceArrestRangeM,kPoliceArrestHoldSeconds);
 }
 
+void App::check_police_shots() {
+    if (!on_foot_ || player_health_ <= 0.0f) return;
+    const glm::vec3 torso = player_character_.position + glm::vec3{0.0f, 1.05f, 0.0f};
+    for (const PoliceShotEvent& shot : world_.traffic().police_shots()) {
+        ++police_shot_reports_;
+        VoiceParams sound;
+        sound.category = Category::Impacts;
+        sound.gain = 0.72f;
+        sound.spatial = true;
+        sound.position = shot.origin;
+        audio_device_.mixer().play_oneshot(&weapon_shot_clip_, sound);
+
+        const glm::vec3 travel = shot.end - shot.origin;
+        const float distance = glm::length(travel);
+        if (!(distance > 0.01f)) continue;
+        const auto world_hit = collider_.raycast(
+            shot.origin, travel / distance, distance);
+        if (world_hit.hit && world_hit.distance < distance - 0.08f) continue;
+        if (!police_shot_hits_player(shot, torso)) continue;
+
+        weapon_visual_.show_blood(torso, travel / distance,
+            shot.lane_key ^ (static_cast<uint64_t>(shot.ordinal) << 32));
+        player_health_ = std::max(0.0f, player_health_ - kPoliceBulletDamage);
+        police_hit_feedback_s_ = 0.45f;
+        AP_INFO("police shot hit player: health %.0f", static_cast<double>(player_health_));
+        if (player_health_ > 0.0f) continue;
+
+        wanted_.reset();
+        police_offenses_.reset();
+        police_arrest_.reset();
+        world_.set_police_context(0, player_focus_position());
+        weapon_wheel_.equipped = WeaponId::Unarmed;
+        weapon_use_ = WeaponUseState{};
+        place_character_next_to_car();
+        prev_player_character_ = player_character_;
+        player_health_ = 100.0f;
+        police_shot_down_feedback_s_ = 3.0f;
+        AP_INFO("player shot down by police and respawned beside current vehicle");
+        break;
+    }
+}
+
 // This check scripts the player's placement/input only. Police perception,
 // contacts, braking, walking and every door phase use the live game path.
 InputFrame App::police_officer_check_input() {
+    if (police_pursuit_check_) return police_pursuit_check_input();
     InputFrame input;
     input.handbrake=1.0f;
     const auto fail=[&](const char* reason) {
@@ -204,18 +296,39 @@ InputFrame App::police_officer_check_input() {
         if (phase==PoliceOfficerPhase::Pursuing && cop.officer.distance_walked_m>2.0f) {
             police_officer_check_phases_|=2u;
             police_officer_check_capture_="on-foot";
+            police_armed_reports_=0;
+            police_shot_reports_=0;
+            player_health_=100.0f;
+            weapon_wheel_.equipped=WeaponId::Pistol;
             advance(5);
-            AP_INFO("police officer check: officer walking toward suspect");
+            AP_INFO("police officer check: officer walking toward suspect; drawing pistol");
         }
         return input;
     }
     if (police_officer_check_stage_==5) {
+        if (police_shot_reports_==0) return input;
+        if (police_armed_reports_==0 || !cop.officer.armed) {
+            fail("officer fired without witnessed armed response");return input;
+        }
+        police_officer_check_capture_="armed-fire";
+        advance(6);
+        AP_INFO("police officer check: armed threat witnessed and officer fired");
+        return input;
+    }
+    if (police_officer_check_stage_==6) {
+        if (elapsed<30u) return input;
+        weapon_wheel_.equipped=WeaponId::Unarmed;
+        advance(7);
+        AP_INFO("police officer check: armed pose captured; holstering for arrest");
+        return input;
+    }
+    if (police_officer_check_stage_==7) {
         if (police_arrest_reports_==0) return input;
         if (wanted_.level()!=0 || arrested_feedback_s_<=0.0f) {
             fail("arrest did not clear pursuit and show feedback");return input;
         }
         police_officer_check_capture_="arrested";
-        advance(6);
+        advance(8);
         AP_INFO("police officer check: arrested; officer must return to own cruiser");
         return input;
     }
@@ -236,7 +349,10 @@ InputFrame App::police_officer_check_input() {
         police_officer_check_capture_="seated-again";
         police_officer_check_done_=true;
         if (police_arrest_reports_!=1u) { fail("arrest event repeated");return input; }
-        AP_INFO("police officer check: PASS witnessed red, attributed cruiser hit, exit, walk, arrest, return, enter and drive");
+        if (police_armed_reports_!=1u || police_shot_reports_==0u) {
+            fail("armed response did not report exactly once and fire");return input;
+        }
+        AP_INFO("police officer check: PASS witnessed red, attributed cruiser hit, exit, walk, armed fire, arrest, return, enter and drive");
     }
     return input;
 }
@@ -249,6 +365,23 @@ void App::police_officer_check_camera() {
             car.slot==police_officer_check_unit_.slot;
     });
     if (cop==cars.end()) return;
+    if (police_pursuit_check_ && (police_officer_check_stage_ < 4 ||
+        police_officer_check_capture_ == "traffic-resumed")) {
+        const auto initial = world_.lanes().pose(police_pursuit_check_start_lane_, 0.0f);
+        const glm::vec3 left{initial.tangent.z, 0, -initial.tangent.x};
+        auto target = cop->pos + glm::vec3{0, 0.8f, 0};
+        float range = 1.f;
+        if (police_officer_check_capture_ == "traffic-pulled-aside" ||
+            police_officer_check_capture_ == "traffic-resumed") {
+            target = (cop->pos + police_pursuit_check_yield_position_) * .5f + glm::vec3{0,.8f,0};
+            range = std::max(1.f, glm::distance(cop->pos, police_pursuit_check_yield_position_) / 16.f);
+        }
+        camera_.position = target + (left * 12.0f - initial.tangent * 10.0f + glm::vec3{0, 8, 0}) * range;
+        const auto look = target - camera_.position;
+        camera_.yaw = std::atan2(look.x, -look.z);
+        camera_.pitch = std::atan2(look.y, glm::length(glm::vec2{look.x, look.z}));
+        return;
+    }
     const glm::vec3 left{cop->fwd.z,0,-cop->fwd.x};
     glm::vec3 target=cop->pos+left*.8f+glm::vec3{0,.8f,0};
     float range=1.0f;

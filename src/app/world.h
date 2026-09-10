@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -30,6 +31,8 @@ struct SkyscraperWindowRuntime {
     bool hide_when_dark = true;
     glm::vec2 building_position{0.0f};
     city::SkyscraperWindowLodState lod{};
+    city::SkyscraperWindowLight target_light{};
+    city::SkyscraperWindowPresentationState presentation{};
 };
 
 // The host half of terrain streaming: build, upload, deliver, free.
@@ -94,7 +97,7 @@ public:
 
     // Bake `spines` into ribbons, upload them and put them in the scene.
     //
-    // App passes city::map_spines() — O'Haven's authored road network, 99
+    // App passes city::map_spines() — Pinatty's authored road network, 99
     // spines and 53.6 km of centreline. This stays a PARAMETER rather than a
     // call into src/city/ so the whole chain can be driven from a test with a
     // different network, which is exactly what tests/city_roads_tests.cpp does.
@@ -139,9 +142,14 @@ public:
             const std::vector<VisiblePoliceIdentity>& visible_police = {}) {
         crowd_.set_police_context(wanted_level, target, visible_police);
     }
-    void set_police_officer_context(bool target_on_foot, float target_speed_mps,
+    void set_police_officer_context(bool target_on_foot, bool target_armed,
+                                    glm::vec2 target_velocity,
                                     const TerrainCollider* collider) {
-        crowd_.set_police_officer_context(target_on_foot,target_speed_mps,collider);
+        crowd_.set_police_officer_context(target_on_foot,target_armed,
+                                          target_velocity,collider);
+    }
+    void set_police_vehicle_tuning(const VehicleTuning& tuning) {
+        crowd_.set_police_vehicle_tuning(tuning);
     }
     void set_police_officer_vehicle_layout(const PoliceOfficerVehicleLayout& layout) {
         crowd_.set_police_officer_vehicle_layout(layout);
@@ -158,7 +166,12 @@ public:
     const Streamer& streamer() const { return streamer_; }
     const RoadMeshes& roads() const { return roads_; }
     const LaneGraph& lanes() const { return lane_graph_; }
+    void set_snowplow_service(bool active) { crowd_.set_snowplow_service(active); }
     const Crowd& traffic() const { return crowd_; }
+    PedShotHit shoot_ped(glm::vec3 origin, glm::vec3 direction,
+                        float max_distance, int64_t step) {
+        return crowd_.shoot_ped(origin,direction,max_distance,step);
+    }
     bool take_traffic_vehicle(uint64_t key, uint32_t slot, VehicleAgent& out) {
         return crowd_.take_vehicle(key,slot,out);
     }
@@ -167,7 +180,12 @@ public:
     }
     const CrowdTuning& traffic_tuning() const { return crowd_tuning_; }
     const CanopyLightRig& canopy_lights() const { return canopy_lights_; }
+    const std::vector<StaticBox>& precipitation_cover() const { return precipitation_cover_; }
     const Stats& stats() const { return stats_; }
+    const std::vector<glm::vec3>& miandi_gas_station_lights() const { return miandi_gas_station_lights_; }
+    void sync_burgerpiz_parking_lamps(Scene& scene,float night_level);
+    const std::vector<glm::vec3>& burgerpiz_parking_lights() const { return burgerpiz_parking_lights_; }
+    const std::vector<glm::vec3>& burgerpiz_lights() const { return burgerpiz_lights_; }
     const std::vector<glm::vec3>& residential_lights() const { return residential_lights_; }
     bool inside_authored_interior(glm::vec3 position,
                                   float margin_m = 0.0f) const;
@@ -212,9 +230,15 @@ private:
     MeshId start_rounded_box_mesh_ = kInvalidId;
     MeshId start_cylinder_mesh_ = kInvalidId;
     MeshId start_gable_mesh_ = kInvalidId;
+    MeshId museum_amphora_mesh_=kInvalidId;
+    std::array<MeshId,4> museum_art_meshes_{kInvalidId,kInvalidId,kInvalidId,kInvalidId};
+    // Atlas-cell quads and exhibit meshes for the Pinatty Museum interior,
+    // released together because they are uploaded together.
+    std::vector<MeshId> museum_meshes_;
     MeshId airport_garage_ramp_mesh_ = kInvalidId;
     std::vector<glm::vec3> residential_lights_;
     std::vector<city::InteriorStreamingVolume> interior_streaming_volumes_;
+    std::vector<StaticBox> precipitation_cover_;
     std::vector<city::ResidentialDoor> house_doors_;
     std::vector<HouseDoorState> house_door_states_;
     std::vector<std::vector<NodeId>> house_door_nodes_;
@@ -225,6 +249,12 @@ private:
     std::vector<std::size_t> quickbite_door_colliders_;
     MeshId pawn_guitar_mesh_=kInvalidId;
     city::BuildingAccessBake access_layout_; // metadata only, no retained road meshes
+    std::vector<MeshId> miandi_gas_station_meshes_;
+    std::vector<glm::vec3> miandi_gas_station_lights_;
+    std::vector<MeshId> burgerpiz_meshes_;
+    std::vector<glm::vec3> burgerpiz_lights_;
+    std::vector<glm::vec3> burgerpiz_parking_lights_;
+    std::vector<NodeId> burgerpiz_parking_lens_nodes_;
     std::vector<MeshId> airport_aircraft_meshes_;
     MeshId moored_boat_mesh_ = kInvalidId;
     NodeId boat_node_ = kInvalidId;
@@ -242,6 +272,7 @@ private:
     float skyscraper_window_sync_darkness_ = -1.0f;
     float skyscraper_window_sync_time_ = -1.0f;
     float skyscraper_window_sync_time_rate_ = 0.0f;
+    uint64_t skyscraper_window_presentation_step_ = UINT64_MAX;
     std::vector<NodeId> bank_vault_nodes_;
     std::size_t bank_vault_collider_ = static_cast<std::size_t>(-1);
     float bank_vault_pose_ = -1.0f;

@@ -31,7 +31,7 @@ constexpr Vec2 hospital_grid_point(float east, float south) {
 // stays regular city fabric; the first two cells of the last row are one
 // stacked parking garage.
 inline constexpr StartSite kHospitalSite{
-    "Vellum Regional Hospital Campus", hospital_grid_point(-138.0f, -279.0f),
+    "Pinatty Regional Hospital Campus", hospital_grid_point(-138.0f, -279.0f),
     kGridCos, kGridSin, kHospitalCampusCentre, kHospitalCampusWidthM,
     kHospitalCampusDepthM, 12.0f, 2200.0f};
 

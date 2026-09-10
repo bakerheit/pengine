@@ -1,7 +1,7 @@
 # Bank interior textures
 
 The base set was generated with OpenAI built-in imagegen on 2026-09-03; the
-O'Haven sign and ATM edits were generated on 2026-09-05. Source images remain
+superseded O'Haven sign and ATM edits on 2026-09-05. Source images remain
 in the Codex generated-images folder; runtime PNGs are reduced to their listed
 sizes. These are diffuse artwork, not normal or roughness maps.
 
@@ -33,18 +33,24 @@ Asset type: production-ready photorealistic game material texture for the entera
 Primary request: One flat square complete late-1980s bank ATM control face game texture. Square outer brushed stainless steel panel fills canvas edge-to-edge. Deep navy upper header with exact ivory text 'PINATTY'. Upper-middle inset green monochrome screen reads exactly 'WELCOME' and 'INSERT CARD'. Four square physical buttons on each side of the screen. Lower area has metallic numeric keypad left and card slot right; bottom wide cash dispenser slot and small receipt slot. Realistic fine brushed metal and modest finger wear, crisp readable shapes. Perfect straight-on orthographic view, no side thickness, no surrounding machine or scene, no perspective. This is a flat texture to map once onto the front of a model.
 Constraints: one square image, no watermark, no presentation board, no mockup, no border outside the material, no baked directional shadows or lighting gradients.
 
-## ohaven-savings-sign.png
+## ohaven-savings-sign.png (unused)
 
 Generated with OpenAI built-in imagegen on 2026-09-05 by editing the inspected
 Pinatty sign. Runtime output is 1024x341 with the unused lower padding made
 transparent.
 
+**Superseded.** The city is Pinatty again, so the game loads the PINATTY
+original above. This edit is kept only as a record of how it was made.
+
 Use case: stylized-concept. Edit the supplied bank sign texture in place. Replace only the bank name with exact text `O'HAVEN SAVINGS & TRUST`, retaining the apostrophe. Preserve the original vault-door medallion, flat orthographic 3:1 composition, navy enamel, ivory lettering, gold trim, restrained wear, and all other styling. No mockup, scene, perspective, watermark, logo, or extra text.
 
-## atm-face-ohaven.png
+## atm-face-ohaven.png (unused)
 
 Generated with OpenAI built-in imagegen on 2026-09-05 by editing the inspected
 ATM face. Runtime output is 768x768.
+
+**Superseded.** The city is Pinatty again, so the game loads the PINATTY
+original above. This edit is kept only as a record of how it was made.
 
 Use case: stylized-concept. Edit the supplied square ATM face texture in place. Replace only the upper header text `PINATTY` with exact text `O'HAVEN`, retaining the apostrophe. Preserve the orthographic brushed-steel panel, navy header, green screen reading `WELCOME` and `INSERT CARD`, keypad, buttons, slots, proportions, lighting, and wear. Add no extra text or objects.
 

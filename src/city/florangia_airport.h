@@ -32,7 +32,7 @@ constexpr bool florangia_airport_lot_contains(float world_x, float world_z,
            world_z <= centre_z + kFlorangiaAirportSite.lot_depth_m * 0.5f + margin_m;
 }
 
-// This first pass is deliberately smaller than O'Haven International, but it
+// This first pass is deliberately smaller than Pinatty International, but it
 // is a complete readable airport: runway, connected taxiway/apron, terminal,
 // tower, hangar, parking, and a straight public road to the freeway junction.
 inline constexpr StartPart kFlorangiaAirportCoreParts[] = {

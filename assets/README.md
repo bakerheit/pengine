@@ -196,26 +196,28 @@ three grade buttons. It replaces 24 small box decorations across four pumps.
 
 ## Generated bank art
 
-`textures/world/bank/ohaven-savings-sign.png` is the 1024x341 front face for
-the O'Haven Savings & Trust rooftop and lobby signs. It was generated for this
-project with OpenAI's built-in image generation on 2026-09-05, then reduced to
+`textures/world/bank/pinatty-savings-sign.png` is the front face for the
+Pinatty Savings & Trust rooftop and lobby signs. It was generated for this
+project with OpenAI's built-in image generation on 2026-09-03, then reduced to
 the exact runtime texture size. The prompt requested flat late-1980s civic-bank
 sign art in navy, ivory, and gold, with a vault-door medallion, the exact bank
-name, no mockup, no perspective, and no extra text. The earlier Pinatty source
-texture remains in the project as provenance only.
+name, no mockup, no perspective, and no extra text. The 2026-09-05
+`ohaven-savings-sign.png` edit is superseded and unused.
 
 The bank's `terrazzo-floor.png`, `walnut-panel.png`, `acoustic-ceiling.png`,
 and `deposit-boxes.png` were generated with the built-in tool on 2026-09-03;
-`atm-face-ohaven.png` is the 2026-09-05 localized edit. Tileable diffuse
+`atm-face.png` is the one the game loads, and the 2026-09-05
+`atm-face-ohaven.png` edit is superseded and unused. Tileable diffuse
 materials are 512x512; the square ATM control
 face is 768x768 and maps once onto each lobby machine's 70 cm square upper
 control panel, not the full cabinet. Each cabinet is 86 cm wide and 1.6 m tall,
 with a separate plain-metal lower service door. Full
 production prompts are saved in `textures/world/bank/GENERATED.md`.
 
-The interactive vault uses `vault-door-face-ohaven.png` and `vault-office-note.png`
+The interactive vault uses `vault-door-face.png` and `vault-office-note.png`
 at 768x768 and `vault-keypad.png` at 512x512. The base set was generated with
-the built-in tool on 2026-09-03 and the O'Haven door edit on 2026-09-05; full prompts are in
+the built-in tool on 2026-09-03; the 2026-09-05 O'Haven door edit is superseded
+and unused. Full prompts are in
 `textures/world/bank/VAULT-GENERATED.md`. They are diffuse artwork, not PBR maps.
 The note artwork must be regenerated if `kBankVaultCode` changes.
 

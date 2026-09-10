@@ -1,4 +1,4 @@
-# Vellum Regional Hospital four-story superblock
+# Pinatty Regional Hospital four-story superblock
 
 ## Scope and source snapshot
 
@@ -10,7 +10,7 @@ The live `src/city/hospital_campus.h` snapshot uses nine 54 x 38 m hospital
 blocks on a 92 x 62 m grid. Their centres are `(0, 0)` through `(184, 124)` in
 hospital-site coordinates. The two-block garage is centred at `(46, 186)` and
 is 146 x 38 m. The hospital site origin is approximately world
-`(-38.081, -331.897)` on the Vellum Row 6-degree basis.
+`(-38.081, -331.897)` on the Pinatty Row 6-degree basis.
 
 The proposed occupied superblock keeps the existing nine block centres and the
 outer buildable envelope:
@@ -19,7 +19,7 @@ outer buildable envelope:
 - North edge: Tenth Street. South edge: the reclaimed Seventh Street corridor
   across the garage columns, with the surviving road continuing east.
 - West edge: Bellweather Road. East edge: Juniper Avenue.
-- Removed internal segments: Rook Lane and Vellum Row at local `x = 46` and
+- Removed internal segments: Rook Lane and Pinatty Row at local `x = 46` and
   `x = 138`; Ninth and Eighth Streets at local `z = 31` and `z = 93`; and
   Seventh Street across the two hospital-to-garage columns.
 - Keep Tenth, Bellweather, and Juniper as full perimeter streets. The surviving
@@ -166,14 +166,14 @@ Use the generated texture only on one named authored plane:
   `-Z` face of the north-west pavilion.
 - Size: `9.0 m wide x 6.0 m high x 0.06 m deep`.
 - Vertical placement: bottom at `y = 4.80 m`, top at `y = 10.80 m`.
-- Asset: `assets/textures/world/hospital/facade/vellum-main-entry-mural-face-generated.png`.
+- Asset: `assets/textures/world/hospital/facade/pinatty-main-entry-mural-face-generated.png`.
 - UVs: map the complete RGB image once over `[0,1] x [0,1]`; clamp edges; white
   tint; no repeat, crop, atlas packing, or mirroring.
 - Edge treatment: recess the face 0.05-0.08 m inside a separately authored
   0.18 m metal or masonry reveal. Do not crop off the texture's teal border.
 
 The 1536 x 1024 source is exactly 3:2, matching the 9 x 6 m plane. Its large
-teal stepped beacon and exact `VELLUM REGIONAL HOSPITAL` copy are readable from
+teal stepped beacon and exact `PINATTY REGIONAL HOSPITAL` copy are readable from
 Tenth Street and distinguish the low hospital from the tall commercial skyline.
 The small red centre accent ties to emergency without using a protected
 red-cross emblem.
@@ -205,7 +205,7 @@ red-cross emblem.
   Hiding only the asphalt will leave invisible traffic and collision through
   the building.
 - Keep perimeter road IDs and street geometry stable. Verify the truncated
-  Rook Lane, Vellum Row, Ninth Street, and Eighth Street endpoints do not leave
+  Rook Lane, Pinatty Row, Ninth Street, and Eighth Street endpoints do not leave
   dead lane nodes inside the site.
 - Generate render and collision geometry from the same hospital description.
   Connector floors, court walks, entry thresholds, and the garage bridge all

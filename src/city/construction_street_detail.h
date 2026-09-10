@@ -6,11 +6,11 @@
 
 namespace apricot::city {
 
-// A narrow service strip on the east edge of the Vellum construction yard.
+// A narrow service strip on the east edge of the Pinatty construction yard.
 // It is authored as its own StartSite so the parent can append it separately
 // from the high-rise frame, while sharing the yard's six-degree grid basis.
 inline constexpr StartSite kConstructionStreetDetailSite{
-    "Vellum Yard Street Detail", kConstructionSite.site.origin,
+    "Pinatty Yard Street Detail", kConstructionSite.site.origin,
     kConstructionSite.site.cos_yaw, kConstructionSite.site.sin_yaw,
     {31.0f, 0.0f}, 6.0f, 38.0f, 12.0f, 1200.0f};
 

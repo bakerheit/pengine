@@ -7,10 +7,10 @@ apricot is the successor to `pengine`, the engine behind two shipped games. It
 keeps what those paid for and deliberately changes three things; see
 [What changed from pengine](#what-changed-from-pengine).
 
-**The pilot world has two states:** O'Haven, the GTA-style authored city rebuilt
-from `probablecause`, and Florangia, a low subtropical state southeast of it.
-O'Haven's city design remains in [`docs/design/pinatty.md`](docs/design/pinatty.md)
-under its legacy filename; Florangia's terrain pass is in
+**The pilot world has two states:** O'Haven, whose GTA-style authored city
+Pinatty is rebuilt from `probablecause`, and Florangia, a low subtropical state
+southeast of it. Pinatty's city design is in
+[`docs/design/pinatty.md`](docs/design/pinatty.md); Florangia's terrain pass is in
 [`docs/design/florangia.md`](docs/design/florangia.md).
 
 > **O'Haven has roads and its first roadside block; Florangia has its first
@@ -124,6 +124,57 @@ boarding, dock exit, departure, steering, braking and unsafe-exit rejection.
 texture loader, shaders, scene culling, and renderer used by the game. Use it
 for static meshes and textures.
 
+The pistol wheel now feeds a timed weapon-use state and an upper-body pose layer.
+Hold Tab/LB, select the pistol, then hold RMB/LT or toggle Q to aim, LMB/RT to fire one shot
+per press, and R/X to reload. The first uncaptured left click captures the
+mouse. While armed, the controller's left stick moves the player; the triggers
+are reserved for aim/fire. Aiming uses a shoulder camera and slower movement.
+The magazine holds 12 rounds with 48 in reserve; reload takes 1.35 seconds.
+The gun has slide recoil, an empty-mag slide lock, muzzle flash and magazine
+movement. The character keeps its locomotion while raising both hands to aim,
+kicking back on shots, and reaching for the magazine during reload.
+
+The outlined crosshair follows the shoulder view; aiming tightens the view and
+keeps the player's body facing the shot. Shots trace from the camera and then
+the gun muzzle so nearby cover still blocks them. Pedestrian hits show a red
+hit marker, knock the target down, and emit the original Probable Cause-style
+short blood spray. Pedestrians recover through their existing activity system;
+this does not add permanent deaths, vehicle damage, ammo pickups, or checkpoint
+persistence for ammo. World hits show brief surface sparks.
+Pistol shots use the original Probable Cause
+`Glock17_Shoot_004.wav` recording (stereo, 44.1 kHz), with generated PCM as a
+missing-file fallback. Reload feedback remains generated. Sample bounds are
+tested, but live listening is not part of the automated check.
+`--weapon-check --frames 900 --daylight --clear --screenshot build/weapon-check`
+exercises equip/cancel/unarmed, aim, semi-auto fire, reload, held-R repeats,
+and blocked wheel clicks, then Q aim, a flick-and-click hit on a real spawned
+pedestrian, blood expiry, a ground hit, and Q release. Captures happen before
+buffer swap and include aim and body-hit views.
+The focused suites are `weapon_wheel_tests`, `weapon_use_tests`,
+`weapon_pose_tests`, `weapon_visual_pose_tests`, `weapon_aim_tests`,
+`weapon_hit_tests`, `blood_particles_tests`, and `ped_impact_pose_tests`.
+
+**The characters have thirteen clips**, not three: `idle` `walk` `sprint`
+`pistol_idle` `pistol_walk` `pistol_run` `punch_left` `punch_right`
+`hit_by_car` `die_forward` `die_backward` `stand_up` `jump`. They are lifted
+from Probable Cause's cooked set rather than re-cooked — Characters_psx 1.1
+changed the FBX rest-space axes, and re-cooking a locomotion clip from it
+rotates every pose onto its back. `assets/models/` is **gitignored**, so a
+fresh clone stages them with:
+
+```sh
+python3 tools/lift_character_animations.py          # verify and publish
+python3 tools/lift_character_animations.py --check  # verify only
+```
+
+`src/app/character_animation.h` is the registry and the state machine — idle
+(with hash-derived variety), walk, run, jump, punch, flinch, knockdown, downed,
+get-up and die, crossfaded between. It is header-only and app-side, so
+`character_animation_tests` drives the real thing headless. It is also the
+caller `src/city/character_punch.h` and `src/city/character_getup.h` were
+written for; `CharacterAnimInput` is the plain-data seam a pedestrian or the
+player fills in.
+
 ```sh
 cmake --build build --target apricot_asset_lab apricot_character_lab -j
 
@@ -131,6 +182,12 @@ cmake --build build --target apricot_asset_lab apricot_character_lab -j
 ./build/bin/apricot_character_lab \
   --asset-dir assets/models/characters/psx_pack/player_male_01 \
   --clip walk --height 1.76
+
+# Drive the REAL state machine through a scripted timeline: idle, walk,
+# sprint, two alternating jabs, a flinch, a knockdown, the prone hold, the
+# get-up, and a death. Prints every state change and every punch contact.
+./build/bin/apricot_character_lab \
+  --asset-dir assets/models/characters/psx_pack/player_male_01 --states
 
 # Repeatable renderer capture or bind-pose inspection.
 ./build/bin/apricot_character_lab \
@@ -148,7 +205,14 @@ cmake --build build --target apricot_asset_lab apricot_character_lab -j
 The character lab uses the production dual-quaternion skinning shader. Use A/D
 to rotate, Q/E to zoom, Space to pause, the arrow keys to scrub, and R to reset.
 The ground axes make facing explicit: red is +X, green is +Y, and blue is
-Apricot forward (-Z).
+Apricot forward (-Z). Under `--states` the timeline runs at a fixed 60 Hz, so
+`--frames N` lands on second `N/60` and `--screenshot` is repeatable at a chosen
+moment. A single-clip preview obeys the registry's root policy, so a death clip
+carries the body forward instead of collapsing on the spot.
+
+**In game, F (or controller X) throws a bare-fist jab** while on foot and
+unarmed. It is presentation only today: the swing, the alternating fists and
+the one-shot contact latch all run, and nothing takes damage yet.
 
 ```
 apricot 0.1.0
@@ -163,8 +227,8 @@ apricot 0.1.0
   --help          this text
 ```
 
-**What you get today.** A title/pause menu and full O'Haven city map, plus a
-drivable car on **streamed procedural terrain with O'Haven's road network on
+**What you get today.** A title/pause menu and full Pinatty city map, plus a
+drivable car on **streamed procedural terrain with Pinatty's road network on
 it**, under a moving sky and a debug overlay. The sim runs at a fixed 120 Hz. The terrain loads and
 unloads around the car in four level-of-detail rings out to 2.3 km, with props
 scattered on the near two. The roads are baked once at startup into six meshes
@@ -273,7 +337,8 @@ are here.
 | `A` / `D` | strafe or steer left / right | **yes** — camera-relative movement on foot; progressive, rate-limited steering with Ackermann front-wheel angles in the car |
 | `W` | walk forward or throttle | **yes** — camera-relative movement on foot; engine torque through the gearbox in the car |
 | `S` | walk backward or brake / reverse | **yes** — camera-relative movement on foot; braking then reverse in the car |
-| `Space` | handbrake (analogue) | **yes** — shrinks rear grip, breaks the back loose |
+| `Space` / controller left-stick click | jump on foot | **yes** — tap to jump; air movement, ceiling collision, and animated landing |
+| `Space` (driving) | handbrake (analogue) | **yes** — shrinks rear grip, breaks the back loose |
 | `LShift` / `LCtrl` | sprint or shift up / down | **yes** — Shift sprints on foot; both keys operate the manual gearbox in the car |
 | `E` / controller `A` | enter / steal / exit road vehicle | **yes** — approach either front door of a stopped car; occupied traffic is taken over; moving or obstructed exits are blocked |
 | `F1` | developer menu | **yes** — pauses play and opens a GTA-style trainer menu; Classic GTA (VC / SA feel) is the default, Driving Mechanics can switch the player live between all nine handling styles, and Vehicle can repair the current car in place |
@@ -352,7 +417,7 @@ src/
                  meshing, and the residency streamer. height_at() evaluates
                  city/'s terrain operators as its last step.
                                                             -> apricot_sim
-  city/          O'HAVEN'S MAP AND ROADS, as constexpr C++ tables: district
+  city/          PINATTY'S MAP AND ROADS, as constexpr C++ tables: district
                  polygons and character parameters, landmarks, the five terrain
                  operators (Flatten, Bench, Carve, Mound, Grade), and the 92
                  authored road spines. Every road corridor operator is DERIVED
@@ -366,7 +431,7 @@ src/
                  is pure in (state, input, collider, dt).   -> apricot_sim
   game/          the pilot game's sim-side rules. Currently ONE file:
                  conditions.{h,cpp}, deterministic time-of-day and weather
-                 feeding VehicleTuning::grip_scale. O'Haven lands here.
+                 feeding VehicleTuning::grip_scale. Pinatty lands here.
                                                             -> apricot_sim
   audio/         SPLIT. mixer.h + synth.cpp are pure maths  -> apricot_sim
                  device.cpp + miniaudio_impl.c own hardware -> apricot_host
@@ -411,7 +476,7 @@ with real gameplay. apricot keeps its rules — they are restated with their
 costs in [`docs/architecture.md`](docs/architecture.md) — and changes three
 things on purpose.
 
-(O'Haven is a rebuild of `probablecause`'s world, not a port. Its design and
+(Pinatty is a rebuild of `probablecause`'s world, not a port. Its design and
 algorithms are reference material; none of its code is coming across, and
 several of its systems — shared `mt19937` streams, a `std::time` seed, a
 wall-clock read below the frame loop — are things apricot bans outright.

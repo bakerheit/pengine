@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "city/map.h"
+#include "city/marina.h"
 #include "city/roads.h"
 #include "city/spines.h"
 #include "physics/terrain_collider.h"
@@ -51,8 +52,21 @@ void ostend_topology_is_unambiguous() {
     for (const city::Road& road : city::kRoads)
         if (road.id == 84) access = &road;
     REQUIRE(access != nullptr);
-    REQUIRE_NEAR(access->path[access->count - 1].x, -1979.0f, .001f);
-    REQUIRE_NEAR(access->path[access->count - 1].z, -620.0f, .001f);
+    // docs/neighborhood-backlog.md: "Boatworks Road itself finishes with a
+    // straight full-width section that continues 2 m past the parking edge."
+    // The bare -1979 this used to assert WAS the parking edge; the road
+    // deliberately runs city::kMarinaRoadIntoLotM beyond it. Assert the
+    // documented relationship rather than swapping one constant for another.
+    constexpr float kParkingEdgeX = -1979.0f;
+    const city::RoadPoint& terminus = access->path[access->count - 1];
+    const city::RoadPoint& approach = access->path[access->count - 2];
+    REQUIRE_NEAR(terminus.x, kParkingEdgeX - city::kMarinaRoadIntoLotM, .001f);
+    REQUIRE_NEAR(terminus.z, -620.0f, .001f);
+    // ...and that final section really is the straight run the note describes,
+    // heading into the lot, which nothing checked before.
+    REQUIRE_NEAR(approach.x, kParkingEdgeX, .001f);
+    REQUIRE_NEAR(approach.z, terminus.z, .001f);
+    REQUIRE(approach.x > terminus.x);
     apricot_test::pass("Boatworks branches once from the north arm of Berth 2");
 }
 

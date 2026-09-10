@@ -1,12 +1,12 @@
-# O'Haven — the original state map
+# Pinatty — the original city map
 
-The original city and state for the pilot game on `pengine-apricot`. This file
-keeps its legacy filename so old design links remain valid. O'Haven is a rebuild
+Pinatty is the city for the pilot game on `pengine-apricot`, and it sits in the
+state of Pinatty. Pinatty is a rebuild
 of *Probable Cause*'s world, not a port: the old design and algorithms are
 reference, the old code is not coming across.
 
 **The one idea this document exists to defend.** Apricot has no asset pipeline
-and ships no asset files, and O'Haven is a specific authored place you can learn
+and ships no asset files, and Pinatty is a specific authored place you can learn
 by heart. Those look like they contradict. They do not, because the map is
 authored as a **skeleton** — district polygons, road spines, terrain operators,
 landmark placements, character parameters — and every building, kerb, lamp post
@@ -136,7 +136,7 @@ land slope <5deg   73.1%   <10deg 87.7%   >25deg 3.2%
 > side.
 
 **`kHomeRadiusMetres` must go.** It lifts a 380 m dome of terrain at the world
-origin so a random seed cannot drop the car in a lagoon. O'Haven's origin is
+origin so a random seed cannot drop the car in a lagoon. Pinatty's origin is
 downtown, so that dome would not be a safety net — it would *be* the terrain
 under the financial district, a 42%-of-headroom bulge nobody authored. An
 authored map does not need a spawn guarantee, because the spawn is authored.
@@ -232,7 +232,7 @@ door is filler with a different texture.
 
 | # | District | Is | Roads | Density / heights | Surfaces | Landmark |
 |---|---|---|---|---|---|---|
-| 1 | **Vellum Row** | Financial core | Grid, 92 × 62 m blocks, 6° off north, one-way pairs, alleys | 0.86 coverage, 24–88 m | Asphalt, concrete walk, glass | **Trinity Tower** (88 m) |
+| 1 | **Pinatty Row** | Financial core | Grid, 92 × 62 m blocks, 6° off north, one-way pairs, alleys | 0.86 coverage, 24–88 m | Asphalt, concrete walk, glass | **Trinity Tower** (88 m) |
 | 2 | **Halloway Square** | Civic — police HQ, courthouse, hospital | Radial off one plaza, 4 arms | 0.55 coverage, 18–40 m | Flagstone plaza, asphalt | Courthouse dome + the **plaza steps** |
 | 3 | **Saltmarsh** | Old town, pre-grid | Organic, 6–9 m lanes, no through route | 0.92 coverage, 8–22 m | Cobble, brick, no kerb | **Fishmarket clock** |
 | 4 | **Ostend Docks** | Container port, warehouses | Arterial spine + service stubs, dead ends at quays | 0.40 coverage, 6–30 m | Concrete apron, rail inlay, gravel | Four **gantry cranes** |
@@ -249,7 +249,7 @@ door is filler with a different texture.
 This is the column that matters. If a district does not answer it in one line, it
 should not be in the map.
 
-1. **Vellum Row — the canonical grid chase.** Every intersection is four choices,
+1. **Pinatty Row — the canonical grid chase.** Every intersection is four choices,
    so escape is about *reading* the pursuit, not out-driving it. Signals matter.
    Alleys are the pressure valve and the cops know them too. This is where the
    game teaches you that a right turn at speed costs you three seconds.
@@ -273,7 +273,7 @@ should not be in the map.
 6. **Ferrone Hill — vertical.** Switchbacks turn a chase into a series of
    commitments; a missed hairpin is a 30 m drop, not a scrape. One paved road in
    makes it the best roadblock in the game — and the unmarked fire road out is the
-   single most valuable piece of local knowledge O'Haven has to teach. It is also
+   single most valuable piece of local knowledge Pinatty has to teach. It is also
    the observation deck: from the mast you can see every other landmark, which is
    how the player builds their mental map.
 7. **Nickel Heights — dead ends punish panic.** Wide, fast, inviting, and about a
@@ -300,7 +300,7 @@ Per-district scalars, all authored, all consumed by generation and by the sim:
 
 | District | Traffic | Peds | Parked cars | Patrol density | Response (s) |
 |---|---|---|---|---|---|
-| Vellum Row | 1.4 | 2.2 | 0.9 | 1.2 | 6 |
+| Pinatty Row | 1.4 | 2.2 | 0.9 | 1.2 | 6 |
 | Halloway Square | 1.1 | 2.6 | 0.7 | **2.0** | **3** |
 | Saltmarsh | 0.5 | 1.8 | 0.6 | 0.6 | 11 |
 | Ostend Docks | 0.6 | 0.3 | 0.4 | 0.5 | 14 |
@@ -328,11 +328,11 @@ relearn it. Alley is new: there is no 6 m class in the reference table.
 | Freeway | 30 m | 3 | Grade-separated, ramps only | Route 1 only |
 | Arterial | 22 m | 2 | Signals | District spines, inter-district links |
 | Street | 14 m | 1 | Signals at 4-way, none at minor T | Everywhere urban |
-| Alley | 6 m | 1, no sidewalk | None | Saltmarsh, Vellum Row, Docks |
+| Alley | 6 m | 1, no sidewalk | None | Saltmarsh, Pinatty Row, Docks |
 | Dirt | 9 m | 1 | Stop signs | Meadows, Marrow, the fire road |
 
 **Route 1 (the Rimway) is deliberately not a ring.** It runs Camber causeway →
-The Strand → the south edge of Vellum Row → over Ostend Docks on an elevated
+The Strand → the south edge of Pinatty Row → over Ostend Docks on an elevated
 deck → Kepler Flats → the Kessel Bridge → the foot of Ferrone Hill, and it
 **stops there**. A closed ring means the answer to every chase is "keep going".
 An open one means that at both ends you have to make a decision, in traffic, at
@@ -343,17 +343,17 @@ speed. The gap in the ring is the design.
 | Chokepoint | Links | Why it plays differently |
 |---|---|---|
 | **Kessel Bridge** | Centre ↔ Kepler Flats / Ferrone Hill | The only vehicle crossing of the channel. 640 m of deck with no exits: once you commit, both ends are known. The premier roadblock site, and the reason boats matter |
-| **Harbour Tunnel** | Ostend Docks ↔ Vellum Row | Enclosed. No line of sight from above, no minimap detail, and — later — no helicopter. The *stealth* chokepoint: you go in visible and come out having chosen one of two exits |
+| **Harbour Tunnel** | Ostend Docks ↔ Pinatty Row | Enclosed. No line of sight from above, no minimap detail, and — later — no helicopter. The *stealth* chokepoint: you go in visible and come out having chosen one of two exits |
 | **The Shoulder** | Everything ↔ Ferrone Hill | One paved road up, 11 switchbacks, 9% grade. Block it and the hill is sealed to anyone who does not know about the fire road. Uphill chases favour whoever has the power; downhill ones favour whoever is braver |
 | **Camber Causeway** | Island ↔ the airfield | 900 m, two lanes, water on both sides, no shoulder. A single stopped vehicle closes it. It guards the plane, so it is the most contested 900 m on the map |
-| The four Saltmarsh crossings | Vellum Row ↔ Saltmarsh | *Soft* chokepoints — four narrow bridges over the creek, all passable, none fast. Chases here fragment rather than stop |
+| The four Saltmarsh crossings | Pinatty Row ↔ Saltmarsh | *Soft* chokepoints — four narrow bridges over the creek, all passable, none fast. Chases here fragment rather than stop |
 
 **What this means for police.** *Probable Cause*'s roadblock system already walks
 up to 12 hops forward along the straightest continuation of the player's lane and
 stages 2–3 cars at 120–200 m ahead (`RoadblockTuning` in `police_ai.h`). That
-logic transfers directly and gets much better here, because O'Haven has real
+logic transfers directly and gets much better here, because Pinatty has real
 topology: on the Kessel Bridge or the Causeway a block is genuinely
-unavoidable, in Vellum Row it is a suggestion, and in Saltmarsh the site
+unavoidable, in Pinatty Row it is a suggestion, and in Saltmarsh the site
 selector will usually fail to find a wide-enough span at all — which is the
 correct outcome, arrived at by geometry instead of by a special case.
 
@@ -381,10 +381,10 @@ catch the day somebody lowers the hill by 20 m.
 |---|---|---|
 | **Island** (visible from everywhere) | 4+ km | Ferrone Mast (195 m ASL), Trinity Tower (100 m ASL), the Kepler flare (night) |
 | **District** (tells you which district) | 1–2 km | Gantry cranes, Ferris wheel, water tower, courthouse dome, stadium bowl, lighthouse, quarry face, Kessel Bridge towers |
-| **Corner** (tells you which block) | 100–300 m | Fishmarket clock, the Halloway steps, the neon on the Vellum Row cinema, six authored murals |
+| **Corner** (tells you which block) | 100–300 m | Fishmarket clock, the Halloway steps, the neon on the Pinatty Row cinema, six authored murals |
 
 **3. The skyline is district-typed, not noise-typed.** Each district's building
-height envelope is narrow enough that its silhouette is recognisable: Vellum Row
+height envelope is narrow enough that its silhouette is recognisable: Pinatty Row
 is a bell curve peaking at its centre, Saltmarsh is a flat 8–22 m mat, Nickel
 Heights is a uniform 4–9 m carpet, the Docks are low sheds punctuated by four
 tall cranes. Get this right and a player at 800 m knows which way they are facing
@@ -392,7 +392,7 @@ before they read a single sign. Get it wrong — sample heights uniformly per
 building — and every district looks like static.
 
 Supporting the silhouette: per-district **material palette** (Saltmarsh cobble
-and brick, Vellum Row glass and pale concrete, Kepler Flats rust and cracked
+and brick, Pinatty Row glass and pale concrete, Kepler Flats rust and cracked
 asphalt) and per-district **street furniture kit** (the lamp posts differ, the
 bins differ, the road markings differ). Those are cheap, they are authored as one
 enum each, and they do more for legibility per byte than anything else on this
@@ -448,16 +448,16 @@ src/game/pinatty/
 **Estimated total: ~1200 lines, ~45 KB of data.** The worked example below is 32
 lines, counted, which is where the district figure comes from; the rest are
 proportional estimates and not measurements. For scale, that is smaller than *Probable
-Cause*'s `road_network.cpp` alone (1038 lines), and the whole of O'Haven fits in
+Cause*'s `road_network.cpp` alone (1038 lines), and the whole of Pinatty fits in
 less text than one of its systems.
 
 ### 5.3 A district entry, written out
 
 ```cpp
 // src/game/pinatty/districts.cpp
-inline constexpr District kVellumRow = {
-    .id       = DistrictId::VellumRow,
-    .name     = "Vellum Row",
+inline constexpr District kPinattyRow = {
+    .id       = DistrictId::PinattyRow,
+    .name     = "Pinatty Row",
 
     // Boundary polygon, world metres, counter-clockwise, convex not required.
     // Coarse on purpose: this is the district's JURISDICTION, not its outline.
@@ -527,7 +527,7 @@ inline constexpr SpineEdge kEdges[] = {
 An edge is: two node ids, a class, a shape (`Straight` / `Arc` with one bulge /
 `Poly` with up to four interior points), a structure (`Ground` / `Bridge` /
 `Tunnel` / `Cut` / `Fill`), a maximum grade, and a `block_quality`. That is
-enough to express every road in O'Haven that a human should be deciding, and
+enough to express every road in Pinatty that a human should be deciding, and
 short enough that ninety of them fit on two screens.
 
 Terrain ops are the same shape — a polygon or a swept corridor, a kind, a target
@@ -593,7 +593,7 @@ be merged for tidiness.
 **Surface classification cannot be rasterised at startup.** *Probable Cause*'s
 `SidewalkField` bakes a coverage grid from the drawn road triangles, which is a
 sound answer at its world size and impossible at O'Haven's: 6144 m at the ~0.5 m
-resolution a kerb needs is 12288² ≈ 151 million cells. O'Haven answers the same
+resolution a kerb needs is 12288² ≈ 151 million cells. Pinatty answers the same
 question analytically — "how far is this point from the nearest road segment, and
 which side of the kerb line is it on" — through the same static spine index the
 terrain ops use. Same single source of truth, no bake, no memory, and it works in
@@ -615,7 +615,7 @@ the ordering hazard (a stale eviction meeting a fresh reload) already reasoned
 about in the header. `architecture.md` still refers to `pending_evictions()`,
 `mark_evicted()`, `mark_resident()` and `max_loads_per_update`, none of which
 exist in `streamer.h` today. **The doc is stale, not the code.** Someone should
-fix the doc; it is not a O'Haven ticket, but it will mislead whoever reads it
+fix the doc; it is not a Pinatty ticket, but it will mislead whoever reads it
 next.
 
 **Measured costs.** Real `build_chunk` and `scatter_chunk` out of
@@ -643,7 +643,7 @@ What those numbers say:
   ms/s of meshing — about 1.3% of one core. The instance budget has similar
   headroom: 384 instances/step at 120 Hz is 46,000/s against a demand near 900/s.
   **Steady state is not the problem and should not be optimised.**
-- **View distance is the problem.** `load_radius = 4` is 256 m. O'Haven's whole
+- **View distance is the problem.** `load_radius = 4` is 256 m. Pinatty's whole
   legibility argument rests on seeing a landmark 2–4 km away. A 2.5 km
   full-detail ring is **4794 chunks** — at 294 KB and 2.317 ms each, that is
   **1.34 GB of vertex data and 11.1 seconds of single-threaded meshing.** Not a
@@ -672,7 +672,7 @@ What those numbers say:
   of meshing at startup and again on every mission warp or respawn across the
   island. There is no "fill before resume" path today, so a warp drops the player
   into void for a fraction of a second and then hitches. This needs an explicit
-  mode, and it is a O'Haven blocker in a way steady-state streaming is not.
+  mode, and it is a Pinatty blocker in a way steady-state streaming is not.
 
 **Honest caveats.** All three benchmarks are one machine (Apple silicon, `-O2`),
 single-threaded, with synthetic node layouts and no dirty transforms. `build_chunk`
@@ -749,7 +749,7 @@ lose.
 
 **Cap and radii, first pass:** 120 vehicles and 150 pedestrians active, vehicles
 in a 220 m ring despawning at 320 m, peds 110 m / 160 m. Larger than the
-reference because O'Haven's sight lines are longer and an empty arterial reads as
+reference because Pinatty's sight lines are longer and an empty arterial reads as
 broken. These are guesses to be tuned, and they are the numbers I would least
 trust in this document.
 
@@ -770,7 +770,7 @@ finding out the sim was never deterministic:
 Hz fits the frame budget alongside terrain streaming — apricot has no vehicle
 model beyond gravity and a terrain rest, so there is no per-car cost to
 extrapolate from. Whether the phantom schedule *looks* right, which is a
-feel-check with a controller and not a test. And the lane count: O'Haven's
+feel-check with a controller and not a test. And the lane count: Pinatty's
 urbanised area is roughly 5.5 km², which at typical block pitch is on the order
 of 5,000–10,000 directed lanes — an estimate from block geometry, not a measured
 figure, and the design should not depend on which end of that range it lands.
@@ -787,7 +787,7 @@ seed... Nothing about the world needs to be serialised because nothing about the
 world is authored."*
 
 **For the pilot game that stops being true**, and pretending otherwise will cause
-a confusing bug later. O'Haven splits one seed into two:
+a confusing bug later. Pinatty splits one seed into two:
 
 - **`kMapSeed`** — a pinned constant in the map tables. It selects the noise
   detail *under* the authored skeleton. Changing it changes the city, which

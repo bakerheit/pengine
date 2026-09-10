@@ -423,16 +423,70 @@ inline constexpr TerrainOp kEastArmGalleriaTerrainOp{
     .target_m = 13.82f,
 };
 
+// The raised museum terrace carries the last 0.4 m. Keeping the earthwork
+// below its paving protects Briar/Mercer from coarse-LOD road drape changes.
+inline constexpr TerrainOp kLoomMuseumTerrainOp{
+    .kind=OpKind::Flatten,.shape=OpShape::Rect,.note="Loom museum foundation",
+    .centre={-283.7362f,248.1168f},.half_m={34,48},.feather_m=3,.target_m=12.6f,
+};
+inline constexpr TerrainOp kLoomParkTerrainOp{
+    .kind=OpKind::Flatten,.shape=OpShape::Rect,.note="Sable Garden accessible lawn",
+    .centre={-365,329},.half_m={18,15},.feather_m=5,.target_m=13,
+};
+
+inline constexpr TerrainOp kBurgerPizTerrainOp{
+    .kind=OpKind::Flatten,.shape=OpShape::Rect,.note="BurgerPiz developed parcel",
+    .centre={419.4005f,-283.8129f},.half_m={34,24},.feather_m=4,.target_m=12,
+};
+
+inline constexpr TerrainOp kFreakyFranksTerrainOp{
+    .kind=OpKind::Flatten,.shape=OpShape::Rect,.note="Freaky Franks developed parcel",
+    .centre={399.957197f,-98.832371f},.half_m={34,24},.feather_m=4,.target_m=12,
+};
+
+inline constexpr TerrainOp kTacomacoTerrainOp{
+    .kind=OpKind::Flatten,.shape=OpShape::Rect,.note="TacoMaco developed parcel",
+    .centre={189.0528f,128.3664f},.half_m={34,24},.feather_m=4,.target_m=12,
+};
+
+inline constexpr TerrainOp kNorthPinattyGasStationTerrainOp{
+    .kind=OpKind::Flatten,.shape=OpShape::Rect,.note="Six Twelve north Pinatty forecourt",
+    .centre={-260,-1870},.half_m={24,32},.feather_m=6,.target_m=9,
+};
+
+// Halberd Field. A runway is the one surface in the world that has to be flat
+// to the metre, so the whole envelope is one plate rather than a slab dropped
+// on rolling ground. It shares Kepler Flats' 9 m target on purpose: the two
+// rectangles overlap by 110 m and a different target would put a step across
+// the base's south fence. The plate stops 40 m short of the north shore at its
+// west end, which is the closest the water comes.
+inline constexpr TerrainOp kHalberdFieldTerrainOp{
+    .kind = OpKind::Flatten,
+    .shape = OpShape::Rect,
+    .note = "Halberd Field: the north shore airfield",
+    .centre = {-690.0f, -2100.0f},
+    .half_m = {545.0f, 120.0f},
+    .feather_m = 110.0f,
+    .target_m = 9.0f,
+};
+
 inline float authored_site_clearance_weight(float x, float z) {
     float unused_profile = 0.0f;
-    return op_weight(kEastArmGalleriaTerrainOp, x, z, unused_profile);
+    return std::max({op_weight(kNorthPinattyGasStationTerrainOp,x,z,unused_profile),
+        op_weight(kTacomacoTerrainOp,x,z,unused_profile),
+        op_weight(kFreakyFranksTerrainOp,x,z,unused_profile),
+        op_weight(kBurgerPizTerrainOp,x,z,unused_profile),
+        op_weight(kEastArmGalleriaTerrainOp,x,z,unused_profile),
+        op_weight(kLoomMuseumTerrainOp,x,z,unused_profile),
+        op_weight(kLoomParkTerrainOp,x,z,unused_profile),
+        op_weight(kHalberdFieldTerrainOp,x,z,unused_profile)});
 }
 
 inline constexpr TerrainOp kBaseOps[] = {
     // ---- 1. Flatten: the district plates ---------------------------------
     {.kind = OpKind::Flatten,
      .shape = OpShape::Rect,
-     .note = "Vellum Row: the downtown plate. A grid on rolling ground reads "
+     .note = "Pinatty Row: the downtown plate. A grid on rolling ground reads "
              "as a mistake even to a player who could not say why",
      .centre = {70.0f, -40.0f},
      .half_m = {520.0f, 440.0f},
@@ -515,6 +569,14 @@ inline constexpr TerrainOp kBaseOps[] = {
     // terrace before it let that distant suburb pull one side down by 0.15 m.
     // The East Arm road Grade still composes later and owns the street edge.
     kEastArmGalleriaTerrainOp,
+
+    kFreakyFranksTerrainOp,
+    kTacomacoTerrainOp,
+    kNorthPinattyGasStationTerrainOp,
+    kBurgerPizTerrainOp,
+    kLoomMuseumTerrainOp,
+    kLoomParkTerrainOp,
+    kHalberdFieldTerrainOp,
 
     // ---- 2. Bench: terraces ----------------------------------------------
     {.kind = OpKind::Bench,

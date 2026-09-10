@@ -28,15 +28,15 @@ namespace city {
 inline constexpr District kDistricts[] = {
 
     // -----------------------------------------------------------------------
-    // 1. VELLUM ROW — the canonical grid chase.
+    // 1. PINATTY ROW — the canonical grid chase.
     //
     // Every intersection is four choices, so escape is about READING the
     // pursuit rather than out-driving it. Alleys are the pressure valve and
     // the police know them too. This is where the game teaches you that a
     // right turn at speed costs three seconds.
     // -----------------------------------------------------------------------
-    {.id = DistrictId::VellumRow,
-     .name = "Vellum Row",
+    {.id = DistrictId::PinattyRow,
+     .name = "Pinatty Row",
 
      // Coarse on purpose: this is the district's JURISDICTION, not its
      // outline. The visible edge is where its generated blocks stop.
@@ -244,7 +244,7 @@ inline constexpr District kDistricts[] = {
     // Switchbacks turn a chase into a series of commitments; a missed hairpin
     // is a 30 m drop, not a scrape. One paved road in makes it the best
     // roadblock in the game, and the unmarked fire road out is the single most
-    // valuable piece of local knowledge O'Haven has to teach. From the mast
+    // valuable piece of local knowledge Pinatty has to teach. From the mast
     // you can see every other landmark, which is how a player builds a mental
     // map without opening one.
     // -----------------------------------------------------------------------

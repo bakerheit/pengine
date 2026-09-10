@@ -43,6 +43,14 @@ apricot_add_suite(sim_determinism_tests)
 # pure function of (seed, sim step) and feed VehicleTuning::grip_scale.
 apricot_add_suite(conditions_tests)
 apricot_add_suite(snowpack_tests)
+apricot_add_suite(snow_clearance_tests)
+apricot_add_suite(snow_shelter_tests)
+apricot_add_suite(snow_shelter_render_tests)
+apricot_add_suite(snowplow_traffic_tests)
+apricot_add_suite(snowplow_service_tests)
+apricot_add_suite(snowplow_visual_tests)
+apricot_add_suite(vehicle_snow_shader_tests)
+apricot_add_suite(vehicle_snow_mesh_tests)
 apricot_add_suite(dev_weather_menu_tests)
 apricot_add_suite(weather_hazards_tests)
 apricot_add_suite(character_controller_tests)
@@ -79,7 +87,7 @@ apricot_add_suite(rng_distribution_tests)
 apricot_add_suite(terrain_determinism_tests)
 apricot_add_suite(state_terrain_tests)
 
-# city (PENG-41). O'Haven's map: district polygons, character parameters,
+# city (PENG-41). Pinatty's map: district polygons, character parameters,
 # landmarks and the terrain operators height_at() evaluates. The structural
 # invariants are static_asserts in src/city/ -- that is the point of the map
 # being compiled data -- so this suite pins the things a compiler cannot see:
@@ -107,7 +115,7 @@ apricot_add_suite(miandi_prism_works_tests)
 apricot_add_suite(miandi_sunwave_hotel_tests)
 apricot_add_suite(miandi_integration_tests)
 apricot_add_suite(tidewater_farm_tests)
-apricot_add_suite(vellum_infill_tests)
+apricot_add_suite(pinatty_infill_tests)
 apricot_add_suite(marina_tests)
 apricot_add_suite(bank_vault_tests)
 apricot_add_suite(construction_site_tests)
@@ -158,9 +166,10 @@ apricot_add_suite(audio_mixer_tests)
 apricot_add_suite(audio_synth_tests)
 apricot_add_suite(audio_engine_tone_tests)
 apricot_add_suite(audio_vehicle_runtime_tests)
+apricot_add_suite(traffic_horn_audio_tests)
 apricot_add_suite(audio_city_runtime_tests)
 
-# city (PENG-29). The O'Haven decision layers lifted out of probablecause, with
+# city (PENG-29). The Pinatty decision layers lifted out of probablecause, with
 # the tests that were pinning them there. They came across because a lifted
 # algorithm with no test is a liability: these are the only thing that says the
 # behaviour survived the move.
@@ -171,6 +180,7 @@ apricot_add_suite(character_getup_tests)
 apricot_add_suite(traffic_ai_tests)
 apricot_add_suite(police_ai_tests)
 apricot_add_suite(police_offense_tests)
+apricot_add_suite(police_combat_tests)
 apricot_add_suite(police_officer_tests)
 apricot_add_suite(police_arrest_tests)
 apricot_add_suite(police_character_pose_tests)
@@ -194,6 +204,8 @@ apricot_add_suite(police_siren_tests)
 apricot_add_suite(traffic_determinism_tests)
 apricot_add_suite(traffic_runtime_tests)
 apricot_add_suite(police_runtime_tests)
+apricot_add_suite(police_chase_tests)
+apricot_add_suite(emergency_traffic_tests)
 apricot_add_suite(traffic_junction_tests)
 apricot_add_suite(traffic_behavior_tests)
 apricot_add_suite(traffic_bench)
@@ -238,6 +250,10 @@ apricot_add_suite(skyscraper_window_lighting_tests)
 apricot_add_suite(emergency_stations_tests)
 
 apricot_add_suite(neighborhood_bar_tests)
+apricot_add_suite(loom_cultural_tests)
+apricot_add_suite(north_airbase_tests)
+apricot_add_suite(burgerpiz_tests)
+apricot_add_suite(miandi_gas_station_tests)
 apricot_add_suite(east_arm_plaza_tests)
 apricot_add_suite(drunk_tests)
 apricot_add_suite(alder_pip_tests)
@@ -258,3 +274,24 @@ apricot_add_suite(traffic_signal_mesh_tests)
 apricot_add_suite(sycamore_freeway_tests)
 
 apricot_add_suite(tractor_trailer_tests)
+
+# Pedestrians do more than walk: loitering, kerb waiting, panic and knockdown.
+apricot_add_suite(ped_life_tests)
+apricot_add_suite(ragdoll_tests)
+apricot_add_suite(ragdoll_bench)
+
+# The lifted PSX clip set, the crossfade, and the character state machine that
+# calls city/character_punch.h and city/character_getup.h. app-side but
+# header-only, so this links apricot_sim like every other suite.
+apricot_add_suite(character_animation_tests)
+
+# .pop.parked reaches the kerb: authored parked-car density per district.
+apricot_add_suite(parked_density_tests)
+
+apricot_add_suite(weapon_use_tests)
+apricot_add_suite(weapon_visual_pose_tests)
+apricot_add_suite(weapon_pose_tests)
+apricot_add_suite(weapon_hit_tests)
+apricot_add_suite(weapon_aim_tests)
+apricot_add_suite(blood_particles_tests)
+apricot_add_suite(ped_impact_pose_tests)

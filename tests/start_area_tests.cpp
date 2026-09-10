@@ -35,7 +35,7 @@ city::Vec2 local_point(const city::StartSite& site, city::Vec2 world) {
     };
 }
 
-city::Vec2 vellum_grid_point(city::Vec2 world) {
+city::Vec2 pinatty_grid_point(city::Vec2 world) {
     constexpr city::Vec2 kGridCentre{70.0f, -40.0f};
     const float dx = world.x - kGridCentre.x;
     const float dz = world.z - kGridCentre.z;
@@ -124,9 +124,10 @@ void every_site_follows_the_downtown_grid() {
     };
     for (const city::StartSite& site : sites) {
         const city::Vec2 east = world_point(site, local);
-        REQUIRE_MSG(east.x > site.origin.x, "local east did not point east",
+        const float forward=site.cos_yaw<0?-1.f:1.f; // Imported TacoMaco faces the opposite way.
+        REQUIRE_MSG((east.x-site.origin.x)*forward > 0, "local east did not point east",
                     site.name);
-        REQUIRE_MSG(east.z > site.origin.z,
+        REQUIRE_MSG((east.z-site.origin.z)*forward > 0,
                     "the six-degree downtown rotation was lost", site.name);
 
         const city::Vec2 round_trip = local_point(site, east);
@@ -185,7 +186,7 @@ void each_site_is_one_complete_creator_document() {
     REQUIRE(city::kMotelPlan.fixture_count == city::kMotelPartCount);
     REQUIRE(city::kApartmentPlan.fixture_count == city::kApartmentPartCount);
     REQUIRE(city::kFastFoodPlan.fixture_count == city::kFastFoodPartCount);
-    REQUIRE(city::kTacomacoPlan.fixture_count == city::kFastFoodPartCount);
+    REQUIRE(city::kTacomacoPlan.fixtures == city::kBurgerPizLotParts);
     REQUIRE(city::kBankPlan.fixture_count == city::kBankPartCount);
     REQUIRE(city::kAirportPlan.fixture_count == city::kAirportCorePartCount);
     REQUIRE(city::kMotelPlan.stair_count == 2u);
@@ -687,7 +688,7 @@ void airport_main_approach_reaches_landside_not_the_field() {
     const city::StartPart& runway = named_part(airport, "runway 09-27");
     const city::StartPart& apron = named_part(airport, "airport apron");
 
-    REQUIRE(std::strcmp(parkway.name, "O'Haven Airport Parkway") == 0);
+    REQUIRE(std::strcmp(parkway.name, "Pinatty Airport Parkway") == 0);
     REQUIRE(std::strcmp(frontage.name, "Airport Frontage Road") == 0);
     REQUIRE(parkway.cls == city::RoadClass::Arterial);
     REQUIRE(frontage.cls == city::RoadClass::Street);
@@ -921,7 +922,7 @@ void the_new_buildings_keep_their_identity_and_detail() {
     REQUIRE_MSG(restaurant.size() >= 45u,
                 "restaurant lost drive-through, sign, or parking detail",
                 "Quickbite Grill");
-    REQUIRE(tacomaco.size() == restaurant.size());
+    REQUIRE(tacomaco.size() == std::size(city::kBurgerPizLotParts));
     REQUIRE_MSG(gas.size() + kIntegratedPumpFaceDetails >=
                     kGasDetailTargetPieces,
                 "gas station fell below its 45 percent modeling increase",
@@ -1041,7 +1042,7 @@ void halloway_wash_is_a_clear_drive_through() {
 
         for (const float sx : {-1.0f, 1.0f}) {
             for (const float sz : {-1.0f, 1.0f}) {
-                const city::Vec2 grid = vellum_grid_point(part_corner_world(
+                const city::Vec2 grid = pinatty_grid_point(part_corner_world(
                     city::kCarWashSite, part, sx, sz));
                 REQUIRE_MSG(grid.x >= -82.0f && grid.x <= -57.0f,
                             "car wash leaves its west half-block", part.name);
@@ -1077,7 +1078,7 @@ void halloway_wash_is_a_clear_drive_through() {
     for (const city::StartPart& part : city::kNessBillboardParts) {
         for (const float sx : {-1.0f, 1.0f}) {
             for (const float sz : {-1.0f, 1.0f}) {
-                const city::Vec2 grid = vellum_grid_point(part_corner_world(
+                const city::Vec2 grid = pinatty_grid_point(part_corner_world(
                     city::kNessBillboardSite, part, sx, sz));
                 billboard_min_grid_x = std::min(billboard_min_grid_x, grid.x);
             }
@@ -1129,7 +1130,7 @@ void every_plot_fits_between_the_road_sidewalks() {
         for (const float sx : {-1.0f, 1.0f}) {
             for (const float sz : {-1.0f, 1.0f}) {
                 const city::Vec2 grid =
-                    vellum_grid_point(part_corner_world(site, *lot, sx, sz));
+                    pinatty_grid_point(part_corner_world(site, *lot, sx, sz));
                 min_x = std::min(min_x, grid.x);
                 max_x = std::max(max_x, grid.x);
                 min_z = std::min(min_z, grid.z);
@@ -1152,7 +1153,7 @@ void every_plot_fits_between_the_road_sidewalks() {
             float part_max_z = -1e9f;
             for (const float sx : {-1.0f, 1.0f}) {
                 for (const float sz : {-1.0f, 1.0f}) {
-                    const city::Vec2 grid = vellum_grid_point(
+                    const city::Vec2 grid = pinatty_grid_point(
                         part_corner_world(site, part, sx, sz));
                     part_min_x = std::min(part_min_x, grid.x);
                     part_max_x = std::max(part_max_x, grid.x);
@@ -1206,7 +1207,7 @@ void town_billboard_is_readable_structural_and_off_the_road() {
 
         for (const float sx : {-1.0f, 1.0f}) {
             for (const float sz : {-1.0f, 1.0f}) {
-                const city::Vec2 grid = vellum_grid_point(part_corner_world(
+                const city::Vec2 grid = pinatty_grid_point(part_corner_world(
                     city::kNessBillboardSite, part, sx, sz));
                 REQUIRE_MSG(grid.x >= -82.0f && grid.x <= -14.0f,
                             "billboard overlaps an east/west street",
@@ -1258,7 +1259,7 @@ void taxi_billboard_has_a_distinct_monopole_fixture() {
 
         for (const float sx : {-1.0f, 1.0f}) {
             for (const float sz : {-1.0f, 1.0f}) {
-                const city::Vec2 grid = vellum_grid_point(part_corner_world(
+                const city::Vec2 grid = pinatty_grid_point(part_corner_world(
                     city::kPinnatyTaxiBillboardSite, part, sx, sz));
                 REQUIRE_MSG(grid.x >= 14.0f && grid.x <= 82.0f,
                             "taxi billboard overlaps an east/west street",

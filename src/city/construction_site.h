@@ -19,11 +19,11 @@ constexpr Vec2 construction_grid_point(float east, float south) {
             -40.0f - kGridSin * east + kGridCos * south};
 }
 
-// An active high-rise build on the east side of Vellum Row. The frame is
+// An active high-rise build on the east side of Pinatty Row. The frame is
 // intentionally open: the concrete core and steel floor bands show a real
 // 70% build state instead of a finished tower with construction stickers.
 inline constexpr ConstructionSite kConstructionSite{
-    {"Vellum District Construction Yard", construction_grid_point(138, -217),
+    {"Pinatty District Construction Yard", construction_grid_point(138, -217),
      kGridCos, kGridSin, {0.0f, 0.0f}, 54.0f, 38.0f, 12.0f, 1900.0f},
     20, 14, 30.0f, 22.0f};
 

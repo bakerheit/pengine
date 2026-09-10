@@ -429,6 +429,140 @@ void police_initiated_impacts_and_resting_contacts_are_not_player_crimes() {
     apricot_test::pass("cop rams, ties, tangential contact, vibration and rebound do not blame the player");
 }
 
+struct StopCrossing {
+    RoadGraph roads;
+    LaneGraph lanes;
+    CrowdTuning traffic;
+    PoliceTuning police;
+    LaneRef incoming = kInvalidLane;
+
+    StopCrossing() {
+        RoadSpine main;
+        main.id = 90;
+        main.cls = RoadClass::Street;
+        main.points = {{-200.0f, 0.0f}, {200.0f, 0.0f}};
+        RoadSpine side;
+        side.id = 91;
+        side.cls = RoadClass::Dirt;
+        side.points = {{0.0f, -200.0f}, {0.0f, 0.0f}};
+        roads.build({main, side}, {}, {});
+        lanes.build(roads, {});
+        for (LaneRef ref = 0; ref < lanes.lane_count(); ++ref) {
+            const auto& lane = lanes.lane(ref);
+            if ((lane.key >> 32) == side.id &&
+                lanes.approach_control(ref) == JunctionControl::Stop)
+                incoming = ref;
+        }
+        REQUIRE(lanes.valid(incoming));
+    }
+
+    PoliceDrivingSample sample(float front_offset, int64_t step,
+                               float speed = 0.0f) const {
+        const auto line = lanes.pose(incoming,
+            police_signal_line_station(lanes, incoming, traffic));
+        PoliceDrivingSample out;
+        out.vehicle_identity = 92;
+        out.forward = glm::normalize(line.tangent);
+        out.position = line.position + out.forward * (front_offset - out.half_length_m);
+        out.velocity = out.forward * speed;
+        out.step = step;
+        return out;
+    }
+
+    std::vector<PoliceOffenseWitness> witnesses() const {
+        const auto target = sample(0.0f, 0);
+        return {{target.position - target.forward * 12.0f,
+                 target.forward, true}};
+    }
+};
+
+void stop_sign_needs_a_real_half_second_dwell() {
+    StopCrossing road;
+    const auto watchers = road.witnesses();
+    PoliceOffenseTracker runner;
+    REQUIRE(!runner.observe_driving(road.lanes, road.traffic,
+        road.sample(-0.05f, 0, 12.0f), watchers, road.police));
+    const auto run = runner.observe_driving(road.lanes, road.traffic,
+        road.sample(0.05f, 1, 12.0f), watchers, road.police);
+    REQUIRE(run);
+    REQUIRE(run.kind == PoliceOffenseReport::Kind::StopSign);
+
+    PoliceOffenseTracker stopped;
+    for (int64_t step = 0; step <= PoliceOffenseTracker::stop_dwell_steps; ++step)
+        REQUIRE(!stopped.observe_driving(road.lanes, road.traffic,
+            road.sample(-0.05f, step), watchers, road.police));
+    REQUIRE(!stopped.observe_driving(road.lanes, road.traffic,
+        road.sample(0.05f, PoliceOffenseTracker::stop_dwell_steps + 1, 0.2f),
+        watchers, road.police));
+    apricot_test::pass("a witnessed rolling stop reports; a real half-second stop does not");
+}
+
+void sustained_speeding_uses_the_lane_limit_and_does_not_spam() {
+    RoadSpine spine;
+    spine.id = 510;
+    spine.cls = RoadClass::Street;
+    spine.speed_limit_mps = 10.0f;
+    spine.points = {{-300.0f, 0.0f}, {300.0f, 0.0f}};
+    RoadGraph roads;
+    LaneGraph lanes;
+    roads.build({spine}, {}, {});
+    lanes.build(roads, {});
+    LaneRef lane = kInvalidLane;
+    for (LaneRef ref = 0; ref < lanes.lane_count(); ++ref)
+        if (lanes.pose(ref, 0.0f).tangent.x > 0.9f) lane = ref;
+    REQUIRE(lanes.valid(lane));
+    REQUIRE_NEAR(lanes.lane(lane).speed_limit_mps, 10.0f, 1e-6f);
+
+    const glm::vec3 forward = glm::normalize(lanes.pose(lane, 0.0f).tangent);
+    const auto witness_position = lanes.pose(lane, 20.0f).position +
+        glm::vec3{0.0f, 1.0f, 0.0f};
+    const auto watchers = std::vector<PoliceOffenseWitness>{
+        {witness_position, forward, true}};
+    auto sample = [&](float station, float speed, int64_t step) {
+        PoliceDrivingSample out;
+        out.vehicle_identity = 511;
+        out.position = lanes.pose(lane, station).position;
+        out.forward = forward;
+        out.velocity = forward * speed;
+        out.step = step;
+        return out;
+    };
+    PoliceOffenseTracker tracker;
+    float station = 40.0f;
+    int reports = 0;
+    for (int64_t step = 0; step <= PoliceOffenseTracker::speeding_hold_steps + 10; ++step) {
+        const auto report = tracker.observe_driving(lanes, {},
+            sample(station, 13.0f, step), watchers, {});
+        if (report) {
+            REQUIRE(report.kind == PoliceOffenseReport::Kind::Speeding);
+            REQUIRE_NEAR(report.speed_limit_mps, 10.0f, 1e-6f);
+            ++reports;
+        }
+        station += 13.0f * static_cast<float>(kSimDt);
+    }
+    REQUIRE(reports == 1);
+    auto slow = sample(station, 10.0f,
+        PoliceOffenseTracker::speeding_hold_steps + 11);
+    REQUIRE(!tracker.observe_driving(lanes, {}, slow, watchers, {}));
+    apricot_test::pass("sustained 6-mph-over speeding uses the authored lane limit and reports once");
+}
+
+void visible_gun_is_an_armed_threat_once_per_draw() {
+    PoliceOffenseTracker tracker;
+    const glm::vec3 player{0.0f, 0.0f, 0.0f};
+    const std::vector<PoliceOffenseWitness> seen{
+        {{0.0f, 1.5f, 12.0f}, {0.0f, 0.0f, -1.0f}, true}};
+    REQUIRE(!tracker.observe_armed(player, true, {}, {}));
+    const auto first = tracker.observe_armed(player, true, seen, {});
+    REQUIRE(first);
+    REQUIRE(first.kind == PoliceOffenseReport::Kind::ArmedThreat);
+    REQUIRE(first.crime == WantedSystem::Crime::ArmedThreat);
+    REQUIRE(!tracker.observe_armed(player, true, seen, {}));
+    REQUIRE(!tracker.observe_armed(player, false, seen, {}));
+    REQUIRE(tracker.observe_armed(player, true, seen, {}));
+    apricot_test::pass("a visible drawn pistol starts a two-star armed response once per draw");
+}
+
 }  // namespace
 
 int main() {
@@ -443,5 +577,8 @@ int main() {
     crossing_is_latched_and_uses_the_phase_at_the_crossing();
     player_hits_are_attributed_once_without_an_outside_witness();
     police_initiated_impacts_and_resting_contacts_are_not_player_crimes();
+    stop_sign_needs_a_real_half_second_dwell();
+    sustained_speeding_uses_the_lane_limit_and_does_not_spam();
+    visible_gun_is_an_armed_threat_once_per_draw();
     return apricot_test::done("police_offense_tests");
 }

@@ -10,6 +10,8 @@
 #include "city/pedestrian_separation.h"
 #include "core/fixed_step.h"
 #include "game/character.h"
+#include "game/weapon_hit.h"
+#include "physics/breakaway_contact.h"
 #include "physics/vehicle.h"
 
 namespace apricot {
@@ -113,35 +115,88 @@ const TurnLink* planned_turn(const LaneGraph& graph, LaneRef lane,
 }
 
 const TurnLink* turn_link_to(const LaneGraph& graph, LaneRef lane,
-                             LaneRef next) {
+                             LaneRef next, bool pursuit = false) {
     if (!graph.valid(lane) || !graph.valid(next)) return nullptr;
-    for (const TurnLink& link : graph.outgoing(lane)) {
+    for (const TurnLink& link : graph.outgoing(lane, pursuit)) {
         if (link.to == next) return &link;
     }
     return nullptr;
 }
 
+// Where a pursuer with NO usable route turns. `plan_route` returns a one-lane
+// holding route both when the target is unreachable and when the cop is
+// already on the target's lane, and in either case the old code fell straight
+// through to choose_next() — the weighted RANDOM draw ambient traffic uses. A
+// cruiser in an active chase was therefore picking its turns by dice, U-turns
+// included. Score each legal exit by where it actually leaves you relative to
+// the target, tie-break on lane index so the choice is stable across builds,
+// and never consult the dice.
+LaneRef pursuit_fallback_exit(const LaneGraph& graph, LaneRef lane,
+                              glm::vec2 target) {
+    LaneRef best = kInvalidLane;
+    float best_cost = std::numeric_limits<float>::infinity();
+    for (const TurnLink& link : graph.outgoing(lane, true)) {
+        if (!graph.valid(link.to)) continue;
+        // A point INTO the exit, not its mouth: every exit off one junction
+        // starts within a metre of every other, so mouths cannot rank them.
+        const float probe = std::min(40.0f, graph.lane(link.to).length_m);
+        const glm::vec3 ahead = graph.pose(link.to, probe).position;
+        const float cost = glm::distance(glm::vec2{ahead.x, ahead.z}, target);
+        if (cost < best_cost || (cost == best_cost && link.to < best)) {
+            best_cost = cost;
+            best = link.to;
+        }
+    }
+    return best;
+}
+
 LaneRef agent_planned_exit(const LaneGraph& graph,
-                           const VehicleAgent& agent, uint64_t seed) {
+                           const VehicleAgent& agent, uint64_t seed,
+                           glm::vec2 pursuit_target, bool have_target) {
     if (agent.police_pursuit &&
         agent.police_route_index < agent.police_route.size() &&
         agent.police_route[agent.police_route_index] == agent.lane &&
         agent.police_route_index + 1u < agent.police_route.size()) {
         const LaneRef next = agent.police_route[agent.police_route_index + 1u];
-        if (turn_link_to(graph, agent.lane, next)) return next;
+        if (turn_link_to(graph, agent.lane, next, true)) return next;
+    }
+    if (agent.police_pursuit && have_target) {
+        const LaneRef next = pursuit_fallback_exit(graph, agent.lane,
+                                                   pursuit_target);
+        if (graph.valid(next)) return next;
     }
     return graph.choose_next(agent.lane, seed, agent.decisions);
 }
 
 const TurnLink* agent_planned_turn(const LaneGraph& graph,
                                    const VehicleAgent& agent,
-                                   uint64_t seed) {
+                                   uint64_t seed, glm::vec2 pursuit_target,
+                                   bool have_target) {
     if (agent.police_pursuit) {
-        const LaneRef next = agent_planned_exit(graph, agent, seed);
-        if (const TurnLink* link = turn_link_to(graph, agent.lane, next))
+        const LaneRef next = agent_planned_exit(graph, agent, seed,
+                                                pursuit_target, have_target);
+        if (const TurnLink* link = turn_link_to(graph, agent.lane, next, true))
             return link;
     }
     return planned_turn(graph, agent.lane, seed, agent.decisions);
+}
+
+// Which body is parked at this kerb slot. The moving-traffic recipe, keyed on
+// a different word of the identity so a parked car and the car that would have
+// driven that slot are not the same model, and with the emergency bodies
+// folded back to a sedan: an ambulance does not sit unattended at a kerb, and
+// a police car standing there means something the police module has not said.
+TrafficVehicleKind parked_vehicle_kind(uint64_t lane_key, uint32_t slot) {
+    const TrafficVehicleKind kind =
+        traffic_vehicle_kind(lane_key ^ 0x5041524B4544ull, slot);
+    switch (kind) {
+        case TrafficVehicleKind::Ambulance:
+        case TrafficVehicleKind::Firetruck:
+        case TrafficVehicleKind::Police:
+            return TrafficVehicleKind::Sedan;
+        default:
+            return kind;
+    }
 }
 
 bool stable_police_patrol(uint64_t map_seed, uint64_t lane_key,
@@ -453,7 +508,9 @@ LanePose route_pose(const LaneGraph& graph, const VehicleAgent& vehicle) {
     if (active_turn(graph, vehicle))
         return traffic_turn_pose(agent_turn_curve(graph, vehicle),
                                  vehicle.turn_progress_m);
-    return graph.pose(vehicle.lane, vehicle.dist_along_m);
+    if (vehicle.maneuver.active())
+        return traffic_maneuver_pose(vehicle.maneuver, vehicle.maneuver.progress_m);
+    return graph.pose(vehicle.lane, vehicle.dist_along_m, vehicle.roadside_offset_m);
 }
 
 float curve_steer(const TrafficTurnCurve& curve, float progress_m) {
@@ -933,37 +990,50 @@ void Crowd::build(const LaneGraph& graph, uint64_t map_seed,
     const std::size_t n = graph.lane_count();
     veh_sched_.resize(n);
     ped_sched_.resize(n);
+    parked_bays_.resize(n);
     for (std::size_t i = 0; i < n; ++i) {
         const Lane& l = graph.lane(static_cast<LaneRef>(i));
         veh_sched_[i] = vehicle_schedule(map_seed_, l, ambient_);
-        ped_sched_[i] = ped_schedule(map_seed_, l, ambient_);
+        // The hotspot gain is the one thing here that needs the GRAPH rather
+        // than the lane, which is why it is resolved at this seam and threaded
+        // in: ped_schedule() stays a pure function of one lane.
+        ped_sched_[i] = ped_schedule(
+            map_seed_, l, ambient_,
+            ped_hotspot_gain(graph, static_cast<LaneRef>(i), ambient_));
+        // How much kerb a road has is a fact about the road, so the bay is
+        // derived once here beside the two schedules and never at runtime.
+        parked_bays_[i] = parked_lane_bay(l, ambient_);
     }
 
     lane_buckets_.assign(n, {});
     junction_heads_.assign(graph.junction_count(), {});
-    junction_clearance_m_.assign(graph.junction_count(),
-                                 std::max(tuning_.stop_line_m,
-                                          tuning_.junction_clear_m));
-    junction_turn_clearance_m_ = junction_clearance_m_;
+    auto build_envelopes = [&](const CrowdTuning& envelope,
+                               std::vector<float>& clearance_cache,
+                               std::vector<float>& turn_cache,
+                               std::set<std::array<LaneRef,4>>& conflict_cache) {
+    clearance_cache.assign(graph.junction_count(),
+                                 std::max(envelope.stop_line_m,
+                                          envelope.junction_clear_m));
+    turn_cache = clearance_cache;
     for (uint32_t j = 0; j < graph.junction_count(); ++j) {
         const LaneJunction& junction = graph.junction(j);
-        junction_clearance_m_[j] = traffic_junction_clearance(graph, j, tuning_);
+        clearance_cache[j] = traffic_junction_clearance(graph, j, envelope);
         float widest = 0.0f;
         for (LaneRef ref : junction.incoming)
             widest = std::max(widest, graph.lane(ref).width_m);
         const float core = traffic_junction_clearance(widest,
-            tuning_.traffic_half_length_m, tuning_.junction_storage_margin_m,
-            std::max(tuning_.stop_line_m, tuning_.junction_clear_m));
-        junction_turn_clearance_m_[j] = core;
+            envelope.traffic_half_length_m, envelope.junction_storage_margin_m,
+            std::max(envelope.stop_line_m, envelope.junction_clear_m));
+        turn_cache[j] = core;
 
         struct Movement { LaneRef from, to; std::vector<LanePose> path; };
         std::vector<Movement> movements;
         for (LaneRef incoming : junction.incoming) {
-            for (const TurnLink& turn : graph.outgoing(incoming)) {
+            for (const TurnLink& turn : graph.outgoing(incoming, true)) {
                 const TrafficTurnCurve curve = traffic_turn_curve(
                     graph, incoming, turn.to, core, core);
                 Movement movement{incoming, turn.to, {}};
-                const float outer = junction_clearance_m_[j];
+                const float outer = clearance_cache[j];
                 for (float d = outer; d > core; d -= 1.0f)
                     movement.path.push_back(graph.pose(incoming,
                         graph.length(incoming) - d));
@@ -983,39 +1053,67 @@ void Crowd::build(const LaneGraph& graph, uint64_t map_seed,
                 const auto& first = movements[a];
                 const auto& second = movements[b];
                 if (!turn_corridors_conflict(first.path, second.path,
-                        tuning_.traffic_half_width_m + 0.25f,
-                        tuning_.traffic_half_length_m + 0.5f)) continue;
-                movement_conflicts_.insert({first.from, first.to, second.from, second.to});
-                movement_conflicts_.insert({second.from, second.to, first.from, first.to});
+                        envelope.traffic_half_width_m + 0.25f,
+                        envelope.traffic_half_length_m + 0.5f)) continue;
+                conflict_cache.insert({first.from, first.to, second.from, second.to});
+                conflict_cache.insert({second.from, second.to, first.from, first.to});
             }
         }
     }
+    };
+    build_envelopes(tuning_, junction_clearance_m_, junction_turn_clearance_m_,
+                    movement_conflicts_);
+    // Keep dry traffic byte-for-byte on its existing geometry. The larger
+    // body/blade envelope is selected only for an active winter service.
+    CrowdTuning service_envelope = tuning_;
+    const auto body = traffic_vehicle_footprint(TrafficVehicleKind::Snowplow);
+    service_envelope.traffic_half_width_m = std::max(service_envelope.traffic_half_width_m,
+                                                    body.half_width_m);
+    service_envelope.traffic_half_length_m = std::max(service_envelope.traffic_half_length_m,
+                                                     body.half_length_m);
+    build_envelopes(service_envelope, snowplow_junction_clearance_m_,
+                    snowplow_junction_turn_clearance_m_, snowplow_movement_conflicts_);
     build_lane_index();
 }
 
 float Crowd::junction_clearance(uint32_t junction) const {
-    if (junction >= junction_clearance_m_.size())
+    const auto& cache = snowplow_service_ || snowplow_envelope_active_
+        ? snowplow_junction_clearance_m_ : junction_clearance_m_;
+    if (junction >= cache.size())
         return std::max(tuning_.stop_line_m, tuning_.junction_clear_m);
-    return junction_clearance_m_[junction];
+    return cache[junction];
+}
+
+float Crowd::junction_turn_clearance(uint32_t junction) const {
+    const auto& cache = snowplow_service_ || snowplow_envelope_active_
+        ? snowplow_junction_turn_clearance_m_ : junction_turn_clearance_m_;
+    return junction < cache.size() ? cache[junction] : junction_clearance(junction);
 }
 
 bool Crowd::movements_conflict(LaneRef from, LaneRef to,
                                LaneRef other_from, LaneRef other_to) const {
     if (!graph_->valid(from) || !graph_->valid(to) ||
         !graph_->valid(other_from) || !graph_->valid(other_to)) return true;
-    return movement_conflicts_.count({from, to, other_from, other_to}) != 0u;
+    const auto& cache = snowplow_service_ || snowplow_envelope_active_
+        ? snowplow_movement_conflicts_ : movement_conflicts_;
+    return cache.count({from, to, other_from, other_to}) != 0u;
 }
 
 void Crowd::clear() {
     graph_ = nullptr;
     veh_sched_.clear();
     ped_sched_.clear();
+    parked_bays_.clear();
+    ambient_parked_.clear();
     ped_paths_.clear();
     index_cells_.clear();
     index_nx_ = index_nz_ = 0;
     vehicles_.clear();
     parked_vehicle_positions_.clear();
     peds_.clear();
+    snowplow_service_ = false;
+    snowplow_envelope_active_ = false;
+    snowplow_dispatch_serial_ = 0;
     police_wanted_level_ = 0;
     police_target_xz_ = glm::vec2{0.0f};
     visible_police_.clear();
@@ -1023,20 +1121,29 @@ void Crowd::clear() {
     police_next_response_step_ = 0;
     police_officers_enabled_ = false;
     police_target_on_foot_ = false;
+    police_target_armed_ = false;
+    police_target_velocity_ = {};
     police_target_speed_mps_ = 0.0f;
     police_officer_world_ = nullptr;
     police_officer_layout_ = {};
     police_player_contacts_.clear();
+    police_shots_.clear();
     retired_.clear();
     lane_buckets_.clear();
     touched_lanes_.clear();
     leader_gap_.clear();
     leader_speed_.clear();
     junction_frozen_.clear();
+    emergency_frozen_.clear();
+    emergency_obstacles_.clear();
+    emergency_reservations_.clear();
     junction_heads_.clear();
     junction_clearance_m_.clear();
     junction_turn_clearance_m_.clear();
     movement_conflicts_.clear();
+    snowplow_movement_conflicts_.clear();
+    snowplow_junction_clearance_m_.clear();
+    snowplow_junction_turn_clearance_m_.clear();
     ped_bucket_start_.clear();
     ped_bucket_items_.clear();
     ped_bucket_of_.clear();
@@ -1048,12 +1155,16 @@ void Crowd::clear() {
 }
 
 void Crowd::set_police_officer_context(bool target_on_foot,
-                                       float target_speed_mps,
+                                       bool target_armed,
+                                       glm::vec2 target_velocity,
                                        const TerrainCollider* world) {
     police_officers_enabled_ = true;
     police_target_on_foot_ = target_on_foot;
-    police_target_speed_mps_ = std::isfinite(target_speed_mps)
-        ? std::max(0.0f, target_speed_mps) : 100.0f;
+    police_target_armed_ = target_on_foot && target_armed;
+    police_target_velocity_ =
+        std::isfinite(target_velocity.x) && std::isfinite(target_velocity.y)
+            ? target_velocity : glm::vec2{0.0f};
+    police_target_speed_mps_ = glm::length(police_target_velocity_);
     police_officer_world_ = world;
 }
 
@@ -1095,7 +1206,8 @@ bool Crowd::report_police_vehicle_hit(VisiblePoliceIdentity cruiser) {
 }
 
 void Crowd::step_police_officers(const VehicleState* player,
-                                 const OnFootTrafficHazard* on_foot_player) {
+                                 const OnFootTrafficHazard* on_foot_player,
+                                 int64_t step) {
     if (!police_officers_enabled_ || !graph_) return;
     const CharacterTuning walking{};
     // The car poses are final for this step and never change in this pass.
@@ -1110,6 +1222,7 @@ void Crowd::step_police_officers(const VehicleState* player,
         VehicleAgent& car = vehicles_[own];
         if (!car.police_unit || !graph_->valid(car.lane)) continue;
         PoliceOfficerState& officer = car.officer;
+        if (officer.weapon_flash_ticks > 0) --officer.weapon_flash_ticks;
         officer.previous_pos = officer.pos;
         officer.previous_heading = officer.heading;
         glm::vec3 forward{car.fwd.x, 0.0f, car.fwd.z};
@@ -1196,7 +1309,7 @@ void Crowd::step_police_officers(const VehicleState* player,
             (2.0f * std::max(0.5f, car.profile.brake));
         const float stopping_room = officer.phase == PoliceOfficerPhase::Seated
             ? stopping_distance : 0.0f;
-        const bool safe_road_position = !active_turn(*graph_, car) &&
+        const bool safe_road_position = !car.maneuver.active() && !active_turn(*graph_, car) &&
             car.committed_junction == 0xFFFFFFFFu &&
             car.dist_along_m > junction_clearance(lane.junction_from) + 3.0f &&
             lane.length_m - car.dist_along_m >
@@ -1223,9 +1336,28 @@ void Crowd::step_police_officers(const VehicleState* player,
         input.vehicle_speed_mps = movement;
         input.stopping_distance_m = stopping_distance;
         input.safe_road_position = safe_road_position;
+        // A stationary queue near a stopped suspect is a place to dismount,
+        // not a reason to sit with the lights on until the pursuit times out.
+        input.approach_blocked = car.delay_seconds >= 2.0f;
         input.door_clear = door_clear;
         input.at_door = glm::distance(officer.pos, door) < 0.075f;
         step_police_officer_phase(officer, input);
+
+        // Shot. The body stays exactly where it fell for the whole window:
+        // no walk solve, no weapon, no door traversal. Its cruiser is already
+        // held by police_officer_driving_allowed(), so putting an officer down
+        // takes that unit out of the chase rather than leaving a driverless
+        // car steering itself at the player.
+        if (police_officer_downed(officer)) {
+            officer.armed = false;
+            officer.next_shot_step = -1;
+            continue;
+        }
+
+        const bool can_arm = officer.phase == PoliceOfficerPhase::Pursuing &&
+            input.engaged && police_target_on_foot_ && police_target_armed_;
+        officer.armed = can_arm;
+        if (!can_arm) officer.next_shot_step = -1;
 
         if (officer.phase == PoliceOfficerPhase::Seated ||
             officer.phase == PoliceOfficerPhase::Braking) {
@@ -1249,8 +1381,32 @@ void Crowd::step_police_officers(const VehicleState* player,
         glm::vec3 goal = officer.phase == PoliceOfficerPhase::Returning
             ? door : glm::vec3{police_target_xz_.x, officer.pos.y, police_target_xz_.y};
         const float stand_off = officer.phase == PoliceOfficerPhase::Returning
-            ? 0.0f : (police_target_on_foot_ ? kPoliceOfficerFootStandOffM : 4.4f);
+            ? 0.0f : (can_arm ? kPoliceArmedStandOffM :
+                (police_target_on_foot_ ? kPoliceOfficerFootStandOffM : 4.4f));
         const glm::vec2 target_delta{goal.x - officer.pos.x, goal.z - officer.pos.z};
+        const float target_distance = glm::length(target_delta);
+        if (can_arm && target_distance > 1e-4f)
+            officer.heading = std::atan2(target_delta.x, -target_delta.y);
+        const bool has_shot = can_arm && on_foot_player &&
+            target_distance <= kPoliceShootRangeM && police_has_line_of_sight(car);
+        if (has_shot) {
+            if (officer.next_shot_step < 0)
+                officer.next_shot_step = police_first_shot_step(
+                    step, car.lane_key, car.slot);
+            if (step >= officer.next_shot_step) {
+                const glm::vec3 muzzle = officer.pos + glm::vec3{0.0f, 1.42f, 0.0f};
+                const glm::vec3 torso{police_target_xz_.x,
+                    on_foot_player->height_m + 1.05f, police_target_xz_.y};
+                police_shots_.push_back(make_police_shot(
+                    car.lane_key, car.slot, officer.shots_fired,
+                    step, muzzle, torso));
+                ++officer.shots_fired;
+                officer.weapon_flash_ticks = 8;
+                officer.next_shot_step = step + kPoliceShotPeriodSteps;
+            }
+        } else if (can_arm) {
+            officer.next_shot_step = -1;
+        }
         if (glm::length(target_delta) <= stand_off + 0.03f) continue;
         goal = officer_car_waypoint(officer.pos, goal, car, police_officer_layout_);
         glm::vec3 direction = goal - officer.pos;
@@ -1305,6 +1461,17 @@ void Crowd::set_police_context(
     if (next_level > police_wanted_level_) police_response_due_ = true;
     police_wanted_level_ = next_level;
     police_target_xz_ = target_xz;
+    // Is he even on the road? Half the lane width is normal driving; well
+    // beyond it means a forecourt, a verge, a car park — somewhere the lane
+    // graph has no answer for, and where a lane-following pursuit will park on
+    // the nearest tarmac and look like it has given up. Which is exactly what
+    // it has done.
+    police_target_offroad_m_ = 0.0f;
+    if (graph_) {
+        const auto snap = graph_->nearest_lane(police_target_xz_, 45.0f);
+        police_target_offroad_m_ = snap.valid()
+            ? std::fabs(snap.lateral_m) : 45.0f;
+    }
     visible_police_ = visible_police;
     std::sort(visible_police_.begin(), visible_police_.end());
     visible_police_.erase(
@@ -1350,6 +1517,10 @@ bool Crowd::player_in_police_view() const {
     if (police_wanted_level_ <= 0) return false;
     for (const VehicleAgent& agent : vehicles_) {
         if (!agent.police_unit) continue;
+        // A cop face down in the road is not looking at anybody. Leaving him
+        // in the view test would let a neutralised unit hold the wanted level
+        // hot from the ground.
+        if (police_officer_downed(agent.officer)) continue;
         if (!police_has_line_of_sight(agent)) continue;
         const glm::vec3 eye = police_officer_eye_position(agent);
         const glm::vec2 position{eye.x, eye.z};
@@ -1387,16 +1558,32 @@ const VehicleAgent* Crowd::nearest_police_pursuer() const {
 }
 
 void Crowd::update_police_route(VehicleAgent& agent, LaneRef target_lane,
-                                int64_t step) {
+                                glm::vec2 route_target, int64_t step) {
     if (!agent.police_pursuit || !graph_ || !graph_->valid(agent.lane)) {
         agent.police_route.clear();
         agent.police_route_index = 0;
         return;
     }
 
+    // The frozen junction claim and the movement driven must agree. A target
+    // crossing a side street cannot change the exit after admission: that
+    // used to strand the cruiser at the lane end with its lights flashing.
+    if (agent.committed_junction != 0xFFFFFFFFu) {
+        agent.police_route = {agent.lane};
+        if (agent.lane == agent.committed_approach_lane &&
+            graph_->valid(agent.committed_exit_lane))
+            agent.police_route.push_back(agent.committed_exit_lane);
+        agent.police_route_index = 0;
+        agent.police_last_replan_step = -1;
+        return;
+    }
+
     bool route_invalid = agent.police_route.empty();
     if (!route_invalid) {
-        auto current = std::find(agent.police_route.begin(),
+        auto current = std::find(agent.police_route.begin() +
+                                     static_cast<std::ptrdiff_t>(std::min<std::size_t>(
+                                         agent.police_route_index,
+                                         agent.police_route.size())),
                                  agent.police_route.end(), agent.lane);
         if (current == agent.police_route.end()) {
             route_invalid = true;
@@ -1410,22 +1597,27 @@ void Crowd::update_police_route(VehicleAgent& agent, LaneRef target_lane,
         ? std::numeric_limits<float>::infinity()
         : static_cast<float>(step - agent.police_last_replan_step) * kSimDtF;
     if (!police_should_replan(
-            since_last, tuning_.police.replan_interval, police_target_xz_,
+            since_last, tuning_.police.replan_interval, route_target,
             agent.police_last_target, tuning_.police.replan_target_move,
             route_invalid)) {
         return;
     }
 
     agent.police_route.clear();
-    if (graph_->valid(target_lane))
-        agent.police_route = graph_->plan_route(agent.lane, target_lane);
+    if (graph_->valid(target_lane)) {
+        LaneProjection from;
+        from.lane = agent.lane;
+        from.dist_along_m = agent.dist_along_m;
+        agent.police_route = graph_->plan_route(from,
+            graph_->project_onto(target_lane, route_target), true);
+    }
     // An unreachable or off-road target must not make A* run every step. A
     // one-lane holding route is valid for the 0.6 s cadence, after which the
     // target is projected again and the cop gets another chance.
     if (agent.police_route.empty()) agent.police_route.push_back(agent.lane);
     agent.police_route_index = 0;
     agent.police_last_replan_step = step;
-    agent.police_last_target = police_target_xz_;
+    agent.police_last_target = route_target;
 }
 
 void Crowd::update_police_response(int64_t step) {
@@ -1529,12 +1721,17 @@ void Crowd::update_police_response(int64_t step) {
 
     const float target_snap_m = std::max(
         60.0f, std::min(180.0f, tuning_.vehicle_activate_m));
-    const LaneProjection target =
-        graph_->nearest_lane(police_target_xz_, target_snap_m);
+    const glm::vec2 route_target = police_pursuit_intercept(
+        police_target_xz_, police_target_velocity_);
+    LaneProjection target;
+    if (glm::length(police_target_velocity_) > 0.15f)
+        target = graph_->nearest_lane_along(
+            route_target, police_target_velocity_, target_snap_m);
+    if (!target.valid()) target = graph_->nearest_lane(route_target, target_snap_m);
     const LaneRef target_lane = target.valid() ? target.lane : kInvalidLane;
     for (VehicleAgent& agent : vehicles_) {
         if (agent.police_pursuit)
-            update_police_route(agent, target_lane, step);
+            update_police_route(agent, target_lane, route_target, step);
     }
 }
 
@@ -1645,45 +1842,149 @@ bool Crowd::take_vehicle(uint64_t lane_key, uint32_t slot, VehicleAgent& out) {
     const auto it=std::find_if(vehicles_.begin(),vehicles_.end(),[&](const VehicleAgent& v) {
         return v.lane_key==lane_key && v.slot==slot;
     });
-    if (it==vehicles_.end() || it->police_unit) return false;
+    if (it==vehicles_.end() || it->police_unit || it->snowplow_unit) return false;
     out=*it;
     if (it->node!=kInvalidId) dead_nodes_.push_back(it->node);
-    retire(lane_key,slot);
+    retire(lane_key, slot, it->generation);
     vehicles_.erase(it);
     stats_.vehicles=vehicles_.size();
     rebuild_buckets();
     return true;
 }
 
-bool Crowd::is_retired(uint64_t lane_key, uint32_t slot) const {
-    const RetiredId want{lane_key, slot};
-    const auto it = std::lower_bound(
-        retired_.begin(), retired_.end(), want,
-        [](const RetiredId& a, const RetiredId& b) {
-            return ident_less(Ident{a.key, a.slot}, Ident{b.key, b.slot});
-        });
-    return it != retired_.end() && it->key == lane_key && it->slot == slot;
+// Retired identities sort by (lane, slot, lap). The lap is part of the KEY, not
+// a payload: two departures of one slot are two identities, and only the one
+// that was actually simulated may be banned.
+bool Crowd::retired_id_less(const RetiredId& a, const RetiredId& b) {
+    if (a.key != b.key || a.slot != b.slot)
+        return ident_less(Ident{a.key, a.slot}, Ident{b.key, b.slot});
+    return a.lap < b.lap;
 }
 
-void Crowd::retire(uint64_t lane_key, uint32_t slot) {
-    const RetiredId want{lane_key, slot};
-    const auto it = std::lower_bound(
-        retired_.begin(), retired_.end(), want,
-        [](const RetiredId& a, const RetiredId& b) {
-            return ident_less(Ident{a.key, a.slot}, Ident{b.key, b.slot});
-        });
+bool Crowd::is_retired(uint64_t lane_key, uint32_t slot, int64_t lap) const {
+    const RetiredId want{lane_key, slot, std::numeric_limits<int64_t>::min()};
+    const auto it = std::lower_bound(retired_.begin(), retired_.end(), want,
+                                     retired_id_less);
     if (it == retired_.end() || it->key != lane_key || it->slot != slot)
-        retired_.insert(it, want);
+        return false;
+    // `>=`, not `==`. A lap can only ever be asked about after the laps below
+    // it, so the older-lap case should be unreachable — and if it ever becomes
+    // reachable, refusing is the safe answer: spawning a departure OLDER than
+    // one already retired would materialise a car at an obsolete closed-form
+    // position, which is the exact thing permanent retirement exists to stop.
+    // This makes that an invariant of the structure, not of an argument.
+    return it->lap >= lap;
+}
+
+void Crowd::retire(uint64_t lane_key, uint32_t slot, int64_t lap) {
+    // ONE ENTRY PER (lane, slot), holding the NEWEST retired lap. An entry for
+    // an older lap is unreachable the moment a newer one exists, because the
+    // lap a slot is on only ever increases with the step — so keeping the
+    // older one would be memory spent on a question that can never be asked.
+    // This is what stops lap-aware retirement from turning a set that grew
+    // once per (lane, slot) into one that grows once per retirement: the bound
+    // is unchanged from before this policy, at 8 bytes more per entry.
+    const RetiredId want{lane_key, slot, std::numeric_limits<int64_t>::min()};
+    const auto it = std::lower_bound(retired_.begin(), retired_.end(), want,
+                                     retired_id_less);
+    if (it != retired_.end() && it->key == lane_key && it->slot == slot) {
+        it->lap = std::max(it->lap, lap);
+        return;
+    }
+    retired_.insert(it, RetiredId{lane_key, slot, lap});
 }
 
 // ---------------------------------------------------------------------------
 //  refresh: instantiate what came into range, retire what left
 // ---------------------------------------------------------------------------
 
+std::size_t Crowd::snowplow_unit_count() const {
+    return static_cast<std::size_t>(std::count_if(vehicles_.begin(), vehicles_.end(),
+        [](const VehicleAgent& v) { return v.snowplow_unit; }));
+}
+
+void Crowd::dispatch_snowplows(glm::vec2 player_xz) {
+    if (!snowplow_service_ || !graph_) return;
+    std::size_t fleet = snowplow_unit_count();
+    if (fleet >= kMaxSnowplowFleet || vehicles_.size() >= tuning_.max_vehicles) return;
+    // Dedicated service identities cannot collide with car or pedestrian slots.
+    // Rank lanes by a stable key, independent of rebuild and scan order.
+    constexpr uint32_t service_slot_base = 0x40000000u;
+    std::vector<LaneRef> candidates = lane_scratch_;
+    std::sort(candidates.begin(), candidates.end(), [&](LaneRef a, LaneRef b) {
+        const uint64_t ak = graph_->lane(a).key, bk = graph_->lane(b).key;
+        const uint64_t ah = phantom_key(map_seed_, ak, service_slot_base, 0x534E4F57u);
+        const uint64_t bh = phantom_key(map_seed_, bk, service_slot_base, 0x534E4F57u);
+        return ah == bh ? ak < bk : ah < bh;
+    });
+    for (LaneRef ref : candidates) {
+        if (fleet >= kMaxSnowplowFleet || vehicles_.size() >= tuning_.max_vehicles) break;
+        // Each departure has a fresh lifetime identity. Crowd retirement is
+        // permanent, but it must not permanently exhaust a service lane after
+        // the first storm. The serial advances only on successful dispatch.
+        if (snowplow_dispatch_serial_ >= service_slot_base) break;
+        const uint32_t service_slot = service_slot_base + snowplow_dispatch_serial_;
+        const Lane& lane = graph_->lane(ref);
+        if (lane.cls == RoadClass::Dirt || lane.cls == RoadClass::Alley ||
+            graph_->outgoing(ref).empty()) continue;
+        if (std::any_of(vehicles_.begin(), vehicles_.end(), [&](const VehicleAgent& v) {
+                return v.lane_key == lane.key && v.snowplow_unit;
+            })) continue;
+        const float start = junction_clearance(lane.junction_from) + 8.0f;
+        const float end = lane.length_m - std::max(tuning_.spawn_junction_exclusion_m,
+            junction_clearance(lane.junction_to)) - 8.0f;
+        if (end <= start) continue;
+        // Try a few separated points so busy lanes do not starve the service.
+        for (int sample = 0; sample < 5; ++sample) {
+            const float along = start + (end-start) * (static_cast<float>(sample)+0.5f)/5.0f;
+            const LanePose pose = graph_->pose(ref, along);
+            const glm::vec2 delta{pose.position.x-player_xz.x, pose.position.z-player_xz.y};
+            if (glm::dot(delta, delta) > tuning_.vehicle_activate_m*tuning_.vehicle_activate_m ||
+                glm::dot(delta, delta) < 35.0f*35.0f) continue;
+            bool clear = true;
+            for (const VehicleAgent& v : vehicles_) {
+                if (std::fabs(v.pos.y-pose.position.y) > 3.0f) continue;
+                const glm::vec2 separation{v.pos.x-pose.position.x, v.pos.z-pose.position.z};
+                // A working convoy spreads its blades across the local network.
+                const float gap = v.snowplow_unit ? 55.0f : 12.0f;
+                if (glm::dot(separation,separation) < gap*gap ||
+                    (v.lane == ref && std::fabs(v.dist_along_m-along) <
+                        std::max(18.0f, v.speed_mps*2.0f))) { clear = false; break; }
+            }
+            if (!clear) continue;
+            VehicleAgent v;
+            v.lane_key = lane.key;
+            v.slot = service_slot;
+            v.lane = ref;
+            v.dist_along_m = v.last_dist_m = along;
+            v.speed_mps = v.cruise_mps = std::min(kSnowplowWorkSpeedMps, lane.speed_limit_mps);
+            v.mode = AgentMode::Integrating;
+            v.snowplow_unit = true;
+            v.pos = pose.position;
+            v.fwd = pose.tangent;
+            v.profile = driver_profile_for(map_seed_,
+                static_cast<int32_t>(static_cast<uint32_t>(lane.key)),
+                static_cast<int32_t>(static_cast<uint32_t>(lane.key >> 32)), service_slot);
+            v.spawn_ordinal = static_cast<uint32_t>(stats_.activated);
+            vehicles_.push_back(v);
+            ++stats_.activated;
+            ++fleet;
+            snowplow_envelope_active_ = true;
+            ++snowplow_dispatch_serial_;
+            break;
+        }
+    }
+    std::sort(vehicles_.begin(), vehicles_.end(), [](const VehicleAgent& a, const VehicleAgent& b) {
+        return ident_less(Ident{a.lane_key,a.slot}, Ident{b.lane_key,b.slot});
+    });
+}
+
 void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
     if (!graph_) return;
 
-    const float retire_r = std::max(tuning_.vehicle_retire_m, tuning_.ped_retire_m);
+    const float retire_r = std::max(
+        std::max(tuning_.vehicle_retire_m, tuning_.ped_retire_m),
+        tuning_.parked_activate_m);
     gather_lanes(player_xz, retire_r, lane_scratch_);
     stats_.lanes_scanned = lane_scratch_.size();
 
@@ -1699,14 +2000,28 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
         const auto dead = std::remove_if(
             vehicles_.begin(), vehicles_.end(), [&](const VehicleAgent& v) {
                 const glm::vec2 d{v.pos.x - player_xz.x, v.pos.z - player_xz.y};
-                if (d.x * d.x + d.y * d.y <= vr2) return false;
+                const float dist2 = d.x * d.x + d.y * d.y;
+                if (dist2 <= vr2) return false;
                 if (v.police_unit && !police_officer_driving_allowed(v.officer)) {
                     const glm::vec2 officer_delta{v.officer.pos.x - player_xz.x,
                                                   v.officer.pos.z - player_xz.y};
                     if (glm::dot(officer_delta, officer_delta) <= vr2) return false;
                 }
+                // A UNIT THAT IS CHASING YOU IS NOT AMBIENT TRAFFIC.
+                // The ordinary ring deletes anything past ~320 m, and a cruiser
+                // that spends fifteen seconds turning around is already past it
+                // at city speeds. Retiring it there is what made a pursuit read
+                // as nobody following: the car behind you was never the same
+                // car twice, because each one was deleted as soon as it lost
+                // ground and a fresh local patrol was converted in its place.
+                if (v.police_unit && v.police_pursuit &&
+                    !police_should_despawn_standdown(
+                        dist2, police_wanted_level_ <= 0,
+                        tuning_.police.stand_down_distance,
+                        tuning_.police.pursuit_retire_m))
+                    return false;
                 if (v.node != kInvalidId) dead_nodes_.push_back(v.node);
-                retire(v.lane_key, v.slot);
+                retire(v.lane_key, v.slot, v.generation);
                 ++stats_.retired;
                 return true;
             });
@@ -1718,12 +2033,14 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
                 const glm::vec2 d{p.pos.x - player_xz.x, p.pos.z - player_xz.y};
                 if (d.x * d.x + d.y * d.y <= pr2) return false;
                 if (p.node != kInvalidId) dead_nodes_.push_back(p.node);
-                retire(p.lane_key, p.slot);
+                retire(p.lane_key, p.slot, p.generation);
                 ++stats_.retired;
                 return true;
             });
         peds_.erase(dead, peds_.end());
     }
+
+    snowplow_envelope_active_ = snowplow_unit_count() > 0;
 
     // --- instantiate -------------------------------------------------------
     const std::size_t veh_have = vehicles_.size();
@@ -1747,7 +2064,11 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
             if (lo != vehicles_.begin() + static_cast<long>(veh_have) &&
                 lo->lane_key == id.key && lo->slot == id.slot)
                 continue;
-            if (is_retired(id.key, id.slot)) continue;
+            // The LAP, not just the pair: this slot re-departs once per
+            // schedule period, and banning the pair alone would destroy every
+            // future departure along with the one car that was simulated.
+            const int64_t lap = phantom_lap(vs, slot, step);
+            if (is_retired(id.key, id.slot, lap)) continue;
 
             const PhantomState ph =
                 phantom_vehicle(map_seed_, lane, vs, slot, step, ambient_);
@@ -1792,6 +2113,7 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
             VehicleAgent v;
             v.lane_key = lane.key;
             v.slot = slot;
+            v.generation = lap;
             v.lane = lr;
             v.dist_along_m = ph.dist_along_m;
             v.speed_mps = ph.speed_mps;
@@ -1835,7 +2157,9 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
             if (lo != peds_.begin() + static_cast<long>(ped_have) &&
                 lo->lane_key == id.key && lo->slot == id.slot)
                 continue;
-            if (is_retired(id.key, id.slot)) continue;
+            // Same policy as vehicles: ban the departure, not the slot.
+            const int64_t lap = phantom_lap(ps, slot, step);
+            if (is_retired(id.key, id.slot, lap)) continue;
 
             const PhantomState ph =
                 phantom_ped(map_seed_, lane, ps, slot, step, ambient_);
@@ -1850,6 +2174,7 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
             PedAgent p;
             p.lane_key = lane.key;
             p.slot = slot;
+            p.generation = lap;
             p.lane = walk.lane;
             p.walk_path = walk_path;
             p.dist_along_m = walk_distance;
@@ -1858,6 +2183,21 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
                                - graph_->lane(walk.lane).lateral_offset_m;
             p.lateral_m = p.base_lateral_m;
             p.last_dist_m = walk_distance;
+            // THE NERVE ROLL BELONGS TO THE SPAWNER, and city/pedestrian_
+            // reactions.h says so at the top of the file: the [0,1) roll is
+            // keyed to spawn identity through hash_coord(), never pulled off a
+            // stream, because how many people were made before this one is a
+            // fact about which way the player drove in. The lane key is split
+            // across the two coordinate axes exactly as the driver profile
+            // splits it, so the same person has the same nerve forever.
+            //
+            // It is the SAME disposition the punch reaction uses. There is one
+            // hidden nerve per person and one place it is drawn.
+            p.disposition = ped_react::disposition_from_nerve(
+                city_unit_roll(map_seed_,
+                               static_cast<int32_t>(static_cast<uint32_t>(lane.key)),
+                               static_cast<int32_t>(static_cast<uint32_t>(lane.key >> 32)),
+                               slot, kChannelPedNerve));
             // The phantom establishes identity and initial phase only. Active
             // walkers retain real path progress across schedule wraps.
             p.mode = AgentMode::Integrating;
@@ -1899,8 +2239,52 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
                            });
     }
 
+    dispatch_snowplows(player_xz);
+
+    // --- kerbside parking --------------------------------------------------
+    //
+    // Rebuilt wholesale, because there is nothing to keep: a parked car is a
+    // pure function of (map_seed, lane key, slot), so the one that leaves the
+    // radius and the one that comes back are the same bytes. That is exactly
+    // what a phantom vehicle CANNOT claim once it has been simulated, which is
+    // why that one is retired permanently and this one is not retired at all.
+    ambient_parked_.clear();
+    {
+        const float pk2 = tuning_.parked_activate_m * tuning_.parked_activate_m;
+        for (const LaneRef lr : lane_scratch_) {
+            const ParkedLaneBay& bay = parked_bays_[lr];
+            if (bay.slots == 0) continue;
+            const Lane& lane = graph_->lane(lr);
+            for (uint32_t slot = 0; slot < bay.slots; ++slot) {
+                const ParkedSlot ps =
+                    parked_slot(map_seed_, lane, bay, slot, ambient_);
+                const LanePose pose =
+                    graph_->pose(lr, ps.dist_along_m, ps.lateral_m);
+                const glm::vec2 d{pose.position.x - player_xz.x,
+                                  pose.position.z - player_xz.y};
+                if (d.x * d.x + d.y * d.y > pk2) continue;
+                AmbientParkedCar car;
+                car.lane_key = lane.key;
+                car.slot = slot;
+                car.pos = pose.position;
+                car.fwd = ps.reversed ? -pose.tangent : pose.tangent;
+                car.kind = parked_vehicle_kind(lane.key, slot);
+                ambient_parked_.push_back(car);
+            }
+        }
+        // Sorted by identity for the same reason the active set is: the lane
+        // scan is a fact about the scan, and anything downstream that sums or
+        // indexes over this list must see the population instead.
+        std::sort(ambient_parked_.begin(), ambient_parked_.end(),
+                  [](const AmbientParkedCar& a, const AmbientParkedCar& b) {
+                      return ident_less(Ident{a.lane_key, a.slot},
+                                        Ident{b.lane_key, b.slot});
+                  });
+    }
+
     stats_.vehicles = vehicles_.size();
     stats_.peds = peds_.size();
+    stats_.parked = ambient_parked_.size();
 }
 
 // ---------------------------------------------------------------------------
@@ -1924,10 +2308,15 @@ void Crowd::rebuild_buckets() {
             v.stop_completed,
             v.committed_junction, v.committed_approach_lane,
             v.committed_exit_lane,
-            agent_planned_exit(*graph_, v, map_seed_),
+            agent_planned_exit(*graph_, v, map_seed_, police_target_xz_,
+                               police_wanted_level_ > 0),
             active_turn(*graph_, v),
             vehicle_engine_failed(v.mechanical), v.delay_seconds};
-        if (!graph_->valid(v.lane)) continue;
+        if (!graph_->valid(v.lane) || v.chase_active) continue;
+        const LanePose centre = graph_->pose(v.lane, v.dist_along_m);
+        if ((v.maneuver.active() || std::fabs(v.roadside_offset_m) > 0.01f) &&
+            std::fabs(glm::dot(v.pos - centre.position, centre.right)) >
+                tuning_.traffic_half_width_m * 2.0f + 0.35f) continue;
         std::vector<BucketEntry>& b = lane_buckets_[v.lane];
         if (b.empty()) touched_lanes_.push_back(v.lane);
         b.push_back(BucketEntry{v.dist_along_m, i});
@@ -1981,7 +2370,9 @@ void Crowd::rebuild_buckets() {
             }
             const std::vector<TurnLink>& outs = graph_->outgoing(v.lane);
             if (!outs.empty()) {
-                const LaneRef nxt = agent_planned_exit(*graph_, v, map_seed_);
+                const LaneRef nxt = agent_planned_exit(
+                    *graph_, v, map_seed_, police_target_xz_,
+                    police_wanted_level_ > 0);
                 if (graph_->valid(nxt) && !lane_buckets_[nxt].empty()) {
                     const float remain = graph_->lane(v.lane).length_m - head.dist;
                     const uint32_t leader_index =
@@ -2154,12 +2545,235 @@ void Crowd::rebuild_buckets() {
 //  step_vehicles
 // ---------------------------------------------------------------------------
 
+// FREE-DRIVE PURSUIT.
+//
+// Everything else in this file makes a cruiser a better piece of TRAFFIC — it
+// runs the lights, it jumps the queue, it corners harder. None of it can make
+// the cruiser leave the road, because a lane-following agent is defined by the
+// lane. That is the whole of "they stay on the road and never actually chase
+// me": inside the last sixty metres a police car in this genre stops using the
+// road network at all and drives at you across whatever is in between.
+//
+// police_terminal_pursuit_cmd is the command kernel for exactly this. It came
+// across with the rest of the police lift and was never called by anything —
+// only the lane-following half of that port was ever wired up, which is why a
+// pursuit here has always been a commute with a siren on.
+//
+// While engaged the agent is stepped by step_vehicle: the same physics, the
+// same collider, the same fixed dt as the player's own car. Its lane fields go
+// stale for the duration and are re-anchored on release.
+bool Crowd::step_police_free_chase(VehicleAgent& v, float dt) {
+    // A suspect ON FOOT is not something you drive at. That case belongs to
+    // the officer: the cruiser brakes, the door opens and somebody walks after
+    // you. Free-driving here would run the phase machine's dismount inputs off
+    // stale lane fields and simply drive over the arrest.
+    const bool engaged = v.police_unit && v.police_pursuit &&
+                         police_wanted_level_ > 0 &&
+                         !police_target_on_foot_ &&
+                         police_officer_driving_allowed(v.officer) &&
+                         !vehicle_engine_failed(v.mechanical);
+    const auto release = [&]() {
+        if (!v.chase_active) return;
+        v.chase_active = false;
+        // Back onto the network at whatever lane this car is actually on now.
+        // Without this the agent keeps a lane reference from wherever it left
+        // the road, and rejoins by teleporting to it.
+        const glm::vec3 forward = vehicle_forward(v.chase);
+        const auto snap = graph_->nearest_lane_along(
+            {v.pos.x, v.pos.z}, {forward.x, forward.z}, 90.0f);
+        if (snap.valid()) {
+            v.lane = snap.lane;
+            v.dist_along_m = v.last_dist_m = snap.dist_along_m;
+            v.cruise_mps = std::min(v.cruise_mps,
+                                    graph_->lane(snap.lane).speed_limit_mps);
+        }
+        v.mode = AgentMode::Integrating;
+        v.collision_offset_xz = {0.0f, 0.0f};
+        v.collision_velocity_xz = {0.0f, 0.0f};
+        v.roadside_offset_m = 0.0f;
+        v.maneuver = {};
+        v.police_route.clear();
+        v.police_route_index = 0;
+        v.police_last_replan_step = -1;
+        v.committed_junction = 0xFFFFFFFFu;
+        v.committed_approach_lane = kInvalidLane;
+        v.committed_exit_lane = kInvalidLane;
+        v.turn_from_lane = kInvalidLane;
+    };
+    if (!engaged || !police_officer_world_ || !graph_) { release(); return false; }
+    if (!v.chase_active && v.chase_cooldown_s > 0.0f) {
+        v.chase_cooldown_s = std::max(0.0f, v.chase_cooldown_s - dt);
+        return false;
+    }
+
+    const glm::vec2 here = v.chase_active
+        ? glm::vec2{v.chase.position.x, v.chase.position.z}
+        : glm::vec2{v.pos.x, v.pos.z};
+    const float range = glm::distance(here, police_target_xz_);
+    if (!v.chase_active) {
+        // OFF THE ROAD IS THE WHOLE POINT OF FREE DRIVING. Inside the lane
+        // network the hand-off is a short contact move; once the suspect has
+        // left the network there is nothing to route to, so the cruiser has to
+        // leave it too or it just parks on the nearest tarmac and waits.
+        const float engage = police_target_offroad_m_ > 5.0f
+            ? tuning_.police.free_chase_release
+            : tuning_.police.free_chase_range;
+        if (range > engage) return false;
+        // Never leave the road for a suspect this unit cannot actually see.
+        // Aiming is the whole of the free-drive controller, so a building in
+        // between does not become a detour — it becomes the thing it drives
+        // into. The lane path is what gets you around a corner.
+        if (!police_has_line_of_sight(v)) return false;
+        // Hand over from the pose the lane path was already showing, so the
+        // switch is invisible: seeding from anything else pops the car.
+        v.chase = VehicleState{};
+        v.chase.position = v.pos;
+        glm::vec3 forward{v.fwd.x, 0.0f, v.fwd.z};
+        forward = glm::length(forward) > 1e-5f ? glm::normalize(forward)
+                                               : glm::vec3{0.0f, 0.0f, -1.0f};
+        // quatLookAt maps LOCAL -Z onto the direction it is given, and
+        // vehicle_forward() is orientation * (0,0,-1) — so this takes `forward`
+        // directly. Passing -forward seeds the car facing exactly backwards,
+        // which is a 180-degree flip on the very step the hand-off happens and
+        // then reads as "the target is behind me" forever after: the cruiser
+        // spends the whole engagement trying to turn around from a spin it
+        // never actually performed.
+        v.chase.orientation = glm::quatLookAt(forward, glm::vec3{0, 1, 0});
+        v.chase.velocity = forward * std::max(0.0f, v.speed_mps);
+        v.chase_active = true;
+        v.chase_stall_s = 0.0f;
+        v.chase_reverse_s = 0.0f;
+        v.chase_turnaround_s = 0.0f;
+        v.maneuver = {};
+        v.roadside_offset_m = 0.0f;
+        v.collision_offset_xz = {0.0f, 0.0f};
+        v.collision_velocity_xz = {0.0f, 0.0f};
+    } else if (range > tuning_.police.free_chase_release) {
+        release();
+        return false;
+    }
+
+    const glm::vec3 forward3 = vehicle_forward(v.chase);
+    const glm::vec2 forward{forward3.x, forward3.z};
+    const glm::vec2 right{-forward.y, forward.x};
+    const glm::vec2 to_target = police_target_xz_ - here;
+    const float distance = glm::length(to_target);
+    const glm::vec2 direction = distance > 1e-4f ? to_target / distance : forward;
+    const float ahead_dot = glm::dot(forward, direction);
+    const float side_dot = glm::dot(right, direction);
+    const float forward_speed = vehicle_forward_speed(v.chase);
+    const bool turning_around = ahead_dot < -0.25f && forward_speed <= 5.0f;
+    if (!turning_around) {
+        v.chase_reverse_s = 0.0f;
+        v.chase_turn_stall_s = 0.0f;
+    }
+    // BOXED IN IS SOMETHING YOU FIND OUT, NOT SOMETHING YOU PROBE FOR. A ray
+    // cast down the nose was tried and it reads a rising kerb, a slope and the
+    // ground itself as walls — it declared the car blocked almost everywhere,
+    // sent it into reverse, and the reverse cap then switched free driving off
+    // entirely (measured: off-road time 14% -> 3%, mean gap 53 m -> 95 m).
+    // Trying the forward arc and noticing it went nowhere is both cheaper and
+    // right, and it is what a driver does.
+    const bool forward_blocked = v.chase_reverse_s > 0.0f;
+    const PursuitCmd cmd = police_terminal_pursuit_cmd(
+        distance, ahead_dot, side_dot, forward_speed, forward_blocked);
+
+    InputFrame intent;
+    intent.steer = cmd.steer;
+    // The gearbox is arcade: the brake axis IS reverse once the car has stopped,
+    // so a negative pursuit throttle becomes brake and the physics does the rest.
+    intent.throttle = std::max(0.0f, cmd.throttle);
+    intent.brake = cmd.throttle < 0.0f ? -cmd.throttle : cmd.brake;
+    intent.handbrake = cmd.handbrake ? 1.0f : 0.0f;
+
+    v.chase = step_vehicle(v.chase, police_vehicle_tuning_, intent,
+                           *police_officer_world_, dt);
+    v.pos = v.chase.position;
+    v.fwd = forward3;
+    v.speed_mps = std::max(0.0f, vehicle_forward_speed(v.chase));
+    v.mode = AgentMode::Integrating;
+    v.delay_seconds = 0.0f;
+
+    // Pinned. Asking for throttle and not moving means the aim has walked this
+    // car into something it cannot see; give the road back rather than sit
+    // there revving, and stay on it long enough not to repeat the mistake.
+    // A turn-around has its OWN escape (the reverse leg below), so a stall
+    // while swinging the nose round must not be read as "pinned, give up".
+    // Conflating the two is what collapsed free driving to 3% of the chase:
+    // every attempted turn released the car back onto the lane graph.
+    if (!turning_around && intent.throttle > 0.1f &&
+        std::fabs(v.speed_mps) < 1.5f)
+        v.chase_stall_s += dt;
+    else if (!turning_around) v.chase_stall_s = 0.0f;
+
+    // The three-point turn. Swing the nose round forwards first; only when
+    // that has visibly failed does the car back up, and backing up is a leg of
+    // a turn rather than a way of getting anywhere — past the cap it hands
+    // back to the lane router, which can plan a way round the block.
+    const float travelling = glm::length(
+        glm::vec2{v.chase.velocity.x, v.chase.velocity.z});
+    if (turning_around && !forward_blocked) {
+        // Swinging the nose round forwards. If that goes nowhere the car is
+        // boxed in, and only then does it back up.
+        if (travelling < 1.0f) v.chase_turn_stall_s += dt;
+        else v.chase_turn_stall_s = 0.0f;
+        if (v.chase_turn_stall_s > 0.8f) {
+            v.chase_reverse_s = 1e-3f;
+            v.chase_turn_stall_s = 0.0f;
+        }
+    } else if (forward_blocked) {
+        v.chase_reverse_s += dt;
+        // Nose is round, or backing up has stopped achieving anything: either
+        // way the reverse leg is over. Reversing is ONE LEG OF A TURN here,
+        // never a way of getting anywhere.
+        if (ahead_dot > -0.1f ||
+            (v.chase_reverse_s > 0.3f && travelling < 0.6f))
+            v.chase_reverse_s = 0.0f;
+    }
+
+    // FREE DRIVING IS A CLOSING MOVE, NOT A MANOEUVRING ONE. Once the nose is
+    // off the target this controller can only shuffle, and shuffling in front
+    // of the player is precisely what "they just reverse instead of turning
+    // around" looks like. The lane router already knows how to turn a cruiser
+    // round properly — PoliceTurnaround, or a route round the block — so hand
+    // the road back and let it, rather than three-point-turning in the street.
+    if (turning_around) v.chase_turnaround_s += dt;
+    else v.chase_turnaround_s = 0.0f;
+
+    const bool pinned = v.chase_stall_s > 1.5f;
+    // Giving up the road only helps when the router can do better. Right on
+    // top of the player it cannot: handing back there just puts the cruiser
+    // into the same queue it was in, and measured on the jammed district that
+    // cost 26 m of mean gap against 80 m. Close in, keep working the turn.
+    const bool gave_up_turning = distance > 22.0f &&
+        (v.chase_reverse_s > 2.0f || v.chase_turnaround_s > 3.0f);
+    if (pinned || gave_up_turning) {
+        release();
+        v.chase_stall_s = 0.0f;
+        v.chase_reverse_s = 0.0f;
+        v.chase_turn_stall_s = 0.0f;
+        v.chase_turnaround_s = 0.0f;
+        // Being PINNED means this car drove into something it cannot see, and
+        // it will do it again the moment it is let back out — hold it on the
+        // road. Failing to come round is not the same mistake: the router puts
+        // the nose back on the target and the hand-off is welcome again almost
+        // immediately.
+        v.chase_cooldown_s = pinned ? 5.0f : 1.5f;
+        return false;
+    }
+    return true;
+}
+
 void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                           const OnFootTrafficHazard* on_foot_player) {
     if (!graph_) return;
+    police_shots_.clear();
+    prepare_emergency_maneuvers(step, player, on_foot_player);
     const int k = std::max(1, tuning_.vehicle_sub_rate);
     const float dt = static_cast<float>(k) * kSimDtF;
-    const float min_gap_floor = tuning_.car_length_m + 0.6f;
+    const float convoy_car_length = snowplow_unit_count() > 0
+        ? std::max(tuning_.car_length_m, 6.6f) : tuning_.car_length_m;
+    const float min_gap_floor = convoy_car_length + 0.6f;
 
     stats_.vehicles_stepped = 0;
     stats_.vehicles_analytic = 0;
@@ -2190,7 +2804,19 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         const auto& snapshot = junction_frozen_[index];
         if (!graph_->valid(snapshot.lane)) return false;
         const auto& approach = graph_->lane(snapshot.lane);
-        const float clear = junction_clearance(approach.junction_to);
+        // STORAGE, NOT CONFLICT. This asks "is there physical room past the
+        // box for my car", so the reserved head of the exit lane is the plain
+        // junction box. It used to use junction_clearance(), which is the
+        // acute-merge CONFLICT envelope: at the Spine/Sycamore junction two
+        // arms sit 11.5 degrees apart and their corridors only cross 58 m out,
+        // so that envelope is 72 m against a 17 m box. Requiring 72 m of empty
+        // exit before entering starved the junction -- a healthy lead waited
+        // 49.6 s across 17,387 steps of GREEN, because ambient spacing is 48 m
+        // and the exit is 160-180 m long, so the room asked for was almost
+        // never there. Serializing the merge is still junction_clearance()'s
+        // job, through movement conflicts and box ownership, and it is
+        // unchanged; this one call was the only place the two were conflated.
+        const float clear = junction_turn_clearance(approach.junction_to);
         const auto& bucket = lane_buckets_[exit_lane];
         float nearest = bucket.empty() ? kInf : bucket.front().dist;
         // Admission needs space that exists in the frozen state. Predicting a
@@ -2211,7 +2837,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                     0.0f, junction_frozen_[leader].speed_mps - 1.0f) * 0.85f;
             }
         }
-        return traffic_exit_has_storage(nearest, clear, tuning_.car_length_m,
+        return traffic_exit_has_storage(nearest, clear, convoy_car_length,
             effective_min_gap(vehicles_[index].profile, min_gap_floor),
             tuning_.junction_storage_margin_m);
     };
@@ -2246,7 +2872,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         }
         const Lane& approach = graph_->lane(s.lane);
         const TurnLink* turn = turn_link_to(*graph_, s.lane,
-                                            s.planned_exit_lane);
+                                           s.planned_exit_lane, a.police_pursuit);
         out.priority = turn ? turn_priority_rank(turn->priority) : 0;
         if (graph_->junction_control(junction) == JunctionControl::Signal &&
             out.arrival_step >= 0) {
@@ -2291,6 +2917,9 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         step_vehicle_mechanical(v.mechanical,v.body_damage,dt,
             splitmix64_mix(map_seed_ ^ v.lane_key ^ (static_cast<uint64_t>(v.slot)<<32)));
 
+        // A cruiser that has left the road owes none of the lane path below.
+        if (step_police_free_chase(v, dt)) continue;
+
         const Lane& lane = graph_->lane(v.lane);
         const bool turning = active_turn(*graph_, v);
         const bool committed_approach =
@@ -2320,6 +2949,14 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         const float logical_dist_before_recovery = v.dist_along_m;
         step_collision_reaction(v, tuning_, recovery_pose, dt,
                                 clearing_intersection);
+        if (v.maneuver.active()) {
+            v.maneuver.progress_m = std::clamp(v.maneuver.progress_m +
+                v.dist_along_m - logical_dist_before_recovery, 0.f, v.maneuver.length_m);
+        }
+        if (step_emergency_maneuver(i, dt)) {
+            apply_collision_pose(v, route_pose(*graph_, v));
+            continue;
+        }
         if (turning) {
             // Collision recovery normally turns longitudinal displacement
             // into lane progress. During a curve the outgoing lane distance
@@ -2351,7 +2988,8 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         const float slack = to_end - stop_distance;
         const TurnLink* turn = turning
             ? nullptr
-            : agent_planned_turn(*graph_, v, map_seed_);
+            : agent_planned_turn(*graph_, v, map_seed_, police_target_xz_,
+                                 police_wanted_level_ > 0);
         bool seamless_continuation = false;
         if (turn && graph_->valid(turn->to) &&
             lane.junction_to < graph_->junction_count() &&
@@ -2372,11 +3010,15 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         }
 
         // --- what would slow me down ---------------------------------------
-        const float gap = leader_gap_[i] - tuning_.car_length_m;
+        const float gap = leader_gap_[i] - convoy_car_length;
         DriverProfile prof = traffic_driver_after_wait(v.profile, v.delay_seconds);
         prof.min_gap = effective_min_gap(prof, min_gap_floor);
-        const float pursuit_cruise = std::min(
-            24.0f, lane.speed_limit_mps * 1.18f);
+        const float pursuit_cruise = police_pursuit_cruise_mps(
+            lane.speed_limit_mps, police_target_speed_mps_,
+            police_wanted_level_);
+        const bool engaged_pursuit = v.police_pursuit &&
+            police_wanted_level_ > 0 &&
+            police_officer_driving_allowed(v.officer);
         const float desired_cruise = v.police_pursuit
             ? std::max(v.cruise_mps, pursuit_cruise)
             : v.cruise_mps;
@@ -2508,17 +3150,22 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         // change at a junction into a deliberate maneuver instead of a full-
         // speed heading snap, and gives left/U turns visibly different intent.
         if (turning) {
-            target = std::min(target, turn_speed_limit(v.active_turn_kind));
+            target = std::min(target, police_turn_speed_mps(
+                turn_speed_limit(v.active_turn_kind), engaged_pursuit,
+                tuning_.police));
         } else if (turn && to_end < 32.0f) {
-            const float cap = turn_speed_limit(turn->kind) +
-                              std::max(0.0f, to_end - 8.0f) * 0.25f;
+            const float cap = police_turn_speed_mps(
+                turn_speed_limit(turn->kind), engaged_pursuit, tuning_.police) +
+                std::max(0.0f, to_end - 8.0f) * 0.25f;
             target = std::min(target, cap);
         }
 
         // The player is a first-class moving hazard, not just something the
         // collision solver notices after contact. The lifted Probable Cause
         // kernel catches in-path leaders plus predicted crossing/head-on hits.
-        if (!v.police_pursuit && player &&
+        // Low-heat stops follow the suspect's bumper instead of shoving a
+        // stopped driver down the road while the officer tries to dismount.
+        if ((!v.police_pursuit || police_wanted_level_ <= 2) && player &&
             std::fabs(player->position.y-v.pos.y)<2.5f) {
             const PlayerHazard hazard = assess_player_hazard(
                 {v.pos.x, v.pos.z}, {v.fwd.x, v.fwd.z}, v.speed_mps,
@@ -2561,6 +3208,10 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         // the AI and the signal head must both call it or the bulb disagrees
         // with the stop decision.
         bool hold = false;
+        // Set instead of `hold` when a dispatched cruiser is running a control
+        // it would otherwise have stopped at. It caps the crossing speed rather
+        // than parking the car on the line.
+        bool run_control = false;
         const uint32_t jn = lane.junction_to;
         // A car clearing junction A may already be on an outgoing lane whose
         // next junction B is close enough to see. B's red/stop logic must not
@@ -2582,11 +3233,18 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                     // An uncommitted approach car is still outside the box.
                     // Keep it at the gate even if braking arithmetic put its
                     // logical nose a few centimetres past the line last step.
-                    hold = true;
+                    // A DISPATCHED cruiser is the exception: it runs the red
+                    // at a capped speed instead of stopping. The cross-traffic
+                    // negotiation further down is untouched, so it still gives
+                    // way to a car in the box — it is exempt from the bulb,
+                    // not from the collision.
+                    if (engaged_pursuit) run_control = true;
+                    else hold = true;
                 } else if (phase == TrafficSignalPhase::Yellow) {
-                    hold = traffic_should_stop_for_yellow(
-                        std::max(0.0f, slack), v.speed_mps, prof) ||
-                        (slack <= 0.0f && v.speed_mps < 0.35f);
+                    hold = !engaged_pursuit &&
+                        (traffic_should_stop_for_yellow(
+                            std::max(0.0f, slack), v.speed_mps, prof) ||
+                         (slack <= 0.0f && v.speed_mps < 0.35f));
                 }
             } else if (facing == JunctionControl::Stop) {
                 if (v.stop_junction != jn) {
@@ -2603,8 +3261,13 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                     slack, v.speed_mps, v.stop_wait_steps, k,
                     required_stop_steps(prof), tuning_.stop_capture_m);
                 v.stop_wait_steps = stop.wait_steps;
-                v.stop_completed = stop.completed;
-                hold = stop.hold;
+                // A pursuer never serves the dwell, and is treated as having
+                // completed it so the all-way-stop arrival order below still
+                // has an eligible approach to reason about instead of a car
+                // that can never take its turn.
+                v.stop_completed = stop.completed || engaged_pursuit;
+                hold = stop.hold && !engaged_pursuit;
+                if (stop.hold && engaged_pursuit) run_control = true;
                 if (hold) ++stats_.stop_holds;
             } else if (v.stop_junction != 0xFFFFFFFFu) {
                 v.stop_junction = 0xFFFFFFFFu;
@@ -2612,11 +3275,13 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                 v.stop_arrival_step = -1;
                 v.stop_completed = false;
             }
-            if (facing == JunctionControl::Yield) {
+            if (facing == JunctionControl::Yield && !engaged_pursuit) {
                 // Look before merging. With an open gap this is a rolling
                 // approach, with no synthetic stop-sign dwell.
                 const float rolling_cap = lane.speed_limit_mps > 20.0f ? 12.0f : 6.0f;
                 target = std::min(target, rolling_cap + std::max(0.0f, slack) * 0.3f);
+            } else if (facing == JunctionControl::Yield) {
+                run_control = true;
             }
 
             // Cross-traffic negotiation uses the frozen head car on each
@@ -2720,7 +3385,18 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                     if (traffic_approach_yields(
                             mine, other, ctrl == JunctionControl::Stop,
                             tuning_.junction_eta_tie_s)) {
-                        hold = true;
+                        // Right of way is a RULE, and a dispatched cruiser is
+                        // exempt from rules. It is not exempt from the car: a
+                        // unit already committed to the box is a body, and the
+                        // pursuer stops for it exactly like anyone else. Giving
+                        // way to merely-has-priority traffic is what left the
+                        // nearest pursuer held at a junction for a third of
+                        // every chase, and worse, it deadlocks — a stopped car
+                        // has a long ETA, a long ETA loses the compare, and
+                        // losing keeps it stopped.
+                        if (engaged_pursuit && !other_committed)
+                            run_control = true;
+                        else hold = true;
                         ++stats_.junction_yields;
                         break;
                     }
@@ -2739,11 +3415,27 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
             target = std::min(target,
                 std::min(room * 0.8f, braking_speed));
         }
+        if (run_control)
+            target = std::min(target,
+                police_control_override_speed(true, slack, tuning_.police));
         if (box_blocked) {
             hold = true;
             target = std::min(target, std::max(0.0f, slack * 0.8f));
             ++stats_.junction_box_holds;
         }
+        // Facing away from the suspect on a two-way street: shed speed so the
+        // mid-block turnaround can fire. Pinned at 4 m/s this was a cruiser
+        // closing on the player at walking pace; 7 still triggers the
+        // turnaround's own speed gate without being a crawl.
+        if (v.police_pursuit && !clearing_intersection &&
+            lane.cls != RoadClass::Freeway && !lane.one_way &&
+            glm::distance(glm::vec2{v.pos.x, v.pos.z}, police_target_xz_) < 100.0f &&
+            glm::dot(police_target_xz_ - glm::vec2{v.pos.x, v.pos.z},
+                     glm::vec2{v.fwd.x, v.fwd.z}) < -12.0f)
+            target = std::min(target, 7.0f);
+        target = std::min(target, emergency_obstacle_speed(i));
+        if (!clearing_intersection && v.emergency_yield != EmergencyYield::None)
+            target = std::min(target, 3.0f);
         if (vehicle_engine_failed(v.mechanical)) target=0.f;
         if (v.police_unit && !police_officer_driving_allowed(v.officer))
             target = 0.0f;
@@ -2876,7 +3568,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
             // Reserve the whole acute merge mouth, but stay on the real lane
             // until the compact corner. Stretching the cubic out to a distant
             // stop gate cuts across neighbouring lanes and creates new crashes.
-            const float core_clearance = junction_turn_clearance_m_[lane.junction_to];
+            const float core_clearance = junction_turn_clearance(lane.junction_to);
             const float entry_m = std::min(core_clearance, lane.length_m);
             const float entry_dist = lane.length_m - entry_m;
             const bool begin_turn =
@@ -2980,7 +3672,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
     // the turn actually driven tomorrow identical; a mid-step conversion at a
     // junction would otherwise negotiate one exit and take another.
     update_police_response(step);
-    step_police_officers(player, on_foot_player);
+    step_police_officers(player, on_foot_player, step);
 }
 
 void Crowd::resolve_vehicle_collisions() {
@@ -2996,6 +3688,8 @@ void Crowd::resolve_vehicle_collisions() {
     };
 
     const float cell_m = std::max(1.0f, tuning_.traffic_collision_cell_m);
+    const int cell_reach = snowplow_unit_count() > 0
+        ? std::max(1, static_cast<int>(std::ceil(7.2f / cell_m))) : 1;
     std::vector<CellEntry> cells;
     std::vector<int32_t> agent_cell_x(vehicles_.size());
     std::vector<int32_t> agent_cell_z(vehicles_.size());
@@ -3014,8 +3708,8 @@ void Crowd::resolve_vehicle_collisions() {
     for (uint32_t i = 0; i < vehicles_.size(); ++i) {
         const int32_t cx = agent_cell_x[i];
         const int32_t cz = agent_cell_z[i];
-        for (int dz = -1; dz <= 1; ++dz) {
-            for (int dx = -1; dx <= 1; ++dx) {
+        for (int dz = -cell_reach; dz <= cell_reach; ++dz) {
+            for (int dx = -cell_reach; dx <= cell_reach; ++dx) {
                 const CellEntry key{cx + dx, cz + dz, 0u};
                 auto it = std::lower_bound(cells.begin(), cells.end(), key, less);
                 while (it != cells.end() && it->x == key.x && it->z == key.z) {
@@ -3232,15 +3926,216 @@ bool Crowd::resolve_player_collision(VehicleState& player,
 //  step_peds
 // ---------------------------------------------------------------------------
 
-void Crowd::step_peds(int64_t step) {
+namespace {
+
+// A keyed [0, 1) roll for ONE pedestrian decision, with no stream left over.
+//
+// The identity goes in exactly as lane_graph.h prescribes — the lane's stable
+// key split across the two coordinate axes — and the slot and the person's own
+// decision ordinal are folded into the channel. The ordinal is a count of THIS
+// PERSON'S decisions and never a count of the population, which is the whole
+// difference between a keyed draw and a sequential one: how many other people
+// were made first is a fact about which way the player drove in.
+float ped_roll(uint64_t seed, uint64_t lane_key, uint32_t slot,
+               uint32_t ordinal, uint32_t channel) {
+    Rng r{hash_coord3(
+        seed, static_cast<int32_t>(static_cast<uint32_t>(lane_key)),
+        static_cast<int32_t>(static_cast<uint32_t>(lane_key >> 32)),
+        channel ^ (slot * 0x9E3779B9u) ^ (ordinal * 0x85EBCA6Bu))};
+    return r.next_float();
+}
+
+// Turn a [0, 1) roll into a duration in STEPS. Never seconds of wall time: a
+// duration measured in steps is a property of the drive, and a duration
+// measured in anything else is a property of the machine it ran on.
+int64_t ped_roll_steps(float roll, int64_t lo, int64_t hi) {
+    if (hi < lo) hi = lo;
+    const double span = static_cast<double>(hi - lo);
+    return lo + static_cast<int64_t>(static_cast<double>(roll) * span);
+}
+
+// Who panics at what. There is ONE definition of "reckless" — the panic
+// kernel's own gate, shared with traffic — and the disposition only says who
+// agrees with it. Scaling the closing-speed floor rather than inventing a
+// second trigger is what keeps that true: a coward spooks at a speed a
+// die-hard shrugs off, and both are asking the same question.
+PanicTuning ped_panic_for(const PedLifeTuning& life,
+                          ped_react::Disposition d) {
+    PanicTuning t = life.panic;
+    if (d == ped_react::Disposition::Coward)
+        t.trigger_closing *= life.coward_closing_mul;
+    else if (d == ped_react::Disposition::DieHard)
+        t.trigger_closing *= life.diehard_closing_mul;
+    return t;
+}
+
+// How fast this person moves, as a multiple of their walking speed.
+float ped_activity_speed_mul(PedActivity a, const PedLifeTuning& life) {
+    switch (a) {
+        case PedActivity::Walking: return 1.0f;
+        case PedActivity::Idling:
+        case PedActivity::Waiting:
+        case PedActivity::Downed: return 0.0f;
+        case PedActivity::Rising: return 0.0f;
+        case PedActivity::Alarmed: return life.alarm_speed_mul;
+        case PedActivity::Fleeing: return life.flee_speed_mul;
+    }
+    return 1.0f;
+}
+
+}  // namespace
+
+const char* ped_activity_name(PedActivity a) {
+    switch (a) {
+        case PedActivity::Walking: return "walking";
+        case PedActivity::Idling: return "idling";
+        case PedActivity::Waiting: return "waiting";
+        case PedActivity::Alarmed: return "alarmed";
+        case PedActivity::Fleeing: return "fleeing";
+        case PedActivity::Downed: return "downed";
+        case PedActivity::Rising: return "rising";
+    }
+    return "walking";
+}
+
+PedShotHit Crowd::raycast_ped(glm::vec3 origin,glm::vec3 unit_direction,
+                             float max_distance) const {
+    PedShotHit result;
+    float nearest=max_distance;
+    for (const PedAgent& ped:peds_) {
+        if (ped_is_floored(ped.activity)) continue;
+        const float distance=weapon_ped_hit_distance(origin,unit_direction,ped.pos,nearest);
+        if (distance<0.f) continue;
+        nearest=distance;
+        result={true,origin+unit_direction*distance,distance,ped.lane_key,ped.slot,
+                false,false};
+    }
+    // Officers stand in the same street and use the same silhouette. Scanning
+    // them AFTER the civilians with the running `nearest` is what keeps one
+    // bullet to one body: whichever population owns the closer torso wins.
+    for (const VehicleAgent& car:vehicles_) {
+        if (!car.police_unit || !police_officer_shootable(car.officer)) continue;
+        const float distance=weapon_ped_hit_distance(origin,unit_direction,
+                                                     car.officer.pos,nearest);
+        if (distance<0.f) continue;
+        nearest=distance;
+        result={true,origin+unit_direction*distance,distance,car.lane_key,car.slot,
+                true,false};
+    }
+    return result;
+}
+
+PedShotHit Crowd::shoot_ped(glm::vec3 origin,glm::vec3 unit_direction,
+                           float max_distance,int64_t step) {
+    if (step<0) return {};
+    PedShotHit hit=raycast_ped(origin,unit_direction,max_distance);
+    if (!hit.hit) return hit;
+    if (hit.officer) {
+        for (VehicleAgent& car:vehicles_) {
+            if (!car.police_unit || car.lane_key!=hit.lane_key || car.slot!=hit.slot)
+                continue;
+            hit.officer_downed=police_officer_take_bullet(car.officer,
+                kPoliceOfficerBulletDamage,{unit_direction.x,unit_direction.z});
+            break;
+        }
+        return hit;
+    }
+    for (PedAgent& ped:peds_) {
+        if (ped.lane_key!=hit.lane_key || ped.slot!=hit.slot) continue;
+        const PedLifeTuning& life=tuning_.ped_life;
+        ped.activity=PedActivity::Downed;
+        ped.activity_steps=ped_roll_steps(
+            ped_roll(map_seed_,ped.lane_key,ped.slot,ped.activity_decisions,kChannelPedDowned),
+            life.downed_min_steps,life.downed_max_steps);
+        ++ped.activity_decisions;
+        ped.panic_seconds=0.f;
+        ped.speed_mps=0.f;
+        const glm::vec2 travel{unit_direction.x,unit_direction.z};
+        const float planar_length=glm::length(travel);
+        ped.impact_dir_xz=planar_length>1e-5f ? travel/planar_length:glm::vec2{0.f,-1.f};
+        // Small displacement accompanies the authored bullet fall. Vehicle
+        // impacts retain their separate airborne ragdoll response.
+        ped.impact_speed_mps=3.f;
+        ped.impact_from_bullet=true;
+        ped.impact_velocity={ped.impact_dir_xz.x*.65f,.25f,ped.impact_dir_xz.y*.65f};
+        break;
+    }
+    return hit;
+}
+
+bool Crowd::ped_crossing_is_clear(LaneRef foot_lane, int64_t step) const {
+    if (!graph_ || !graph_->valid(foot_lane)) return true;
+    const Lane& lane = graph_->lane(foot_lane);
+    const uint32_t jn = lane.junction_to;
+    if (jn >= graph_->junction_count()) return true;
+    const PedLifeTuning& life = tuning_.ped_life;
+
+    // THE SIGNAL IS THE SAME ONE THE DRIVERS AND THE BULBS READ. Two
+    // implementations of a signal phase eventually disagree, and the way that
+    // one presents is a pedestrian walking out under a green light.
+    if (graph_->junction_control(jn) == JunctionControl::Signal &&
+        traffic_signal_phase(*graph_, jn, foot_lane, step, tuning_) !=
+            TrafficSignalPhase::Red)
+        return false;
+
+    // Whatever the signal says, look. Reading the FROZEN buckets and not live
+    // agent state is what makes this answer a property of the population
+    // rather than of which agent happened to update first.
+    auto occupied = [&](LaneRef lr, bool leaving) {
+        if (!graph_->valid(lr) ||
+            static_cast<std::size_t>(lr) >= lane_buckets_.size())
+            return false;
+        const Lane& l = graph_->lane(lr);
+        for (const BucketEntry& e : lane_buckets_[lr]) {
+            if (vehicles_[e.agent].speed_mps < life.crossing_ignore_speed_mps)
+                continue;
+            const float to_mouth = leaving ? e.dist : l.length_m - e.dist;
+            if (to_mouth <= life.crossing_clear_m) return true;
+        }
+        return false;
+    };
+    // The crossing spans the whole carriageway, so both directions of this one
+    // road matter: traffic still approaching the mouth on this lane, and
+    // traffic that has just left it on the opposite one.
+    if (occupied(foot_lane, false)) return false;
+    for (LaneRef out : graph_->junction(jn).outgoing)
+        if (graph_->valid(out) && graph_->lane(out).edge == lane.edge &&
+            occupied(out, true))
+            return false;
+    return true;
+}
+
+void Crowd::step_peds(int64_t step, const VehicleState* player) {
     if (!graph_) return;
     const int k = std::max(1, tuning_.ped_sub_rate);
     const float dt = static_cast<float>(k) * kSimDtF;
     const std::size_t table = ped_table_;
+    const PedLifeTuning& life = tuning_.ped_life;
+
+    // The player's car, resolved once. Doing it per pedestrian would be the
+    // same arithmetic a hundred thousand times for one answer.
+    glm::vec2 player_xz{0.0f};
+    glm::vec2 player_fwd{1.0f, 0.0f};
+    glm::vec2 player_vel{0.0f};
+    float player_speed = 0.0f;
+    if (player) {
+        player_xz = {player->position.x, player->position.z};
+        player_vel = {player->velocity.x, player->velocity.z};
+        player_speed = glm::length(player_vel);
+        const glm::vec3 heading = player->orientation * glm::vec3{0.0f, 0.0f, -1.0f};
+        const glm::vec2 flat{heading.x, heading.z};
+        if (glm::length(flat) > 1e-5f) player_fwd = glm::normalize(flat);
+    }
 
     stats_.peds_stepped = 0;
     stats_.peds_analytic = 0;
     stats_.ped_neighbour_tests = 0;
+    stats_.peds_walking = 0;
+    stats_.peds_idling = 0;
+    stats_.peds_waiting = 0;
+    stats_.peds_alarmed = 0;
+    stats_.peds_fleeing = 0;
+    stats_.peds_downed = 0;
 
     for (uint32_t i = 0; i < peds_.size(); ++i) {
         PedAgent& p = peds_[i];
@@ -3295,15 +4190,193 @@ void Crowd::step_peds(int64_t step) {
         const LanePose base = active_line.pose(p.dist_along_m);
         const glm::vec2 fwd{base.tangent.x, base.tangent.z};
 
+        // --- what is this person doing this step ----------------------------
+        //
+        // The order below IS the priority order, top to bottom, and it is
+        // written as a single fall-through rather than as a table of pairwise
+        // transitions on purpose: a state machine with six states has thirty
+        // edges and nobody maintains thirty edges correctly.
+
+        // 1. On the floor outranks everything, and the timer always runs down,
+        //    so nobody can be stuck there.
+        if (p.activity == PedActivity::Downed) {
+            p.activity_steps -= k;
+            if (p.activity_steps <= 0) {
+                // Not up yet — GETTING up, which takes as long as it takes and
+                // is spent standing still. See PedLifeTuning::rising_steps.
+                p.activity = PedActivity::Rising;
+                p.activity_steps = life.rising_steps;
+            }
+        } else if (p.activity == PedActivity::Rising) {
+            p.activity_steps -= k;
+            if (p.activity_steps <= 0) {
+                p.activity_steps = 0;
+                p.activity = PedActivity::Walking;
+            }
+        }
+
+        // The thrown body. A point mass over the walk line's own surface —
+        // `impact_offset.y` is height ABOVE that surface, so this needs no
+        // collider and stays pure. It is the whole of the sim's opinion about
+        // where a knocked-down person is; the ragdoll makes it look like a
+        // person while it happens.
+        if (p.activity == PedActivity::Downed) {
+            p.impact_velocity.y -= life.gravity_mps2 * dt;
+            const float air = std::max(0.0f, 1.0f - life.launch_drag * dt);
+            p.impact_velocity.x *= air;
+            p.impact_velocity.z *= air;
+            p.impact_offset += p.impact_velocity * dt;
+            if (p.impact_offset.y <= 0.0f) {
+                p.impact_offset.y = 0.0f;
+                // Down. Keep a little of the bounce so a fast body tumbles on
+                // instead of stopping dead on first contact, and scrub the
+                // rest off along the ground.
+                if (p.impact_velocity.y < 0.0f)
+                    p.impact_velocity.y *= -life.ground_bounce;
+                const float speed = std::sqrt(
+                    p.impact_velocity.x * p.impact_velocity.x +
+                    p.impact_velocity.z * p.impact_velocity.z);
+                const float left = std::max(0.0f, speed - life.ground_skid * dt);
+                const float scale = speed > 1e-4f ? left / speed : 0.0f;
+                p.impact_velocity.x *= scale;
+                p.impact_velocity.z *= scale;
+            }
+        } else if (p.activity == PedActivity::Rising) {
+            // Held. Somebody pushing themselves up off the road is not also
+            // travelling across it, and moving them here is the slide this
+            // state exists to remove.
+            p.impact_velocity = glm::vec3{0.0f};
+        } else if (p.impact_offset != glm::vec3{0.0f}) {
+            // Back on their feet, in the middle of the road. Walk it off
+            // rather than slide it off: the offset shrinks at a walking pace,
+            // so what a player sees is somebody picking themselves up and
+            // returning to the pavement.
+            p.impact_velocity = glm::vec3{0.0f};
+            const float length = glm::length(p.impact_offset);
+            const float step_m = life.offset_recover_mps * dt;
+            p.impact_offset = length <= step_m
+                ? glm::vec3{0.0f}
+                : p.impact_offset * ((length - step_m) / length);
+        }
+
+        // 2. The player's car. Assessed from the CAR's heading, asking whether
+        //    this person is in front of it — a cone drawn from the pedestrian
+        //    would never see a car coming up behind them, which is the case
+        //    that actually kills people.
+        bool panicking = false;
+        if (player && !ped_is_floored(p.activity) &&
+            std::fabs(player->position.y - p.pos.y) < 2.5f) {
+            const glm::vec2 here{p.pos.x, p.pos.z};
+            const glm::vec2 my_vel = fwd * p.speed_mps;
+            const glm::vec2 to_me = here - player_xz;
+            const float range = glm::length(to_me);
+            // The car's actual yaw footprint, not a circle around its
+            // centre: the bumper is most of a car length ahead of the middle,
+            // and a centre circle lets the nose sweep through somebody
+            // untouched. Same function, same argument, as the pole guard.
+            const BreakawayContact hit = breakaway_contact(
+                player->position, player->orientation,
+                {kPlayerHalfWidthM, kPlayerHalfLengthM}, p.pos,
+                life.body_radius_m);
+            if (hit.hit && player_speed >= life.knockdown_speed_mps) {
+                // Knocked over. This changes the PERSON and nothing else: no
+                // impulse goes back into the car, because a pedestrian that
+                // stops a vehicle is a worse bug than one that ignores it.
+                p.activity = PedActivity::Downed;
+                p.activity_steps = ped_roll_steps(
+                    ped_roll(map_seed_, p.lane_key, p.slot, p.activity_decisions,
+                             kChannelPedDowned),
+                    life.downed_min_steps, life.downed_max_steps);
+                ++p.activity_decisions;
+                p.panic_seconds = 0.0f;
+
+                // The blow, recorded for the presentation layer. Direction is
+                // the car's travel, so a body is thrown down the road rather
+                // than toward wherever the car has since driven; speed is the
+                // closing speed, which is what a person standing still feels
+                // and what a ragdoll will launch from.
+                const glm::vec2 travel = player_speed > 1e-4f
+                    ? player_vel / player_speed : player_fwd;
+                p.impact_dir_xz = travel;
+                p.impact_speed_mps =
+                    std::max(0.0f, glm::dot(player_vel - my_vel, travel));
+                p.impact_from_bullet = false;
+
+                // Thrown, from wherever they were standing. The offset is not
+                // cleared: a person knocked down while still carrying the last
+                // knockdown's offset is thrown on from THERE, not from the
+                // lane, or being hit twice teleports them back to the kerb
+                // between the two.
+                p.impact_velocity = {
+                    travel.x * p.impact_speed_mps * life.launch_forward,
+                    p.impact_speed_mps * life.launch_lift,
+                    travel.y * p.impact_speed_mps * life.launch_forward};
+            } else {
+                const PlayerHazard hazard = assess_player_hazard(
+                    player_xz, player_fwd, player_speed, here, my_vel,
+                    life.threat, tuning_.car_length_m);
+                const float closing =
+                    range > 1e-4f
+                        ? glm::dot(player_vel - my_vel, to_me / range)
+                        : player_speed;
+                panicking = panic_should_trigger(
+                    hazard, closing, ped_panic_for(life, p.disposition));
+            }
+        }
+
+        // 3. Startle and flee are city/traffic_ai.h's panic kernel, unchanged.
+        //    Its timer always decays, which is what guarantees that a person
+        //    who was frightened once does not sprint for the rest of the run.
+        const PanicPhase phase =
+            panic_tick(p.panic_seconds, panicking, dt, life.panic);
+        if (!ped_is_floored(p.activity)) {
+            if (phase == PanicPhase::Flee) {
+                p.activity = PedActivity::Fleeing;
+                p.activity_steps = 0;
+            } else if (phase == PanicPhase::Startle) {
+                p.activity = PedActivity::Alarmed;
+                p.activity_steps = 0;
+            } else if (p.activity == PedActivity::Fleeing ||
+                       p.activity == PedActivity::Alarmed) {
+                p.activity = PedActivity::Walking;
+            } else if (p.activity == PedActivity::Idling) {
+                p.activity_steps -= k;
+                if (p.activity_steps <= 0) {
+                    p.activity_steps = 0;
+                    p.activity = PedActivity::Walking;
+                }
+            } else if (p.activity == PedActivity::Waiting) {
+                // A kerb hesitation runs down here; WHO RELEASES IT IS THE
+                // CROSSING GATE BELOW, never this timer. Clearing the state
+                // when the timer expires instead reads as an obvious
+                // simplification and is a loop: the gate would see somebody
+                // walking at a kerb, hold them again, and roll a fresh
+                // hesitation every single step.
+                if (p.activity_steps > 0) p.activity_steps -= k;
+                if (p.activity_steps < 0) p.activity_steps = 0;
+            }
+        }
+
         // Per-ped variation, keyed on identity. Without the preferred offset
         // every uncrowded ped targets the same line and the crowd walks single
         // file; without the space scale they all defend the same bubble.
         const int32_t kx = static_cast<int32_t>(static_cast<uint32_t>(p.lane_key));
         const int32_t kz =
             static_cast<int32_t>(static_cast<uint32_t>(p.lane_key >> 32));
-        const float pref =
+        const bool on_link = p.walk_link != PedestrianPaths::invalid;
+        float pref =
             (city_unit_roll(map_seed_, kx, kz, p.slot, kChannelPedPreferred) *
                  2.0f - 1.0f) * PED_PREFERRED_OFFSET_MAX;
+        // Fleeing pulls AWAY FROM THE ROAD. The walking line already sits
+        // `side * (half width + offset)` along the lane's right axis and the
+        // reversed footway carries the negated side with a negated tangent, so
+        // in both directions +side is the direction away from the carriageway.
+        // ped_separation() clamps the result to the pavement, so this can
+        // never push somebody off the far edge.
+        if (p.activity == PedActivity::Fleeing && !on_link)
+            pref = std::clamp(pref + walk.side * life.flee_lateral_m,
+                              -PED_SEPARATION_MAX_OFFSET,
+                              PED_SEPARATION_MAX_OFFSET);
         const float space =
             PED_SPACE_SCALE_MIN +
             city_unit_roll(map_seed_, kx, kz, p.slot, kChannelPedSpace) *
@@ -3313,26 +4386,98 @@ void Crowd::step_peds(int64_t step) {
             ped_separation(self, fwd, ped_scratch_.data(), ped_scratch_.size(),
                            pref, space);
         p.blocked = sep.blocked;
-        const bool on_link = p.walk_link != PedestrianPaths::invalid;
         // Links keep a narrower passing strip; forcing all link offsets to
         // zero would make opposing pedestrians walk through one another.
         const float target = on_link ? std::clamp(sep.lateral_target, -0.65f, 0.65f)
                                      : sep.lateral_target;
-        p.walk_offset_m += std::clamp(target - p.walk_offset_m, -0.9f * dt, 0.9f * dt);
+        // Nobody sidesteps off the floor. Separation is a walking behaviour —
+        // it steers around the people you are about to meet — and a body that
+        // is down or pushing itself up is not walking anywhere. Leaving it on
+        // drifted them sideways across the pavement the whole time they were
+        // on the ground, which is a slide with no animation under it.
+        if (!ped_is_floored(p.activity)) {
+            p.walk_offset_m +=
+                std::clamp(target - p.walk_offset_m, -0.9f * dt, 0.9f * dt);
+        }
 
         // Slow while passing, but keep a little progress: hard stopping both
         // members of a head-on pair made a permanent pavement deadlock.
-        p.dist_along_m += p.speed_mps * (sep.blocked ? 0.18f : 1.0f) * dt;
+        const float before_m = p.dist_along_m;
+        p.dist_along_m += p.speed_mps * ped_activity_speed_mul(p.activity, life) *
+                          (sep.blocked ? 0.18f : 1.0f) * dt;
+
+        // 4. Loitering part way along a stretch of pavement, so people stop at
+        //    shopfronts and not only at corners. The mark is keyed to the same
+        //    ordinal the arrival roll uses, so it does not move under the
+        //    person while they walk toward it, and the strict crossing test
+        //    fires it at most once per stretch.
+        if (p.activity == PedActivity::Walking && !on_link) {
+            const float mark =
+                (0.15f + 0.70f * ped_roll(map_seed_, p.lane_key, p.slot,
+                                          p.activity_decisions,
+                                          kChannelPedLoiterAt)) *
+                walk.line.length;
+            if (before_m < mark && p.dist_along_m >= mark &&
+                ped_roll(map_seed_, p.lane_key, p.slot, p.activity_decisions,
+                         kChannelPedIdleChance) < life.idle_chance) {
+                p.dist_along_m = mark;
+                p.activity = PedActivity::Idling;
+                p.activity_steps = ped_roll_steps(
+                    ped_roll(map_seed_, p.lane_key, p.slot, p.activity_decisions,
+                             kChannelPedIdleLength),
+                    life.idle_min_steps, life.idle_max_steps);
+                ++p.activity_decisions;
+            }
+        }
+
         for (int transition = 0; transition < 16; ++transition) {
             const PedWalkPath& current = ped_paths_.path(p.walk_path);
             const float length = p.walk_link == PedestrianPaths::invalid
                 ? current.line.length : current.links[p.walk_link].line.length;
             if (p.dist_along_m < length) break;
-            p.dist_along_m -= length;
             if (p.walk_link == PedestrianPaths::invalid) {
-                p.walk_link = ped_paths_.choose(p.walk_path, map_seed_, p.lane_key,
-                                                p.slot, p.walk_decisions++);
+                // Which way this person goes is chosen BEFORE the kerb test and
+                // the decision counter is spent only when they actually step
+                // off, so a person held at a red does not re-roll their route
+                // every step and end up facing a different way each tick.
+                const uint32_t link = ped_paths_.choose(
+                    p.walk_path, map_seed_, p.lane_key, p.slot, p.walk_decisions);
+                if (current.links[link].crossing) {
+                    const bool composed =
+                        ped_is_floored(p.activity) ||
+                        p.activity == PedActivity::Fleeing ||
+                        p.activity == PedActivity::Alarmed;
+                    // First touch of this kerb: look, always, even when the
+                    // road is empty. Stepping straight off without a pause is
+                    // the tell that nobody decided anything. Somebody already
+                    // panicking or on the floor skips the courtesy.
+                    if (!composed && p.activity != PedActivity::Waiting) {
+                        p.dist_along_m = length;
+                        p.activity = PedActivity::Waiting;
+                        p.activity_steps = ped_roll_steps(
+                            ped_roll(map_seed_, p.lane_key, p.slot,
+                                     p.activity_decisions, kChannelPedKerbWait),
+                            life.kerb_wait_min_steps, life.kerb_wait_max_steps);
+                        ++p.activity_decisions;
+                        break;
+                    }
+                    if ((p.activity == PedActivity::Waiting &&
+                         p.activity_steps > 0) ||
+                        !ped_crossing_is_clear(current.lane, step)) {
+                        // Held. Clamped rather than left past the end, so the
+                        // pose stays put instead of jittering forward and being
+                        // pulled back on every step.
+                        p.dist_along_m = length;
+                        break;
+                    }
+                }
+                p.dist_along_m -= length;
+                p.walk_link = link;
+                ++p.walk_decisions;
+                if (p.activity == PedActivity::Waiting)
+                    p.activity = PedActivity::Walking;
             } else {
+                p.dist_along_m -= length;
                 p.walk_path = current.links[p.walk_link].to;
                 p.walk_link = PedestrianPaths::invalid;
                 const PedWalkPath& next = ped_paths_.path(p.walk_path);
@@ -3340,6 +4485,18 @@ void Crowd::step_peds(int64_t step) {
                 const Lane& lane = graph_->lane(p.lane);
                 p.base_lateral_m = next.side * (lane.width_m * 0.5f + ambient_.sidewalk_offset_m)
                                    - lane.lateral_offset_m;
+                // 5. Arriving on a new stretch of pavement is the other place a
+                //    person decides to stop for a while.
+                if (p.activity == PedActivity::Walking &&
+                    ped_roll(map_seed_, p.lane_key, p.slot, p.activity_decisions,
+                             kChannelPedIdleChance) < life.idle_chance) {
+                    p.activity = PedActivity::Idling;
+                    p.activity_steps = ped_roll_steps(
+                        ped_roll(map_seed_, p.lane_key, p.slot,
+                                 p.activity_decisions, kChannelPedIdleLength),
+                        life.idle_min_steps, life.idle_max_steps);
+                }
+                ++p.activity_decisions;
             }
         }
         p.last_dist_m = p.dist_along_m;
@@ -3348,8 +4505,45 @@ void Crowd::step_peds(int64_t step) {
             ? current.line : current.links[p.walk_link].line;
         p.lateral_m = p.base_lateral_m + p.walk_offset_m;
         const LanePose pose = line.pose(p.dist_along_m, p.walk_offset_m);
-        p.pos = pose.position;
+        p.pos = pose.position + p.impact_offset;
         p.fwd = pose.tangent;
+
+        // Somebody walking back to the pavement FACES the pavement.
+        //
+        // The offset shrinks along its own direction while the walk line
+        // carries them down the street, so their real velocity is the sum of
+        // the two — and pointing them down the lane instead means a walk cycle
+        // aimed one way while the body travels another. That is a slide, and
+        // it is the same slide the get-up had, arriving a few seconds later.
+        if (p.impact_offset != glm::vec3{0.0f} &&
+            !ped_is_floored(p.activity)) {
+            const glm::vec2 back{-p.impact_offset.x, -p.impact_offset.z};
+            const float reach = glm::length(back);
+            if (reach > 1e-3f) {
+                const glm::vec2 along{pose.tangent.x, pose.tangent.z};
+                const glm::vec2 travel =
+                    along * std::max(p.speed_mps, 0.0f) +
+                    (back / reach) * life.offset_recover_mps;
+                const float len = glm::length(travel);
+                if (len > 1e-4f)
+                    p.fwd = glm::vec3{travel.x / len, 0.0f, travel.y / len};
+            }
+        }
+    }
+
+    // The activity census is a second pass over the WHOLE active set, not a
+    // tally inside the loop above: the loop only visits the sub-rate slice, so
+    // counting there would report the schedule instead of the street.
+    for (const PedAgent& p : peds_) {
+        switch (p.activity) {
+            case PedActivity::Walking: ++stats_.peds_walking; break;
+            case PedActivity::Idling: ++stats_.peds_idling; break;
+            case PedActivity::Waiting: ++stats_.peds_waiting; break;
+            case PedActivity::Alarmed: ++stats_.peds_alarmed; break;
+            case PedActivity::Fleeing: ++stats_.peds_fleeing; break;
+            case PedActivity::Downed: ++stats_.peds_downed; break;
+            case PedActivity::Rising: ++stats_.peds_downed; break;
+        }
     }
 }
 
@@ -3420,12 +4614,35 @@ uint64_t Crowd::population_hash() const {
         h = mix_bits(h, v.lane_key);
         h = mix_bits(h, v.slot);
         h = mix_bits(h, static_cast<uint64_t>(v.mode));
+        h = mix_bits(h, v.snowplow_unit ? 1u : 0u);
         h = mix_bits(h, v.police_unit ? 1u : 0u);
         h = mix_bits(h, v.police_pursuit ? 1u : 0u);
+        h = mix_bits(h, static_cast<uint64_t>(v.emergency_yield));
+        h = mix_f32(h, v.emergency_resume_s);
+        h = mix_f32(h, v.roadside_offset_m);
+        h = mix_f32(h, v.maneuver_steer_rad);
+        h = mix_bits(h, static_cast<uint64_t>(v.maneuver.kind));
+        h = mix_bits(h, v.maneuver.count);
+        h = mix_bits(h, graph_ && graph_->valid(v.maneuver.destination)
+            ? graph_->lane(v.maneuver.destination).key : ~uint64_t{0});
+        h = mix_f32(h, v.maneuver.progress_m);
+        h = mix_f32(h, v.maneuver.length_m);
+        h = mix_f32(h, v.maneuver.speed_limit_mps);
+        h = mix_f32(h, v.maneuver.end_station_m);
+        h = mix_f32(h, v.maneuver.end_offset_m);
+        for (uint8_t c = 0; c < v.maneuver.count; ++c) {
+            for (auto point : {v.maneuver.curves[c].p0, v.maneuver.curves[c].p1,
+                               v.maneuver.curves[c].p2, v.maneuver.curves[c].p3})
+                for (int axis = 0; axis < 3; ++axis) h = mix_f32(h, point[axis]);
+        }
         h = mix_bits(h, static_cast<uint64_t>(v.officer.phase));
         h = mix_bits(h, static_cast<uint64_t>(v.officer.transition.direction));
         h = mix_bits(h, v.officer.transition.tick);
         h = mix_bits(h, v.officer.stationary_ticks);
+        h = mix_bits(h, v.officer.armed ? 1u : 0u);
+        h = mix_bits(h, static_cast<uint64_t>(v.officer.next_shot_step));
+        h = mix_bits(h, v.officer.shots_fired);
+        h = mix_bits(h, v.officer.weapon_flash_ticks);
         for (int axis = 0; axis < 3; ++axis) {
             h = mix_f32(h, v.officer.pos[axis]);
             h = mix_f32(h, v.officer.previous_pos[axis]);
@@ -3508,6 +4725,14 @@ uint64_t Crowd::population_hash() const {
         h = mix_bits(h, ped_paths_.valid(p.walk_path)
             ? static_cast<uint64_t>(ped_paths_.path(p.walk_path).side > 0) : 0);
         h = mix_f32(h, p.walk_offset_m);
+        // The activity machine is in the digest for the same reason everything
+        // else here is: a state the digest cannot see is a state the scan-order
+        // and reordering suites are not actually proving anything about.
+        h = mix_bits(h, static_cast<uint64_t>(p.activity));
+        h = mix_bits(h, static_cast<uint64_t>(p.disposition));
+        h = mix_bits(h, static_cast<uint64_t>(p.activity_steps));
+        h = mix_bits(h, p.activity_decisions);
+        h = mix_f32(h, p.panic_seconds);
         h = mix_f32(h, p.pos.x);
         h = mix_f32(h, p.pos.y);
         h = mix_f32(h, p.pos.z);

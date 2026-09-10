@@ -9,6 +9,7 @@
 
 #include "gfx/camera.h"
 #include "gfx/lighting.h"
+#include "gfx/precip_shelter.h"
 #include "gfx/rain_field.h"
 #include "gfx/shader.h"
 #include "gfx/sky_env.h"
@@ -54,7 +55,9 @@ public:
     // the world) and before the HUD.
     void render(const Camera& camera, const SkyEnv& env,
                 const HeadlightRig& headlights,
-                const CanopyLightRig& canopy_lights);
+                const CanopyLightRig& canopy_lights,
+                const TerrainCollider& collider,
+                const std::vector<StaticBox>& roofs);
 
     RainTuning& tuning() { return tuning_; }
     const RainTuning& tuning() const { return tuning_; }
@@ -91,6 +94,7 @@ private:
     std::vector<float> drop_alpha_;
     std::vector<float> particle_size_;
     std::vector<StreakVertex> verts_;
+    PrecipitationShelter shelter_;
 
     float elapsed_ = 0.0f;
     float intensity_ = 0.0f;

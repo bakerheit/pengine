@@ -187,6 +187,7 @@ float AudioDevice::bank_total_seconds_() const {
     total += bank_.player_throttle_attack.duration_seconds();
     total += bank_.engine_start.duration_seconds();
     total += bank_.engine_idle.duration_seconds();
+    for (const auto& horn : bank_.traffic_horns) total += horn.duration_seconds();
     total += bank_.player_throttle_hold.duration_seconds();
     total += bank_.player_throttle_release.duration_seconds();
     total += bank_.player_car_collision.duration_seconds();

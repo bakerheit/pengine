@@ -7,11 +7,13 @@
 
 #include "core/aabb.h"
 #include "core/transform.h"
+#include "app/road_sign_mesh.h"
 #include "app/traffic_visual_layout.h"
 #include "road/lane_graph.h"
 #include "scene/scene.h"
 #include "traffic/crowd.h"
 #include "gfx/lighting.h"
+#include "game/roadside_fixture_debris.h"
 #include "game/traffic_signal_damage.h"
 #include "physics/vehicle.h"
 
@@ -31,8 +33,17 @@ public:
     void sync(Scene& scene, const Crowd& crowd, const LaneGraph& lanes,
               int64_t step, float headlight_level, glm::vec3 focus,
               float presentation_radius_m = 0.0f, float alpha = 1.0f);
-    // Drop only transient traffic-car presentation. Authored signals and
-    // street lamps stay resident across cutscenes and session resets.
+    // Diagnostic views only. The --overhead QA camera sits far enough above the
+    // road that the normal vehicle budget culls every car; raising it for that
+    // view keeps traffic in a frame whose whole purpose is to show traffic.
+    // Normal play never calls this and keeps kTrafficVehicleDrawDistanceM.
+    void set_vehicle_draw_distance(float metres) {
+        vehicle_draw_distance_ = metres;
+    }
+    float vehicle_draw_distance() const { return vehicle_draw_distance_; }
+
+    // Drop only transient traffic-car presentation. Authored roadside fixtures
+    // stay resident across cutscenes and session resets.
     void clear_vehicles(Scene& scene);
     void destroy(Scene& scene);
     void step_signals(Scene& scene, TerrainCollider& collider,
@@ -44,10 +55,40 @@ public:
         std::size_t collider_id;
         std::array<NodeId,7> nodes;
         std::array<Transform,7> standing;
+        RoadsideDebrisState debris;
     };
     SignalStatus signal_status(std::size_t index) const {
         const auto& rig = signals_.at(index);
-        return {rig.damage, rig.base, rig.collider_id, rig.all, rig.standing};
+        return {rig.damage, rig.base, rig.collider_id, rig.all, rig.standing,
+                rig.debris};
+    }
+    struct RoadsideFixtureStatus {
+        TrafficSignalDamage damage;
+        glm::vec3 base;
+        std::size_t collider_id;
+        std::array<NodeId,4> nodes;
+        std::array<Transform,4> standing;
+        std::size_t part_count = 0;
+        RoadsideDebrisState debris;
+    };
+    RoadsideFixtureStatus street_lamp_status(std::size_t index) const {
+        const auto& rig = street_lamps_.at(index);
+        return {rig.damage, rig.base, rig.collider_id, rig.nodes,
+                rig.standing, rig.nodes.size(), rig.debris};
+    }
+    RoadsideFixtureStatus stop_sign_status(std::size_t index) const {
+        const auto& rig = stop_signs_.at(index);
+        RoadsideFixtureStatus out;
+        out.damage = rig.damage;
+        out.base = rig.base;
+        out.collider_id = rig.collider_id;
+        out.part_count = rig.nodes.size();
+        out.debris = rig.debris;
+        for (std::size_t i = 0; i < rig.nodes.size(); ++i) {
+            out.nodes[i] = rig.nodes[i];
+            out.standing[i] = rig.standing[i];
+        }
+        return out;
     }
     // Call once before uploading headlights(), using the render camera and
     // visible sky's night level. Adds nearby static downlights to that list.
@@ -74,6 +115,7 @@ public:
     std::size_t car_count() const { return rigs_.size(); }
     std::size_t signal_head_count() const { return signals_.size(); }
     std::size_t street_lamp_count() const { return street_lamps_.size(); }
+    std::size_t stop_sign_count() const { return stop_signs_.size(); }
     std::size_t road_sign_count() const { return road_sign_count_; }
     const std::vector<TrafficSpotLight>& headlights() const { return headlights_; }
 
@@ -110,12 +152,14 @@ private:
             kInvalidId, kInvalidId, kInvalidId, kInvalidId};
         std::array<NodeId, 2> emergency{
             kInvalidId, kInvalidId};
+        std::array<NodeId, 3> snowplow_details{kInvalidId, kInvalidId, kInvalidId};
         std::array<NodeId, 6> glass{
             kInvalidId, kInvalidId, kInvalidId, kInvalidId, kInvalidId, kInvalidId};
     };
 
     struct SignalRig {
         TrafficSignalDamage damage;
+        RoadsideDebrisState debris;
         glm::vec3 base{0.0f};
         std::size_t collider_id = static_cast<std::size_t>(-1);
         std::array<Transform, 7> standing{};
@@ -130,8 +174,32 @@ private:
     };
 
     struct StreetLampRig {
+        TrafficSignalDamage damage;
+        RoadsideDebrisState debris;
+        glm::vec3 base{0.0f};
+        std::size_t collider_id = static_cast<std::size_t>(-1);
         std::array<NodeId, 4> nodes{};
+        std::array<Transform, 4> standing{};
         glm::vec3 bulb_position{0.0f};
+    };
+
+    struct StopSignRig {
+        TrafficSignalDamage damage;
+        RoadsideDebrisState debris;
+        glm::vec3 base{0.0f};
+        std::size_t collider_id = static_cast<std::size_t>(-1);
+        std::array<NodeId, kRoadSignPartCount> nodes{};
+        std::array<Transform, kRoadSignPartCount> standing{};
+    };
+
+    enum class BreakawayFixtureKind : uint8_t {
+        Signal,
+        StreetLamp,
+        StopSign,
+    };
+    struct BreakawayFixtureOwner {
+        BreakawayFixtureKind kind = BreakawayFixtureKind::Signal;
+        std::size_t index = 0;
     };
 
     bool load_model(Renderer& renderer, const char* mesh_path,
@@ -151,7 +219,9 @@ private:
     void build_road_controls(Scene& scene, const LaneGraph& lanes,
                              TerrainCollider& collider);
 
-    std::array<Model, 8> models_{};
+    std::array<Model, 9> models_{};
+    std::array<MeshId, 3> snowplow_detail_meshes_{};
+    std::array<AABB, 3> snowplow_detail_bounds_{};
     MeshId wheel_mesh_ = kInvalidId;
     MaterialId wheel_material_ = kInvalidId;
     AABB wheel_bounds_;
@@ -163,13 +233,16 @@ private:
     std::array<AABB,5> signal_bounds_{};
     MaterialId signal_material_ = kInvalidId;
     CrowdTuning tuning_{};
+    float vehicle_draw_distance_ = kTrafficVehicleDrawDistanceM;
     std::vector<Rig> rigs_;
     std::vector<TrafficSpotLight> headlights_;
     std::size_t vehicle_headlight_count_ = 0;
     std::vector<SignalRig> signals_;
     std::vector<StreetLampRig> street_lamps_;
-    std::array<std::array<MeshId, 3>, 3> road_sign_meshes_{};
-    std::array<std::array<AABB, 3>, 3> road_sign_bounds_{};
+    std::vector<StopSignRig> stop_signs_;
+    std::vector<BreakawayFixtureOwner> breakaway_fixture_owners_;
+    std::array<std::array<MeshId, kRoadSignPartCount>, 3> road_sign_meshes_{};
+    std::array<std::array<AABB, kRoadSignPartCount>, 3> road_sign_bounds_{};
     MeshId yield_marking_mesh_ = kInvalidId;
     AABB yield_marking_bounds_;
     std::vector<NodeId> road_control_nodes_;

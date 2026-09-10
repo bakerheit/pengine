@@ -12,4 +12,5 @@
 target_sources(apricot_sim PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/ambient.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/crowd.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/emergency.cpp
 )

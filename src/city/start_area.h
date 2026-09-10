@@ -12,7 +12,7 @@ namespace city {
 // two-storey courtyard motel. This is authored data rather than renderer code
 // so the visible boxes and the solid footprints come from one description.
 //
-// Positions are local to each site. `bottom_m` is above the Vellum Row plate,
+// Positions are local to each site. `bottom_m` is above the Pinatty Row plate,
 // which is exactly 12 m high. Keeping the art relative to the plate makes the
 // table readable: a 5 m wall says 5, not 17.
 using StartFinish = BuildingFinish;
@@ -87,7 +87,7 @@ inline constexpr StartSite kCarWashSite{
 // back toward the station across the local street, keeping the bank close
 // enough to reach on foot while leaving the existing four corner sites clear.
 inline constexpr StartSite kBankSite{
-    "O'Haven Savings & Trust", {108.0159f, 57.5071f}, kGridCos, kGridSin,
+    "Pinatty Savings & Trust", {108.0159f, 57.5071f}, kGridCos, kGridSin,
     {0.0f, 0.0f}, 64.0f, 38.0f};
 
 // Halloway's store is no longer one solid box with stickers on its face. These
@@ -1946,7 +1946,7 @@ inline constexpr StartPart kFastFoodParts[] = {
 };
 
 // ---------------------------------------------------------------------------
-// O'Haven Savings & Trust — enterable neighborhood bank
+// Pinatty Savings & Trust — enterable neighborhood bank
 // ---------------------------------------------------------------------------
 
 inline constexpr BuildingOpening kBankFrontOpenings[] = {
@@ -2243,7 +2243,7 @@ inline constexpr BuildingPlan kFastFoodPlan{
     kFastFoodParts, kFastFoodPartCount, nullptr, 0};
 
 inline constexpr BuildingPlan kBankPlan{
-    "O'Haven Savings & Trust enterable bank", kBankWalls,
+    "Pinatty Savings & Trust enterable bank", kBankWalls,
     sizeof(kBankWalls) / sizeof(kBankWalls[0]), kBankRoofs, 1,
     kBankParts, kBankPartCount, nullptr, 0};
 

@@ -16,7 +16,7 @@ namespace city {
 // that gameplay promise into a real place: a long east-west runway, terminal,
 // concourse, three gates, control tower, hangar, and the escape plane.
 inline constexpr StartSite kAirportSite{
-    "O'Haven International Airport", {150.0f, 2140.0f}, 1.0f, 0.0f,
+    "Pinatty International Airport", {150.0f, 2140.0f}, 1.0f, 0.0f,
     {0.0f, 55.0f}, 1000.0f, 470.0f, 6.0f, 1800.0f};
 
 // Paint pieces use a top-only decal mesh. Their authored top still follows
@@ -254,7 +254,7 @@ inline constexpr std::size_t kAirportCorePartCount =
     sizeof(kAirportCoreParts) / sizeof(kAirportCoreParts[0]);
 
 inline constexpr BuildingPlan kAirportPlan{
-    "O'Haven International Airport", nullptr, 0, nullptr, 0,
+    "Pinatty International Airport", nullptr, 0, nullptr, 0,
     kAirportCoreParts, kAirportCorePartCount, nullptr, 0};
 
 // Human-scale details sit against the facade, leaving the outer 3.4 m of

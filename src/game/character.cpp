@@ -90,6 +90,8 @@ PlayerCharacterState step_character(const PlayerCharacterState& current,
     next.view_pitch = std::clamp(current.view_pitch - input.look_dy,
                                  -kPitchLimit, kPitchLimit);
 
+    if (!(safe_dt > 0.0f)) return next;
+
     glm::vec2 intent{input.steer, input.throttle - input.brake};
     const float intent_length = glm::length(intent);
     if (intent_length > 1.0f) intent /= intent_length;
@@ -107,24 +109,81 @@ PlayerCharacterState step_character(const PlayerCharacterState& current,
                                            : tuning.walk_speed_mps;
     next.velocity = direction * top_speed * std::min(intent_length, 1.0f);
 
+    const bool taking_off = current.grounded && was_pressed(input, kBtnJump);
+    next.grounded = current.grounded && !taking_off;
+    next.velocity.y = taking_off ? tuning.jump_speed_mps
+        : (current.grounded ? 0.0f : current.velocity.y);
+
+    // In the air even a kerb is a wall until the feet clear its top.
+    CharacterTuning body_tuning = tuning;
+    if (!next.grounded) body_tuning.max_step_m = 0.0f;
     glm::vec3 moved = current.position;
     glm::vec3 candidate = moved;
     candidate.x += next.velocity.x * safe_dt;
-    if (character_position_clear(collider, candidate, tuning)) moved.x = candidate.x;
+    if (character_position_clear(collider, candidate, body_tuning)) moved.x = candidate.x;
 
     candidate = moved;
     candidate.z += next.velocity.z * safe_dt;
-    if (character_position_clear(collider, candidate, tuning)) moved.z = candidate.z;
+    if (character_position_clear(collider, candidate, body_tuning)) moved.z = candidate.z;
 
-    moved.y = support_height(collider, current.position, {moved.x, moved.z}, tuning);
+    if (next.grounded) {
+        const float support = support_height(
+            collider, current.position, {moved.x, moved.z}, tuning);
+        if (std::abs(support - moved.y) <= tuning.max_step_m + 0.001f) {
+            glm::vec3 planted{moved.x, support, moved.z};
+            if (character_position_clear(collider, planted, tuning)) moved = planted;
+            else moved = current.position;
+        } else {
+            // Walk off a ledge with gravity instead of snapping to the floor.
+            next.grounded = false;
+        }
+    }
+    if (!next.grounded) {
+        const float old_y = moved.y;
+        float target_y = old_y + next.velocity.y * safe_dt
+            - 0.5f * tuning.gravity_mps2 * safe_dt * safe_dt;
+        next.velocity.y -= tuning.gravity_mps2 * safe_dt;
+        if (target_y > old_y) {
+            // Sweep the head against ceilings, including rotated solid boxes.
+            for (const StaticBox& solid : collider.static_boxes()) {
+                if (!solid.enabled) continue;
+                const glm::vec3 local = solid.local_point(moved);
+                if (!circle_overlaps_box({local.x, local.z}, tuning.radius_m,
+                                         solid.collision_bounds())) continue;
+                const float ceiling = solid.bounds.min.y - tuning.height_m;
+                if (ceiling >= old_y - 0.001f && ceiling < target_y) {
+                    target_y = std::max(old_y, ceiling);
+                    next.velocity.y = 0.0f;
+                }
+            }
+        } else {
+            // No step-height lift here: that would catch roofs ABOVE the feet.
+            const auto hit = collider.probe_down(
+                {moved.x, old_y + 0.001f, moved.z},
+                old_y - target_y + 0.002f);
+            float floor = hit.hit ? hit.point.y : collider.height(moved.x, moved.z);
+            for (const StaticBox& solid : collider.static_boxes()) {
+                if (!solid.enabled || solid.bounds.max.y > old_y + 0.001f) continue;
+                const glm::vec3 local = solid.local_point(moved);
+                if (circle_overlaps_box({local.x, local.z}, tuning.radius_m,
+                                        solid.collision_bounds()))
+                    floor = std::max(floor, solid.bounds.max.y);
+            }
+            if (target_y <= floor && floor <= old_y + 0.001f) {
+                target_y = floor;
+                next.velocity.y = 0.0f;
+                next.grounded = true;
+            }
+        }
+        moved.y = target_y;
+    }
     const glm::vec2 travelled{moved.x - current.position.x,
                               moved.z - current.position.z};
-    next.distance_walked_m += glm::length(travelled);
+    if (next.grounded) next.distance_walked_m += glm::length(travelled);
     next.position = moved;
     if (safe_dt > 0.0f) {
         next.velocity.x = travelled.x / safe_dt;
         next.velocity.z = travelled.y / safe_dt;
-        next.velocity.y = (moved.y - current.position.y) / safe_dt;
     }
 
     if (glm::dot(travelled, travelled) > 1e-8f) {

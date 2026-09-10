@@ -35,12 +35,15 @@ void print_usage() {
         "  --aircraft-check run bounded boarding/flight regression\n"
         "  --boat-check     run bounded boarding/boat regression\n"
         "  --police-check capture real siren/light toggle, red/blue/off phases\n"
-        "  --police-officer-check test witnessed red light, cruiser impact, officer exit/return (6000+ frames)\n"
+        "  --police-officer-check test witnessed red, impact, officer exit/fire/arrest/return (6000+ frames)\n"
+        "  --police-pursuit-check test an away-facing cruiser turning and pulling over (6000+ frames)\n"
+        "  --traffic-horn-check test real traffic impatience, horn playback and lane release (6000+ frames)\n"
         "  --wanted N      start with wanted level 1-5 for pursuit QA\n"
         "  --no-instancing start on the naive per-node draw path\n"
         "  --warp-every N  teleport across the island every N frames\n"
         "  --start-at X Z   start at a world position for visual QA\n"
         "  --start-player-at X Z place the on-foot player separately for interior QA\n"
+        "  --start-player-height Y select a supported floor with --start-player-at\n"
         "  --start-heading DEG face a direction at the visual-QA start\n"
         "  --player-car KEY select a model folder key for visual QA\n"
         "  --driver-transition-check test the selected car entry/exit\n"
@@ -51,13 +54,16 @@ void print_usage() {
         "  --overhead      use a fixed daylight QA camera above --start-at\n"
         "  --daylight      hold the sky at noon for visual QA\n"
         "  --road-start    settle --start-at after authored road collision loads\n"
-        "  --weapon-check  check wheel selection and held weapon visuals\n"
+        "  --weapon-check  check aim, fire, reload, NPC blood hits and input guards (900+ frames)\n"
         "  --house-check   walk through 102 Sycamore's push doors and both exits\n"
-        "  --signal-check  bounded vehicle-impact, signal fall and streaming check\n"
+        "  --signal-check  crash-test signals, street lamps and stop signs (1700+ frames)\n"
+        "  --character-identity-check prove a new departure at one (lane,slot) gets a fresh rig\n"
         "  --night          hold the sky at midnight for lighting QA\n"
         "  --clear          clear weather for visual QA\n"
-        "  --weather NAME   force clear, rain, storm, thunderstorm, snow, blizzard, tornado, flood, hail, or heatwave\n"
+        "  --weather NAME   force clear, sunshower, overcast, rain, storm, thunderstorm, snow, blizzard, tornado, flood, hail, or heatwave\n"
         "  --snow-depth M   pin accumulated snow depth from 0.0 to 1.5 metres\n"
+        "  --snowplow-check follow a working traffic plow; use --weather snow --snow-depth 0.18\n"
+        "  --snowplow-refill-seconds N age actual cleared paths before final --frames image (QA)\n"
         "  --seed N         reproduce a session weather sequence\n"
         "  --no-traffic-headlights disable traffic beams (keep lamp glow)\n"
         "  --lighting-benchmark freeze after warmup, alternate beams off/on, measure GPU\n"
@@ -65,7 +71,9 @@ void print_usage() {
         "  --version       print the version and exit\n"
         "  --help          this text\n"
         "\n"
-        "Controls: WASD move/drive, Shift sprint, E enter/exit, P pause, M map.\n"
+        "Controls: WASD move/drive, Shift sprint, Space/left-stick click jump, E enter/exit, P pause, M map.\n"
+        "Driving: H honks; J/controller L3 toggles police siren and lights.\n"
+        "Weapons: Tab/LB opens wheel; RMB/LT holds aim; Q toggles aim; LMB/RT fires; R/X reloads.\n"
         "On the map: WASD/stick or drag pans; wheel or +/- zooms.\n"
         "Right click marks a waypoint; R/controller X marks the crosshair. Repeat clears.\n"
         "Enter/A selects, Esc/B goes back. Ctrl/Cmd+Q quits.\n"
@@ -101,6 +109,8 @@ int main(int argc, char** argv) {
     bool start_heading_set = false;
     glm::vec2 start_player_position{0};
     bool start_player_position_set=false;
+    float start_player_height=0;
+    bool start_player_height_set=false;
     const char* screenshot_path = nullptr;
     bool instancing = true;
     bool vehicle_entry_check=false;
@@ -112,10 +122,13 @@ int main(int argc, char** argv) {
     bool tire_track_check=false;
     bool police_check=false;
     bool police_officer_check=false;
+    bool police_pursuit_check=false;
+    bool traffic_horn_check=false;
     int start_wanted=0;
     bool weapon_check=false;
     bool house_check=false;
     bool signal_check=false;
+    bool character_identity_check=false;
     bool overhead_qa=false;
     bool daylight_qa=false;
     bool road_start_qa=false;
@@ -127,6 +140,8 @@ int main(int argc, char** argv) {
     bool weather_preset_set = false;
     float snow_depth_m = -1.0f;
     bool snow_depth_set = false;
+    bool snowplow_check = false;
+    float snowplow_refill_preview_seconds = 0.0f;
     apricot::PlayerCarId start_car=apricot::PlayerCarId::LegacyCar5;
     bool player_car_explicit=false;
     bool start_driving=false;
@@ -144,7 +159,10 @@ int main(int argc, char** argv) {
         if (std::strcmp(a,"--weapon-check")==0) { weapon_check=true;continue; }
         if (std::strcmp(a,"--house-check")==0) { house_check=true;continue; }
         if (std::strcmp(a,"--signal-check")==0) { signal_check=true;continue; }
+        if (std::strcmp(a,"--character-identity-check")==0) {
+            character_identity_check=true;continue; }
         if (std::strcmp(a,"--tire-track-check")==0) { tire_track_check=true;continue; }
+        if (std::strcmp(a,"--snowplow-check")==0) { snowplow_check=true;continue; }
         if (std::strcmp(a,"--overhead")==0) { overhead_qa=true;continue; }
         if (std::strcmp(a,"--daylight")==0) { daylight_qa=true;continue; }
         if (std::strcmp(a,"--road-start")==0) { road_start_qa=true;continue; }
@@ -170,6 +188,10 @@ int main(int argc, char** argv) {
         if (std::strcmp(a,"--boat-check")==0) { boat_check=true; continue; }
         if (std::strcmp(a,"--police-check")==0) { police_check=true; continue; }
         if (std::strcmp(a,"--police-officer-check")==0) { police_officer_check=true; continue; }
+        if (std::strcmp(a,"--police-pursuit-check")==0) {
+            police_pursuit_check=true; police_officer_check=true; continue;
+        }
+        if (std::strcmp(a,"--traffic-horn-check")==0) { traffic_horn_check=true; continue; }
         if (std::strcmp(a,"--wanted")==0) {
             if (++i>=argc) { std::fprintf(stderr,"--wanted needs a level from 1 to 5\n"); return 2; }
             start_wanted=std::atoi(argv[i]);
@@ -198,6 +220,7 @@ int main(int argc, char** argv) {
             if (std::strcmp(name,"clear")==0) weather_preset=apricot::DevWeatherPreset::Clear;
             else if (std::strcmp(name,"overcast")==0) weather_preset=apricot::DevWeatherPreset::Overcast;
             else if (std::strcmp(name,"rain")==0) weather_preset=apricot::DevWeatherPreset::Rain;
+            else if (std::strcmp(name,"sunshower")==0) weather_preset=apricot::DevWeatherPreset::Sunshower;
             else if (std::strcmp(name,"storm")==0) weather_preset=apricot::DevWeatherPreset::Storm;
             else if (std::strcmp(name,"thunderstorm")==0) weather_preset=apricot::DevWeatherPreset::Thunderstorm;
             else if (std::strcmp(name,"snow")==0) weather_preset=apricot::DevWeatherPreset::Snow;
@@ -209,6 +232,21 @@ int main(int argc, char** argv) {
             else if (std::strcmp(name,"dynamic")==0) weather_preset=apricot::DevWeatherPreset::Dynamic;
             else { std::fprintf(stderr,"unknown --weather name: %s\n",name); return 2; }
             weather_preset_set=true;continue;
+        }
+        if (std::strcmp(a,"--snowplow-refill-seconds")==0) {
+            if (++i>=argc) {
+                std::fprintf(stderr,"--snowplow-refill-seconds needs 0..86400 seconds\n");
+                return 2;
+            }
+            char* end=nullptr;
+            errno=0;
+            snowplow_refill_preview_seconds=std::strtof(argv[i],&end);
+            if (errno || end==argv[i] || *end || !std::isfinite(snowplow_refill_preview_seconds) ||
+                snowplow_refill_preview_seconds<0.0f || snowplow_refill_preview_seconds>86400.0f) {
+                std::fprintf(stderr,"--snowplow-refill-seconds needs 0..86400 seconds\n");
+                return 2;
+            }
+            continue;
         }
         if (std::strcmp(a,"--snow-depth")==0) {
             if (++i>=argc) {
@@ -265,6 +303,16 @@ int main(int argc, char** argv) {
             }
             continue;
         }
+        if (std::strcmp(a,"--start-player-height")==0) {
+            if(i+1>=argc) {std::fprintf(stderr,"--start-player-height needs a finite number\n");return 2;}
+            char* end=nullptr;
+            const char* value=argv[++i];
+            start_player_height=std::strtof(value,&end);
+            if(end==value || *end!='\0' || !std::isfinite(start_player_height)) {
+                std::fprintf(stderr,"--start-player-height needs a finite number\n");return 2;
+            }
+            start_player_height_set=true;continue;
+        }
         if ((std::strcmp(a, "--start-at") == 0 || std::strcmp(a,"--start-player-at")==0) && i + 2 < argc) {
             const bool player=std::strcmp(a,"--start-player-at")==0;
             auto& position=player?start_player_position:start_position;
@@ -312,6 +360,19 @@ int main(int argc, char** argv) {
     }
 
     apricot::App app;
+    if (traffic_horn_check) {
+        if (frame_limit<6000 || house_check || signal_check || tire_track_check ||
+            vehicle_entry_check || driver_transition_check || aircraft_check || boat_check ||
+            trailer_check || police_check || police_officer_check || weapon_check ||
+            lighting_benchmark || warp_every || opening_preview || delivery_preview || delivery_check) {
+            std::fprintf(stderr,"--traffic-horn-check needs --frames 6000 or more and no other checks/previews/warps\n");
+            return 2;
+        }
+        clear_weather=true;daylight_qa=true;start_driving=true;road_start_qa=true;
+        if (!start_position_set) start_position={950,40};
+        if (!screenshot_path) screenshot_path="build/traffic-horn-check";
+        app.set_traffic_horn_check(true);
+    }
     if (police_officer_check) {
         if (frame_limit<6000 || house_check || signal_check || tire_track_check ||
             vehicle_entry_check || driver_transition_check || aircraft_check || boat_check ||
@@ -324,11 +385,12 @@ int main(int argc, char** argv) {
         if (!start_position_set) start_position={950,40};
         if (!screenshot_path) screenshot_path="build/police-officer-check";
         app.set_police_officer_check(true);
+        if (police_pursuit_check) app.set_police_pursuit_check(true);
     }
     if(signal_check) {
-        if(frame_limit<700 || house_check || tire_track_check || vehicle_entry_check || driver_transition_check ||
+        if(frame_limit<1700 || house_check || tire_track_check || vehicle_entry_check || driver_transition_check ||
             aircraft_check || boat_check || police_check || weapon_check || lighting_benchmark || warp_every || opening_preview) {
-            std::fprintf(stderr,"--signal-check needs --frames 700 or more and no other checks/warps\n");
+            std::fprintf(stderr,"--signal-check needs --frames 1700 or more and no other checks/warps\n");
             return 2;
         }
         clear_weather=true;start_driving=true;start_position={1070,180};
@@ -409,6 +471,7 @@ int main(int argc, char** argv) {
     // Set before init(): both affect what the first frame does.
     app.set_frame_limit(frame_limit);
     app.set_overhead_qa(overhead_qa);
+    app.set_character_identity_check(character_identity_check);
     app.set_daylight_qa(daylight_qa || overhead_qa);
     app.set_road_start_qa(road_start_qa);
     app.set_opening_preview(opening_preview);
@@ -421,13 +484,17 @@ int main(int argc, char** argv) {
     app.set_delivery_check(delivery_check);
     if (!save_file.empty()) app.set_save_path(save_file);
     if (weapon_check) {
-        if (frame_limit<300) { std::fprintf(stderr,"--weapon-check needs --frames 300 or more\n");return 2; }
+        if (frame_limit<900) { std::fprintf(stderr,"--weapon-check needs --frames 900 or more\n");return 2; }
         if (!screenshot_path) screenshot_path="build/weapon-check";
         app.set_weapon_check(true);
     }
     app.set_instancing(instancing);
     app.set_warp_interval(warp_every);
     app.set_start_position(start_position);
+    if(start_player_height_set && !start_player_position_set) {
+        std::fprintf(stderr,"--start-player-height requires --start-player-at\n");return 2;
+    }
+    if(start_player_height_set)app.set_start_player_height(start_player_height);
     if(start_player_position_set) {
         if(start_driving) {std::fprintf(stderr,"--start-player-at requires on-foot mode\n");return 2;}
         app.set_start_player_position(start_player_position);
@@ -443,6 +510,8 @@ int main(int argc, char** argv) {
     app.set_clear_weather(clear_weather);
     if (weather_preset_set) app.set_weather_preset(weather_preset);
     if (snow_depth_set) app.set_snow_depth_override(snow_depth_m);
+    app.set_snowplow_check(snowplow_check);
+    app.set_snowplow_refill_preview(snowplow_refill_preview_seconds);
     app.set_vehicle_preview(start_car,start_driving);
     if (screenshot_path) app.set_screenshot_path(screenshot_path);
     if (!app.init()) {
@@ -453,6 +522,9 @@ int main(int argc, char** argv) {
     }
 
     int rc = app.run();
+    if (traffic_horn_check && !app.traffic_horn_check_passed()) {
+        AP_ERROR("traffic horn gameplay regression did not complete");rc=1;
+    }
     if (police_officer_check && !app.police_officer_check_passed()) {
         AP_ERROR("police officer gameplay regression did not complete");rc=1;
     }
@@ -460,7 +532,10 @@ int main(int argc, char** argv) {
         AP_ERROR("delivery cutscene regression did not complete");rc=1;
     }
     if (signal_check && !app.signal_check_passed()) {
-        AP_ERROR("traffic signal destruction regression did not complete");rc=1;
+        AP_ERROR("roadside fixture destruction regression did not complete");rc=1;
+    }
+    if (character_identity_check && !app.character_identity_check_passed()) {
+        AP_ERROR("ambient rig identity regression did not complete");rc=1;
     }
     if (tire_track_check && !app.tire_track_check_passed()) {
         AP_ERROR("tire-track regression did not produce enough decals");rc=1;

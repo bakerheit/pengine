@@ -27,7 +27,8 @@ target_include_directories(apricot_intro_lab SYSTEM PRIVATE ${stb_SOURCE_DIR})
 target_compile_options(apricot_intro_lab PRIVATE ${APRICOT_STRICT_FLAGS})
 target_link_libraries(apricot_intro_lab PRIVATE apricot_host)
 add_executable(apricot_mistral_driver_lab
-    mistral_driver_lab.cpp ${CMAKE_SOURCE_DIR}/src/app/character_visual.cpp)
+    mistral_driver_lab.cpp ${CMAKE_SOURCE_DIR}/src/app/character_visual.cpp
+    ${CMAKE_SOURCE_DIR}/src/app/player_car_visual.cpp)
 target_include_directories(apricot_mistral_driver_lab PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(apricot_mistral_driver_lab SYSTEM PRIVATE ${stb_SOURCE_DIR})
 target_compile_options(apricot_mistral_driver_lab PRIVATE ${APRICOT_STRICT_FLAGS})

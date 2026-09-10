@@ -180,7 +180,7 @@ void golden_values() {
     // terrain the props stand on, because a plate returns its target whatever
     // the noise does. It used to be {-20, 20}, which stopped qualifying the day
     // Marrow's spoil track was authored through it.
-    // Moved off {0, 0}: that is Vellum Row, and a paved district scatters
+    // Moved off {0, 0}: that is Pinatty Row, and a paved district scatters
     // nothing now that scatter reads PropParams::wild. A golden pinned at zero
     // measures "downtown is still paved", not the scatter system.
     // Cinder Underpass extends the road exclusion into this chunk. The RNG
@@ -191,14 +191,43 @@ void golden_values() {
     REQUIRE(scatter_chunk(1ull, ChunkCoord{5, 6}).size() == 78u);
     require_first_prop(1ull, ChunkCoord{5, 6}, 0, 3, 0x43A6BEF5u, 0x4149C30Du,
                        0x43C087F8u, 0x4087083Au, 0x3F7C6566u);
-    // Moved from {-5, 7}, which now sits entirely inside a road corridor and
-    // scatters ZERO props. Re-pinning it at 0 would have kept a golden that
-    // measures nothing: any change to the noise, the density curve or the
-    // material blend would sail past an assertion whose answer is "the road is
-    // still there". {-7, 5} is the nearest chunk that still has scatter in it.
-    REQUIRE(scatter_chunk(12648430ull, ChunkCoord{-7, 5}).size() == 73u);
-    require_first_prop(12648430ull, ChunkCoord{-7, 5}, 0, 2, 0xC3DE775Fu,
-                       0x410AFEA6u, 0x43A08E16u, 0x3FBD63D8u, 0x3F9CBC0Cu);
+    // Moved from {-5, 7}, then from {-7, 5}, for the SAME reason both times:
+    // authored roads grew into the chunk and its scatter collapsed. {-5, 7}
+    // went to zero; {-7, 5} went 73 -> 1 when Sable Crescent (id 207) and Loom
+    // Way (id 209) were authored across it. Re-pinning either at its new value
+    // would keep a golden that measures nothing, because any change to the
+    // noise, the density curve or the material blend sails past an assertion
+    // whose answer is "the road is still there".
+    //
+    // THE GENERATOR DID NOT CHANGE and this cost no replay or save
+    // compatibility. The synthetic-seed goldens above are the ones that pin
+    // the generator, and both are untouched at 78; heightmap.cpp's only diff
+    // is an O'Haven -> Pinatty comment rename. What moved is authored map
+    // content, which scatter is supposed to yield to.
+    //
+    // {-4, -12} is the densest chunk on the map seed (175 props) AND the
+    // furthest from any road centreline of the dense candidates, at 351 m, so
+    // it has real headroom before authoring can reach it.
+    REQUIRE(scatter_chunk(12648430ull, ChunkCoord{-4, -12}).size() == 175u);
+    // Pin the first prop too. A bare count is a weak fingerprint: it survives
+    // a change that moves every prop but keeps the tally. The synthetic seeds
+    // have had this since they were written; the authored map seed had only a
+    // count, which is exactly why two successive road jobs could hollow it out
+    // without anything failing until the number finally moved.
+    require_first_prop(12648430ull, ChunkCoord{-4, -12}, 0, 2,
+                       0xC37F7926u, 0x41BDA5C7u,
+                       0xC43F3BDBu, 0x4047D351u, 0x3FB505C4u);
+    // And stop this golden from silently rotting into one that measures
+    // nothing. If roads reach this chunk too, fail with the instruction rather
+    // than with a number nobody can interpret.
+    REQUIRE_MSG(scatter_chunk(12648430ull, ChunkCoord{-4, -12}).size() >= 120u,
+                "the authored-map scatter golden has been hollowed out by map "
+                "authoring; move it to a denser chunk instead of re-pinning",
+                "map seed scatter");
+    // The {-7, 5} first-prop golden that used to sit here went with its count:
+    // the chunk holds one prop now, so pinning its first one pins the survivor
+    // of a road corridor rather than anything about the generator. The
+    // {-4, -12} pair above replaces it and covers strictly more.
     REQUIRE(scatter_chunk(0ull, ChunkCoord{-28, -28}).size() == 151u);
     require_first_prop(0ull, ChunkCoord{-28, -28}, 0, 0, 0xC4DEB4EAu,
                        0x4160B25Bu, 0xC4DFF36Au, 0x3FC1E4DFu, 0x3F3BC556u);
@@ -315,7 +344,7 @@ void generation_is_order_independent() {
 // authored map rather than an inconvenience. Inside a terrain operator at full
 // weight the height is the operator's authored target, so two seeds agree there
 // EXACTLY -- that is what "authored" means, and it is why downtown is flat on
-// every seed. The old grid sat entirely inside the Vellum Row plate, so every
+// every seed. The old grid sat entirely inside the Pinatty Row plate, so every
 // one of its 49 samples agreed and the test failed, correctly.
 //
 // Separation is a property of the NOISE, so it is sampled where the noise is
@@ -346,8 +375,8 @@ void seeds_are_separated() {
 
     // THE OTHER HALF OF THE CONTRACT. The world is a pure function of
     // (map, seed, coord), and the map's contribution must NOT move with the
-    // seed: an authored plate is the same plate in every session, or O'Haven is
-    // not a place a player can learn. Twenty-five points across the Vellum Row
+    // seed: an authored plate is the same plate in every session, or Pinatty is
+    // not a place a player can learn. Twenty-five points across the Pinatty Row
     // plate, four wildly different seeds, one height.
     for (int32_t z = -2; z <= 2; ++z) {
         for (int32_t x = -2; x <= 2; ++x) {
@@ -421,11 +450,11 @@ void the_world_is_an_island() {
 //
 // This test used to prove that a 380 m dome of lifted terrain at the world
 // origin kept every seed's spawn point out of the water. That dome
-// (kHomeRadiusMetres) is gone: O'Haven's origin is downtown, so the dome would
+// (kHomeRadiusMetres) is gone: Pinatty's origin is downtown, so the dome would
 // not have been a safety net, it would have BEEN the ground under the financial
 // district.
 //
-// What replaced it is not weaker, it is exact. The Vellum Row plate in
+// What replaced it is not weaker, it is exact. The Pinatty Row plate in
 // src/city/terrain_ops.h is a Flatten at full weight over the origin, and a
 // Flatten at full weight returns its authored target, so height_at() at the
 // spawn is 12.0 m FOR EVERY SEED, by equality and not by tolerance. The old
@@ -729,6 +758,68 @@ void no_prop_stands_in_a_road() {
     apricot_test::pass("nothing grows in the road");
 }
 
+// scatter_chunk() rejects a cell the moment its acceptance roll is at or above
+// kBaseDensity, before paying for surface_at(), two authored-mask lookups and a
+// district query — about 38% of all cells. That is only sound because the
+// density it would have been compared against CANNOT EXCEED 1.0:
+//
+//     density = sum(weight[m] * surface_properties(m).scatter_density)
+//               * city::wild_scatter_at(x, z)
+//
+// the weights are a partition (pinned by material_weights_are_a_partition), so
+// the sum is bounded by the largest per-surface density, and the district
+// multiplier is bounded by its own table plus the open-country value of 1.0.
+//
+// This test is the bound. If a surface density or a district's `wild` is ever
+// raised above 1.0 the early rejection starts discarding props that should
+// have been placed, and the failure would be invisible — a slightly emptier
+// world, deterministic and wrong. So this fails first, and the fast path in
+// scatter.cpp is what must be removed, not this expectation.
+void the_early_reject_bound_holds_for_every_surface_and_district() {
+    float widest_surface = 0.0f;
+    for (std::size_t m = 0; m < kSurfaceCount; ++m) {
+        const float d =
+            surface_properties(static_cast<Surface>(m)).scatter_density;
+        REQUIRE(d >= 0.0f);
+        widest_surface = std::max(widest_surface, d);
+    }
+    REQUIRE_MSG(widest_surface <= 1.0f,
+                "a surface scatter density above 1.0 breaks scatter's early "
+                "rejection bound", "surface density bound");
+
+    float widest_district = 0.0f;
+    for (int i = 0; i < static_cast<int>(city::DistrictId::Count); ++i) {
+        const float w =
+            city::district(static_cast<city::DistrictId>(i)).props.wild;
+        REQUIRE(w >= 0.0f);
+        widest_district = std::max(widest_district, w);
+    }
+    REQUIRE_MSG(widest_district <= 1.0f,
+                "a district wild multiplier above 1.0 breaks scatter's early "
+                "rejection bound", "district wild bound");
+
+    // ...and the function that actually reads them, sampled across the island
+    // including open country, authored lots and negative coordinates.
+    float widest_sampled = 0.0f;
+    for (int x = -6000; x <= 6000; x += 53) {
+        for (int z = -6000; z <= 6000; z += 53) {
+            widest_sampled = std::max(
+                widest_sampled,
+                city::wild_scatter_at(static_cast<float>(x),
+                                      static_cast<float>(z)));
+        }
+    }
+    REQUIRE_MSG(widest_sampled <= 1.0f,
+                "wild_scatter_at returned more than 1.0", "sampled wild bound");
+    std::printf("      scatter bound: max surface density %.3f, max district "
+                "wild %.3f, max sampled %.3f\n",
+                static_cast<double>(widest_surface),
+                static_cast<double>(widest_district),
+                static_cast<double>(widest_sampled));
+    apricot_test::pass("scatter's early-rejection bound holds for every surface "
+                       "and district");
+}
+
 int main() {
     std::printf("terrain_determinism_tests\n");
     golden_values();
@@ -746,5 +837,6 @@ int main() {
     scatter_density_follows_the_material();
     scatter_never_exceeds_its_declared_cap();
     no_prop_stands_in_a_road();
+    the_early_reject_bound_holds_for_every_surface_and_district();
     return apricot_test::done("terrain_determinism_tests");
 }

@@ -576,6 +576,20 @@ void test_auxiliary_lane_taper_preserves_through_lanes() {
     pass("a 3-to-4 auxiliary taper holds through lanes and opens at the shoulder");
 }
 
+void test_authored_speed_limit_survives_graph_splits() {
+    Net n = build();
+    std::size_t bridge_lanes = 0;
+    for (const Lane& lane : n.lanes.lanes()) {
+        const RoadEdge& edge = n.graph.edge(lane.edge);
+        if (edge.spine_id != 6) continue;
+        REQUIRE_NEAR(edge.speed_limit_mps, 24.6f, 1e-6f);
+        REQUIRE_NEAR(lane.speed_limit_mps, 24.6f, 1e-6f);
+        ++bridge_lanes;
+    }
+    REQUIRE(bridge_lanes == 6u);
+    pass("authored section speed limits survive edge splits and reach every lane");
+}
+
 }  // namespace
 
 int main() {
@@ -597,5 +611,6 @@ int main() {
     test_approach_group_a_splits_the_crossing_streets();
     test_build_is_deterministic();
     test_auxiliary_lane_taper_preserves_through_lanes();
+    test_authored_speed_limit_survives_graph_splits();
     return apricot_test::done("lane_graph_tests");
 }

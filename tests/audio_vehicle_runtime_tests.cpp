@@ -263,7 +263,7 @@ void the_player_car_opens_a_bounded_voice_set() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kCarSoundUseCount *
+            11u + kTrafficHornClipCount + kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
 
@@ -380,7 +380,7 @@ void pause_stops_the_recording_without_retriggering_held_throttle() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kCarSoundUseCount *
+            11u + kTrafficHornClipCount + kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
     REQUIRE(audio.start(mixer, bank));
@@ -416,7 +416,7 @@ void every_f1_car_sound_choice_is_real_and_audible() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kCarSoundUseCount *
+            11u + kTrafficHornClipCount + kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
     REQUIRE(audio.start(mixer, bank));
@@ -445,7 +445,7 @@ void acceleration_recording_plays_once_per_throttle_press() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kCarSoundUseCount *
+            11u + kTrafficHornClipCount + kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
     REQUIRE(audio.start(mixer, bank));
@@ -511,7 +511,7 @@ void sustained_throttle_never_reaches_a_quiet_source_tail() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kCarSoundUseCount *
+            11u + kTrafficHornClipCount + kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
     REQUIRE(audio.start(mixer, bank));
@@ -544,7 +544,7 @@ void car_to_car_collision_uses_the_dedicated_recording() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kCarSoundUseCount *
+            11u + kTrafficHornClipCount + kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
     REQUIRE(audio.start(mixer, bank));
@@ -655,7 +655,7 @@ void shutdown_stops_the_active_recording() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kCarSoundUseCount *
+            11u + kTrafficHornClipCount + kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
     REQUIRE(audio.start(mixer, bank));
@@ -798,6 +798,65 @@ void traffic_idle_is_spatial_and_bounded() {
     pass("1000 traffic candidates share twelve spatial idle voices; distance and pause are silent");
 }
 
+void player_horn_uses_recordings_and_obeys_context() {
+    SfxBank bank;
+    SfxOverridePaths paths;
+    paths.traffic_horns=player_car_audio_overrides().traffic_horns;
+    REQUIRE(override_bank_from_wavs(bank,paths)==kTrafficHornClipCount);
+    VoiceMixer mixer; mixer.prepare(48000);
+    VehicleAudio audio; audio.set_model("car5"); REQUIRE(audio.start(mixer,bank));
+    VehicleAudioFrame frame;
+    frame.engine_running=false; // The horn still works with a stalled engine.
+    frame.dt_seconds=.01f; frame.position={0,0,-3}; frame.horn_pressed=true;
+    std::vector<float> pcm(960);
+    const auto tick=[&]() {
+        audio.update(frame);mixer.render(pcm.data(),480);
+        REQUIRE(all_finite(pcm)); REQUIRE(mixer.dropped_commands()==0);
+        return rms(pcm);
+    };
+    for (int i=0;i<20;++i) REQUIRE(tick()<1e-8);
+    REQUIRE(audio.horn_count()==0); // On foot / entering / aircraft / boat gate.
+    frame.horn_available=true;
+    double level=0;
+    for (int i=0;i<100;++i) level=std::max(level,tick());
+    REQUIRE(audio.horn_count()==1); REQUIRE(level>.04); // Rapid presses cannot overlap.
+    frame.horn_pressed=false;
+    for (int i=0;i<100;++i) tick();
+    REQUIRE(audio.horn_count()==1);
+    frame.horn_pressed=true; tick(); REQUIRE(audio.horn_count()==2);
+    frame.active=false;
+    for (int i=0;i<30;++i) tick();
+    REQUIRE(rms(pcm)<1e-8); REQUIRE(audio.horn_count()==2);
+    frame.active=true; frame.horn_pressed=false; tick();
+    REQUIRE(audio.horn_count()==2); // No queued honk on resume.
+    frame.horn_pressed=true; tick(); REQUIRE(audio.horn_count()==3);
+    audio.exit_vehicle(); frame.horn_available=false;
+    for (int i=0;i<30;++i) tick();
+    REQUIRE(rms(pcm)<1e-8);
+    frame.horn_available=true; tick(); REQUIRE(audio.horn_count()==4);
+    audio.stop_horn(); frame.horn_pressed=false;
+    for (int i=0;i<30;++i) tick();
+    REQUIRE(rms(pcm)<1e-8); // Teleport / load cleanup.
+    mixer.set_category(Category::World,0);
+    frame.horn_pressed=true;
+    for (int i=0;i<30;++i) tick();
+    REQUIRE(rms(pcm)<1e-8); // Uses the same SFX bus as traffic horns.
+    audio.stop();
+
+    for (const auto model:{"glr_zip","harrow_hauler"}) {
+        SfxBank only;
+        const std::size_t clip=std::string(model)=="glr_zip" ? 1u : 2u;
+        only.traffic_horns[clip]=bank.traffic_horns[clip];
+        VoiceMixer selected;selected.prepare(48000);
+        VehicleAudio horn;horn.set_model(model);REQUIRE(horn.start(selected,only));
+        frame.horn_pressed=true;horn.update(frame);
+        REQUIRE(horn.horn_count()==1);
+        REQUIRE(render_peak_rms(selected,20)>.01);
+        horn.stop();
+    }
+    pass("player horn uses car/truck recordings, works engine-off, follows SFX mute and stops for exit/pause/load");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -816,6 +875,7 @@ int main(int argc, char** argv) {
         return done("sustained throttle audio");
     }
     std::printf("audio_vehicle_runtime_tests\n");
+    player_horn_uses_recordings_and_obeys_context();
     cinder_model_uses_its_rendered_engine_note();
     catalog_models_have_distinct_rendered_engine_notes();
     model_pitch_preserves_rpm_response_and_attack_timing();

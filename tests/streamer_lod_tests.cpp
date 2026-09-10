@@ -460,7 +460,7 @@ void a_warp_inside_the_loaded_radius_still_refits_before_it_resumes() {
 
 void chunks_past_the_scatter_tier_carry_terrain_only() {
     Host h(0x31337ull, tiered_config());
-    // Wooded ground, not the origin: the origin is Vellum Row, and a paved
+    // Wooded ground, not the origin: the origin is Pinatty Row, and a paved
     // district scatters nothing now that scatter reads PropParams::wild.
     // The guard below caught that correctly rather than passing on an
     // empty scene.

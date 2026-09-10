@@ -1,4 +1,4 @@
-# city -> apricot_sim. O'Haven: the map, and the decision layers that run on it.
+# city -> apricot_sim. Pinatty: the map, and the decision layers that run on it.
 #
 # Two things landed here from different directions and they belong together.
 #

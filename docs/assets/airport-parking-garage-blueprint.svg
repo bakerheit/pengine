@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="640" viewBox="0 0 1400 640">
 <rect width="1400" height="640" fill="#f4f1e9"/>
-<g font-family="Arial,sans-serif" fill="#26333b"><text x="45" y="42" font-size="26" font-weight="bold">O'HAVEN AIRPORT · PUBLIC PARKING GARAGE</text><text x="45" y="72" font-size="17">Same lot across from drop-off · 3 parking levels · local airport coordinates</text>
+<g font-family="Arial,sans-serif" fill="#26333b"><text x="45" y="42" font-size="26" font-weight="bold">PINATTY AIRPORT · PUBLIC PARKING GARAGE</text><text x="45" y="72" font-size="17">Same lot across from drop-off · 3 parking levels · local airport coordinates</text>
 <g transform="translate(90,130) scale(3.5)">
 <rect x="0" y="0" width="330" height="12" fill="#8f979d"/><text x="84" y="8" font-size="4.3">TERMINAL DROP-OFF · EXISTING CROSSINGS RETAINED</text>
 <path d="M0,35 H330 V57 H280 V86 H50 V57 H0 Z" fill="#c9d1d2" stroke="#334951" stroke-width=".6"/>

@@ -15,7 +15,7 @@ inline constexpr Vec2 kHospitalNorthParkingCentre{46.0f, -62.0f};
 inline constexpr float kHospitalNorthParkingWidthM = 146.0f;
 inline constexpr float kHospitalNorthParkingDepthM = 38.0f;
 inline constexpr StartSite kHospitalNorthParkingSite{
-    "Vellum Regional Hospital North Visitor Parking",
+    "Pinatty Regional Hospital North Visitor Parking",
     kHospitalSite.origin, kHospitalSite.cos_yaw, kHospitalSite.sin_yaw,
     kHospitalNorthParkingCentre, kHospitalNorthParkingWidthM,
     kHospitalNorthParkingDepthM, 12.0f, 2200.0f};

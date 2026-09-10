@@ -1,6 +1,6 @@
-# Vellum construction expansion
+# Pinatty construction expansion
 
-The Vellum perimeter construction run now has four distinct active parcels:
+The Pinatty perimeter construction run now has four distinct active parcels:
 
 - Steel Frame Annex: a twelve-floor open frame, core, tower crane, office, and
   staged stock.
@@ -14,7 +14,7 @@ The Vellum perimeter construction run now has four distinct active parcels:
 The Steel Frame Annex and Demolition Parcel sit in the outer Briar Street
 column. Their earlier cells were already occupied by Halloway Police Station
 and Tacomaco. The outer Cinder Street column was rejected because Nickel
-Heights' terrain feather pulls it below Vellum's 12 m datum. The whole-city
+Heights' terrain feather pulls it below Pinatty's 12 m datum. The whole-city
 authored-lot audit now guards those separations.
 
 Two additional 54 x 30 m blocks in the northern Mercer Avenue column carry

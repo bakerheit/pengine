@@ -27,7 +27,7 @@ namespace traffic_harness {
 // The district. 40 x 40 street spines at a 92 m block pitch is 3,120 edges and
 // 6,240 directed lanes over a 3.6 km square — the same fixture road_graph_tests
 // calls district scale, and comfortably past anything the authored spine table
-// for one O'Haven district will hold.
+// for one Pinatty district will hold.
 inline constexpr int kDistrictN = 40;
 inline constexpr float kDistrictPitchM = 92.0f;
 inline constexpr uint64_t kMapSeed = 0xDEADBEEFull;

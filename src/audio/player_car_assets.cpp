@@ -11,6 +11,10 @@ SfxOverridePaths player_car_audio_overrides() {
     SfxOverridePaths paths;
     paths.engine_start = asset_path("audio/vehicles/player/runtime/engine_start.wav");
     paths.engine_idle = asset_path("audio/vehicles/player/runtime/engine_idle.wav");
+    constexpr const char* horns[]={"horn_short.wav","horn_double.wav","horn_truck.wav"};
+    static_assert(sizeof(horns)/sizeof(horns[0])==kTrafficHornClipCount);
+    for (std::size_t i=0; i<kTrafficHornClipCount; ++i)
+        paths.traffic_horns[i]=asset_path(std::string("audio/vehicles/traffic/runtime/")+horns[i]);
     paths.player_throttle_attack = asset_path(
         "audio/vehicles/player/runtime/throttle_attack.wav");
     paths.player_throttle_hold = asset_path(

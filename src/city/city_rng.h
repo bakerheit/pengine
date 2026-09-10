@@ -6,7 +6,7 @@
 
 namespace apricot {
 
-// HOW O'HAVEN DRAWS ITS RANDOMNESS, and why it does not look like the code it
+// HOW PINATTY DRAWS ITS RANDOMNESS, and why it does not look like the code it
 // came from.
 //
 // probablecause seeded its city from sequential streams: std::mt19937 for

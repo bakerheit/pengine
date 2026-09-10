@@ -21,7 +21,7 @@ struct AirportDevelopmentParcel {
 
 inline constexpr AirportDevelopmentParcel kAirportDevelopmentParcels[] = {
     {"Camber Gateway hotel parcel", {-350.0f, 163.0f}, 150.0f, 130.0f, 14.0f},
-    {"O'Haven rental centre parcel", {260.0f, 216.0f}, 136.0f, 80.0f, 10.0f},
+    {"Pinatty rental centre parcel", {260.0f, 216.0f}, 136.0f, 80.0f, 10.0f},
     {"Camber air cargo parcel", {370.0f, 193.0f}, 82.0f, 72.0f, 10.0f},
 };
 

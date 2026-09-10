@@ -18,6 +18,7 @@ public:
         OfficerAssault,
         TrafficViolation,
         PoliceVehicleCollision,
+        ArmedThreat,
     };
 
     void add_heat(float amount, Crime crime = Crime::Other);

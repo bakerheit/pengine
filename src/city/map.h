@@ -7,7 +7,7 @@
 namespace apricot {
 namespace city {
 
-// O'HAVEN — the original state map, as compiled C++ data.
+// PINATTY — the original city map, as compiled C++ data.
 //
 // The city is a specific authored place you can learn by heart, and apricot
 // ships no asset files. Those only look like they contradict. The map is a
@@ -209,7 +209,7 @@ struct Boundary {
 // giving it one would mean maintaining the negative space of nine other
 // polygons by hand. district_at() returns Count for it, and that is its name.
 enum class DistrictId : uint8_t {
-    VellumRow = 0,      // financial core, the canonical grid chase
+    PinattyRow = 0,      // financial core, the canonical grid chase
     HallowaySquare,     // civic: police HQ, courthouse, hospital
     Saltmarsh,          // old town, pre-grid, rewards memory
     OstendDocks,        // container port, straight-line speed inside a trap
@@ -231,7 +231,7 @@ inline constexpr int kDistrictCount = static_cast<int>(DistrictId::Count);
 // How a district's streets are laid out. The generator turns one of these into
 // a street graph; the district table says which and with what dimensions.
 enum class BlockPattern : uint8_t {
-    Grid,        // regular blocks at an authored angle. Vellum Row.
+    Grid,        // regular blocks at an authored angle. Pinatty Row.
     Radial,      // arms off one plaza. Halloway Square.
     Organic,     // pre-grid lanes that do not line up. Saltmarsh.
     Spine,       // one arterial with service stubs. Ostend Docks.
@@ -266,7 +266,7 @@ inline constexpr float road_width_m(RoadClass c) {
 // static.
 enum class HeightRamp : uint8_t {
     Flat,           // a mat of near-equal heights. Saltmarsh, Nickel Heights.
-    PeakAtCentre,   // a bell curve. Vellum Row: a skyline with a middle.
+    PeakAtCentre,   // a bell curve. Pinatty Row: a skyline with a middle.
     FallToWater,    // tall inland, low at the shore. The Strand.
     Scattered       // low sheds punctuated by tall exceptions. The docks.
 };
