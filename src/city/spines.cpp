@@ -91,15 +91,16 @@ struct Density {
     float traffic;
     float ped;
     float parked;
+    float response_s;
 };
 
 Density density_for(DistrictId id) {
     if (id == DistrictId::Count) {
         return Density{kMeadowsTrafficDensity, kMeadowsPedDensity,
-                       kMeadowsParkedDensity};
+                       kMeadowsParkedDensity, kMeadowsResponseS};
     }
     const District& d = district(id);
-    return Density{d.pop.traffic, d.pop.ped, d.pop.parked};
+    return Density{d.pop.traffic, d.pop.ped, d.pop.parked, d.heat.response_s};
 }
 
 }  // namespace
@@ -153,6 +154,10 @@ std::vector<RoadSpine> map_spines() {
         // and a street reads as residential or industrial largely on that
         // ratio.
         s.parked_density = d.parked;
+        // The district's authored response time rides the same path as its
+        // densities, so a crime in Halloway Square gets a cruiser in three
+        // seconds and one in the Meadows gets it in twenty-two (PENG-45).
+        s.response_s = d.response_s;
         if (r.one_way) s.ped_density = 0.0f;
 
         // The AUTHORED id, never the loop counter. Everything downstream keys

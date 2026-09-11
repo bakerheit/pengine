@@ -181,23 +181,8 @@ const TurnLink* agent_planned_turn(const LaneGraph& graph,
     return planned_turn(graph, agent.lane, seed, agent.decisions);
 }
 
-// Which body is parked at this kerb slot. The moving-traffic recipe, keyed on
-// a different word of the identity so a parked car and the car that would have
-// driven that slot are not the same model, and with the emergency bodies
-// folded back to a sedan: an ambulance does not sit unattended at a kerb, and
-// a police car standing there means something the police module has not said.
-TrafficVehicleKind parked_vehicle_kind(uint64_t lane_key, uint32_t slot) {
-    const TrafficVehicleKind kind =
-        traffic_vehicle_kind(lane_key ^ 0x5041524B4544ull, slot);
-    switch (kind) {
-        case TrafficVehicleKind::Ambulance:
-        case TrafficVehicleKind::Firetruck:
-        case TrafficVehicleKind::Police:
-            return TrafficVehicleKind::Sedan;
-        default:
-            return kind;
-    }
-}
+// parked_vehicle_kind() moved to traffic/ambient.h: the bay gate needs the same
+// answer this does, and a file-local copy is how the two came to disagree.
 
 bool stable_police_patrol(uint64_t map_seed, uint64_t lane_key,
                           uint32_t slot, float fraction) {
@@ -213,9 +198,7 @@ bool stable_police_patrol(uint64_t map_seed, uint64_t lane_key,
 }
 
 int64_t police_response_cadence_steps(int wanted_level) {
-    const float seconds = wanted_level >= 4 ? 0.4f
-                        : wanted_level >= 2 ? 0.7f
-                                            : 1.4f;
+    const float seconds = police_level_profile(wanted_level).cadence_s;
     return std::max<int64_t>(
         1, static_cast<int64_t>(std::ceil(seconds / kSimDtF)));
 }
@@ -1126,6 +1109,18 @@ void Crowd::clear() {
     police_target_speed_mps_ = 0.0f;
     police_officer_world_ = nullptr;
     police_officer_layout_ = {};
+    police_search_centre_ = glm::vec2{0.0f};
+    police_search_velocity_ = glm::vec2{0.0f};
+    police_last_seen_step_ = -1;
+    police_searching_ = false;
+    police_level_rose_ = false;
+    police_dispatch_serial_ = 0;
+    police_response_gate_ = {};
+    police_responding_level_ = 0;
+    police_dispatch_radio_step_ = -1;
+    police_armed_delay_s_ = 0.0f;
+    police_escalated_from_zero_ = false;
+    police_spawn_pending_ = false;
     police_player_contacts_.clear();
     police_shots_.clear();
     retired_.clear();
@@ -1175,7 +1170,7 @@ bool Crowd::report_police_vehicle_hit(VisiblePoliceIdentity cruiser) {
     });
     if (struck == vehicles_.end()) return false;
     if (struck->police_pursuit) return true;
-    const int target_units = std::min(8, police_wanted_level_ + 2);
+    const int target_units = police_level_profile(police_wanted_level_).units;
     if (static_cast<int>(police_pursuit_count()) >= target_units) {
         VehicleAgent* release = nullptr;
         float farthest = -1.0f;
@@ -1458,7 +1453,11 @@ void Crowd::set_police_context(
     int wanted_level, glm::vec2 target_xz,
     const std::vector<VisiblePoliceIdentity>& visible_police) {
     const int next_level = std::max(0, wanted_level);
-    if (next_level > police_wanted_level_) police_response_due_ = true;
+    if (next_level > police_wanted_level_) {
+        police_response_due_ = true;
+        police_level_rose_ = true;
+        if (police_wanted_level_ <= 0) police_escalated_from_zero_ = true;
+    }
     police_wanted_level_ = next_level;
     police_target_xz_ = target_xz;
     // Is he even on the road? Half the lane width is normal driving; well
@@ -1491,6 +1490,17 @@ void Crowd::set_police_context(
         police_response_due_ = false;
         police_next_response_step_ = 0;
         visible_police_.clear();
+        police_search_centre_ = glm::vec2{0.0f};
+        police_search_velocity_ = glm::vec2{0.0f};
+        police_last_seen_step_ = -1;
+        police_searching_ = false;
+        police_level_rose_ = false;
+        police_response_gate_ = {};
+        police_responding_level_ = 0;
+        police_dispatch_radio_step_ = -1;
+        police_armed_delay_s_ = 0.0f;
+        police_escalated_from_zero_ = false;
+        police_spawn_pending_ = false;
     }
 }
 
@@ -1541,13 +1551,26 @@ bool Crowd::player_in_police_view() const {
     return false;
 }
 
+bool Crowd::police_target_sighted() const {
+    if (police_wanted_level_ <= 0) return false;
+    const float range = police_level_profile(police_wanted_level_).detect_range_m;
+    for (const VehicleAgent& agent : vehicles_) {
+        if (!agent.police_unit) continue;
+        if (police_officer_downed(agent.officer)) continue;
+        if (!police_has_line_of_sight(agent)) continue;
+        const glm::vec3 eye = police_officer_eye_position(agent);
+        if (glm::distance(glm::vec2{eye.x, eye.z}, police_target_xz_) <= range) return true;
+    }
+    return false;
+}
+
 const VehicleAgent* Crowd::nearest_police_pursuer() const {
     const VehicleAgent* nearest = nullptr;
     float nearest_dist2 = kInf;
     for (const VehicleAgent& agent : vehicles_) {
         if (!agent.police_unit || !agent.police_pursuit) continue;
-        const glm::vec2 delta{agent.pos.x - police_target_xz_.x,
-                              agent.pos.z - police_target_xz_.y};
+        const glm::vec2 delta{agent.pos.x - police_search_centre_.x,
+                              agent.pos.z - police_search_centre_.y};
         const float dist2 = glm::dot(delta, delta);
         if (dist2 < nearest_dist2) {
             nearest = &agent;
@@ -1631,10 +1654,82 @@ void Crowd::update_police_response(int64_t step) {
         }
         police_response_due_ = false;
         police_next_response_step_ = step;
+        police_searching_ = false;
+        police_last_seen_step_ = -1;
+        police_level_rose_ = false;
+        police_response_gate_ = {};
+        police_responding_level_ = 0;
+        police_dispatch_radio_step_ = -1;
+        police_escalated_from_zero_ = false;
+        police_spawn_pending_ = false;
         return;
     }
 
-    const int target_units = std::min(8, police_wanted_level_ + 2);
+    // WHERE THE PURSUIT IS GOING. Seen by any unit (the same per-unit range
+    // and cone gates the witness check uses) -> the centre is the live
+    // target. Not seen -> it freezes where he was last seen and the pursuit
+    // becomes a search. A level that just rose re-centres on the crime even
+    // with no witness: the report placed it, the way a phone call would.
+    {
+        const bool seen = police_target_sighted();
+        const bool recentre = seen || police_level_rose_ || police_last_seen_step_ < 0;
+        police_level_rose_ = false;
+        if (recentre) {
+            const bool was_searching = police_searching_;
+            police_search_centre_ = police_target_xz_;
+            police_search_velocity_ = police_target_velocity_;
+            police_searching_ = false;
+            if (seen || police_last_seen_step_ < 0) police_last_seen_step_ = step;
+            // Re-acquired: every unit replans NOW, not in 0.6 s. A post is a
+            // place to wait for a suspect nobody can see; once somebody can,
+            // waiting there is the wrong thing to do for the whole interval.
+            if (was_searching)
+                for (VehicleAgent& agent : vehicles_)
+                    if (agent.police_pursuit) agent.police_last_replan_step = -1;
+        } else {
+            police_searching_ = true;
+            police_search_velocity_ = glm::vec2{0.0f};
+        }
+    }
+
+    // THE RADIO HOLD (PENG-45). A crime that took the level from zero starts
+    // the beat of nothing: `radio_latency_s` until the callout, then the
+    // district's response time (read off the lane the suspect is on) before
+    // the DISPATCHER acts on the level at all. The pure gate kernel owns the
+    // three-state machine; this just feeds it. A patrol that witnessed the
+    // crime converts below on the true level regardless — it did not need
+    // the radio to tell it.
+    {
+        const PoliceTuning& pt = tuning_.police;
+        if (police_escalated_from_zero_) {
+            police_dispatch_radio_step_ = step + static_cast<int64_t>(
+                std::ceil(std::max(0.0f, pt.radio_latency_s) / kSimDtF));
+            float armed = pt.default_response_s;
+            const LaneProjection snap = graph_->nearest_lane(police_target_xz_, 45.0f);
+            if (snap.valid() && graph_->lane(snap.lane).response_s > 0.0f)
+                armed = graph_->lane(snap.lane).response_s;
+            police_armed_delay_s_ = armed;
+        }
+        if (pt.radio_latency_s <= 0.0f && police_armed_delay_s_ <= 0.0f) {
+            // No hold authored at all: the kernel would sit pending forever
+            // on a zero delay, so it is bypassed rather than fed a zero.
+            police_response_gate_ = {};
+            police_responding_level_ = police_wanted_level_;
+        } else {
+            const bool radio_played = police_dispatch_radio_step_ >= 0 &&
+                                      step >= police_dispatch_radio_step_;
+            const ResponseGateStep g = police_response_gate_step(
+                police_response_gate_, police_wanted_level_,
+                police_escalated_from_zero_, radio_played,
+                police_armed_delay_s_, kSimDtF);
+            police_response_gate_ = g.gate;
+            police_responding_level_ = g.responding_level;
+        }
+        police_escalated_from_zero_ = false;
+    }
+
+    const int target_units = police_level_profile(police_wanted_level_).units;
+    const int held_units = police_level_profile(police_responding_level_).units;
     int engaged = static_cast<int>(police_pursuit_count());
     auto engage = [&](VehicleAgent& agent) {
         agent.police_pursuit = true;
@@ -1642,7 +1737,7 @@ void Crowd::update_police_response(int64_t step) {
         agent.police_route.clear();
         agent.police_route_index = 0;
         agent.police_last_replan_step = -1;
-        agent.police_last_target = police_target_xz_;
+        agent.police_last_target = police_search_centre_;
         ++engaged;
     };
 
@@ -1665,7 +1760,7 @@ void Crowd::update_police_response(int64_t step) {
     }
 
     const int deficit = police_spawn_fallback_count(
-        true, target_units, engaged);
+        true, held_units, engaged);
     const bool response_tick = police_response_due_ ||
                                step >= police_next_response_step_;
     if (deficit > 0 && response_tick) {
@@ -1711,7 +1806,14 @@ void Crowd::update_police_response(int64_t step) {
         }
         VehicleAgent* candidate = ring_candidate
             ? ring_candidate : fallback_candidate;
-        if (candidate) engage(*candidate);
+        if (candidate) {
+            engage(*candidate);
+        } else if (police_level_profile(police_responding_level_).may_spawn) {
+            // Nobody resident to convert: the next refresh instantiates one
+            // out of sight (dispatch_police). Latched, not done here — the
+            // vehicle vector is being iterated by the step that called us.
+            police_spawn_pending_ = true;
+        }
         police_response_due_ = false;
         police_next_response_step_ =
             step + police_response_cadence_steps(police_wanted_level_);
@@ -1721,18 +1823,208 @@ void Crowd::update_police_response(int64_t step) {
 
     const float target_snap_m = std::max(
         60.0f, std::min(180.0f, tuning_.vehicle_activate_m));
+    // The intercept lead extrapolates the velocity AT THE LAST SIGHTING; while
+    // searching that velocity is zero and the route goes to the point itself.
     const glm::vec2 route_target = police_pursuit_intercept(
-        police_target_xz_, police_target_velocity_);
+        police_search_centre_, police_search_velocity_);
     LaneProjection target;
-    if (glm::length(police_target_velocity_) > 0.15f)
+    if (glm::length(police_search_velocity_) > 0.15f)
         target = graph_->nearest_lane_along(
-            route_target, police_target_velocity_, target_snap_m);
+            route_target, police_search_velocity_, target_snap_m);
     if (!target.valid()) target = graph_->nearest_lane(route_target, target_snap_m);
     const LaneRef target_lane = target.valid() ? target.lane : kInvalidLane;
-    for (VehicleAgent& agent : vehicles_) {
-        if (agent.police_pursuit)
-            update_police_route(agent, target_lane, route_target, step);
+
+    // Who routes where. One route call per pursuer, with its own destination
+    // decided first: calling the centre and then the post would replan twice
+    // a step and thrash police_last_replan_step.
+    std::vector<uint32_t> pursuers;
+    for (uint32_t i = 0; i < vehicles_.size(); ++i)
+        if (vehicles_[i].police_pursuit && graph_->valid(vehicles_[i].lane))
+            pursuers.push_back(i);
+    std::vector<LaneRef> dest_lane(pursuers.size(), target_lane);
+    std::vector<glm::vec2> dest_xz(pursuers.size(), route_target);
+    if (police_searching_ && target.valid() && pursuers.size() > 1) {
+        // The HOLDER — nearest the centre, ties by identity — keeps the route
+        // to it. Everyone else is ranked by an identity hash (stable while the
+        // pursuer set is unchanged, so posts do not churn as cars move) and
+        // sent one or two junctions out.
+        std::size_t holder = 0;
+        float holder_dist2 = kInf;
+        for (std::size_t k = 0; k < pursuers.size(); ++k) {
+            const VehicleAgent& v = vehicles_[pursuers[k]];
+            const glm::vec2 delta{v.pos.x - police_search_centre_.x,
+                                  v.pos.z - police_search_centre_.y};
+            const float d2 = glm::dot(delta, delta);
+            const VehicleAgent& h = vehicles_[pursuers[holder]];
+            if (d2 < holder_dist2 ||
+                (d2 == holder_dist2 &&
+                 ident_less(Ident{v.lane_key, v.slot}, Ident{h.lane_key, h.slot}))) {
+                holder = k;
+                holder_dist2 = d2;
+            }
+        }
+        std::vector<std::pair<uint64_t, std::size_t>> ranked;
+        for (std::size_t k = 0; k < pursuers.size(); ++k) {
+            if (k == holder) continue;
+            const VehicleAgent& v = vehicles_[pursuers[k]];
+            ranked.push_back({phantom_key(map_seed_, v.lane_key, v.slot,
+                                          kChannelPoliceSearchPost), k});
+        }
+        std::sort(ranked.begin(), ranked.end(), [&](const auto& a, const auto& b) {
+            if (a.first != b.first) return a.first < b.first;
+            const VehicleAgent& x = vehicles_[pursuers[a.second]];
+            const VehicleAgent& y = vehicles_[pursuers[b.second]];
+            return ident_less(Ident{x.lane_key, x.slot}, Ident{y.lane_key, y.slot});
+        });
+        for (std::size_t ordinal = 0; ordinal < ranked.size(); ++ordinal) {
+            const LaneRef post = police_search_post(
+                *graph_, target.lane, static_cast<uint32_t>(ordinal));
+            if (!graph_->valid(post)) continue;
+            const Lane& lane = graph_->lane(post);
+            const glm::vec3 p = graph_->pose(post, std::min(40.0f, lane.length_m)).position;
+            dest_lane[ranked[ordinal].second] = post;
+            dest_xz[ranked[ordinal].second] = glm::vec2{p.x, p.z};
+        }
     }
+    for (std::size_t k = 0; k < pursuers.size(); ++k)
+        update_police_route(vehicles_[pursuers[k]], dest_lane[k], dest_xz[k], step);
+}
+
+LaneRef police_search_post(const LaneGraph& graph, LaneRef centre_lane,
+                           uint32_t ordinal) {
+    if (!graph.valid(centre_lane)) return kInvalidLane;
+    auto sorted_exits = [&](LaneRef from) {
+        std::vector<LaneRef> out;
+        for (const TurnLink& link : graph.outgoing(from, true))
+            if (graph.valid(link.to) && link.to != from) out.push_back(link.to);
+        std::sort(out.begin(), out.end(), [&](LaneRef a, LaneRef b) {
+            return graph.lane(a).key < graph.lane(b).key;
+        });
+        out.erase(std::unique(out.begin(), out.end()), out.end());
+        return out;
+    };
+    const std::vector<LaneRef> first = sorted_exits(centre_lane);
+    if (first.empty()) return kInvalidLane;
+    const uint32_t n = static_cast<uint32_t>(first.size());
+    const LaneRef hop1 = first[ordinal % n];
+    const uint32_t ring = ordinal / n;
+    if (ring == 0) return hop1;
+    const std::vector<LaneRef> second = sorted_exits(hop1);
+    if (second.empty()) return hop1;
+    return second[(ring - 1) % static_cast<uint32_t>(second.size())];
+}
+
+// AN OFF-SCREEN CRUISER (PENG-45), on the snowplow dispatcher's pattern: a
+// reserved slot space and a serial for fresh identities, lanes ranked by a
+// stable key, a few separated stations per lane, and a final re-sort. What is
+// police-specific: the station must sit in the annulus around the wanted
+// centre, be occluded from it when there is a world to ask, and prefer the
+// side the suspect is heading toward. The player's heading is the SUSPECT's
+// velocity at the last sighting — a sim quantity — never a camera vector.
+void Crowd::dispatch_police(glm::vec2 player_xz) {
+    (void)player_xz;
+    if (!graph_ || police_wanted_level_ <= 0 ||
+        vehicles_.size() >= tuning_.max_vehicles) return;
+    if (police_dispatch_serial_ >= 0x10000000u) return;
+    const PoliceTuning& pt = tuning_.police;
+    const uint32_t slot = kPoliceDispatchSlotBase + police_dispatch_serial_;
+    const glm::vec2 centre = police_search_centre_;
+    glm::vec2 heading{0.0f};
+    if (glm::length(police_search_velocity_) > 1.0f)
+        heading = glm::normalize(police_search_velocity_);
+    // Ground height at the centre, for the occlusion ray.
+    float centre_y = 0.0f;
+    {
+        const LaneProjection snap = graph_->nearest_lane(centre, 45.0f);
+        if (snap.valid()) centre_y = graph_->pose(snap.lane, snap.dist_along_m).position.y;
+    }
+    std::vector<LaneRef> candidates;
+    gather_lanes(centre, pt.spawn_max_m + 5.0f, candidates);
+    std::sort(candidates.begin(), candidates.end(), [&](LaneRef a, LaneRef b) {
+        const uint64_t ak = graph_->lane(a).key, bk = graph_->lane(b).key;
+        const uint64_t ah = phantom_key(map_seed_, ak, slot, kChannelPoliceDispatch);
+        const uint64_t bh = phantom_key(map_seed_, bk, slot, kChannelPoliceDispatch);
+        return ah == bh ? ak < bk : ah < bh;
+    });
+    LaneRef best_lane = kInvalidLane;
+    float best_along = 0.0f, best_score = -1.0f;
+    LanePose best_pose{};
+    for (LaneRef ref : candidates) {
+        const Lane& lane = graph_->lane(ref);
+        if (lane.cls == RoadClass::Dirt || lane.cls == RoadClass::Alley ||
+            graph_->outgoing(ref).empty()) continue;
+        const float start = junction_clearance(lane.junction_from) + 8.0f;
+        const float end = lane.length_m - std::max(tuning_.spawn_junction_exclusion_m,
+            junction_clearance(lane.junction_to)) - 8.0f;
+        if (end <= start) continue;
+        for (int sample = 0; sample < 5; ++sample) {
+            const float along = start + (end - start) * (static_cast<float>(sample) + 0.5f) / 5.0f;
+            const LanePose pose = graph_->pose(ref, along);
+            const glm::vec2 here{pose.position.x, pose.position.z};
+            const float dist = glm::distance(here, centre);
+            if (dist < pt.spawn_min_m || dist > pt.spawn_max_m) continue;
+            bool clear = true;
+            for (const VehicleAgent& v : vehicles_) {
+                if (std::fabs(v.pos.y - pose.position.y) > 3.0f) continue;
+                const glm::vec2 separation{v.pos.x - pose.position.x, v.pos.z - pose.position.z};
+                if (glm::dot(separation, separation) < 12.0f * 12.0f ||
+                    (v.lane == ref && std::fabs(v.dist_along_m - along) <
+                        std::max(18.0f, v.speed_mps * 2.0f))) { clear = false; break; }
+            }
+            if (!clear) continue;
+            if (police_officer_world_) {
+                // Out of sight of the centre: a cruiser that pops into being
+                // in view is the one thing this exists to avoid.
+                const glm::vec3 from = pose.position + glm::vec3{0.0f, 1.2f, 0.0f};
+                const glm::vec3 to{centre.x, centre_y + 1.05f, centre.y};
+                const glm::vec3 delta = to - from;
+                const float length = glm::length(delta);
+                if (length > 0.05f) {
+                    const auto hit = police_officer_world_->raycast(from, delta / length, length);
+                    if (!hit.hit || hit.distance >= length - 0.08f) continue;
+                }
+            }
+            Rng roll{phantom_key(map_seed_, lane.key,
+                                 slot ^ (static_cast<uint32_t>(sample + 1) * 0x9E3779B9u),
+                                 kChannelPoliceDispatch)};
+            const glm::vec2 dir = dist > 1e-3f ? (here - centre) / dist : glm::vec2{0.0f};
+            const float score = roll.next_float() * (0.5f + 0.5f * glm::dot(heading, dir));
+            if (score > best_score) {
+                best_score = score; best_lane = ref; best_along = along; best_pose = pose;
+            }
+        }
+        // Hash order makes the first lane with a usable station the answer.
+        if (best_score >= 0.0f) break;
+    }
+    if (!graph_->valid(best_lane)) return;
+    const Lane& lane = graph_->lane(best_lane);
+    VehicleAgent v;
+    v.lane_key = lane.key;
+    v.slot = slot;
+    v.lane = best_lane;
+    v.dist_along_m = v.last_dist_m = best_along;
+    v.speed_mps = std::min(12.0f, lane.speed_limit_mps);
+    v.cruise_mps = lane.speed_limit_mps;
+    v.mode = AgentMode::Integrating;
+    v.police_unit = true;
+    v.police_pursuit = true;
+    v.police_last_target = centre;
+    v.police_last_replan_step = -1;
+    v.profile = driver_profile_for(map_seed_,
+        static_cast<int32_t>(static_cast<uint32_t>(lane.key)),
+        static_cast<int32_t>(static_cast<uint32_t>(lane.key >> 32)), slot);
+    v.pos = best_pose.position;
+    v.fwd = best_pose.tangent;
+    v.officer.pos = v.officer.previous_pos =
+        officer_local_point(v, police_officer_layout_.driver_seat_local);
+    v.officer.heading = v.officer.previous_heading = std::atan2(v.fwd.x, -v.fwd.z);
+    v.spawn_ordinal = static_cast<uint32_t>(stats_.activated);
+    vehicles_.push_back(v);
+    ++stats_.activated;
+    ++police_dispatch_serial_;
+    std::sort(vehicles_.begin(), vehicles_.end(), [](const VehicleAgent& a, const VehicleAgent& b) {
+        return ident_less(Ident{a.lane_key, a.slot}, Ident{b.lane_key, b.slot});
+    });
 }
 
 void Crowd::build_lane_index() {
@@ -2014,9 +2306,20 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
                 // as nobody following: the car behind you was never the same
                 // car twice, because each one was deleted as soon as it lost
                 // ground and a fresh local patrol was converted in its place.
+                // And a unit SEARCHING is where it was sent: posted at the
+                // corner the suspect vanished from, which may be well behind
+                // where he actually is by now. Measure it from the search
+                // centre as well as from him, or the search retires its own
+                // units for doing their job.
+                float pursuit_dist2 = dist2;
+                if (police_searching_) {
+                    const glm::vec2 c{v.pos.x - police_search_centre_.x,
+                                      v.pos.z - police_search_centre_.y};
+                    pursuit_dist2 = std::min(pursuit_dist2, c.x * c.x + c.y * c.y);
+                }
                 if (v.police_unit && v.police_pursuit &&
                     !police_should_despawn_standdown(
-                        dist2, police_wanted_level_ <= 0,
+                        pursuit_dist2, police_wanted_level_ <= 0,
                         tuning_.police.stand_down_distance,
                         tuning_.police.pursuit_retire_m))
                     return false;
@@ -2082,6 +2385,26 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
                 std::max(tuning_.spawn_junction_exclusion_m,
                          junction_clearance(lane.junction_to)))
                 continue;
+            // Nor inside a parked car. A bay that reaches into the driving
+            // corridor (none does at the authored clearance, but the knob
+            // exists) would otherwise materialise a phantom overlapping a
+            // body it then can neither pass nor push. Defer the slot the same
+            // way the junction window does.
+            if (tuning_.civilian.ambient_parked_obstacles &&
+                lr < parked_bays_.size() && parked_bays_[lr].slots > 0) {
+                const ParkedLaneBay& bay = parked_bays_[lr];
+                if (bay.lateral_m - ambient_.parked_half_width_m <
+                    tuning_.traffic_half_width_m + tuning_.civilian.parked_corridor_margin_m &&
+                    bay.pitch_m > 0.0f) {
+                    const float k = std::round((ph.dist_along_m - bay.first_m) / bay.pitch_m);
+                    const uint32_t nearest = static_cast<uint32_t>(
+                        std::clamp(k, 0.0f, static_cast<float>(bay.slots - 1)));
+                    const ParkedSlot ps = parked_slot(map_seed_, lane, bay, nearest, ambient_);
+                    if (std::fabs(ph.dist_along_m - ps.dist_along_m) <
+                        2.0f * tuning_.traffic_half_length_m + 1.0f)
+                        continue;
+                }
+            }
             // A scheduled phantom only knows about the other slots authored
             // on this lane. Real cars can arrive here from upstream between
             // refreshes. Do not materialise the phantom through one of those
@@ -2240,6 +2563,10 @@ void Crowd::refresh(int64_t step, glm::vec2 player_xz) {
     }
 
     dispatch_snowplows(player_xz);
+    if (police_spawn_pending_) {
+        dispatch_police(player_xz);
+        police_spawn_pending_ = false;
+    }
 
     // --- kerbside parking --------------------------------------------------
     //
@@ -2308,13 +2635,20 @@ void Crowd::rebuild_buckets() {
             v.stop_completed,
             v.committed_junction, v.committed_approach_lane,
             v.committed_exit_lane,
-            agent_planned_exit(*graph_, v, map_seed_, police_target_xz_,
+            agent_planned_exit(*graph_, v, map_seed_, police_search_centre_,
                                police_wanted_level_ > 0),
             active_turn(*graph_, v),
             vehicle_engine_failed(v.mechanical), v.delay_seconds};
         if (!graph_->valid(v.lane) || v.chase_active) continue;
         const LanePose centre = graph_->pose(v.lane, v.dist_along_m);
+        // A car changing lane stays in its ORIGIN bucket for the whole arc:
+        // the follower behind it keeps following, and the lane it is moving
+        // into sees it through emergency_obstacle_speed(), which predicts
+        // along the arc. Dropping it out at 2.65 m of offset (the rule for
+        // every other displaced body) would make it vanish from both lanes
+        // for the middle of the move.
         if ((v.maneuver.active() || std::fabs(v.roadside_offset_m) > 0.01f) &&
+            v.maneuver.kind != TrafficManeuverKind::LaneChange &&
             std::fabs(glm::dot(v.pos - centre.position, centre.right)) >
                 tuning_.traffic_half_width_m * 2.0f + 0.35f) continue;
         std::vector<BucketEntry>& b = lane_buckets_[v.lane];
@@ -2324,6 +2658,7 @@ void Crowd::rebuild_buckets() {
 
     leader_gap_.assign(vehicles_.size(), kInf);
     leader_speed_.assign(vehicles_.size(), kInf);
+    leader_index_.assign(vehicles_.size(), 0xFFFFFFFFu);
     for (LaneRef lr : touched_lanes_) {
         std::vector<BucketEntry>& b = lane_buckets_[lr];
         // Ties broken on agent index, which is itself ordered by identity, so
@@ -2336,6 +2671,7 @@ void Crowd::rebuild_buckets() {
         for (std::size_t j = 0; j + 1 < b.size(); ++j) {
             leader_gap_[b[j].agent] = b[j + 1].dist - b[j].dist;
             leader_speed_[b[j].agent] = vehicles_[b[j + 1].agent].speed_mps;
+            leader_index_[b[j].agent] = b[j + 1].agent;
         }
         // The last car on a lane looks into the lane it is about to enter. One
         // extra bucket probe, and without it every car at the head of a queue
@@ -2371,7 +2707,7 @@ void Crowd::rebuild_buckets() {
             const std::vector<TurnLink>& outs = graph_->outgoing(v.lane);
             if (!outs.empty()) {
                 const LaneRef nxt = agent_planned_exit(
-                    *graph_, v, map_seed_, police_target_xz_,
+                    *graph_, v, map_seed_, police_search_centre_,
                     police_wanted_level_ > 0);
                 if (graph_->valid(nxt) && !lane_buckets_[nxt].empty()) {
                     const float remain = graph_->lane(v.lane).length_m - head.dist;
@@ -2399,6 +2735,7 @@ void Crowd::rebuild_buckets() {
                             remain + lane_buckets_[nxt].front().dist;
                     }
                     leader_speed_[head.agent] = leader.speed_mps;
+                    leader_index_[head.agent] = leader_index;
                 }
             }
         }
@@ -2417,6 +2754,7 @@ void Crowd::rebuild_buckets() {
             return;
         leader_gap_[follower.agent] = centre_gap;
         leader_speed_[follower.agent] = vehicles_[leader.agent].speed_mps;
+        leader_index_[follower.agent] = leader.agent;
     };
     for (LaneRef dying_ref : touched_lanes_) {
         const Lane& dying = graph_->lane(dying_ref);
@@ -2638,7 +2976,7 @@ bool Crowd::step_police_free_chase(VehicleAgent& v, float dt) {
     const glm::vec2 here = v.chase_active
         ? glm::vec2{v.chase.position.x, v.chase.position.z}
         : glm::vec2{v.pos.x, v.pos.z};
-    const float range = glm::distance(here, police_target_xz_);
+    const float range = glm::distance(here, police_search_centre_);
     if (!v.chase_active) {
         // OFF THE ROAD IS THE WHOLE POINT OF FREE DRIVING. Inside the lane
         // network the hand-off is a short contact move; once the suspect has
@@ -2693,7 +3031,10 @@ bool Crowd::step_police_free_chase(VehicleAgent& v, float dt) {
     const glm::vec3 forward3 = vehicle_forward(v.chase);
     const glm::vec2 forward{forward3.x, forward3.z};
     const glm::vec2 right{-forward.y, forward.x};
-    const glm::vec2 to_target = police_target_xz_ - here;
+    // Aim at the CENTRE: the live target while it is in view, the last-seen
+    // point once it is not. A free-driving cruiser that lost sight aims at
+    // the corner, not through the wall.
+    const glm::vec2 to_target = police_search_centre_ - here;
     const float distance = glm::length(to_target);
     const glm::vec2 direction = distance > 1e-4f ? to_target / distance : forward;
     const float ahead_dot = glm::dot(forward, direction);
@@ -3026,7 +3367,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         const float slack = to_end - stop_distance;
         const TurnLink* turn = turning
             ? nullptr
-            : agent_planned_turn(*graph_, v, map_seed_, police_target_xz_,
+            : agent_planned_turn(*graph_, v, map_seed_, police_search_centre_,
                                  police_wanted_level_ > 0);
         bool seamless_continuation = false;
         if (turn && graph_->valid(turn->to) &&
@@ -3203,13 +3544,16 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         // kernel catches in-path leaders plus predicted crossing/head-on hits.
         // Low-heat stops follow the suspect's bumper instead of shoving a
         // stopped driver down the road while the officer tries to dismount.
-        if ((!v.police_pursuit || police_wanted_level_ <= 2) && player &&
+        bool honk_level = false;
+        if ((!v.police_pursuit ||
+             police_level_profile(police_wanted_level_).hazard_braking) && player &&
             std::fabs(player->position.y-v.pos.y)<2.5f) {
             const PlayerHazard hazard = assess_player_hazard(
                 {v.pos.x, v.pos.z}, {v.fwd.x, v.fwd.z}, v.speed_mps,
                 {player->position.x, player->position.z},
                 {player->velocity.x, player->velocity.z},
                 tuning_.player_hazard, tuning_.car_length_m);
+            honk_level |= hazard.honk;
             if (hazard.active) {
                 const float hazard_speed =
                     std::max(0.0f, hazard.leader_speed) +
@@ -3231,6 +3575,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                 {v.pos.x, v.pos.z}, {v.fwd.x, v.fwd.z}, v.speed_mps,
                 on_foot_player->position, on_foot_player->velocity,
                 tuning_.player_hazard_on_foot, tuning_.car_length_m);
+            honk_level |= hazard.honk;
             if (hazard.active) {
                 const float hazard_speed =
                     std::max(0.0f, hazard.leader_speed) +
@@ -3239,6 +3584,15 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                 ++stats_.player_hazards;
             }
         }
+        // The horn at the player (PENG-51): level from the hazard kernels
+        // above, one-shot from the debounce, on the sim clock. A pursuing
+        // cruiser has a siren for this, and a dead engine has no horn.
+        v.honk_player = honk_level && !v.police_pursuit &&
+                        !vehicle_engine_failed(v.mechanical);
+        v.honk_player_fire = honk_should_fire(
+            v.honk_player, static_cast<double>(step) * kSimDt,
+            static_cast<double>(tuning_.civilian.player_honk_interval_s),
+            v.honk_debounce);
 
         // Signals. Which half of the cycle is green is a pure function of the
         // STEP, like every other clock in this engine; approach_group_a() is
@@ -3467,8 +3821,8 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         // turnaround's own speed gate without being a crawl.
         if (v.police_pursuit && !clearing_intersection &&
             lane.cls != RoadClass::Freeway && !lane.one_way &&
-            glm::distance(glm::vec2{v.pos.x, v.pos.z}, police_target_xz_) < 100.0f &&
-            glm::dot(police_target_xz_ - glm::vec2{v.pos.x, v.pos.z},
+            glm::distance(glm::vec2{v.pos.x, v.pos.z}, police_search_centre_) < 100.0f &&
+            glm::dot(police_search_centre_ - glm::vec2{v.pos.x, v.pos.z},
                      glm::vec2{v.fwd.x, v.fwd.z}) < -12.0f)
             target = std::min(target, 7.0f);
         target = std::min(target, emergency_obstacle_speed(i));
@@ -3482,6 +3836,51 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
             v.delay_seconds = std::min(60.0f, v.delay_seconds + dt);
         else if (v.speed_mps > 2.0f)
             v.delay_seconds = std::max(0.0f, v.delay_seconds - dt * 0.5f);
+        // Behind an obstruction (PENG-47)? Not while legally held at a control
+        // or waiting for a blocked exit — those are queues, and a queue is not
+        // overtaken. What this measures is time spent behind something well
+        // under the driver's own cruise on open road: a wreck, the player's
+        // stopped car, a dawdler. The planners in emergency.cpp read it.
+        {
+            const CivilianManeuverTuning& civ = tuning_.civilian;
+            bool behind_obstruction = false;
+            if (!v.snowplow_unit && !hold && !box_blocked &&
+                !clearing_intersection && !vehicle_engine_failed(v.mechanical)) {
+                const ObstructionView ob = classify_obstruction(i, player);
+                // A body no lane bucket knows about — a parked car reaching
+                // into the lane, the player's car — is followed like a
+                // leader, by everyone including a cruiser. The buckets only
+                // carry AI traffic; without this a cruiser drives through a
+                // parked car it would happily swerve round.
+                if (ob.present && !ob.ai)
+                    target = std::min(target, std::min(
+                        ob.speed_mps + traffic_follow_speed_for_gap(ob.gap_m, prof),
+                        std::sqrt(ob.speed_mps * ob.speed_mps +
+                                  2.0f * std::max(0.1f, prof.brake) *
+                                      std::max(0.0f, ob.gap_m - prof.min_gap))));
+                if (!v.police_pursuit) {
+                    behind_obstruction = ob.present && !ob.queue &&
+                        ob.gap_m < civ.trigger_gap_m &&
+                        ob.speed_mps < v.cruise_mps - civ.slow_leader_margin_mps;
+                    // Leave room to pull out (CivilianManeuverTuning::standoff_m).
+                    if (ob.present && ob.stationary && !ob.queue)
+                        target = std::min(target, std::sqrt(
+                            2.0f * std::max(0.1f, prof.brake) *
+                            std::max(0.0f, ob.gap_m - civ.standoff_m)));
+                    // Deep-blocked: stopped at the stand-off behind something
+                    // that is not going anywhere. The recovery ladder's clock.
+                    if (ob.present && ob.stationary && !ob.queue &&
+                        ob.gap_m < civ.deep_block_gap_m &&
+                        v.speed_mps < civ.stationary_mps)
+                        v.jam_steps += k;
+                    else if (v.speed_mps > 2.0f)
+                        v.jam_steps = 0;
+                }
+            }
+            v.obstruction_wait_s = behind_obstruction
+                ? std::min(60.0f, v.obstruction_wait_s + dt) : 0.0f;
+            v.lane_change_cooldown_s = std::max(0.0f, v.lane_change_cooldown_s - dt);
+        }
         const bool perturbed = target < v.cruise_mps - 1e-4f;
 
         if (v.mode == AgentMode::Analytic && !perturbed) {
@@ -3711,6 +4110,26 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
     // junction would otherwise negotiate one exit and take another.
     update_police_response(step);
     step_police_officers(player, on_foot_player, step);
+
+    // EVAPORATION (PENG-50): cars the ladder gave up on. Marked inside the
+    // loop, swept here — the loop indexes the vector and the frozen buckets
+    // by position — with the same sequence take_vehicle() uses. Permanent:
+    // this departure never comes back.
+    bool any_retired = false;
+    for (VehicleAgent& v : vehicles_) {
+        if (!v.jam_retire) continue;
+        if (v.node != kInvalidId) dead_nodes_.push_back(v.node);
+        retire(v.lane_key, v.slot, v.generation);
+        ++stats_.retired;
+        ++stats_.jam_despawns;
+        any_retired = true;
+    }
+    if (any_retired) {
+        vehicles_.erase(std::remove_if(vehicles_.begin(), vehicles_.end(),
+            [](const VehicleAgent& v) { return v.jam_retire; }), vehicles_.end());
+        stats_.vehicles = vehicles_.size();
+        rebuild_buckets();
+    }
 }
 
 void Crowd::resolve_vehicle_collisions() {
@@ -4707,6 +5126,21 @@ uint64_t Crowd::population_hash() const {
         h = mix_f32(h, v.speed_mps);
         h = mix_bits(h, v.stop_junction);
         h = mix_f32(h, v.delay_seconds);
+        h = mix_f32(h, v.obstruction_wait_s);
+        h = mix_bits(h, v.maneuver_decisions);
+        h = mix_f32(h, v.lane_change_cooldown_s);
+        h = mix_bits(h, static_cast<uint64_t>(v.jam_steps));
+        h = mix_bits(h, static_cast<uint64_t>(v.recovery_action));
+        h = mix_bits(h, static_cast<uint64_t>(v.recovery_action_start_steps));
+        h = mix_bits(h, v.jam_retire ? 1u : 0u);
+        h = mix_bits(h, v.honk_player ? 1u : 0u);
+        h = mix_bits(h, v.honk_player_fire ? 1u : 0u);
+        h = mix_bits(h, v.honk_debounce.was_honking ? 1u : 0u);
+        {
+            uint64_t bits = 0;
+            std::memcpy(&bits, &v.honk_debounce.last_honk_time, sizeof bits);
+            h = mix_bits(h, bits);
+        }
         h = mix_bits(h, static_cast<uint64_t>(v.stop_wait_steps));
         h = mix_bits(h, static_cast<uint64_t>(v.stop_arrival_step));
         h = mix_bits(h, v.stop_completed ? 1u : 0u);
@@ -4749,6 +5183,21 @@ uint64_t Crowd::population_hash() const {
         h = mix_f32(h, v.pos.y);
         h = mix_f32(h, v.pos.z);
     }
+    h = mix_f32(h, police_search_centre_.x);
+    h = mix_f32(h, police_search_centre_.y);
+    h = mix_f32(h, police_search_velocity_.x);
+    h = mix_f32(h, police_search_velocity_.y);
+    h = mix_bits(h, static_cast<uint64_t>(police_last_seen_step_));
+    h = mix_bits(h, police_searching_ ? 1u : 0u);
+    h = mix_bits(h, police_level_rose_ ? 1u : 0u);
+    h = mix_bits(h, police_dispatch_serial_);
+    h = mix_bits(h, police_response_gate_.pending ? 1u : 0u);
+    h = mix_f32(h, police_response_gate_.delay);
+    h = mix_bits(h, static_cast<uint64_t>(police_responding_level_));
+    h = mix_bits(h, static_cast<uint64_t>(police_dispatch_radio_step_));
+    h = mix_f32(h, police_armed_delay_s_);
+    h = mix_bits(h, police_escalated_from_zero_ ? 1u : 0u);
+    h = mix_bits(h, police_spawn_pending_ ? 1u : 0u);
     for (const PedAgent& p : peds_) {
         h = mix_bits(h, p.lane_key);
         h = mix_bits(h, p.slot);

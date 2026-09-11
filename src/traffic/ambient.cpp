@@ -230,10 +230,21 @@ ParkedLaneBay parked_lane_bay(const Lane& lane, const AmbientTuning& t) {
     // centreline this lane sits, so subtracting it converts one to the other —
     // the identical conversion the footway offset makes.
     const float lateral = centre_from_road - lane.lateral_offset_m;
-    // The gate: room between the traffic and the parked bodies. Nothing in
-    // this module puts a parked car in a driver's obstacle set, so a bay that
-    // reaches the lane centre is a bay the AI drives through.
-    if (lateral - t.parked_half_width_m < t.parked_lane_clearance_m) return bay;
+    // The gate: room between the traffic and the parked bodies.
+    //
+    // MEASURED AGAINST THE WIDEST BODY THAT CAN ACTUALLY PARK HERE, not
+    // against the nominal slot width above. Those are two different jobs and
+    // one constant used to do both: `parked_half_width_m` places the body, and
+    // it is deliberately a nominal 0.95 m so a sedan sits 0.30 m off the kerb
+    // and a truck 0.10 m — both on the carriageway, neither floating. But the
+    // GATE is asking whether the road has room for the car that will really be
+    // put there, and parked_vehicle_kind() can put a 1.15 m box truck in any
+    // slot. Asking it about the nominal body let a bay pass a 1.00 m clearance
+    // gate and then stand a body 1.10 m from the lane centre — which the
+    // runtime hazard test, correctly using real footprints, then called an
+    // obstruction. The gate and the hazard test now measure the same car.
+    if (lateral - widest_parked_half_width_m() < t.parked_lane_clearance_m)
+        return bay;
 
     const float usable =
         lane.length_m - 2.0f * t.parked_junction_setback_m;

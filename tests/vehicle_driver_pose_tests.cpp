@@ -177,6 +177,17 @@ void transition_motion(PlayerCarId model,const SkinnedEmesh& mesh,const Skeleton
                 if (std::fabs(in_car.x)<.86f && in_car.z>-.43f && in_car.z<.53f)
                     REQUIRE(in_car.y<1.93f);
             }
+            // Car 5-NEXT's cabin is the tightest in the catalog: its imported
+            // body is squashed to .664 of its authored height, so a rig seated
+            // at the donor cruiser's hip puts its head through the headliner.
+            // The lining sits .05 inside the 2.019 roof; stay under it. Both
+            // halves of the fit are load bearing -- SEAT_DROP_M and
+            // kCar5NextRecline -- and dropping further breaks the exit step.
+            if(model==PlayerCarId::LegacyCar5Next) {
+                const glm::vec3 in_car{glm::inverse(body.matrix())*glm::vec4{point,1}};
+                if(std::fabs(in_car.x)<.85f && in_car.z>-.60f && in_car.z<1.00f)
+                    REQUIRE(in_car.y<1.96f);
+            }
             if(model==PlayerCarId::AlderPip) {
                 const glm::vec3 in_car{glm::inverse(body.matrix())*glm::vec4{point,1}};
                 if(std::fabs(in_car.x)<.69f && in_car.z>-1.58f && in_car.z<.18f)
@@ -434,6 +445,7 @@ int main() {
     hinged_door(PlayerCarId::MunicipalCruiser91C);
     hinged_door(PlayerCarId::MunicipalCruiser91D);
     hinged_door(PlayerCarId::MunicipalCruiser91E);
+    hinged_door(PlayerCarId::LegacyCar5Next);
     for (std::size_t i = 0; i < kPlayerCarCount; ++i) {
         const auto car = static_cast<PlayerCarId>(i);
         REQUIRE(!shows_vehicle_driver(car,false));
@@ -461,6 +473,7 @@ int main() {
     transition_motion(PlayerCarId::MunicipalCruiser91C,mesh,skeleton);
     transition_motion(PlayerCarId::MunicipalCruiser91D,mesh,skeleton);
     transition_motion(PlayerCarId::MunicipalCruiser91E,mesh,skeleton);
+    transition_motion(PlayerCarId::LegacyCar5Next,mesh,skeleton);
     exit_motion(PlayerCarId::VesperMistral,mesh,skeleton);
     exit_motion(PlayerCarId::HarrowWorkman,mesh,skeleton);
     exit_motion(PlayerCarId::AlderPip,mesh,skeleton);
@@ -471,6 +484,7 @@ int main() {
     exit_motion(PlayerCarId::MunicipalCruiser91C,mesh,skeleton);
     exit_motion(PlayerCarId::MunicipalCruiser91D,mesh,skeleton);
     exit_motion(PlayerCarId::MunicipalCruiser91E,mesh,skeleton);
+    exit_motion(PlayerCarId::LegacyCar5Next,mesh,skeleton);
     Transform bad;
     bad.rotation={0.f,0.f,0.f,0.f};
     REQUIRE(!make_mistral_driver_pose(skeleton,mesh.bounds,bad,rejected));

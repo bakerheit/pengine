@@ -22,6 +22,7 @@ REGIONS = {
     'DASH':(192,156,252,196), 'RUBBER':(4,200,60,252),
     'SHADOW':(64,200,124,252), 'METAL':(192,200,252,220),
     'INTERIOR':(128,224,188,252), 'BLACK':(192,224,252,252),
+    'TOP':(128,200,188,220),
 }
 
 # Cooked X/up-Y/forward-Z coordinates. Lenses are atlas paint on physical
@@ -31,3 +32,18 @@ LAMPS = dict(
                     receiver_y=(.22,.635), receiver_x=(-.78,.78)),
     rear_red=dict(z=-2.35, y=(.50,.64), x=((- .755,-.425),(.425,.755)),
                   receiver_y=(.22,.685), receiver_x=(-.78,.78)))
+
+# The folding canvas top, in the same source X/up-Y/forward-Z coordinates as
+# DOOR; mirrored by src/app/mistral_soft_top.h. Stations run front to back as
+# (forward, half_width, edge_up, centre_up); the roadster identity above stays
+# true because the top is a separate mesh and the body is still fully open.
+TOP = dict(stations=[(.05,.700,1.420,1.420),(-.20,.745,1.410,1.462),
+                     (-.48,.765,1.300,1.400),(-.72,.770,1.120,1.220),
+                     (-.90,.780,.950,.980)],
+           joint=2, thickness=.035,
+           # Both pivots sit on the canvas centreline; rotation is about the
+           # lateral axis, the one axis the fitted chassis scale leaves rigid.
+           # The rear bow pivots below the deck line so the stowed stack tucks
+           # into the tonneau instead of standing proud of the seat backs.
+           rear_hinge=(0.,.91,-.90), joint_hinge=(0.,1.400,-.48),
+           stow_degrees=-123., fold_degrees=130., seconds=2.4)

@@ -12,6 +12,7 @@
 #include "app/bug_report.h"
 #include "app/overlay.h"
 #include "app/game_ui.h"
+#include "app/mistral_soft_top.h"
 #include "app/player_car_visual.h"
 #include "app/trailer_visual.h"
 #include "app/traffic_visual.h"
@@ -114,6 +115,10 @@ public:
         police_pursuit_check_=enabled; police_officer_check_=enabled;
     }
     void set_traffic_horn_check(bool enabled) { traffic_horn_check_=enabled; }
+    void set_convertible_check(bool enabled) { convertible_check_=enabled; }
+    bool convertible_check_passed() const {
+        return convertible_check_captures_==7u && !convertible_check_failed_;
+    }
     bool traffic_horn_check_passed() const {
         return traffic_horn_check_done_ && !traffic_horn_check_failed_;
     }
@@ -293,6 +298,7 @@ private:
     InputFrame traffic_horn_check_input();
     void traffic_horn_check_camera();
     void capture_traffic_horn_check();
+    void capture_convertible_check();
     void police_officer_check_camera();
     void capture_police_officer_check();
     SkyEnv current_sky_env() const;
@@ -459,6 +465,9 @@ private:
     bool ui_settings_applied_ = false;
     GameUi game_ui_;
     WantedSystem wanted_;
+    // The report-pending blink latch (PENG-46): armed on a fresh crime,
+    // cleared the step the dispatch radio fires.
+    bool wanted_report_blink_ = false;
     PoliceOffenseTracker police_offenses_;
     PoliceArrestTracker police_arrest_;
     float arrested_feedback_s_=0.0f;
@@ -489,6 +498,8 @@ private:
     unsigned police_officer_check_phases_=0;
     bool police_officer_check_foot_target_set_=false;
     std::string police_officer_check_capture_;
+    bool convertible_check_=false, convertible_check_failed_=false;
+    unsigned convertible_check_captures_=0u;
     bool traffic_horn_check_=false, traffic_horn_check_done_=false, traffic_horn_check_failed_=false;
     int traffic_horn_check_stage_=0;
     uint64_t traffic_horn_check_tick_=0, traffic_horn_check_stage_tick_=0, traffic_horn_check_seen_=0;
@@ -524,6 +535,10 @@ private:
     bool player_horn_pending_=false;
     PoliceSiren police_siren_;
     bool police_emergency_enabled_=false;
+    // J does double duty: a siren in a cruiser, the folding top in the Mistral.
+    // No car is both, so the two never contend for the key.
+    MistralSoftTop soft_top_;
+    bool soft_top_toggle_pending_=false;
     bool police_check_=false;
     int start_wanted_level_=0;
     unsigned police_check_captures_=0;

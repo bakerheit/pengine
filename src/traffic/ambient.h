@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <cstddef>
 
@@ -110,6 +111,30 @@ inline TrafficVehicleKind traffic_vehicle_kind(uint64_t lane_key,
                        : TrafficVehicleKind::Firetruck;
 }
 
+// Which body is parked at this kerb slot. The moving-traffic recipe, keyed on
+// a different word of the identity so a parked car and the car that would have
+// driven that slot are not the same model, and with the emergency bodies
+// folded back to a sedan: an ambulance does not sit unattended at a kerb, and
+// a police car standing there means something the police module has not said.
+//
+// THIS LIVES IN THE HEADER because two things have to agree about it: the
+// resident builder that places the bodies, and the bay gate that decides
+// whether a kerb has room for them. It used to be file-local to crowd.cpp, so
+// the gate reasoned about a nominal 0.95 m body while this put a 1.15 m truck
+// there — see widest_parked_half_width_m().
+inline TrafficVehicleKind parked_vehicle_kind(uint64_t lane_key, uint32_t slot) {
+    const TrafficVehicleKind kind =
+        traffic_vehicle_kind(lane_key ^ 0x5041524B4544ull, slot);
+    switch (kind) {
+        case TrafficVehicleKind::Ambulance:
+        case TrafficVehicleKind::Firetruck:
+        case TrafficVehicleKind::Police:
+            return TrafficVehicleKind::Sedan;
+        default:
+            return kind;
+    }
+}
+
 inline TrafficVehicleFootprint traffic_vehicle_footprint(
     TrafficVehicleKind kind) {
     // Legacy bodies measured after make_traffic_visual_layout() 5 m fit;
@@ -127,6 +152,29 @@ inline TrafficVehicleFootprint traffic_vehicle_footprint(
         case TrafficVehicleKind::Snowplow: return {1.35f, 3.3f};
     }
     return {1.0f, 2.5f};
+}
+
+// THE WIDEST BODY THAT CAN ACTUALLY END UP AT A KERB.
+//
+// The bay gate below is deciding whether a road has room for the car that will
+// really be parked there, and parked_vehicle_kind() can put a box truck in any
+// slot. The gate used to reason about AmbientTuning::parked_half_width_m — a
+// nominal 0.95 m — while the runtime hazard test used the real footprint, up
+// to 1.15 m. The two disagreed by 0.20 m, which is how a bay could pass a
+// 1.00 m clearance gate and still put a body 1.10 m from the lane centre.
+//
+// The set is the image of traffic_vehicle_kind() under parked_vehicle_kind()'s
+// fold. tests/parked_density_tests.cpp brute-forces the identity space against
+// this number, so it cannot drift away from either function.
+inline float widest_parked_half_width_m() {
+    float widest = 0.0f;
+    for (TrafficVehicleKind k : {TrafficVehicleKind::Sedan,
+                                 TrafficVehicleKind::BoxTruck,
+                                 TrafficVehicleKind::HalcyonSix,
+                                 TrafficVehicleKind::MontroseRegentEight,
+                                 TrafficVehicleKind::VesperVx91})
+        widest = std::max(widest, traffic_vehicle_footprint(k).half_width_m);
+    return widest;
 }
 
 // How dense the ambient population is and how fast it moves. Everything here
@@ -191,9 +239,16 @@ struct AmbientTuning {
     float parked_spacing_m = 11.0f;
     uint32_t max_parked_slots = 40;
 
-    // Half the width of a parked body, and the gap it leaves to the kerb line.
-    // Together they place the car centre at
-    // `carriageway_half - kerb_gap - half_width` from the road centreline.
+    // THE NOMINAL SLOT, which PLACES a body and does not measure one. Together
+    // these put the car centre at `carriageway_half - kerb_gap - half_width`
+    // from the road centreline, the same station for every body, so a sedan
+    // ends up 0.30 m off the kerb and a box truck 0.10 m — both on the
+    // carriageway, neither floating out in the road. Sizing the slot to each
+    // body instead was tried and is worse: a wide body pushed to its own kerb
+    // gap reaches FURTHER into the lane, not less.
+    //
+    // It is not the number the clearance gate reads. That one asks what will
+    // really be parked here and uses widest_parked_half_width_m().
     float parked_half_width_m = 0.95f;
     float parked_kerb_gap_m = 0.30f;
 
@@ -202,9 +257,15 @@ struct AmbientTuning {
     // that decides which roads get kerbside parking at all, and it is a gate
     // rather than a nudge for one reason: nothing here is in the moving cars'
     // obstacle set, so a parked car that overlaps a lane centre is a car the
-    // AI drives straight through. On the authored class table it admits
-    // Streets (1.30 m of clearance on a 14 m carriageway) and excludes
-    // Arterials (0.55 m), which is also where a city would paint the bays.
+    // AI drives straight through. Measured against the widest body that can
+    // actually park (widest_parked_half_width_m), the authored class table
+    // admits Streets (1.10 m of clearance on a 14 m carriageway) and excludes
+    // Arterials (0.35 m), which is also where a city would paint the bays.
+    //
+    // 1.10 m is LESS than a box truck needs to pass at cruise, and that is not
+    // an oversight: a 14 m street is genuinely about 10 cm too narrow for a
+    // truck to pass a parked truck, so the driver goes round instead. What
+    // this gate forbids is the case where going round is impossible too.
     float parked_lane_clearance_m = 1.00f;
 
     // No parking across a junction mouth. Measured from each end of the lane.

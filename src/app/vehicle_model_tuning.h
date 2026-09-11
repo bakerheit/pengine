@@ -78,9 +78,19 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::LegacyCar5: // established all-rounder
             return {1210.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f,
                     1.f,1.f,0.f,1.f,1.f,0.f,1.f,1.f};
+        case PlayerCarId::LegacyCar5Next: // refreshed all-rounder, same shell
+            return {1185.f,1.04f,1.02f,1.02f,1.01f,1.03f,.98f,1.02f,1.02f,
+                    1.03f,1.01f,-.004f,.98f,.99f,-.02f,.98f,1.f};
         case PlayerCarId::LegacyCar8: // larger old sedan
             return {1480.f,1.10f,.84f,.95f,.96f,.90f,1.06f,.95f,.92f,
                     .88f,1.02f,.035f,1.12f,1.12f,-.07f,1.16f,1.f};
+        // Car 8's shell carrying a stretcher, cabinets and crew: heavier off
+        // the same running gear, so more torque to move it and less of
+        // everything that mass takes away. Stiffer springs for the load, but
+        // the load sits high, so the centre of mass rises and it rolls more.
+        case PlayerCarId::LegacyCar8Ambulance: // Car 8 shell, loaded ambulance
+            return {1900.f,1.22f,.80f,.93f,.96f,.88f,1.08f,.92f,.96f,
+                    .90f,1.10f,.055f,1.12f,1.20f,-.07f,1.28f,1.f};
         case PlayerCarId::MontroseRegentEight: // 1930s formal luxury car
             return {2150.f,.84f,.52f,.72f,.94f,.70f,1.20f,.72f,.72f,
                     .62f,.76f,.100f,1.38f,1.34f,-.06f,1.48f,1.f};

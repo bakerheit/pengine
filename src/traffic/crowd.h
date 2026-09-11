@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <set>
 #include <vector>
@@ -130,7 +131,17 @@ enum class TrafficManeuverKind : uint8_t {
     // Deliberate contact. The ONE arc the player's own body does not veto —
     // hitting the player is the point of it — which is why it is a distinct
     // kind and not a PoliceBypass with a different offset.
-    PoliceRam
+    PoliceRam,
+    // CIVILIAN MOVES (PENG-47). An overtake borrows the oncoming lane around a
+    // stationary obstruction and returns to its own lane; a lane change ends
+    // on a neighbour lane of the same direction and re-homes the car there.
+    // Both are built by the same arc machinery the police moves use, and
+    // both go through the same clearance sweep and reservation set.
+    CivilianOvertake,
+    LaneChange,
+    // Jam recovery (PENG-50): a short edge-around on our own half of the
+    // road, when the full pass was refused.
+    Nudge
 };
 
 // Deliberate steering is independent of impact displacement. The lane remains
@@ -263,9 +274,55 @@ struct VehicleAgent {
     // driver look for a different turn.
     int64_t blocked_exit_steps = 0;
     int64_t intersection_stall_steps = 0;
+    // HOW LONG THE ACTIVE MANEUVER HAS FAILED TO ADVANCE, and the safety net
+    // for the whole lateral-maneuver system. A car on an arc takes its speed
+    // from the arc and the clearance sweep alone, and it returns early from
+    // step_vehicles() — so while a maneuver is active the driver is outside
+    // the follow law, outside the recovery ladder and outside the
+    // intersection escape. If the sweep then holds the arc at zero, every
+    // clock that could free the car is one the car is no longer running, and
+    // it is wedged for good. Measured: a car mid-junction sat 18.8 s on an
+    // arc it could not advance, and intersection_escapes never fired once.
+    // Past the budget the arc is abandoned and the car goes back to being an
+    // ordinary driver, which is the state that has recovery paths in it.
+    int64_t maneuver_stall_steps = 0;
     // Frustration builds while stuck and fades after traffic starts moving.
     // It changes comfort gaps and launch acceleration, never legal controls.
     float delay_seconds = 0.0f;
+
+    // HOW LONG THIS DRIVER HAS SAT BEHIND SOMETHING SLOW. Separate from
+    // delay_seconds on purpose: that clock runs at any standstill, including a
+    // red light, and a red light is not something you overtake. This one only
+    // accrues behind an obstruction — a leader well under the driver's own
+    // cruise, the player's stopped car, a wreck — and never while the car is
+    // legally held at a control or waiting for a blocked exit. It is what the
+    // civilian overtake and lane-change planners read.
+    float obstruction_wait_s = 0.0f;
+    // Decision index for keyed maneuver rolls (the hesitation before pulling
+    // out). Bumped on every accepted plan, so the next roll is a fresh draw
+    // from the same identity rather than a stream. See choose_next().
+    uint32_t maneuver_decisions = 0;
+    // A car that has just changed lane does not flip straight back.
+    float lane_change_cooldown_s = 0.0f;
+    // JAM RECOVERY (PENG-50). `jam_steps` counts steps deep-blocked — stopped
+    // within a car length or so of a stationary obstruction that is not a
+    // queue, with the pass refused. The ladder (city/traffic_ai.h
+    // recovery_plan) runs on it; `recovery_action_start_steps` is the value
+    // it held when the current action began, so one clock serves both. A
+    // car the ladder gives up on far from the player is marked and swept
+    // after the step: retired permanently, never erased mid-loop.
+    int64_t jam_steps = 0;
+    RecoveryAction recovery_action = RecoveryAction::None;
+    int64_t recovery_action_start_steps = 0;
+    bool jam_retire = false;
+    // HONKING AT THE PLAYER (PENG-51). `honk_player` is the level — the
+    // player-hazard kernel asked for a horn this step (cut off, blocked at
+    // close range); `honk_player_fire` is the one-shot the debounce releases,
+    // true only on the step it fires. Audio reads the one-shot; nothing in
+    // the sim does. The clock the debounce runs on is the sim step.
+    bool honk_player = false;
+    bool honk_player_fire = false;
+    HonkDebounceState honk_debounce{};
 
     // World-space reaction layered over the lane pose. Traffic normally stays
     // cheap and lane-constrained, but a player impact gives it linear and
@@ -625,6 +682,75 @@ struct PedLifeTuning {
     float offset_recover_mps = 1.1f;
 };
 
+// When a civilian pulls out, and how far it goes. All distances are metres,
+// all times seconds of SIM time; the planners read these on the same 10 Hz
+// identity-phased cadence the police moves use.
+struct CivilianManeuverTuning {
+    // An obstruction is a leader closer than this whose speed is under the
+    // driver's cruise by at least the margin. Both must hold for the wait to
+    // accrue; a slow leader far ahead is just traffic.
+    float trigger_gap_m = 24.0f;
+    float slow_leader_margin_mps = 3.0f;
+    // Below this the obstruction counts as stationary. A single-lane overtake
+    // into the oncoming lane is only ever planned around something stationary;
+    // a lane change on a multi-lane road may pass something merely slow.
+    float stationary_mps = 0.5f;
+    // An AI leader stopped mid-block for this long, with no control ahead of
+    // it, is stuck behind something and may be passed. One stopped at or
+    // queued within `queue_window_m` of a signal, stop or yield is a QUEUE,
+    // and a queue is never overtaken.
+    float leader_stalled_s = 10.0f;
+    float queue_window_m = 60.0f;
+    // The run an overtake needs: out, past, and back. The police bypass uses
+    // the same 28–44 m and it is what fits between two junctions on a Street.
+    float overtake_run_min_m = 28.0f;
+    float overtake_run_max_m = 44.0f;
+    // A lane change is one S-curve onto the neighbour lane.
+    float lane_change_run_min_m = 14.0f;
+    float lane_change_run_max_m = 40.0f;
+    // MOBIL incentive: the follow speed on the neighbour lane must beat the
+    // follow speed here by this much before the change is worth it.
+    float lane_change_gain_mps = 2.0f;
+    // Wait behind an obstruction before a lane change is considered at all.
+    // Crossing into the oncoming lane uses the driver's own patience instead
+    // (traffic_profile_may_pass_jam), which is longer and never for Cautious.
+    float lane_change_wait_s = 1.0f;
+    float lane_change_cooldown_s = 8.0f;
+    // ROOM TO PULL OUT. A car that closes to its ordinary 0.6 m behind a
+    // wreck can never swing round it: no arc clears 2 m of body in 3 m of
+    // travel. So behind a stationary obstruction that is NOT a queue the
+    // follow law stops this far back instead, which is also what a driver who
+    // means to get past actually does. A queue keeps the ordinary gap.
+    float standoff_m = 10.0f;
+    // AMBIENT PARKED CARS AS OBSTACLES (PENG-49). Parked bodies on this lane,
+    // its same-direction neighbours and the opposing lane are gathered within
+    // this range for the follow law and the maneuver clearance sweep. A
+    // parked body is an obstruction only when it actually reaches into the
+    // driving corridor by more than the margin; a kerb-clear bay is passed
+    // at cruise. The switch exists so the app can turn the whole thing off
+    // in one place if the presentation ever lags the sim.
+    // The margin is small on purpose: a Street bay leaves 1.30 m between the
+    // lane centre and the parked body against a 1.15 m truck half-width, and
+    // that bay must read as kerb-clear or every truck stops behind every
+    // parked car on every Street.
+    float parked_hazard_range_m = 40.0f;
+    float parked_corridor_margin_m = 0.05f;
+    bool  ambient_parked_obstacles = true;
+    // Deep-blocked means stopped within this bumper gap of a stationary
+    // non-queue obstruction; a car holding its stand-off counts, since the
+    // stand-off is exactly where a refused pass leaves it.
+    float deep_block_gap_m = 12.0f;
+    // Seconds deep-blocked (on top of the ladder giving up, far from the
+    // player) before a wedged car is retired. Mirrors the reference's
+    // TrafficTuning::stuck_despawn_seconds.
+    float stuck_despawn_s = 30.0f;
+    // Least time between two horns at the player from one driver.
+    float player_honk_interval_s = 4.0f;
+    // A keyed per-decision hesitation on top of the patience gate, so a row of
+    // identical drivers does not pull out on the same step.
+    float hesitation_max_s = 1.5f;
+};
+
 struct CrowdTuning {
     // Radii, in metres. Activate < retire, always: one radius means a player
     // idling on the boundary thrashes the same agent in and out forever, which
@@ -675,6 +801,13 @@ struct CrowdTuning {
     // the other.
     PoliceTuning police{};
     float emergency_response_radius_m = 60.0f;
+
+    // Civilian overtaking and lane changes (PENG-47). The gap-acceptance
+    // kernel (overtake_gap_acceptable) and its knobs come from city/traffic_ai.h;
+    // these are the trigger and the arc geometry the crowd adds on top.
+    OvertakeTuning overtake{};
+    CivilianManeuverTuning civilian{};
+    RecoveryTuning recovery{};
 
     // Car length, so a follow gap is bumper to bumper rather than centre to
     // centre. Feeds effective_min_gap()'s floor, which is what stops a steady
@@ -849,6 +982,14 @@ bool traffic_approach_yields(const TrafficApproachView& mine,
                              const TrafficApproachView& other,
                              bool all_way_stop, float eta_tie_seconds);
 
+// The junction post a searching cruiser with ordinal `ordinal` is sent to,
+// one or two hops out from the lane the wanted centre sits on. Exits are
+// ordered by lane KEY, never by LaneRef, so a spine-table reorder cannot move
+// a cruiser to a different corner. kInvalidLane when the centre lane has no
+// exit at all, in which case the caller routes to the centre itself.
+LaneRef police_search_post(const LaneGraph& graph, LaneRef centre_lane,
+                           uint32_t ordinal);
+
 // What one step cost and what it did. Counters only — no timings, because
 // nothing below src/app/ may read a clock. The bench times the phases from
 // outside, which is also why they are separate public calls.
@@ -872,6 +1013,11 @@ struct CrowdStats {
     std::size_t intersection_escapes = 0; // stalled committed cars clearing
     std::size_t ai_collision_pairs = 0;   // broadphase candidates this step
     std::size_t ai_collisions = 0;        // contacts resolved this step
+    std::size_t civilian_overtakes = 0;   // cumulative: oncoming-lane passes planned
+    std::size_t lane_changes = 0;         // cumulative: neighbour-lane changes planned
+    std::size_t nudges = 0;               // cumulative: recovery edge-arounds planned
+    std::size_t jam_despawns = 0;         // cumulative: wedged cars retired by the ladder
+    std::size_t maneuvers_abandoned = 0;  // cumulative: arcs dropped for not advancing
 
     // Pedestrians by activity, this step. Counted over the WHOLE active set
     // rather than over the sub-rate slice, so the numbers describe the street
@@ -1020,7 +1166,34 @@ public:
     std::size_t police_unit_count() const;
     std::size_t police_pursuit_count() const;
     bool player_in_police_view() const;
+    // Does any officer KNOW where the suspect is: a clear world ray from a
+    // unit inside the level's detect_range_m. Wider than the 70 m heat-hold
+    // contact and without the witness cone — this is what the search centre
+    // reads, so a chase at a hundred metres on open road is still a chase.
+    bool police_target_sighted() const;
     const VehicleAgent* nearest_police_pursuer() const;
+    // SEARCH MODE (PENG-44). What the pursuit ROUTES to: the live target while
+    // any unit has him in view, otherwise the point he was last seen at. When
+    // it is frozen the nearest unit holds it and the rest are posted to the
+    // junctions one hop out, so breaking line of sight and turning off means
+    // cruisers arrive at the corner you vanished from and fan out from there,
+    // instead of driving to where you actually are through a wall.
+    glm::vec2 police_search_centre() const { return police_search_centre_; }
+    bool police_searching() const { return police_searching_; }
+    int64_t police_last_seen_step() const { return police_last_seen_step_; }
+    // THE RADIO (PENG-45). The level the DISPATCHER is acting on: zero while a
+    // fresh crime is still on hold — radio latency, then the district's
+    // response time — and the true level once the hold lapses. Witness
+    // conversion never reads it. `police_dispatch_radio_fires(step)` is true
+    // on exactly the step the radio goes out: the app's hook for a callout.
+    int police_responding_level() const { return police_responding_level_; }
+    bool police_dispatch_radio_fires(int64_t step) const {
+        return police_dispatch_radio_step_ >= 0 && police_dispatch_radio_step_ == step;
+    }
+    // Identity space for cruisers the dispatcher instantiates; snowplows own
+    // 0x40000000. A serial that advances on every spawn keeps each one a fresh
+    // departure against permanent retirement.
+    static constexpr uint32_t kPoliceDispatchSlotBase = 0x50000000u;
 
     // A 64-bit digest of the whole active population — identity, mode and
     // state — for the determinism suites. Folded over the SORTED set, so it is
@@ -1079,10 +1252,90 @@ private:
                               float start_m, float distance_m,
                               bool check_world, bool ignore_player = false) const;
     float emergency_obstacle_speed(uint32_t index) const;
+
+    // What is in front of this driver, from the FROZEN reads only. `ai` names
+    // a leader in the lane buckets; otherwise the obstruction is the player's
+    // car or a car the player left. `queue` is an AI leader stopped at or
+    // queued up to a control — the thing a civilian must never pass.
+    struct ObstructionView {
+        bool present = false;
+        bool ai = false;
+        bool queue = false;
+        bool stationary = false;
+        bool player = false;         // the player's own car
+        uint32_t index = 0xFFFFFFFFu;
+        float gap_m = std::numeric_limits<float>::infinity();   // bumper to bumper
+        float speed_mps = 0.0f;
+        glm::vec2 pos_xz{0.0f};      // the obstruction's centre
+        float half_width_m = 1.0f;   // its half-width, for the nudge geometry
+    };
+    ObstructionView classify_obstruction(uint32_t index,
+                                         const VehicleState* player) const;
+    // Indices into ambient_parked_ within `radius_m` of `pos` on `lane`, its
+    // same-direction neighbours and its opposing lane — only lanes that carry
+    // a bay at all. Output order is population order (the list is sorted on
+    // identity), never scan order.
+    void gather_parked_near(LaneRef lane, glm::vec3 pos, float radius_m,
+                            std::vector<uint32_t>& out) const;
+    // Cheap pre-gate for the maneuver planner: does this driver want to plan
+    // anything at all this step? Free-flowing traffic answers no, and the
+    // whole frozen snapshot is skipped.
+    bool civilian_plan_candidate(uint32_t index) const;
+    // WHERE A LATERAL ARC MAY COME BACK TO THE LANE CENTRE.
+    //
+    // The pass and the nudge both end at the centreline, and neither used to
+    // look at what was standing there. Inside a parked bay that is a trap: the
+    // arc merges back onto the next parked bumper, and from a metre behind a
+    // body no arc can start again — any yaw at all swings the nose into it —
+    // so the car wedges itself somewhere it drove to under its own plan.
+    // Measured on a Street bay: one nudge completed, ended 1.2 m short of the
+    // next parked truck, and the car never moved again for the rest of the run.
+    //
+    // So the run is fitted to the kerb as well as to the obstruction: the run
+    // nearest `preferred` within [min, max] whose END leaves the stand-off
+    // clear of every scenery body that reaches into this lane's corridor.
+    // Returns 0 when nothing in the window fits, and the caller declines to
+    // plan — a car that holds its stand-off and waits can still be recovered,
+    // one that has merged back onto a bumper cannot.
+    float lateral_arc_run(uint32_t index, float preferred_run,
+                          float run_min, float run_max) const;
+    // The oncoming lane as the overtake kernel sees it: nearest car coming at
+    // me and nearest car already past, with closing rates, from the frozen
+    // buckets of `opposing`.
+    OvertakeLaneView opposing_lane_view(uint32_t index, LaneRef opposing,
+                                        float pass_speed_mps) const;
+    // The same-direction neighbour lane: leader and follower around my
+    // projected station on it. `station_on_target` is that station.
+    OvertakeLaneView neighbour_lane_view(uint32_t index, LaneRef target,
+                                         float& station_on_target) const;
+    // The civilian planner itself: a lane change if the road has one to
+    // offer, else an overtake into the oncoming lane. `submit` is the one
+    // gate every maneuver goes through (clearance sweep + reservation).
+    void plan_civilian_maneuver(uint32_t index, const VehicleState* player,
+                                const LanePose& start, float clear_to,
+                                const std::function<bool(TrafficManeuver&)>& submit);
+    // The pass attempt (lane change, then oncoming-lane overtake). True when
+    // an arc was submitted.
+    bool plan_civilian_pass(uint32_t index, const ObstructionView& ob,
+                            const LanePose& start, float clear_to,
+                            const std::function<bool(TrafficManeuver&)>& submit);
+    // The recovery ladder for a car the pass could not free (PENG-50).
+    void plan_civilian_recovery(uint32_t index, const ObstructionView& ob,
+                                const VehicleState* player, const LanePose& start,
+                                float clear_to,
+                                const std::function<bool(TrafficManeuver&)>& submit);
     struct EmergencyBody {
         glm::vec3 pos{0}, fwd{1, 0, 0};
         float speed = 0, half_width = 1.15f, half_length = 2.5f;
         TrafficManeuver move{};
+        // SCENERY: a body that will never move on its own — a car parked at a
+        // kerb, an officer standing in the road. NOT merely a body whose speed
+        // is zero this step: a car stopped in a queue starts again, and the
+        // clearance sweep's safety pad is exactly what keeps an arc out of it.
+        // The distinction matters because the sweep treats scenery differently
+        // (see emergency_path_clear); getting it wrong by testing `speed == 0`
+        // instead admits arcs into stopped traffic.
+        bool scenery = false;
     };
     std::vector<EmergencyBody> emergency_frozen_;
     std::vector<EmergencyBody> emergency_obstacles_;
@@ -1162,6 +1415,26 @@ private:
     // the road the lane path CANNOT reach him, so this widens the free-drive
     // hand-off instead of leaving cruisers parked on the tarmac.
     float police_target_offroad_m_ = 0.0f;
+    // Search mode. The centre is what pursuit routes to; the velocity is the
+    // target's at the last sighting (zero while searching, so the intercept
+    // lead does not extrapolate a car nobody can see). `police_level_rose_`
+    // is the 0-or-lower -> higher edge from set_police_context, consumed by
+    // the next update: a fresh crime re-centres on the scene even when no
+    // officer saw it happen.
+    glm::vec2 police_search_centre_{0.0f};
+    glm::vec2 police_search_velocity_{0.0f};
+    int64_t police_last_seen_step_ = -1;
+    bool police_searching_ = false;
+    bool police_level_rose_ = false;
+    // On-demand dispatch and the radio hold.
+    uint32_t police_dispatch_serial_ = 0;
+    ResponseGate police_response_gate_{};
+    int police_responding_level_ = 0;
+    int64_t police_dispatch_radio_step_ = -1;
+    float police_armed_delay_s_ = 0.0f;
+    bool police_escalated_from_zero_ = false;
+    bool police_spawn_pending_ = false;
+    void dispatch_police(glm::vec2 player_xz);
     // Returns true when this agent drove itself this step and the lane path
     // must be skipped entirely.
     bool step_police_free_chase(VehicleAgent& agent, float dt);
@@ -1179,6 +1452,7 @@ private:
     std::vector<LaneRef> touched_lanes_;
     std::vector<float> leader_gap_;  // per vehicle, metres, +inf when clear
     std::vector<float> leader_speed_;  // matching leader speed, +inf when clear
+    std::vector<uint32_t> leader_index_;  // matching leader agent, npos when clear
     std::vector<JunctionSnapshot> junction_frozen_;
     std::vector<std::vector<uint32_t>> junction_heads_;
     std::vector<float> junction_clearance_m_;

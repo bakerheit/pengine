@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 import numpy as np
 from PIL import Image,ImageDraw
-from vesper_mistral_spec import ATLAS_SIZE,REGIONS,WHEELS,SHAPE,LAMPS,DRIVER,DOOR
+from vesper_mistral_spec import ATLAS_SIZE,REGIONS,WHEELS,SHAPE,LAMPS,DRIVER,DOOR,TOP
 from render_firetruck_preview import Part,read_part,raster_view
 from bake_vehicle_surfaces import read_mesh,write_mesh
 
@@ -23,7 +23,8 @@ def texture():
     palette={'SIDE':(157,66,56),'PAINT':(183,83,70),'FRONT':(160,67,55),
              'REAR':(160,67,55),'GLASS':(78,106,111),'SEAT':(47,44,42),
              'DASH':(33,32,31),'RUBBER':(36,34,33),'SHADOW':(73,42,37),
-             'METAL':(123,124,117),'INTERIOR':(43,37,34),'BLACK':(21,23,24)}
+             'METAL':(123,124,117),'INTERIOR':(43,37,34),'BLACK':(21,23,24),
+             'TOP':(44,40,38)}
     for name,box in REGIONS.items():
         d.rectangle(box,fill=palette[name]+(255,))
     def rect(name,a,b,c,e,colour):
@@ -59,6 +60,10 @@ def texture():
     rect('DASH',.64,.22,.90,.62,(15,19,20))
     for t in (.70,.81): rect('DASH',t,.31,t+.05,.49,(145,139,114))
     rect('DASH',.47,.28,.61,.68,(18,21,22));rect('DASH',.49,.34,.59,.40,(91,91,78))
+    # Canvas: bow seams across the width, plus the darker rails the top sits on.
+    rect('TOP',0,0,1,.06,(28,26,25));rect('TOP',0,.94,1,1,(28,26,25))
+    for t in (.28,.55,.80): rect('TOP',0,t,1,t+.035,(31,29,28))
+    rect('TOP',.44,.06,.56,.94,(56,51,48))
     TEXTURE.parent.mkdir(parents=True,exist_ok=True);im.save(TEXTURE)
 
 
@@ -68,7 +73,34 @@ def door_rotation(fraction):
     return np.array([[c,0,s],[0,1,0],[-s,0,c]])
 
 
-def parts(steer=0,door_open=None):
+def top_rotation(axis_angle):
+    """Rotation about the lateral axis; the one axis the chassis fit leaves rigid."""
+    c,s=math.cos(axis_angle),math.sin(axis_angle)
+    return np.array([[1,0,0],[0,c,-s],[0,s,c]])
+
+
+def top_poses(fraction):
+    """(rotation, pivot) for the rear bow and the front bow, in scaled space."""
+    f=min(1,max(0,fraction))
+    rear=top_rotation(math.radians(TOP['stow_degrees'])*f)
+    hinge=np.array(TOP['rear_hinge'])*SCALE
+    joint=np.array(TOP['joint_hinge'])*SCALE
+    front=top_rotation(math.radians(TOP['stow_degrees']+TOP['fold_degrees'])*f)
+    return (rear,hinge,hinge),(front,joint,(joint-hinge)@rear.T+hinge)
+
+
+def top_parts(fraction):
+    out=[]
+    for name,(rotation,pivot,moved) in zip(('soft_top_rear','soft_top_front'),top_poses(fraction)):
+        part=read_part(MODEL/(name+'.emesh'),TEXTURE)
+        part.positions=(part.positions*SCALE-pivot)@rotation.T+moved
+        part.normals=(part.normals/SCALE)@rotation.T
+        part.normals/=np.linalg.norm(part.normals,axis=1)[:,None]
+        out.append(part)
+    return out
+
+
+def parts(steer=0,door_open=None,top=None):
     body=read_part(MODEL/('body.emesh' if door_open is None else 'body_open.emesh'),TEXTURE)
     body.positions*=SCALE;body.normals/=SCALE
     body.normals/=np.linalg.norm(body.normals,axis=1)[:,None]
@@ -90,6 +122,7 @@ def parts(steer=0,door_open=None):
         door.normals=(door.normals/SCALE)@rotation.T
         door.normals/=np.linalg.norm(door.normals,axis=1)[:,None]
         out.append(door)
+    if top is not None: out += top_parts(top)
     return out
 
 
@@ -170,6 +203,47 @@ def validate():
         rotation=door_rotation(fraction)
         assert np.allclose(rotation.T@rotation,np.eye(3),atol=1e-7),'door is not rigid'
         assert np.allclose((hinge-hinge)@rotation.T+hinge,hinge),'hinge moved'
+    # The folding canvas. It is separate geometry, which is why the open-body
+    # assertions above still hold: raising the top must not close the roadster.
+    canvas={}
+    for name in ('soft_top_front','soft_top_rear'):
+        tv,ti=read_mesh(MODEL/(name+'.emesh'));tp=tv[:,:3];tt=tp[ti]
+        assert len(ti) and ti.max()<len(tv) and np.isfinite(tv).all(),name
+        assert ((tv[:,6:8]>=0)&(tv[:,6:8]<=1)).all(),name
+        assert np.all(np.linalg.norm(np.cross(tt[:,1]-tt[:,0],tt[:,2]-tt[:,0]),axis=1)>1e-8),name
+        edges={}
+        for triangle in tt:
+            keys=[tuple(np.round(point,6)) for point in triangle]
+            for a,c in ((0,1),(1,2),(2,0)):
+                edge=tuple(sorted((keys[a],keys[c])));edges[edge]=edges.get(edge,0)+1
+        assert all(count==2 for count in edges.values()),f'uncapped {name}'
+        canvas[name]=tt
+    joint_z=TOP['stations'][TOP['joint']][0]
+    assert abs(canvas['soft_top_front'][:,:,2].min()-joint_z)<1e-6,'front bow misses the joint'
+    assert abs(canvas['soft_top_rear'][:,:,2].max()-joint_z)<1e-6,'rear bow misses the joint'
+    # Raised, it is a roof: the cockpit centreline the body deliberately leaves
+    # open is covered from the windshield header back to the bulkhead.
+    raised=np.concatenate(tuple(canvas.values()))
+    top_samples=0
+    for x in (-.55,-.25,0,.25,.55):
+        for z in (0,-.25,-.50,-.75,-.88):
+            assert any(projected((x,z),t[:,[0,2]]) for t in raised),'raised top leaves a hole'
+            top_samples+=1
+    # Stowed, it is behind the seats, below the raised crown, and inside the
+    # rear deck's own plan so nothing pokes out through the bodywork.
+    stow_samples=0
+    for fraction in np.linspace(0,1,15):
+        moved=[]
+        for part,(rotation,pivot,anchor) in zip((canvas['soft_top_rear'],canvas['soft_top_front']),
+                                                top_poses(fraction)):
+            assert np.allclose(rotation.T@rotation,np.eye(3),atol=1e-7),'canvas bow is not rigid'
+            moved.append((part.reshape(-1,3)*SCALE-pivot)@rotation.T+anchor)
+            stow_samples+=1
+        both=np.concatenate(moved)
+        assert np.abs(both[:,0]).max()<=.78*SCALE[0]+1e-6,'canvas wider than the deck'
+        assert both[:,2].min()>=-2.0*SCALE[2],'canvas overhangs the tail'
+    assert both[:,1].max()<1.08*SCALE[1],'stowed canvas stands proud of the seat backs'
+    assert both[:,2].max()<-.86*SCALE[2],'stowed canvas still reaches into the cockpit'
     for name,lamp in LAMPS.items():
         faces=tris[np.isclose(tris[:,:,2],lamp['z'],atol=1e-6).all(1)]
         for x0,x1 in lamp['x']:
@@ -199,7 +273,9 @@ def validate():
     report=dict(asset='VESPER MISTRAL',mesh=str(MODEL/'body.emesh'),texture=str(TEXTURE),
                 vertices=len(v),triangles=len(ids),bounds_min=lo.tolist(),bounds_max=hi.tolist(),bounds_size=(hi-lo).tolist(),
                 shape_contract=SHAPE,wheel_anchors=WHEELS,lamp_regions=LAMPS,driver_layout=DRIVER,atlas=[256,256,'RGBA'],palette_colours=len(im.getcolors(65536)),
-                driver_door=DOOR,doorway_samples=door_samples,
+                driver_door=DOOR,doorway_samples=door_samples,soft_top=TOP,
+                soft_top_triangles={name:len(part) for name,part in canvas.items()},
+                soft_top_samples=top_samples+stow_samples,
                 articulated_triangles={name:len(data[1]) for name,data in articulated.items()},
                 uv_range=[v[:,6:8].min(0).tolist(),v[:,6:8].max(0).tolist()],
                 player_scale=SCALE.tolist(),shared_wheel_radius=.32,shared_wheel_halfwidth=halfwidth,
@@ -210,6 +286,8 @@ def validate():
                         'four open side pockets','broad hood and deck over both axles',
                         'open two-seat cockpit','true driver doorway with fixed sill and capped driver panel',
                         'closed articulated bounds match full body; fitted door swings outward rigidly',
+                        'two-bow folding canvas: capped volumes, shared joint station',
+                        'raised canvas roofs the open cockpit; stowed canvas folds inside the deck plan',
                         'all declared lamp regions have physical end-face receivers',
                         'shared-wheel cylinder clearance at 17 steering angles including +/-0.82 rad'])
     (BUILD/'vesper_mistral-fit-report.json').write_text(json.dumps(report,indent=2)+'\n')
@@ -234,6 +312,14 @@ def previews():
         door_sheet.paste(raster_view(parts(door_open=fraction),yaw,pitch,480,380),(x,y))
         door_draw.text((x+12,y+389),label,fill=(225,216,194))
     door_sheet.save(BUILD/'vesper_mistral-door-preview.png')
+    top_sheet=Image.new('RGB',(1440,820),(19,21,25));top_draw=ImageDraw.Draw(top_sheet)
+    for i,(label,fraction,yaw,pitch) in enumerate([
+            ('TOP UP',0,-32,14),('RAISING 0.35',.35,-90,10),('RAISING 0.70',.70,-90,10),
+            ('TOP DOWN',1,-90,10),('TOP UP SIDE',0,-90,6),('TOP DOWN REAR',1,-148,26)]):
+        x,y=(i%3)*480,(i//3)*410
+        top_sheet.paste(raster_view(parts(top=fraction),yaw,pitch,480,380),(x,y))
+        top_draw.text((x+12,y+389),label,fill=(225,216,194))
+    top_sheet.save(BUILD/'vesper_mistral-top-preview.png')
     raster_view(straight,-32,35,1100,900).save(BUILD/'vesper_mistral-detail.png')
     qa_mesh(locked,'vesper_mistral-wheel-qa')
     a=math.radians(-25);c,s=math.cos(a),math.sin(a)

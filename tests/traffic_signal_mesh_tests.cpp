@@ -1,5 +1,6 @@
 #include <cstdio>
 #include "app/traffic_signal_mesh.h"
+#include "app/road_sign_mesh.h"
 #include "app/traffic_visual_layout.h"
 #include "test_assert.h"
 using namespace apricot;
@@ -47,6 +48,10 @@ int main() {
     const auto pole=make_traffic_signal_pole();
     const auto arm=make_traffic_signal_arm();
     for(const auto* mesh:{&shell,&border,&lens,&pole,&arm})validate(*mesh);
+    for (int kind = 0; kind < 3; ++kind) {
+        const auto sign = make_road_sign_mesh(kind == 2, kind == 1);
+        for (const auto& part : sign) validate(part);
+    }
     REQUIRE(shell.indices.size()/3u<500u);
     REQUIRE(lens.indices.size()/3u==20u);
     for(const auto& v:lens.vertices) {

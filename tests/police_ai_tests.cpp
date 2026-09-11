@@ -187,44 +187,53 @@ void test_police_terminal_pursuit_characterization() {
 // =============================================================================
 
 void test_wanted_heat_decay_los_gated() {
-    PoliceTuning t;   // lose_track_window 8 s, heat_decay_rate 0.22/s
+    PoliceTuning t;   // heat_decay_rate 0.22/s; the window is the caller's (8 s here)
+    constexpr float kWindow = 8.0f;
 
     // In ANY cop's view -> heat HOLDS and the lose-track timer refreshes to 0,
     // however long it had been running (Bug 1: no pure-timer decay while seen).
     {
         HeatDecay d = wanted_heat_decay_step(/*heat=*/6.f, /*timer=*/5.f,
-                                             /*in_view=*/true, /*dt=*/0.1f, t);
+                                             /*in_view=*/true, /*dt=*/0.1f, kWindow, t);
         REQUIRE(d.heat == 6.f);
         REQUIRE(d.lose_track_timer == 0.f);
     }
     // Out of view but still inside the grace window -> heat holds, timer accrues.
     {
-        HeatDecay d = wanted_heat_decay_step(6.f, 1.f, false, 0.5f, t);
+        HeatDecay d = wanted_heat_decay_step(6.f, 1.f, false, 0.5f, kWindow, t);
         REQUIRE(d.heat == 6.f);
         REQUIRE(std::fabs(d.lose_track_timer - 1.5f) < 1e-5f);
     }
     // Out of view past the grace window -> heat cools at heat_decay_rate.
     {
-        HeatDecay d = wanted_heat_decay_step(6.f, 8.5f, false, 1.0f, t);
+        HeatDecay d = wanted_heat_decay_step(6.f, 8.5f, false, 1.0f, kWindow, t);
         REQUIRE(std::fabs(d.heat - (6.f - 0.22f)) < 1e-5f);
         REQUIRE(std::fabs(d.lose_track_timer - 9.5f) < 1e-5f);
     }
     // Re-sight after the cooldown started refreshes the timer and stops the decay.
     {
-        HeatDecay d = wanted_heat_decay_step(4.f, 20.f, true, 1.0f, t);
+        HeatDecay d = wanted_heat_decay_step(4.f, 20.f, true, 1.0f, kWindow, t);
         REQUIRE(d.heat == 4.f);
         REQUIRE(d.lose_track_timer == 0.f);
     }
     // Decay floors at 0 and can't go negative.
     {
-        HeatDecay d = wanted_heat_decay_step(0.1f, 100.f, false, 1.0f, t);
+        HeatDecay d = wanted_heat_decay_step(0.1f, 100.f, false, 1.0f, kWindow, t);
         REQUIRE(d.heat == 0.f);
     }
     // No heat -> stays cleared, timer zeroed (idle, so a re-offence starts fresh).
     {
-        HeatDecay d = wanted_heat_decay_step(0.f, 5.f, false, 1.0f, t);
+        HeatDecay d = wanted_heat_decay_step(0.f, 5.f, false, 1.0f, kWindow, t);
         REQUIRE(d.heat == 0.f);
         REQUIRE(d.lose_track_timer == 0.f);
+    }
+    // The window is whatever the caller says it is: 30 s holds at 29.9 and
+    // cools at 30.1.
+    {
+        HeatDecay hold = wanted_heat_decay_step(6.f, 29.8f, false, 0.1f, 30.f, t);
+        REQUIRE(hold.heat == 6.f);
+        HeatDecay cool = wanted_heat_decay_step(6.f, 30.0f, false, 0.1f, 30.f, t);
+        REQUIRE(cool.heat < 6.f);
     }
 }
 
@@ -452,11 +461,15 @@ void test_police_ram_verdict() {
         auto v = police_ram_verdict({0.f, 0.f, 0.f}, {0.f, 0.f, 9.f}, n);
         REQUIRE(!v.player_rammed);
     }
-    // Love-tap below the 3 m/s ram gate (parking-lot nudge / low-speed grind)
-    // never latches, even though the player is the mover.
+    // Resting contact below the 1 m/s ram gate (solver vibration, a car
+    // settling against a bumper) never latches, even though the player is the
+    // mover. A deliberate parking-speed bump does: that is the shipped gate
+    // the offence tracker runs, and police_offense_tests pins the same 1.25.
     {
-        auto v = police_ram_verdict({0.f, 0.f, -2.f}, {0.f, 0.f, 0.f}, n);
+        auto v = police_ram_verdict({0.f, 0.f, -0.5f}, {0.f, 0.f, 0.f}, n);
         REQUIRE(!v.player_rammed);
+        auto bump = police_ram_verdict({0.f, 0.f, -1.25f}, {0.f, 0.f, 0.f}, n);
+        REQUIRE(bump.player_rammed);
     }
     // Exactly-equal mutual head-on: benefit of the doubt (strict >) -> no heat.
     {
@@ -696,13 +709,47 @@ void test_police_should_ram() {
 
     REQUIRE(!ram(false, false, 3, 12.f, 14.f, 18.f));   // not engaged
     REQUIRE(!ram(true, true, 3, 12.f, 14.f, 18.f));     // suspect on foot
-    REQUIRE(!ram(true, false, t.ram_min_wanted - 1, 12.f, 14.f, 18.f));
+    REQUIRE(!ram(true, false, police_min_ram_level() - 1, 12.f, 14.f, 18.f));
     REQUIRE(!ram(true, false, 3, t.ram_min_ahead - 0.1f, 14.f, 18.f)); // behind
     REQUIRE(!ram(true, false, 3, 12.f, t.ram_range + 0.1f, 18.f));     // too far
     REQUIRE(!ram(true, false, 3, 12.f, 14.f, 5.9f));    // a scrape, not a ram
     REQUIRE(!ram(true, false, 3, std::numeric_limits<float>::quiet_NaN(),
                  14.f, 18.f));
-    REQUIRE(ram(true, false, t.ram_min_wanted, t.ram_min_ahead, t.ram_range, 6.f));
+    REQUIRE(ram(true, false, police_min_ram_level(), t.ram_min_ahead, t.ram_range, 6.f));
+}
+
+// One row per star. Levels 1–5 must be exactly what the scattered literals
+// were before the table existed — the runtime suites pin the cadence in steps
+// and the unit budget by count, and this is the test that says the refactor
+// moved nothing. The pinned points below are the old expressions written out.
+void test_police_level_profile_table() {
+    for (int level = 1; level <= 5; ++level) {
+        const PoliceLevelProfile& p = police_level_profile(level);
+        REQUIRE(p.units == std::min(8, level + 2));
+        const float old_cadence = level >= 4 ? 0.4f : level >= 2 ? 0.7f : 1.4f;
+        REQUIRE_NEAR(p.cadence_s, old_cadence, 1e-6f);
+        REQUIRE(p.hazard_braking == (level <= 2));
+        REQUIRE(p.may_ram == (level >= 2));
+        REQUIRE_NEAR(p.cruise_bonus_mps, 0.6f * static_cast<float>(level), 1e-6f);
+        REQUIRE(p.may_spawn);
+    }
+    REQUIRE(police_level_profile(0).units == 0);
+    REQUIRE(!police_level_profile(0).may_ram);
+    REQUIRE(!police_level_profile(0).may_spawn);
+    // Clamped at both ends, the way every caller used to clamp on its own.
+    REQUIRE(police_level_profile(-3).units == police_level_profile(0).units);
+    REQUIRE(police_level_profile(9).units == police_level_profile(5).units);
+    for (int level = 1; level < 5; ++level) {
+        REQUIRE(police_level_profile(level).escape_s <
+                police_level_profile(level + 1).escape_s);
+        REQUIRE(police_level_profile(level).detect_range_m <
+                police_level_profile(level + 1).detect_range_m);
+    }
+    REQUIRE(police_level_profile(0).detect_range_m == 0.0f);
+    REQUIRE(police_min_ram_level() == 2);
+    // The bonus is pinned below the 38 m/s cap, where it is actually visible:
+    // 10 m/s suspect, three stars -> 10*1.3 + 6 + 1.8.
+    REQUIRE_NEAR(police_pursuit_cruise_mps(0.0f, 10.0f, 3), 20.8f, 1e-5f);
 }
 
 }  // namespace
@@ -726,6 +773,7 @@ int main() {
     // Who rammed whom, and who decides to.
     test_police_ram_verdict();
     test_police_should_ram();
+    test_police_level_profile_table();
 
     // Running the lights while engaged.
     test_police_control_override_speed();

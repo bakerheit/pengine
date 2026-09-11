@@ -375,6 +375,7 @@ void LaneGraph::build(const RoadGraph& graph, const GroundSampler& ground,
                 l.traffic_density = e.traffic_density;
                 l.ped_density = e.ped_density;
                 l.parked_density = e.parked_density;
+                l.response_s = e.response_s;
                 l.block_quality = e.block_quality;
                 add_lane(std::move(l));
             }

@@ -50,6 +50,15 @@ inline bool traffic_horn_blocked(const VehicleAgent& car, const LaneGraph& graph
     return true;
 }
 
+// The horn AT the player (PENG-51): the sim's debounced one-shot, fired the
+// step a driver is cut off or blocked at close range. Deliberately a second
+// predicate and not a relaxation of the first — this one fires at a red
+// light, which is exactly where the frustration rule must stay silent.
+inline bool traffic_horn_at_player(const VehicleAgent& car) {
+    return car.honk_player_fire && !car.police_pursuit &&
+           !vehicle_engine_failed(car.mechanical);
+}
+
 struct TrafficHornEvent {
     VisiblePoliceIdentity driver{};
     uint64_t step=0;
@@ -111,6 +120,7 @@ public:
             }
         }
         const VehicleAgent* chosen=nullptr;
+        bool chosen_at_player=false;
         float best_distance2=kAudibleRangeM*kAudibleRangeM;
         for (const auto& car:cars) {
             const auto delta=car.pos-listener;
@@ -118,20 +128,28 @@ public:
             if (!(distance2<kAudibleRangeM*kAudibleRangeM)) continue;
             auto& driver=drivers_[id(car)];
             driver.last_seen=step;
-            if (!traffic_horn_blocked(car,graph,static_cast<int64_t>(step),tuning)) {
-                driver.blocked_since.reset(); continue;
+            const bool at_player=traffic_horn_at_player(car);
+            if (!traffic_horn_blocked(car,graph,static_cast<int64_t>(step),tuning))
+                driver.blocked_since.reset();
+            else if (!driver.blocked_since) driver.blocked_since=step;
+            if (bank_->traffic_horns[traffic_horn_clip(car)].empty() ||
+                step<driver.next_honk) continue;
+            if (!at_player) {
+                // Frustration: the patience wait, and only while actually blocked.
+                if (!driver.blocked_since) continue;
+                const uint64_t seed=traffic_horn_seed(car.lane_key,car.slot);
+                const float stagger=float((seed>>8)&1023u)/1023.0f*0.65f;
+                const auto wait=seconds_to_steps(std::max(0.5f,car.profile.honk_after)+stagger);
+                if (step-*driver.blocked_since<wait ||
+                    car.delay_seconds<car.profile.honk_after) continue;
             }
-            if (!driver.blocked_since) driver.blocked_since=step;
-            const uint64_t seed=traffic_horn_seed(car.lane_key,car.slot);
-            const float stagger=float((seed>>8)&1023u)/1023.0f*0.65f;
-            const auto wait=seconds_to_steps(std::max(0.5f,car.profile.honk_after)+stagger);
-            if (step-*driver.blocked_since<wait || step<driver.next_honk ||
-                car.delay_seconds<car.profile.honk_after ||
-                bank_->traffic_horns[traffic_horn_clip(car)].empty()) continue;
-            if (!chosen || distance2<best_distance2 ||
-                (distance2==best_distance2 && id(car)<id(*chosen))) {
-                chosen=&car; best_distance2=distance2;
-            }
+            // A horn at the player outranks a frustrated one; then nearest.
+            const bool better = !chosen ||
+                (at_player && !chosen_at_player) ||
+                (at_player==chosen_at_player &&
+                 (distance2<best_distance2 ||
+                  (distance2==best_distance2 && id(car)<id(*chosen))));
+            if (better) { chosen=&car; chosen_at_player=at_player; best_distance2=distance2; }
         }
         for (auto it=drivers_.begin();it!=drivers_.end();) {
             if (it->second.last_seen!=step) it=drivers_.erase(it);
@@ -155,7 +173,8 @@ public:
         voice->params=params; voice->driver=id(*chosen);
         voice->end_step=step+seconds_to_steps(bank_->traffic_horns[clip].duration_seconds()/params.pitch);
         auto& driver=drivers_[voice->driver];
-        const float repeat=std::max(4.5f,chosen->profile.patience_seconds+2.0f)+
+        const float repeat=chosen_at_player ? 2.0f :
+            std::max(4.5f,chosen->profile.patience_seconds+2.0f)+
             float((seed>>32)&1023u)/1023.0f*1.5f;
         driver.next_honk=step+seconds_to_steps(repeat);
         next_global_step_=step+seconds_to_steps(0.65f);

@@ -85,12 +85,14 @@ struct PoliceTuning {
     // Bug 1 (LOS-gated decay): while the offender is inside ANY police unit's view
     // (the SAME range + cone + LOS gate as the witness check above, applied across
     // every cop), the wanted level HOLDS — it does not decay and "last seen"
-    // refreshes. Only once the player is out of ALL police LOS does this lose-track
-    // grace run; if the player isn't re-sighted within `lose_track_window`, heat
-    // then cools at `heat_decay_rate` per second. (heat_decay_rate carries the
-    // pre-PCG-030 rate so the cooldown slope itself is unchanged — only the GATE
-    // changed from a pure timer to line-of-sight.)
-    float lose_track_window = 8.0f;    // s out of all police LOS before heat cools
+    // refreshes. Only once the player is out of ALL police LOS does the
+    // lose-track grace run; if the player isn't re-sighted within that window,
+    // heat then cools at `heat_decay_rate` per second. The window itself is
+    // PER LEVEL — kPoliceLevelProfiles[level].escape_s, thirty seconds at one
+    // star and eighty-two at five — and is passed to wanted_heat_decay_step by
+    // the caller. (heat_decay_rate carries the pre-PCG-030 rate so the cooldown
+    // slope itself is unchanged — only the GATE changed from a pure timer to
+    // line-of-sight.)
     float heat_decay_rate   = 0.22f;   // heat/s once the lose-track grace elapses
 
     // Bug 2 (graceful stand-down): when the chase ends a pursuer must not pop out
@@ -155,8 +157,8 @@ struct PoliceTuning {
     //   control_override_speed — cap while crossing against a red or a stop.
     //   control_override_slack — extra metres per metre of remaining approach,
     //                            so the run-up is quick and only the line is slow.
-    //   ram_min_wanted         — no deliberate contact below this level; a
-    //                            one-star traffic stop is not a demolition derby.
+    //   (whether a level may ram at all lives in kPoliceLevelProfiles below;
+    //    a one-star traffic stop is not a demolition derby.)
     //   ram_range / ram_min_ahead — the window, ahead along the cruiser's own
     //                            lane, in which lining up on the player is worth
     //                            leaving the lane centre for.
@@ -189,13 +191,103 @@ struct PoliceTuning {
     // turn curve itself is unchanged, so this buys speed, not a different line.
     float turn_speed_scale = 1.7f;
 
-    int   ram_min_wanted  = 2;
     float ram_range       = 34.0f;
     float ram_min_ahead   = 5.0f;
+
+    // ON-DEMAND CRUISERS (PENG-45). When the dispatcher finds no resident
+    // patrol to convert, one is instantiated on a lane in this annulus around
+    // the wanted centre — outside the activation radius so it is never seen
+    // appearing, inside the retire radius so the next refresh does not delete
+    // it — occluded from the centre, biased toward the suspect's heading.
+    // Never keyed on the camera.
+    float spawn_min_m = 220.0f;
+    float spawn_max_m = 300.0f;
+    // THE BEAT OF NOTHING. A crime is followed by `radio_latency_s` of silence
+    // before the dispatch radio goes out, then the district's authored
+    // response time before any non-witness unit is converted or spawned. A
+    // patrol that saw it happen reacts on the frame regardless. Lanes with no
+    // authored response (test grids, editor roads) use `default_response_s`.
+    // Both at zero disables the hold entirely.
+    float radio_latency_s = 1.5f;
+    float default_response_s = 12.0f;
 
     // PCG-245 — dispatcher-level roadblock tactic (see RoadblockTuning above).
     RoadblockTuning roadblock{};
 };
+
+// WHAT A WANTED LEVEL MEANS, in one place. Before this table the level was
+// read through a handful of literals scattered across the crowd, the lane
+// maneuvers and the kernels below — `min(8, level + 2)` here, a three-way
+// cadence ladder there, `level <= 2` in a hazard gate — and the only way to
+// learn what three stars did differently from two was to grep. Escalation
+// content (search timers, spawning, roadblocks, firing at a car) hangs off
+// this row, so adding a level's worth of behaviour is a column, not a hunt.
+//
+// Levels 1–5 are numerically what the literals were, on purpose: the runtime
+// suites pin the cadence in exact steps and the unit budget by count, and a
+// refactor that moves them is not a refactor. `escape_s` is the one new
+// number — seconds out of every officer's line of sight before heat starts
+// to cool — and it takes over from the flat 8 s window when search mode
+// lands. Row 0 is "no crime": nobody is dispatched and nothing escalates.
+struct PoliceLevelProfile {
+    int   units;             // dispatcher target: converted patrols + spawns
+    float cadence_s;         // one dispatcher conversion per this many seconds
+    float escape_s;          // out-of-all-LOS seconds before heat cools
+    float detect_range_m;    // a unit with a clear world ray inside this KNOWS
+                             // where the suspect is (the wanted centre tracks)
+    float cruise_bonus_mps;  // added to the pursuit catch-up speed
+    bool  hazard_braking;    // a pursuer still brakes for the player as a hazard
+    bool  may_ram;           // deliberate contact allowed
+    bool  may_spawn;         // an off-screen cruiser may be instantiated
+    bool  fire_at_vehicle;   // officers may fire on a driving suspect (reserved)
+};
+
+// detect_range_m is the reference game's per-star detection radius (145 m at
+// one star to 850 m at five): the distance at which an officer who can see
+// you is considered to know where you are. It is NOT the heat-hold contact
+// range (pursuit_contact_range, 70 m) and not the witness cone.
+inline constexpr PoliceLevelProfile kPoliceLevelProfiles[6] = {
+    // units cadence escape detect cruise  hazard ram    spawn  fire
+    {0,      1.4f,    8.0f,   0.0f, 0.0f,  true,  false, false, false}, // 0: clean
+    {3,      1.4f,   30.0f, 145.0f, 0.6f,  true,  false, true,  false},
+    {4,      0.7f,   37.0f, 230.0f, 1.2f,  true,  true,  true,  false},
+    {5,      0.7f,   45.0f, 340.0f, 1.8f,  false, true,  true,  false},
+    {6,      0.4f,   56.0f, 510.0f, 2.4f,  false, true,  true,  true },
+    {7,      0.4f,   82.0f, 850.0f, 3.0f,  false, true,  true,  true },
+};
+
+// Clamps: a level below zero is clean, one above five is five. Every caller
+// that used to clamp on its own now gets the same answer from here.
+constexpr const PoliceLevelProfile& police_level_profile(int wanted_level) {
+    return kPoliceLevelProfiles[wanted_level < 0 ? 0 : wanted_level > 5 ? 5
+                                                                        : wanted_level];
+}
+
+// The first level at which `may_ram` is set — what `ram_min_wanted` used to
+// be, derived from the table instead of duplicated beside it.
+constexpr int police_min_ram_level() {
+    for (int level = 0; level < 6; ++level)
+        if (kPoliceLevelProfiles[level].may_ram) return level;
+    return 6;
+}
+
+static_assert(police_min_ram_level() == 2, "two stars is the ramming threshold");
+static_assert(kPoliceLevelProfiles[0].units == 0, "a clean player is not dispatched on");
+static_assert(kPoliceLevelProfiles[1].units <= kPoliceLevelProfiles[2].units &&
+              kPoliceLevelProfiles[2].units <= kPoliceLevelProfiles[3].units &&
+              kPoliceLevelProfiles[3].units <= kPoliceLevelProfiles[4].units &&
+              kPoliceLevelProfiles[4].units <= kPoliceLevelProfiles[5].units,
+              "more stars never means fewer units");
+static_assert(kPoliceLevelProfiles[1].detect_range_m < kPoliceLevelProfiles[2].detect_range_m &&
+              kPoliceLevelProfiles[2].detect_range_m < kPoliceLevelProfiles[3].detect_range_m &&
+              kPoliceLevelProfiles[3].detect_range_m < kPoliceLevelProfiles[4].detect_range_m &&
+              kPoliceLevelProfiles[4].detect_range_m < kPoliceLevelProfiles[5].detect_range_m,
+              "more stars see further");
+static_assert(kPoliceLevelProfiles[1].escape_s < kPoliceLevelProfiles[2].escape_s &&
+              kPoliceLevelProfiles[2].escape_s < kPoliceLevelProfiles[3].escape_s &&
+              kPoliceLevelProfiles[3].escape_s < kPoliceLevelProfiles[4].escape_s &&
+              kPoliceLevelProfiles[4].escape_s < kPoliceLevelProfiles[5].escape_s,
+              "more stars always takes longer to shake");
 
 // An engaged pursuer's speed at a control it is running (pure). `slack` is the
 // remaining metres to the stop line, and the result is the cap that REPLACES
@@ -336,8 +428,10 @@ float police_turn_speed_mps(float ambient_cap, bool engaged,
 // whether the offender is in any cop's view THIS frame, and the frame dt, returns
 // the next (heat, lose_track_timer):
 //   in view      -> the level HOLDS; the timer resets to 0 ("last seen" refreshed).
-//   out of view  -> the timer accrues; only once it passes lose_track_window does
-//                   heat decay at heat_decay_rate per second. Heat floors at 0.
+//   out of view  -> the timer accrues; only once it passes `lose_track_window_s`
+//                   does heat decay at heat_decay_rate per second. Heat floors
+//                   at 0. The window is the caller's: the wanted system passes
+//                   the profile's escape_s for the CURRENT level.
 // No sim / scene state, so the hold/grace/decay branch is pinned headless by the
 // headless. (The 1..5 level bucketing stays with the wanted system.)
 struct HeatDecay {
@@ -346,6 +440,7 @@ struct HeatDecay {
 };
 HeatDecay wanted_heat_decay_step(float heat, float lose_track_timer,
                                  bool in_police_view, float dt,
+                                 float lose_track_window_s,
                                  const PoliceTuning& t);
 
 // PCG-030 graceful police stand-down (pure, Bug 2). Decides whether a police
@@ -463,9 +558,11 @@ inline bool police_is_pursuit_unit(bool driver_is_police,
 // pure (glm only) so the rule pins headless; the collision
 // resolver feeds it the pre-impulse contact-point velocities.
 //
-// Below this total closing speed a contact is a love-tap / parking nudge, not
-// a ram — mirrors player_car_hit's 3 m/s "clearly moving" gate.
-constexpr float POLICE_RAM_MIN_CLOSING_MPS = 3.0f;
+// Below this total closing speed a contact is resting contact / solver
+// vibration, not a ram. 1 m/s is the shipped gate the offence tracker ran
+// inline before it called this kernel: a deliberate parking-speed bump into a
+// cruiser counts, a car settling against a bumper does not.
+constexpr float POLICE_RAM_MIN_CLOSING_MPS = 1.0f;
 
 struct PoliceRamVerdict {
     bool  player_rammed = false;  // attributed to the player -> raise wanted

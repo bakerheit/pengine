@@ -385,6 +385,7 @@ void RoadGraph::build(const std::vector<RoadSpine>& spines,
             e.traffic_density = sp.traffic_density;
             e.ped_density = sp.ped_density;
             e.parked_density = sp.parked_density;
+            e.response_s = sp.response_s;
             e.spine_id = sp.id;
             e.spine_run = run++;
 

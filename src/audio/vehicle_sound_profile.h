@@ -18,7 +18,7 @@ struct VehicleSoundProfile {
     float pitch = 1.0f;
 };
 
-inline constexpr std::array<VehicleSoundProfile, 27> kVehicleSoundProfiles{{
+inline constexpr std::array<VehicleSoundProfile, 28> kVehicleSoundProfiles{{
     {"alder_pip", 1.08f},
     {"alder_wayfarer", 0.98f},
     {"alder_ridge", 0.94f},
@@ -31,6 +31,7 @@ inline constexpr std::array<VehicleSoundProfile, 27> kVehicleSoundProfiles{{
     {"harrow_hauler", 0.83f},
     {"harrow_parcel", 0.85f},
     {"car5", 1.00f},
+    {"car5_next", 1.03f},
     {"car8", 0.90f},
     {"montrose_regent_eight", 0.84f},
     {"ambulance", 0.82f},

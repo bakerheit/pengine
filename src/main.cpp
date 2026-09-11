@@ -38,6 +38,7 @@ void print_usage() {
         "  --police-officer-check test witnessed red, impact, officer exit/fire/arrest/return (6000+ frames)\n"
         "  --police-pursuit-check test an away-facing cruiser turning and pulling over (6000+ frames)\n"
         "  --traffic-horn-check test real traffic impatience, horn playback and lane release (6000+ frames)\n"
+        "  --convertible-check capture the Mistral canvas up, folding and stowed (1000+ frames)\n"
         "  --wanted N      start with wanted level 1-5 for pursuit QA\n"
         "  --no-instancing start on the naive per-node draw path\n"
         "  --warp-every N  teleport across the island every N frames\n"
@@ -124,6 +125,7 @@ int main(int argc, char** argv) {
     bool police_officer_check=false;
     bool police_pursuit_check=false;
     bool traffic_horn_check=false;
+    bool convertible_check=false;
     int start_wanted=0;
     bool weapon_check=false;
     bool house_check=false;
@@ -192,6 +194,7 @@ int main(int argc, char** argv) {
             police_pursuit_check=true; police_officer_check=true; continue;
         }
         if (std::strcmp(a,"--traffic-horn-check")==0) { traffic_horn_check=true; continue; }
+        if (std::strcmp(a,"--convertible-check")==0) { convertible_check=true; continue; }
         if (std::strcmp(a,"--wanted")==0) {
             if (++i>=argc) { std::fprintf(stderr,"--wanted needs a level from 1 to 5\n"); return 2; }
             start_wanted=std::atoi(argv[i]);
@@ -360,6 +363,20 @@ int main(int argc, char** argv) {
     }
 
     apricot::App app;
+    if (convertible_check) {
+        // The canvas takes 2.4 s each way and the second press lands at frame
+        // 420; below this there is no room left to capture the return.
+        if (frame_limit<1000) {
+            std::fprintf(stderr,"--convertible-check needs --frames 1000 or more\n");return 2;
+        }
+        if (!player_car_explicit) start_car=apricot::PlayerCarId::VesperMistral;
+        if (!apricot::is_convertible(start_car)) {
+            std::fprintf(stderr,"--convertible-check needs a convertible --player-car\n");return 2;
+        }
+        clear_weather=true; daylight_qa=true; start_driving=true; road_start_qa=true;
+        if (!screenshot_path) screenshot_path="build/convertible-check";
+        app.set_convertible_check(true);
+    }
     if (traffic_horn_check) {
         if (frame_limit<6000 || house_check || signal_check || tire_track_check ||
             vehicle_entry_check || driver_transition_check || aircraft_check || boat_check ||
@@ -524,6 +541,9 @@ int main(int argc, char** argv) {
     int rc = app.run();
     if (traffic_horn_check && !app.traffic_horn_check_passed()) {
         AP_ERROR("traffic horn gameplay regression did not complete");rc=1;
+    }
+    if (convertible_check && !app.convertible_check_passed()) {
+        AP_ERROR("convertible top regression did not capture all three poses");rc=1;
     }
     if (police_officer_check && !app.police_officer_check_passed()) {
         AP_ERROR("police officer gameplay regression did not complete");rc=1;

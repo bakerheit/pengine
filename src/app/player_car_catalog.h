@@ -37,6 +37,8 @@ enum class PlayerCarId : uint8_t {
     MunicipalCruiser91D,
     MunicipalCruiser91E,
     FangVenom,  // appended: checkpoint ids above remain stable
+    LegacyCar5Next,
+    LegacyCar8Ambulance,
     kCount,
 };
 
@@ -131,9 +133,29 @@ inline constexpr std::array<PlayerCarDefinition, kSelectablePlayerCarCount>
          "models/vehicles/car5/body.emesh",
          "textures/vehicles/car5/body.png",
          0.45f, 1.038f, 2.254f, 1.813f},
+        // Car 5's shell with the driver door cut out of it, so the fit numbers
+        // are Car 5's numbers. They must stay equal: the door anchors in
+        // car5_next_door.h are in that body's source units and the cut in
+        // tools/car5_next_spec.py derives its driver rig from this row.
+        // Shares Car 5's paint on purpose: the cut does not touch a UV, so a
+        // copied atlas could only ever drift away from the body it wraps. Only
+        // the mesh path selects a model folder for lamps, snow and engine note.
+        {PlayerCarId::LegacyCar5Next, "LEGACY", "CAR 5-NEXT",
+         "models/vehicles/car5_next/body.emesh",
+         "textures/vehicles/car5/body.png",
+         0.45f, 1.038f, 2.254f, 1.813f},
         {PlayerCarId::LegacyCar8, "LEGACY", "CAR 8",
          "models/vehicles/car8/body.emesh",
          "textures/vehicles/car8/body.png",
+         0.525f, 1.10f, 1.65f, 2.25f},
+        // Car 8's own shell in a different paint, so the fit numbers are Car
+        // 8's numbers and they must stay equal to the row above. The mesh path
+        // is what picks a model folder for lamps, snow and the engine note, so
+        // sharing it is the point: this is a repaint, not a second vehicle.
+        // tools/make_car8_ambulance_texture.py cooks the atlas.
+        {PlayerCarId::LegacyCar8Ambulance, "LEGACY", "CAR 8 AMBULANCE",
+         "models/vehicles/car8/body.emesh",
+         "textures/vehicles/car8/ambulance.png",
          0.525f, 1.10f, 1.65f, 2.25f},
         {PlayerCarId::MontroseRegentEight, "MONTROSE", "REGENT EIGHT",
          "models/vehicles/montrose_regent_eight/body_surface.emesh",
@@ -205,12 +227,12 @@ inline constexpr std::array<PlayerCarBrand, 11> kPlayerCarBrands{{
     {"GLR", "GLR  >", 4u, 2u},
     {"HALCYON", "HALCYON  >", 6u, 2u},
     {"HARROW", "HARROW  >", 8u, 4u},
-    {"LEGACY", "LEGACY  >", 12u, 2u},
-    {"MONTROSE", "MONTROSE  >", 14u, 1u},
-    {"MUNICIPAL", "MUNICIPAL  >", 15u, 7u},
-    {"ORISON", "ORISON  >", 22u, 1u},
-    {"SPAGATTI", "SPAGATTI  >", 23u, 1u},
-    {"VESPER", "VESPER  >", 24u, 3u},
+    {"LEGACY", "LEGACY  >", 12u, 4u},
+    {"MONTROSE", "MONTROSE  >", 16u, 1u},
+    {"MUNICIPAL", "MUNICIPAL  >", 17u, 7u},
+    {"ORISON", "ORISON  >", 24u, 1u},
+    {"SPAGATTI", "SPAGATTI  >", 25u, 1u},
+    {"VESPER", "VESPER  >", 26u, 3u},
 }};
 
 inline constexpr const PlayerCarDefinition& player_car_definition(

@@ -353,6 +353,7 @@ are here.
 | `P` / controller Start | pause | **yes** — freezes sim time and opens resume, map, restart, and title options |
 | `M` / controller Back | city map | **yes** — full-width atlas with smooth vector coastlines, terrain contours, cased roads, readable labels, building footprints, location icons, and live player heading. Wheel or `+/-` zooms; WASD/stick or mouse drag pans; Return/A recentres. See [map viewer notes](docs/map-viewer.md) |
 | `B` | look back | **yes** — instant rear view, clean return on release |
+| `H`, `J` (driving) | horn; siren or folding top | **yes** — `H` honks the seated vehicle's own horn. `J` toggles the siren and lightbar in a Municipal cruiser, and raises or lowers the Vesper Mistral's canvas top over 2.4 s. Both are presentation, handled outside `InputFrame` for the same reason as `F7` |
 | `Return` / `A`, `Backspace` / `B` | accept / back | **yes** — keyboard, gamepad, and mouse menu navigation |
 | Mouse | look | **yes** — left-click captures; free third-person look on foot and auto-centring orbit in the car |
 

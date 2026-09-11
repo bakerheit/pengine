@@ -92,9 +92,10 @@ public:
     static constexpr int64_t speeding_hold_steps = 180;   // 1.5 s
     static constexpr int64_t stop_dwell_steps = 60;       // 0.5 s
     static constexpr float cruiser_hit_heat = 2.0f;
-    // A deliberate parking-speed bump counts; resting contact and solver
-    // vibration do not. More serious rams retain the same attribution rule.
-    static constexpr float collision_min_closing_mps = 1.0f;
+    // The closing-speed gate and the who-was-the-mover rule are
+    // police_ram_verdict() in city/police_ai.h — one rule, pinned once. A
+    // deliberate parking-speed bump counts; resting contact and solver
+    // vibration do not. More serious rams use the same attribution.
     static constexpr int64_t contact_release_steps = 120;
     static constexpr int64_t collision_cooldown_steps = 600;
 
@@ -280,10 +281,8 @@ public:
         if (!finite(sample.player_velocity) || !finite(sample.police_velocity) ||
             !finite(sample.normal) || n2 < 1e-8f) return {};
         const glm::vec3 normal = sample.normal / std::sqrt(n2);
-        const float player_into = -glm::dot(sample.player_velocity, normal);
-        const float police_into = glm::dot(sample.police_velocity, normal);
-        if (player_into + police_into < collision_min_closing_mps ||
-            player_into <= police_into) return {};
+        if (!police_ram_verdict(sample.player_velocity, sample.police_velocity,
+                                normal).player_rammed) return {};
         contact.reported = true;
         contact.last_report_step = sample.step;
         return {true, WantedSystem::Crime::PoliceVehicleCollision,

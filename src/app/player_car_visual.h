@@ -29,6 +29,9 @@ public:
               float alpha, float headlight_level, float brake_level) const;
     // Apply after sync; fraction is already eased by the transition owner.
     void sync_driver_door(Scene& scene, float open_fraction) const;
+    // 0 latches the folding top to the windshield header, 1 stows it. A car
+    // with no top ignores this; see app/mistral_soft_top.h.
+    void sync_soft_top(Scene& scene, float stowed) const;
     HeadlightRig headlights(const VehicleState& previous,
                             const VehicleState& current, float alpha,
                             float level) const;
@@ -62,6 +65,8 @@ private:
         AABB body_bounds;
         MeshId driver_door_mesh = kInvalidId;
         AABB driver_door_bounds;
+        std::array<MeshId,2> soft_top_meshes{kInvalidId,kInvalidId};
+        std::array<AABB,2> soft_top_bounds{};
         std::array<MeshId,6> glass_meshes{kInvalidId,kInvalidId,kInvalidId,kInvalidId,kInvalidId,kInvalidId};
         std::array<AABB,6> glass_bounds{};
         MaterialId glass_material = kInvalidId;
@@ -91,6 +96,8 @@ private:
     float native_wheel_radius_ = 1.0f;
     NodeId body_node_ = kInvalidId;
     NodeId driver_door_node_ = kInvalidId;
+    // [0] rear bow, [1] front bow: the order they hinge in.
+    std::array<NodeId,2> soft_top_nodes_{kInvalidId,kInvalidId};
     std::array<NodeId,6> glass_nodes_{kInvalidId,kInvalidId,kInvalidId,kInvalidId,kInvalidId,kInvalidId};
     std::array<NodeId, kWheelCount> wheel_nodes_{
         kInvalidId, kInvalidId, kInvalidId, kInvalidId};

@@ -9,7 +9,7 @@ import bmesh
 from mathutils import Vector
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from vesper_mistral_spec import ATLAS_SIZE,REGIONS,WHEELS,SHAPE,DRIVER,DOOR
+from vesper_mistral_spec import ATLAS_SIZE,REGIONS,WHEELS,SHAPE,DRIVER,DOOR,TOP
 from harrow_workman_blender import PickupBuilder as VehicleBuilder
 from vesper_vx91_blender import export_emesh
 
@@ -51,6 +51,7 @@ def map_uvs(obj):
         elif name=='PAINT': axes=(0,1); bounds=((-1.05,1.05),(-2.35,2.35))
         elif name in ('FRONT','REAR'): axes=(0,2); bounds=((-1.05,1.05),(.20,.98))
         elif name=='GLASS': axes=(0,2); bounds=((- .78,.78),(.94,1.45))
+        elif name=='TOP': axes=(0,1); bounds=((- .80,.80),(-.95,.10))
         else: bounds=tuple((min(p[a] for p in points),max(p[a] for p in points)) for a in axes)
         for loop,p in zip(face.loop_indices,points):
             ab=[(p[a]-lo)/(hi-lo) if hi-lo>1e-7 else .5 for a,(lo,hi) in zip(axes,bounds)]
@@ -96,6 +97,39 @@ def split_driver_side(b, sections):
     door=b.loft('DriverDoorOuter',[(y,clipped_ring(clipped_ring(r,sill,True),
         DOOR['inner_x'],True,axis=0)) for y,r in middle],'SIDE')
     return fixed,door
+
+
+def top_sections():
+    """Canvas cross-sections front to back, each a closed (x, up) ring.
+
+    The rail height drops faster than the crown does, so the raised top leaves
+    the wedge-shaped side opening a roadster with its windows down should have.
+    """
+    out=[]
+    for fwd,half_width,edge,centre in TOP['stations']:
+        shoulder=edge+.78*(centre-edge)
+        crown=[(-half_width,edge),(-.60*half_width,shoulder),(0.,centre),
+               (.60*half_width,shoulder),(half_width,edge)]
+        out.append((fwd,crown+[(x,z-TOP['thickness']) for x,z in reversed(crown)]))
+    return out
+
+
+def build_soft_top():
+    """Two canvas bows. They share the joint station, so the fold has a seam."""
+    bpy.ops.object.select_all(action='SELECT'); bpy.ops.object.delete(use_global=False)
+    for material in list(bpy.data.materials): bpy.data.materials.remove(material)
+    b=VehicleBuilder()
+    sections=top_sections(); joint=TOP['joint']
+    front=b.loft('SoftTopFront',sections[:joint+1],'TOP')
+    rear=b.loft('SoftTopRear',sections[joint:],'TOP')
+    for obj,name in ((front,'VesperMistralTopFront'),(rear,'VesperMistralTopRear')):
+        bm=bmesh.new(); bm.from_mesh(obj.data)
+        bmesh.ops.remove_doubles(bm,verts=list(bm.verts),dist=1e-6)
+        bmesh.ops.dissolve_degenerate(bm,edges=list(bm.edges),dist=1e-7)
+        bm.to_mesh(obj.data); bm.free(); obj.data.update()
+        map_uvs(obj); obj.data.name=name
+    assert len([o for o in bpy.context.scene.objects if o.type=='MESH'])==2
+    return front,rear
 
 
 def build_vehicle(articulated=False):
@@ -226,3 +260,6 @@ if __name__=='__main__':
     body_open,door=build_vehicle(articulated=True)
     print('VESPER_MISTRAL_OPEN',export_emesh(body_open,args.mesh.with_name('body_open.emesh'),'vesper_mistral'))
     print('VESPER_MISTRAL_DOOR',export_emesh(door,args.mesh.with_name('driver_door.emesh'),'vesper_mistral'))
+    top_front,top_rear=build_soft_top()
+    print('VESPER_MISTRAL_TOP_FRONT',export_emesh(top_front,args.mesh.with_name('soft_top_front.emesh'),'vesper_mistral'))
+    print('VESPER_MISTRAL_TOP_REAR',export_emesh(top_rear,args.mesh.with_name('soft_top_rear.emesh'),'vesper_mistral'))

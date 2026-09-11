@@ -113,6 +113,7 @@ public:
     }
 
     std::size_t car_count() const { return rigs_.size(); }
+    std::size_t parked_car_count() const { return parked_rigs_.size(); }
     std::size_t signal_head_count() const { return signals_.size(); }
     std::size_t street_lamp_count() const { return street_lamps_.size(); }
     std::size_t stop_sign_count() const { return stop_signs_.size(); }
@@ -207,11 +208,19 @@ private:
                     float arch_centre_y_native, float wheel_x_native,
                     float wheel_front_z_native, float wheel_rear_z_native,
                     Model& out);
-    Rig create_rig(Scene& scene, const VehicleAgent& agent) const;
+    // `kind` is passed rather than derived from the agent because an ambient
+    // parked car is drawn through a stationary shell agent, and its kind comes
+    // from the parked recipe (parked_vehicle_kind), not the driving one.
+    Rig create_rig(Scene& scene, const VehicleAgent& agent,
+                   TrafficVehicleKind kind) const;
     void destroy_rig(Scene& scene, Rig& rig) const;
+    // `parked`: no brake lamps. The driving rule lights them whenever the
+    // controller asks for less than cruise, which a car with no controller
+    // would satisfy forever.
     void sync_rig(Scene& scene, Rig& rig, const VehicleAgent& agent,
                   const LaneGraph& lanes, int64_t step,
-                  float headlight_level, float alpha) const;
+                  float headlight_level, float alpha,
+                  bool parked = false) const;
     void build_signals(Scene& scene, const LaneGraph& lanes,
                        TerrainCollider& collider);
     void build_street_lamps(Scene& scene, const LaneGraph& lanes,
@@ -235,6 +244,10 @@ private:
     CrowdTuning tuning_{};
     float vehicle_draw_distance_ = kTrafficVehicleDrawDistanceM;
     std::vector<Rig> rigs_;
+    // Ambient kerbside parked cars (PENG-48), keyed like rigs_ on
+    // (lane_key, slot) and reconciled the same way against
+    // Crowd::ambient_parked(), which the crowd keeps sorted on that pair.
+    std::vector<Rig> parked_rigs_;
     std::vector<TrafficSpotLight> headlights_;
     std::size_t vehicle_headlight_count_ = 0;
     std::vector<SignalRig> signals_;

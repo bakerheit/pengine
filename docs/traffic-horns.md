@@ -7,6 +7,19 @@ use the heavy horn. It works with the engine off. Pause, vehicle exit, cutscene,
 load and teleport stop the horn. Police siren/lights now use **J** or controller
 **L3**, so honking does not toggle the siren. The in-game prompt shows both keys.
 
+**J** does double duty by vehicle: in a Municipal cruiser it toggles the
+siren and lightbar, and in the Vesper Mistral it raises or lowers the folding
+canvas top ([`src/app/mistral_soft_top.h`](../src/app/mistral_soft_top.h)). No
+car is both a cruiser and a convertible, so the two never contend for the key.
+Like the siren, the top is presentation — it moves no dimension the physics
+reads — so neither costs a replay-format change.
+
+`build/bin/apricot --frames 1100 --convertible-check` presses J twice on the
+real key path and captures the canvas latched up, mid-fold and stowed to
+`build/convertible-check.*.bmp`. It fails if any of the three poses never
+happens. The headless `mistral_soft_top_tests` covers the toggle and proves both
+bows stay rigid and welded at their joint on a fitted, rotated body.
+
 Nearby traffic now honks when a real obstruction holds it below 0.5 m/s long
 enough. The controller reads `VehicleAgent::delay_seconds` after the live Crowd
 step. It does not change routes, traffic right of way or the simulation RNG.
@@ -86,3 +99,16 @@ passed, with no dropped audio commands or GL errors. Evidence is in
 - `build/traffic-horn-qa/horn-preview.wav` contains the three controller/mixer
   outputs for listening. PCM levels and stereo behavior were measured;
   subjective listening quality is left for review with that preview.
+
+## Horns at the player
+
+Added 2026-09-11 (PENG-51). A driver the player cuts off or blocks at close
+range honks at once, once: the player-hazard kernel's `honk` (binding gap
+under 6 m) is latched on the car as a debounced one-shot on the sim clock
+(`VehicleAgent::honk_player_fire`, 4 s interval), and
+`traffic_horn_at_player()` plays it through the same voice budget and
+0.65 s global spacing, outranking a frustration horn and ignoring signal
+phase — a driver cut off at a red honks; a driver waiting at a red still
+does not. Pursuing cruisers and dead engines never honk. A player horn sets
+that driver's next-honk cooldown to 2 s. Pinned by
+`traffic_horn_audio_tests` and, on the sim side, `civilian_maneuver_tests`.

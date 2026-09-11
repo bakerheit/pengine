@@ -37,6 +37,11 @@ inline constexpr uint32_t kChannelPedPreferred  = 0x1200u;
 inline constexpr uint32_t kChannelPedSpace      = 0x1300u;
 inline constexpr uint32_t kChannelWeather       = 0x1400u;
 inline constexpr uint32_t kChannelLightning     = 0x1500u;
+// Which junction a searching cruiser is posted to (PENG-44), and where an
+// on-demand cruiser is instantiated (PENG-45).
+inline constexpr uint32_t kChannelPoliceSearchPost = 0x1600u;
+inline constexpr uint32_t kChannelPoliceDispatch   = 0x1700u;
+inline constexpr uint32_t kChannelOvertakeHesitation = 0x1800u;
 
 // THE ONE PLACE A STREAM IS STILL RIGHT, and the carve-out it lives under.
 //

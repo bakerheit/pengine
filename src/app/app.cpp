@@ -1257,6 +1257,12 @@ void App::poll_events() {
             has_police_lightbar(car_visual_.active_car())) {
             police_emergency_enabled_=!police_emergency_enabled_;
         }
+        // Same key in a convertible. The canvas moves no dimension the physics
+        // reads, so like the siren it is presentation and costs no replay
+        // format change; it is still stepped on the sim cadence below so the
+        // fold takes the same 2.4 s however fast the frames arrive.
+        if (emergency_toggle && road_vehicle_controls &&
+            is_convertible(car_visual_.active_car())) soft_top_toggle_pending_=true;
         // The bare-fist jab, on F or controller X while on foot and unarmed.
         // Handled here for the same reason as the siren above: it drives the
         // character animator and its one-shot contact latch and applies no
@@ -1750,8 +1756,14 @@ std::vector<VisiblePoliceIdentity> App::visible_police(
         const glm::vec3 eye=police_officer_eye_position(agent);
         const glm::vec3 forward=police_officer_forward(agent);
         const glm::vec2 position{eye.x, eye.z};
+        // A pursuer is in the gate within the level's DETECTION range, not
+        // just the 70 m heat contact: the crowd's wanted centre needs to know
+        // about a clear ray at a hundred metres on open road, or a chase that
+        // opens a gap turns into a search for a suspect everyone can see.
+        const float detect = police_level_profile(wanted_.level()).detect_range_m;
         const bool in_gate = agent.police_pursuit && !witness_only
-            ? police_maintains_contact(position, target_xz, true, police)
+            ? (police_maintains_contact(position, target_xz, true, police) ||
+               glm::distance(position, target_xz) <= detect)
             : police_can_witness(position, {forward.x, forward.z},
                                  target_xz, true, true, police);
         if (!in_gate) continue;
@@ -2610,6 +2622,9 @@ void App::render() {
                 on_foot_ ? player_character_.velocity : in_boat_ ? boat_.velocity :
                 in_aircraft_ ? aircraft_.velocity : car_.velocity));
             radar.wanted_level = wanted_.level();
+            radar.wanted_searching = world_.traffic().police_searching();
+            radar.wanted_report_pending = wanted_report_blink_;
+            radar.step = static_cast<int64_t>(step_index_);
             radar.time_of_day = env.time_of_day;
             if (mission_stage_ == MissionStage::DeliveryNeedsCar)
                 radar.mission_target = glm::vec2{car_.position.x, car_.position.z};
@@ -2842,7 +2857,10 @@ void App::render() {
                 else if (in_boat_) prompt="E / A  -  Exit beside dock or shore";
                 else if (in_aircraft_) prompt=aircraft_can_exit(aircraft_) ?
                     "E / A  -  Exit aircraft" : "LAND AND STOP TO EXIT";
-                else if (!on_foot_) prompt="E / A  -  Exit vehicle   H - HORN";
+                else if (!on_foot_) prompt=is_convertible(car_visual_.active_car())
+                    ? (soft_top_.target>.5f ? "E / A  -  Exit vehicle   H - HORN   J - TOP UP"
+                                            : "E / A  -  Exit vehicle   H - HORN   J - TOP DOWN")
+                    : "E / A  -  Exit vehicle   H - HORN";
                 else if (mission_stage_==MissionStage::DeliveryActive &&
                          delivery_contact(player_character_.position,on_foot_))
                     prompt="E / A  -  Give Lou's package to Devon";
@@ -3143,6 +3161,7 @@ void App::render() {
     if(signal_check_)capture_signal_check();
     if(police_officer_check_)capture_police_officer_check();
     if(traffic_horn_check_)capture_traffic_horn_check();
+    if (convertible_check_) capture_convertible_check();
     if (!screenshot_path_.empty() && frame_limit_ > 0 &&
         frames_rendered_ + 1 >= frame_limit_) {
         save_screenshot(screenshot_path_);
@@ -3302,6 +3321,14 @@ int App::run() {
                     AP_INFO("player H horn check: PASS; one recorded horn, key repeat ignored, J siren separate");
             }
         }
+        // Drive the real J path rather than the state directly: the point of
+        // this check is that the key reaches the canvas in a Mistral.
+        if (convertible_check_ && (frames_rendered_==60 || frames_rendered_==420)) {
+            SDL_Event event{}; event.type=SDL_KEYDOWN;
+            event.key.keysym.sym=SDLK_j; event.key.keysym.scancode=SDL_SCANCODE_J;
+            SDL_PushEvent(&event);
+            event.type=SDL_KEYUP; SDL_PushEvent(&event);
+        }
         if (police_check_ && (frames_rendered_==60 || frames_rendered_==450)) {
             SDL_Event event{}; event.type=SDL_KEYDOWN;
             event.key.keysym.sym=SDLK_j; event.key.keysym.scancode=SDL_SCANCODE_J;
@@ -3430,6 +3457,9 @@ int App::run() {
             }
             if (i == 0 && was_pressed(input_.frame(), kBtnDrink))
                 drink_at_bent_elbow();
+            soft_top_=step_mistral_soft_top(soft_top_,
+                i == 0 && soft_top_toggle_pending_, static_cast<float>(kSimDt));
+            if (i == 0) soft_top_toggle_pending_=false;
             if (i == 0 && on_foot_ && !vehicle_transition_.active() && !boat_transition_.active() &&
                 was_pressed(input_.frame(), kBtnRespawn)) {
                 place_character_next_to_car();
@@ -3553,6 +3583,7 @@ int App::run() {
             }
             const bool player_armed = player_has_drawn_weapon();
             const glm::vec3 police_target = player_focus_position();
+            const int wanted_level_before_offenses = wanted_.level();
             check_police_driving_offenses();
             check_police_armed_offense(player_armed);
             const auto police_visible = visible_police(police_target);
@@ -3604,6 +3635,16 @@ int App::run() {
                 static_cast<float>(kSimDt),
                 !current_police_visible.empty(),
                 world_.traffic().police_tuning());
+            // The stars flash from the crime until the dispatch radio goes
+            // out (PENG-46); the crowd owns that step, so the latch clears
+            // on exactly the frame the callout would play.
+            wanted_report_blink_ = wanted_report_blink_step(
+                wanted_report_blink_,
+                wanted_level_before_offenses == 0 && wanted_.level() > 0,
+                /*dispatch_armed=*/true,
+                world_.traffic().police_dispatch_radio_fires(
+                    static_cast<int64_t>(step_index_)),
+                wanted_.level());
             if (car_.impact_count != seen_impact_count_) {
                 seen_impact_count_ = car_.impact_count;
                 impact_feedback_seconds_ = 0.55f;
@@ -3816,6 +3857,7 @@ int App::run() {
                          visible_headlight_level, brake_level);
         car_visual_.sync_emergency(scene_,step_index_,police_emergency_enabled_ &&
             !on_foot_ && !in_aircraft_ && !in_boat_);
+        car_visual_.sync_soft_top(scene_,soft_top_.stowed);
         car_visual_.sync_driver_door(scene_,vehicle_transition_.active()
             ? vehicle_transition_door_open(sample_vehicle_transition(vehicle_transition_,
                 transition_waiting_ ? 1.f : static_cast<float>(clock_.alpha()))) : 0.f);
@@ -3914,9 +3956,10 @@ int App::run() {
             traffic_visual_.signal_head_count(),
             world_.traffic().police_unit_count(),
             world_.traffic().police_pursuit_count());
-    AP_INFO("presentation: %zu traffic rigs, %zu ambient NPC rigs, %zu staff "
+    AP_INFO("presentation: %zu traffic rigs, %zu parked rigs, %zu ambient NPC rigs, %zu staff "
             "rigs; %d character draws; interior %s",
-            traffic_visual_.car_count(), character_visual_.ambient_npc_count(),
+            traffic_visual_.car_count(), traffic_visual_.parked_car_count(),
+            character_visual_.ambient_npc_count(),
             character_visual_.staff_count(), character_visual_.last_draw_count(),
             interior_presentation_lod_ ? "nearby-only" : "full outdoor");
     {

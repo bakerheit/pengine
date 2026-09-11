@@ -1,10 +1,9 @@
 #pragma once
 
 #include <array>
-#include <string_view>
 
+#include "app/road_sign_font.h"
 #include "app/traffic_signal_mesh.h"
-#include "gfx/glyph_atlas.h"
 
 namespace apricot {
 namespace road_sign_detail {
@@ -23,20 +22,18 @@ inline void face(MeshData& mesh, int sides, float radius, float height, float z,
         mesh.indices.insert(mesh.indices.end(), {base, base + i, base + i + 1});
 }
 
-inline void lettering(MeshData& mesh, std::string_view text, float width,
+template <std::size_t N>
+inline void lettering(MeshData& mesh, const std::array<glm::vec2, N>& letters,
+                      float aspect, float width,
                       float height, float centre_y, float z) {
-    const float cell_x = width / static_cast<float>(text.size() * 6u - 1u);
-    const float cell_y = height / 7.0f;
-    for (std::size_t i = 0; i < text.size(); ++i) {
-        const auto& glyph = kFont5x7[glyph_cell(text[i])];
-        for (int x = 0; x < 5; ++x) for (int y = 0; y < 7; ++y) {
-            if (!(glyph[x] & (1u << y))) continue;
-            const float px = -width * 0.5f +
-                (static_cast<float>(i * 6u) + static_cast<float>(x)) * cell_x;
-            const float py = centre_y + height * 0.5f - static_cast<float>(y + 1) * cell_y;
-            signal_mesh_detail::quad(mesh, {px, py, z}, {px + cell_x, py, z},
-                {px + cell_x, py + cell_y, z}, {px, py + cell_y, z});
-        }
+    // Fit the font's natural proportions instead of stretching its glyphs.
+    const float scale = std::min(height, width / aspect);
+    const auto base = static_cast<uint32_t>(mesh.vertices.size());
+    for (const auto& p : letters) {
+        const glm::vec3 point{p.x * scale, centre_y + p.y * scale, z};
+        mesh.vertices.push_back({point, {0, 0, 1}, {0, 0}, glm::vec4{0}});
+        mesh.bounds.expand(point);
+        mesh.indices.push_back(base + static_cast<uint32_t>(&p - letters.data()));
     }
 }
 } // namespace road_sign_detail
@@ -79,13 +76,18 @@ inline std::array<MeshData, kRoadSignPartCount> make_road_sign_mesh(
     road_sign_detail::face(yield ? red : white, sides, radius, height, 0.055f, phase);
     road_sign_detail::face(yield ? white : red, sides,
                           yield ? 0.62f : 0.585f, height, 0.06f, phase);
-    road_sign_detail::lettering(yield ? red : white, yield ? "YIELD" : "STOP",
-        yield ? 0.61f : 0.92f, yield ? 0.15f : 0.27f,
-        height + (yield ? 0.10f : 0.0f), 0.067f);
+    if (yield) {
+        road_sign_detail::lettering(red, road_sign_detail::kYieldLetters,
+            road_sign_detail::kYieldAspect, 0.61f, 0.17f, height + 0.10f, 0.067f);
+    } else {
+        road_sign_detail::lettering(white, road_sign_detail::kStopLetters,
+            road_sign_detail::kStopAspect, 0.92f, 0.30f, height, 0.067f);
+    }
     if (all_way) {
         signal_mesh_detail::box(white, {0, 1.65f, 0.025f}, {0.84f, 0.24f, 0.06f});
         road_sign_detail::lettering(
-            backing, "ALL WAY", 0.72f, 0.13f, 1.65f, 0.06f);
+            backing, road_sign_detail::kAllWayLetters,
+            road_sign_detail::kAllWayAspect, 0.72f, 0.13f, 1.65f, 0.06f);
     }
     return out;
 }

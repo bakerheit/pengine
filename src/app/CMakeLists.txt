@@ -13,6 +13,7 @@ target_sources(apricot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/app.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/app_cutscene.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/app_save.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/convertible_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/cutscene_player.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/bank_interaction.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/boat_interaction.cpp

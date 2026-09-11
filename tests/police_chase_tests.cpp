@@ -66,6 +66,16 @@ struct Chase {
     float worst_sink_m = 0.0f;          // body sunk into it
     float worst_chase_yaw_rate = 0.0f;  // deg/s, free-driving cruisers only
     float closest_offroad = 1e9f;  // best approach once the player is off-road
+    // Scenario 5 — search mode (PENG-44). Counted only while the player is
+    // stopped and no unit has had a world ray to him for at least a second.
+    long search_steps = 0;        // steps in that state
+    long search_not_flagged = 0;  // ... where the crowd did not report searching
+    long centre_drift = 0;        // ... where the centre moved off the last-seen point
+    long routed_off_post = 0;     // pursuer route targets that are neither the centre nor a post
+    float nearest_to_centre_m = 1e9f;
+    float live_to_centre_m = 0.0f;  // how far he got from where he was last seen
+    bool los_ever_broke = false;
+    bool reacquired = false;
     double sum_speed = 0.0;
     float mean() const { return float(sum_nearest / double(samples ? samples : 1)); }
 };
@@ -95,8 +105,28 @@ LaneRef flee_next(const LaneGraph& lanes, LaneRef lane) {
     return best;
 }
 
+// The LEAST aligned legal exit: a side street, for a player who turns off.
+LaneRef flee_turn_off(const LaneGraph& lanes, LaneRef lane) {
+    const glm::vec3 heading = lanes.pose(lane, lanes.length(lane)).tangent;
+    LaneRef best = kInvalidLane;
+    float best_align = 2.0f;
+    for (const TurnLink& link : lanes.outgoing(lane)) {
+        if (!lanes.valid(link.to) || link.to == lanes.opposing(lane)) continue;
+        if (lanes.lane(link.to).cls == RoadClass::Freeway) continue;
+        const glm::vec3 tangent = lanes.pose(link.to, 0.0f).tangent;
+        const float align = std::fabs(glm::dot(
+            glm::normalize(glm::vec2{heading.x, heading.z}),
+            glm::normalize(glm::vec2{tangent.x, tangent.z})));
+        if (align < best_align) { best_align = align; best = link.to; }
+    }
+    return best_align < 0.5f ? best : kInvalidLane;
+}
+
 Chase run_chase(const LaneGraph& lanes, const GroundSampler& ground,
                 float speed_mps, int wanted, int64_t steps, int scenario) {
+    // Scenario 5 needs corners close together: the scenario-2 start is on a
+    // short-block grid, the scenario-0 start is 650 m of straight road.
+    const int start_index = scenario == 4 ? 0 : scenario == 5 ? 2 : scenario % 3;
     // Free-drive pursuit needs a world to drive ON — and, more importantly, a
     // world to drive INTO. Measuring it over bare terrain would let a cruiser
     // cut across city blocks that hold buildings in the real game, and would
@@ -109,7 +139,7 @@ Chase run_chase(const LaneGraph& lanes, const GroundSampler& ground,
     int blocks = 0;
     for (float x = -400.0f; x <= 400.0f; x += 18.0f) {
         for (float z = -400.0f; z <= 400.0f; z += 18.0f) {
-            const glm::vec2 here = kStarts[scenario == 4 ? 0 : scenario % 3] + glm::vec2{x, z};
+            const glm::vec2 here = kStarts[start_index] + glm::vec2{x, z};
             if (lanes.nearest_lane(here, 13.0f).valid()) continue;
             const float y = ground.fn ? ground.fn(ground.ctx, here.x, here.y) : 0.0f;
             world.add_static_box({{here.x - 8.0f, y - 2.0f, here.y - 8.0f},
@@ -118,6 +148,11 @@ Chase run_chase(const LaneGraph& lanes, const GroundSampler& ground,
         }
     }
     CrowdTuning tuning;
+    // This suite measures DRIVING. The radio hold (PENG-45) would keep every
+    // non-witness unit off the road for the first seconds of each scenario;
+    // it has its own test in police_runtime_tests.
+    tuning.police.radio_latency_s = 0.0f;
+    tuning.police.default_response_s = 0.0f;
     // THE APP'S OWN AMBIENT DENSITY, not the header defaults. src/app/world.cpp
     // thins traffic to 48 m spacing and 16 slots; the defaults are 34 m and 32,
     // which is close to double and gridlocks the authored grid all by itself.
@@ -136,7 +171,7 @@ Chase run_chase(const LaneGraph& lanes, const GroundSampler& ground,
     // Scenario 4 isolates the OFF-ROAD case, so it runs on the district that
     // already works. Landing it in the jammed one conflates two problems and
     // the number tells you nothing about either.
-    const glm::vec2 origin = kStarts[scenario == 4 ? 0 : scenario % 3];
+    const glm::vec2 origin = kStarts[start_index];
     LaneRef lane = kInvalidLane;
     for (LaneRef r = 0; r < lanes.lane_count(); ++r) {
         const Lane& l = lanes.lane(r);
@@ -152,11 +187,20 @@ Chase run_chase(const LaneGraph& lanes, const GroundSampler& ground,
     float station = 10.0f;
     VehicleState player;
     std::vector<std::pair<uint64_t, uint32_t>> live;
+    // Scenario 5 state: after 15 s take the next two side streets (one
+    // corner still leaves a clear ray down the street from the junction the
+    // cruisers arrive at; two does not), drive 40 m in, stop for 15 s, then
+    // double back toward the corner.
+    int turns = 0;
+    bool stopped = false, resumed = false;
+    int64_t stop_step = -1, unseen_since = -1;
+    bool ever_seen = false;
+    glm::vec2 last_seen{0.0f};
 
     for (int64_t step = 0; step < steps; ++step) {
         const LanePose pose = lanes.pose(lane, station);
         player.position = pose.position;
-        player.velocity = pose.tangent * speed_mps;
+        player.velocity = stopped ? glm::vec3{0.0f} : pose.tangent * speed_mps;
         // SCENARIO 4: pull off the road and stop. This is the screenshot —
         // the player sitting on the verge with a cruiser parked in its lane
         // forty metres away, going nowhere. A pursuit that only ever drives
@@ -186,11 +230,63 @@ Chase run_chase(const LaneGraph& lanes, const GroundSampler& ground,
             if (!hit.hit || hit.distance >= d - 0.08f)
                 visible.push_back({a.lane_key, a.slot});
         }
+        // SCENARIO 5: from the second corner until he doubles back, every ray
+        // is withdrawn. The proxy city has no interiors to hide in and its
+        // streets are straight, so twenty units keep a clear ray down the
+        // block; the runtime suite proves the per-unit sight mechanics, and
+        // what this scenario measures is what the whole pursuit DOES once
+        // sight is lost at city scale.
+        if (scenario == 5 && turns >= 2 && !resumed) visible.clear();
         crowd.set_police_context(wanted, xz, visible);
         crowd.set_police_officer_context(false, false,
             {player.velocity.x, player.velocity.z}, &world);
         crowd.rebuild_buckets();
         crowd.step_vehicles(step, &player);
+
+        if (scenario == 5) {
+            if (!visible.empty()) { ever_seen = true; unseen_since = -1; }
+            else if (unseen_since < 0) { unseen_since = step; }
+            if (visible.empty() && ever_seen) out.los_ever_broke = true;
+            // The crowd's own last-seen point: whenever it is not searching,
+            // the centre IS the live position it just saw.
+            if (!crowd.police_searching()) last_seen = crowd.police_search_centre();
+            const bool expect_search = stopped && ever_seen && unseen_since >= 0 &&
+                                       step - unseen_since >= 120;
+            if (expect_search) {
+                ++out.search_steps;
+                if (!crowd.police_searching()) ++out.search_not_flagged;
+                if (crowd.police_search_centre() != last_seen) ++out.centre_drift;
+                out.live_to_centre_m = std::max(out.live_to_centre_m,
+                    glm::distance(xz, crowd.police_search_centre()));
+                // Every unit is routed to the centre or to one of its posts —
+                // never to the live player, whom nobody can see. (A post CAN
+                // coincide with where he is hiding; that is the search
+                // finding him, and it counts as legitimate.)
+                const glm::vec2 centre = crowd.police_search_centre();
+                std::vector<glm::vec2> legal{centre};
+                const auto centre_lane = lanes.nearest_lane(centre, 180.0f);
+                if (centre_lane.valid()) {
+                    for (uint32_t k = 0; k < 12; ++k) {
+                        const LaneRef post = police_search_post(lanes, centre_lane.lane, k);
+                        if (!lanes.valid(post)) break;
+                        const auto p = lanes.pose(post, std::min(40.0f, lanes.length(post))).position;
+                        legal.push_back({p.x, p.z});
+                    }
+                }
+                for (const VehicleAgent& a : crowd.vehicles()) {
+                    if (!a.police_unit || !a.police_pursuit) continue;
+                    out.nearest_to_centre_m = std::min(out.nearest_to_centre_m,
+                        glm::distance(glm::vec2{a.pos.x, a.pos.z}, centre));
+                    if (a.police_last_replan_step < 0) continue;
+                    bool ok = false;
+                    for (const glm::vec2& l : legal)
+                        ok |= glm::distance(a.police_last_target, l) < 0.5f;
+                    if (!ok) ++out.routed_off_post;
+                }
+            }
+            if (resumed && out.search_steps > 0 && !crowd.police_searching())
+                out.reacquired = true;
+        }
 
         float nearest = std::numeric_limits<float>::infinity();
         std::vector<std::pair<uint64_t, uint32_t>> now;
@@ -330,7 +426,22 @@ Chase run_chase(const LaneGraph& lanes, const GroundSampler& ground,
                     ++out.deletions;
         live = std::move(now);
 
-        station += speed_mps * static_cast<float>(kSimDt);
+        if (!stopped) station += speed_mps * static_cast<float>(kSimDt);
+        if (scenario == 5) {
+            if (turns >= 2 && !stopped && !resumed && station >= 40.0f) {
+                stopped = true; stop_step = step;
+            }
+            if (stopped && step >= stop_step + 1800) {
+                // Double back toward the corner he vanished from.
+                stopped = false; resumed = true;
+                const LaneRef back = lanes.opposing(lane);
+                if (lanes.valid(back)) {
+                    const auto here = lanes.pose(lane, station).position;
+                    const auto onto = lanes.project_onto(back, {here.x, here.z});
+                    if (onto.valid()) { lane = back; station = onto.dist_along_m; }
+                }
+            }
+        }
         // A REAL PLAYER DOUBLES BACK. Fleeing in a straight line forever
         // never puts a cruiser behind you at low speed, so it never exercises
         // the turn-around at all — which is why a broken one went unmeasured.
@@ -344,7 +455,12 @@ Chase run_chase(const LaneGraph& lanes, const GroundSampler& ground,
         }
         if (station >= lanes.length(lane)) {
             station -= lanes.length(lane);
-            const LaneRef next = flee_next(lanes, lane);
+            LaneRef next = kInvalidLane;
+            if (scenario == 5 && step > 600 && turns < 2 && !resumed) {
+                next = flee_turn_off(lanes, lane);
+                if (lanes.valid(next)) ++turns;
+            }
+            if (!lanes.valid(next)) next = flee_next(lanes, lane);
             if (!lanes.valid(next)) break;
             lane = next;
         }
@@ -546,6 +662,34 @@ void a_pursuit_stays_on_a_fleeing_player() {
     // Pushing through right of way is licensed; demolishing the city is not.
     REQUIRE_MSG(chase.ai_collisions < 60u,
                 "pursuit driving is wrecking ambient traffic", "safety");
+
+    // SCENARIO 5 — SEARCH MODE (PENG-44). Flee straight, turn off onto a side
+    // street, stop 60 m in, sit for fifteen seconds, then double back. What
+    // must happen while nobody can see him: the crowd says it is searching,
+    // the wanted centre sits exactly where he was last seen and does not
+    // creep after him, no pursuer is routed to where he actually is, and at
+    // least one unit reaches the corner. What must happen when he comes back
+    // into view: the search ends.
+    const Chase search = run_chase(lanes, ground.sampler(), 18.0f, 3, 120 * 105, 5);
+    std::printf("      search: %ld searching steps (%ld unflagged, %ld drifted, "
+                "%ld routed off post), nearest unit %.1f m from the centre, "
+                "player %.1f m from it, LOS broke %d, reacquired %d\n",
+        search.search_steps, search.search_not_flagged, search.centre_drift,
+        search.routed_off_post, double(search.nearest_to_centre_m),
+        double(search.live_to_centre_m), search.los_ever_broke, search.reacquired);
+    REQUIRE_MSG(search.search_steps > 0, "the player was never unseen while stopped", "search");
+    REQUIRE_MSG(search.live_to_centre_m > 20.0f,
+                "the player never got away from the point he was last seen at", "search");
+    REQUIRE_MSG(search.search_not_flagged == 0,
+                "the crowd was not searching while nobody could see the player", "search");
+    REQUIRE_MSG(search.centre_drift == 0,
+                "the wanted centre moved while nobody could see the player", "search");
+    REQUIRE_MSG(search.routed_off_post == 0,
+                "a pursuer was routed somewhere other than the centre or a post", "search");
+    REQUIRE_MSG(search.nearest_to_centre_m < 30.0f,
+                "no unit ever reached the corner the player vanished from", "search");
+    REQUIRE_MSG(search.reacquired, "the search never ended once he came back into view", "search");
+
     apricot_test::pass("a dispatched pursuit keeps station on a player fleeing the authored city");
 }
 

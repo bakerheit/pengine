@@ -1745,6 +1745,25 @@ void a_real_car_drives_southwest_pinatty_both_ways() {
     apricot_test::pass("real car drives all southwest roads in both directions and the interior turns");
 }
 
+// The district's police response time rides the same path as its densities
+// (PENG-45): every lane carries one, Halloway Square's three seconds and the
+// Meadows' twenty-two both arrive, and nothing is left unauthored.
+void every_lane_carries_its_district_response_time() {
+    const Built& b = built();
+    LaneGraph lanes;
+    lanes.build(b.graph, b.ground.sampler(), LaneBuildParams{});
+    bool halloway = false, meadows = false;
+    for (LaneRef r = 0; r < lanes.lane_count(); ++r) {
+        const float response = lanes.lane(r).response_s;
+        REQUIRE_MSG(response > 0.0f, "a lane has no authored response time", "response");
+        halloway |= std::fabs(response - 3.0f) < 1e-4f;
+        meadows |= std::fabs(response - city::kMeadowsResponseS) < 1e-4f;
+    }
+    REQUIRE_MSG(halloway, "no lane carries Halloway Square's 3 s response", "response");
+    REQUIRE_MSG(meadows, "no lane carries the Meadows' response", "response");
+    apricot_test::pass("every lane carries its district's police response time");
+}
+
 void a_real_car_drives_from_district_to_district() {
     const Built& b = built();
     LaneGraph lanes;
@@ -1827,6 +1846,7 @@ int main() {
     the_operator_table_is_still_cheap();
     a_real_car_drives_every_halloway_ramp();
     a_real_car_drives_southwest_pinatty_both_ways();
+    every_lane_carries_its_district_response_time();
     a_real_car_drives_from_district_to_district();
     return apricot_test::done("city_roads_tests");
 }

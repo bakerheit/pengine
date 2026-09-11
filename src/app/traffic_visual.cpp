@@ -356,7 +356,7 @@ bool TrafficVisual::init(Renderer& renderer, Scene& scene,
 }
 
 TrafficVisual::Rig TrafficVisual::create_rig(
-    Scene& scene, const VehicleAgent& agent) const {
+    Scene& scene, const VehicleAgent& agent, TrafficVehicleKind kind) const {
     Rig rig;
     rig.lane_key = agent.lane_key;
     rig.slot = agent.slot;
@@ -365,14 +365,14 @@ TrafficVisual::Rig TrafficVisual::create_rig(
     // Halcyon, Montrose, and Vesper. Emergency/truck weights stay unchanged.
     const uint64_t h = traffic_vehicle_identity_hash(
         agent.lane_key, agent.slot);
-    rig.model = static_cast<std::size_t>(traffic_vehicle_kind(agent));
+    rig.model = static_cast<std::size_t>(kind);
     const Model& model = models_[rig.model];
 
     Renderable body;
     body.mesh = model.mesh;
     body.material = model.paints[static_cast<std::size_t>(
         (h >> 8) % static_cast<uint64_t>(model.paints.size()))];
-    const bool snowplow = traffic_vehicle_kind(agent) == TrafficVehicleKind::Snowplow;
+    const bool snowplow = kind == TrafficVehicleKind::Snowplow;
     if (snowplow) body.tint = kSnowplowPartColors[0];
     rig.body = scene.create(body, Transform{}, model.bounds);
     if (snowplow) {
@@ -424,7 +424,7 @@ TrafficVisual::Rig TrafficVisual::create_rig(
             lamp, Transform{}, model.lamp_bounds[i]);
         set_draw_distance(scene, rig.lamps[i], vehicle_draw_distance_);
     }
-    if (traffic_vehicle_kind(agent) == TrafficVehicleKind::Police) {
+    if (kind == TrafficVehicleKind::Police) {
         for (std::size_t i = 0; i < rig.emergency.size(); ++i) {
             Renderable emergency = body;
             emergency.uv_scale = vehicle_lamp_surface_uv(
@@ -470,7 +470,8 @@ void TrafficVisual::destroy_rig(Scene& scene, Rig& rig) const {
 void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
                              const VehicleAgent& agent,
                              const LaneGraph& lanes, int64_t step,
-                             float headlight_level, float alpha) const {
+                             float headlight_level, float alpha,
+                             bool parked) const {
     const Model& model = models_[rig.model];
     const Transform chassis = chassis_transform(agent);
 
@@ -573,8 +574,8 @@ void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
     const float light = std::clamp(headlight_level, 0.0f, 1.0f);
     // AI drivers hold the pedal while queued, and illuminate as soon as their
     // controller asks for meaningfully less than cruise speed.
-    const float brake = agent.speed_mps < std::max(0.35f,
-                                                   agent.cruise_mps - 0.75f)
+    const float brake = !parked && agent.speed_mps < std::max(0.35f,
+                                                              agent.cruise_mps - 0.75f)
                             ? 1.0f
                             : 0.0f;
     for (std::size_t i = 0; i < rig.lamps.size(); ++i) {
@@ -653,10 +654,10 @@ void TrafficVisual::sync(Scene& scene, const Crowd& crowd,
                 traffic_vehicle_kind(agent));
             if (rig.model != wanted_model) {
                 destroy_rig(scene, rig);
-                rig = create_rig(scene, agent);
+                rig = create_rig(scene, agent, traffic_vehicle_kind(agent));
             }
         } else {
-            rig = create_rig(scene, agent);
+            rig = create_rig(scene, agent, traffic_vehicle_kind(agent));
         }
         sync_rig(scene, rig, agent, lanes, step, headlight_level,alpha);
         if(headlight_level>0.001f) {
@@ -694,6 +695,55 @@ void TrafficVisual::sync(Scene& scene, const Crowd& crowd,
     }
     rigs_ = std::move(next);
     vehicle_headlight_count_ = headlights_.size();
+
+    // AMBIENT PARKED CARS (PENG-48). Not agents: the crowd rebuilds this list
+    // wholesale each refresh as a pure function of identity, sorted on
+    // (lane_key, slot), so the same merge-walk that reconciles rigs_ works
+    // here. Each one is drawn through a stationary shell agent so the rig
+    // recipe — body, paint bucket, wheels, lamps, glass — is exactly what
+    // that identity would look like driving, minus the lights.
+    std::vector<Rig> next_parked;
+    next_parked.reserve(parked_rigs_.size());
+    std::size_t old_parked = 0;
+    for (const AmbientParkedCar& car : crowd.ambient_parked()) {
+        if (!city::within_presentation_radius(
+                car.pos, focus, presentation_radius_m))
+            continue;
+        while (old_parked < parked_rigs_.size() &&
+               identity_less(parked_rigs_[old_parked].lane_key,
+                             parked_rigs_[old_parked].slot,
+                             car.lane_key, car.slot)) {
+            destroy_rig(scene, parked_rigs_[old_parked]);
+            ++old_parked;
+        }
+        VehicleAgent shell;
+        shell.lane_key = car.lane_key;
+        shell.slot = car.slot;
+        shell.mode = AgentMode::Integrating;
+        shell.pos = car.pos;
+        shell.fwd = car.fwd;
+        const std::size_t wanted_model = static_cast<std::size_t>(car.kind);
+        Rig rig;
+        if (old_parked < parked_rigs_.size() &&
+            parked_rigs_[old_parked].lane_key == car.lane_key &&
+            parked_rigs_[old_parked].slot == car.slot) {
+            rig = parked_rigs_[old_parked];
+            ++old_parked;
+            if (rig.model != wanted_model) {
+                destroy_rig(scene, rig);
+                rig = create_rig(scene, shell, car.kind);
+            }
+        } else {
+            rig = create_rig(scene, shell, car.kind);
+        }
+        sync_rig(scene, rig, shell, lanes, step, 0.0f, alpha, /*parked=*/true);
+        next_parked.push_back(rig);
+    }
+    while (old_parked < parked_rigs_.size()) {
+        destroy_rig(scene, parked_rigs_[old_parked]);
+        ++old_parked;
+    }
+    parked_rigs_ = std::move(next_parked);
 
     for (SignalRig& signal : signals_) {
         const TrafficSignalPhase phase = traffic_signal_phase(
@@ -1009,6 +1059,8 @@ void TrafficVisual::clear_vehicles(Scene& scene) {
     vehicle_headlight_count_ = 0;
     for (Rig& rig : rigs_) destroy_rig(scene, rig);
     rigs_.clear();
+    for (Rig& rig : parked_rigs_) destroy_rig(scene, rig);
+    parked_rigs_.clear();
 }
 
 void TrafficVisual::destroy(Scene& scene) {

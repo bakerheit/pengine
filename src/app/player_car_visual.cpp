@@ -12,6 +12,7 @@
 #include "app/vehicle_snow_mesh.h"
 #include "app/emergency_lighting.h"
 #include "app/mistral_door.h"
+#include "app/mistral_soft_top.h"
 #include "app/workman_door.h"
 #include "app/vehicle_headlight_profile.h"
 #include "app/vehicle_driver_pose.h"
@@ -84,8 +85,28 @@ bool PlayerCarVisual::load_model(
         if (out.driver_door_mesh == kInvalidId) return false;
     } else out.body_mesh = renderer.add_mesh(
         make_vehicle_snow_mesh(body, definition.mesh_path));
+    if (is_convertible(definition.id)) {
+        const std::string path=definition.mesh_path;
+        const std::string root=path.substr(0,path.find_last_of('/')+1);
+        constexpr const char* names[]{"soft_top_rear.emesh","soft_top_front.emesh"};
+        for (std::size_t i=0;i<out.soft_top_meshes.size();++i) {
+            StaticEmesh bow;
+            if (!read_static_emesh(asset_path(root+names[i]),bow)) {
+                AP_ERROR("player car: %s folding top missing; recook the vehicle assets",
+                         definition.model);
+                return false;
+            }
+            // Uploaded raw, like the driver door: the canvas carries the same
+            // solid material weights the snow pass gives ordinary bodywork, and
+            // it has no pane to classify.
+            out.soft_top_meshes[i]=renderer.add_mesh(bow);
+            out.soft_top_bounds[i]=bow.bounds;
+            if (out.soft_top_meshes[i]==kInvalidId) return false;
+        }
+    }
     if (definition.id == PlayerCarId::HarrowWorkman ||
         definition.id == PlayerCarId::AlderPip ||
+        definition.id == PlayerCarId::LegacyCar5Next ||
         is_municipal_cruiser_91(definition.id) ||
         is_motorbike(definition.id)) {
         constexpr const char* names[]{"windshield", "rear_glass", "passenger_glass", "driver_glass",
@@ -236,6 +257,10 @@ bool PlayerCarVisual::init(Renderer& renderer, Scene& scene,
     }
     driver_door_node_ = scene.create(body_renderable, Transform{}, initial.body_bounds);
     scene.get(driver_door_node_)->visible = false;
+    for (auto& id:soft_top_nodes_) {
+        id=scene.create(body_renderable,Transform{},initial.body_bounds);
+        scene.get(id)->visible=false;
+    }
     for (auto& id:glass_nodes_) {
         id=scene.create(body_renderable,Transform{},initial.body_bounds);
         scene.get(id)->visible=false;
@@ -422,6 +447,30 @@ void PlayerCarVisual::sync(Scene& scene, const VehicleTuning& tuning,
         }
     }
     sync_driver_door(scene, 0.f);
+    // Stowed by default, for the same reason the door closes here: select()
+    // and the parked clones go through sync, and the owner re-applies the real
+    // fraction in the same frame.
+    sync_soft_top(scene, 1.f);
+}
+
+void PlayerCarVisual::sync_soft_top(Scene& scene, float stowed) const {
+    const auto* body = scene.get(body_node_);
+    const auto& model = models_[static_cast<std::size_t>(active_car_)];
+    const float fraction = clamp_soft_top(stowed);
+    for (std::size_t i=0;i<soft_top_nodes_.size();++i) {
+        auto* bow = scene.get(soft_top_nodes_[i]);
+        if (!bow) continue;
+        bow->visible = body && body->visible && model.soft_top_meshes[i]!=kInvalidId;
+        if (!bow->visible) continue;
+        // Share the body renderable so paint, dents and scratch stamps stay in
+        // the body frame; only the mesh and the hinge pose differ.
+        bow->renderable = body->renderable;
+        bow->renderable.mesh = model.soft_top_meshes[i];
+        bow->local_bounds = model.soft_top_bounds[i];
+        scene.set_transform(soft_top_nodes_[i], i==0u
+            ? mistral_top_rear_transform(body->local, fraction)
+            : mistral_top_front_transform(body->local, fraction));
+    }
 }
 
 void PlayerCarVisual::sync_driver_door(Scene& scene, float open_fraction) const {
@@ -518,6 +567,7 @@ void PlayerCarVisual::clone_parked(Scene& scene, PlayerCarVisual& out) const {
     };
     out.body_node_=clone(body_node_);
     out.driver_door_node_=clone(driver_door_node_);
+    for (std::size_t i=0;i<soft_top_nodes_.size();++i) out.soft_top_nodes_[i]=clone(soft_top_nodes_[i]);
     for (std::size_t i=0;i<glass_nodes_.size();++i) out.glass_nodes_[i]=clone(glass_nodes_[i]);
     for (std::size_t i=0;i<2;++i) {
         out.emergency_nodes_[i]=clone(emergency_nodes_[i]);
@@ -532,12 +582,15 @@ void PlayerCarVisual::clone_parked(Scene& scene, PlayerCarVisual& out) const {
 void PlayerCarVisual::set_paint(Scene& scene, MaterialId paint) {
     if (auto* body=scene.get(body_node_)) body->renderable.material=paint;
     if (auto* door=scene.get(driver_door_node_)) door->renderable.material=paint;
+    for (const auto id:soft_top_nodes_)
+        if (auto* bow=scene.get(id)) bow->renderable.material=paint;
     for (std::size_t i=0;i<2;++i)
         if (auto* lamp=scene.get(lamp_nodes_[i])) lamp->renderable.material=paint;
 }
 
 void PlayerCarVisual::destroy(Scene& scene) {
     for (auto& id:glass_nodes_) { scene.remove(id); id=kInvalidId; }
+    for (auto& id:soft_top_nodes_) { scene.remove(id); id=kInvalidId; }
     scene.remove(driver_door_node_);
     driver_door_node_=kInvalidId;
     for (auto& id:emergency_nodes_) { scene.remove(id); id=kInvalidId; }

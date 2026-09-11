@@ -138,6 +138,8 @@ struct Lane {
     float traffic_density = 1.0f;
     float ped_density = 1.0f;
     float parked_density = 1.0f;
+    // District police response time, seconds; <= 0 when unauthored.
+    float response_s = 0.0f;
     uint8_t block_quality = 128;
 };
 

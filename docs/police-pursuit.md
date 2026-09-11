@@ -40,6 +40,66 @@ sequence. A cruiser held in a queue for at least two seconds may send its
 officer to a stopped suspect within 45 m; otherwise the usual 32 m approach
 range applies. Officers do not exit during an active steering maneuver.
 
+## Search mode
+
+Added 2026-09-11 (PENG-44). Pursuit no longer routes to the player's live
+position regardless of sight. The crowd keeps a **wanted centre**: the live
+target while any officer has the player in view (the same range, cone and
+world-ray gates witnessing uses), frozen at the last-seen point the moment
+none does. Routes, the intercept lead, the mid-block turnaround and the
+free-drive aim all read the centre, so a player who breaks line of sight and
+turns off has cruisers arrive at the corner they vanished from, not through
+the wall to where they are. While searching, the unit nearest the centre
+holds it and the rest are posted to the junctions one hop out (two hops when
+there are more units than exits), assigned by a stable identity hash so posts
+do not churn as cars move. A re-sighting snaps the centre back and every unit
+replans on that step. A crime that raises the level re-centres on the scene
+even without a witness. Ramming is refused while searching.
+
+The lose-track grace before heat cools is now per level: 30, 37, 45, 56 and
+82 seconds out of all police view at one to five stars, from
+`kPoliceLevelProfiles`, replacing the flat 8 s window. The window in force is
+the one for the level held when sight was lost.
+
+## The radio, and cruisers that arrive from out of sight
+
+Added 2026-09-11 (PENG-45). Dispatch used to convert only patrols already
+resident in the 220 m bubble, and did so the instant the level rose. Now a
+crime that takes the level from zero is followed by 1.5 s of nothing, the
+dispatch radio, then the district's authored response time (3 s in Halloway
+Square, 22 s in the Meadows; 12 s where a road has none) before the
+dispatcher acts on the level at all. A patrol that witnessed the crime
+converts on the frame regardless. When the dispatcher then finds no patrol to
+convert, it instantiates a cruiser on a lane 220–300 m from the wanted
+centre, occluded from it, biased toward the suspect's last heading, with a
+fresh identity in its own slot space — one per cadence up to the level's
+budget. Nothing about it reads the camera.
+
+A unit is also considered to know where the suspect is within the level's
+detection range (145 m at one star to 850 m at five) given a clear world ray,
+which is what the wanted centre tracks; the 70 m contact range still governs
+heat hold and the witness cone still governs conversion.
+
+### Verification
+
+`police_runtime_tests` pins the centre tracking a seen suspect, freezing
+bit-identically while unseen, and snapping back with an immediate replan on
+re-sight (forward and reverse scan order, digest equal every step), and that
+three unseen units hold the centre and two distinct one-hop posts without
+churn over five seconds. `police_chase_tests` scenario 5 runs the authored
+city with the proxy blocks: the player flees, turns onto a side street, stops
+60 m in for fifteen seconds and doubles back; it requires the crowd to report
+searching whenever no unit has had a world ray for a second, the centre never
+to drift off the last-seen point, no pursuer to be routed within 10 m of the
+live player, at least one unit to reach within 30 m of the corner, and the
+search to end when the player comes back into view. `wanted_system_tests`
+pins the per-level window. `police_runtime_tests` also pins the radio: with
+no patrol resident, the radio fires at 1.5 s, the dispatcher is held for the
+district delay, the first cruiser exists 220–300 m out on the next refresh
+after it lapses, one more per cadence up to the budget, identical in reversed
+scan order, and a witnessing patrol converts while the hold is still on. Not
+yet feel-checked in the app.
+
 ## Verification
 
 The new `emergency_traffic_tests` suite covers the 60 m response radius, inactive

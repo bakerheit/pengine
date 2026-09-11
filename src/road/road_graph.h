@@ -134,6 +134,11 @@ struct RoadSpine {
     // nose-to-tail with parked cars and carry almost no moving traffic, and an
     // arterial is the other way round. city/districts.h authors both.
     float parked_density = 1.0f;
+    // How long the police take to respond to a crime on this road, seconds,
+    // from the district's authored heat table. <= 0 means unauthored and the
+    // crowd substitutes its default. Carried like the densities: nothing in
+    // this module interprets it.
+    float response_s = 0.0f;
 
     // Stable authored identity. Entropy keyed to a road must key on THIS and
     // never on the spine's index in the input vector, which changes the moment
@@ -192,6 +197,7 @@ struct RoadEdge {
     float traffic_density = 1.0f;
     float ped_density = 1.0f;
     float parked_density = 1.0f;
+    float response_s = 0.0f;
 
     // Planar length of `points`, metres.
     float length_m = 0.0f;

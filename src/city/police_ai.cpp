@@ -54,7 +54,7 @@ bool police_should_ram(bool engaged, bool target_on_foot, int wanted_level,
                        float ahead_m, float range_m, float speed_mps,
                        const PoliceTuning& t) {
     if (!engaged || target_on_foot) return false;
-    if (wanted_level < t.ram_min_wanted) return false;
+    if (!police_level_profile(wanted_level).may_ram) return false;
     if (!std::isfinite(ahead_m) || !std::isfinite(range_m) ||
         !std::isfinite(speed_mps)) return false;
     // Behind the cruiser, or too far to reach before the road turns: the
@@ -162,7 +162,7 @@ float police_pursuit_cruise_mps(float road_limit_mps,
     // well it drives. The margin below is what makes holding station possible;
     // the caps everywhere else are what stop it being a straight-line win.
     const float catchup = target_speed_mps * 1.30f + 6.0f +
-        0.6f * static_cast<float>(std::clamp(wanted_level, 0, 5));
+        police_level_profile(wanted_level).cruise_bonus_mps;
     return std::clamp(std::max(road_limit_mps * 1.25f, catchup),
                       0.0f, 38.0f);
 }
@@ -176,6 +176,7 @@ float police_turn_speed_mps(float ambient_cap, bool engaged,
 
 HeatDecay wanted_heat_decay_step(float heat, float lose_track_timer,
                                  bool in_police_view, float dt,
+                                 float lose_track_window_s,
                                  const PoliceTuning& t) {
     HeatDecay r;
     // No heat -> stay cleared, timer idle (so a re-offence starts its grace fresh).
@@ -193,7 +194,7 @@ HeatDecay wanted_heat_decay_step(float heat, float lose_track_timer,
     // Out of all police LOS: run the lose-track grace, then cool down.
     r.heat = heat;
     r.lose_track_timer = lose_track_timer + dt;
-    if (r.lose_track_timer >= t.lose_track_window)
+    if (r.lose_track_timer >= lose_track_window_s)
         r.heat = std::max(0.f, heat - dt * t.heat_decay_rate);
     return r;
 }

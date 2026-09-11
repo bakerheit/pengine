@@ -44,6 +44,66 @@ tree. Apricot currently consumes cooked `.emesh` plus PNG paint directly.
 traffic visual rigs attach four separate wheel nodes, so a body must never have
 baked wheels or the car will double-render them.
 
+`textures/vehicles/car8/ambulance.png` is a fourth Car 8 paint, alongside the
+imported `grey`, `purple` and `mail`. Car 8's step-van shell already reads as an
+ambulance body, so the paint is all it takes. It is cooked, not imported: run
+`python3 tools/make_car8_ambulance_texture.py` from the repository root. The
+cook folds two generated panels -- `ambulance-flank-reference.png` and
+`ambulance-rear-reference.png`, both edits *of the stock atlas crops* -- back
+onto `body.png` as a ratio against the crop each came from, so pixels the edit
+left alone survive bit-for-bit and a downsample of painted artwork cannot smear
+the one-pixel panel lines a 128x128 atlas is made of. The roof, nose and cab
+front carry no generated panel and are lifted to the same white by a tone curve
+measured off the flank panel. `docs/assets/car8-ambulance-generated-texture.md`
+holds the prompts and the inspection record.
+
+It is selectable as LEGACY / CAR 8 AMBULANCE, from Car 8's own mesh -- a
+repaint, not a second vehicle, so the catalog fit numbers must stay equal to Car
+8's. Because the two rows share a mesh folder, `--player-car car8` resolves to
+plain Car 8 and the ambulance has no `--player-car` spelling; the dev menu is
+the way in.
+
+Car 8's flank is **one UV island shared mirrored by both sides**, so the word
+AMBULANCE reads correctly on one flank and backwards on the other, and the rear
+island's single Star of Life lands on both doors. That is the imported atlas's
+decision, not the cook's -- `mail.png`'s envelope mirrors the same way.
+
+`models/vehicles/car5_next/` is Car 5 again, cut up so its driver door swings
+and its windows are see-through. Every other articulated car in this tree is
+generated in Blender and simply never joins its door or its panes to its body;
+Car 5 is an import with no generator, so `tools/make_car5_next_assets.py` clips
+both out of the finished mesh instead. It wears Car 5's own paint rather than a
+copy: the cut moves no UV, so a second atlas could only drift away from the
+body it wraps. Regenerate with `python3 tools/make_car5_next_assets.py`.
+
+It writes `body.emesh`, a byte copy of Car 5's, which is still the shell the
+catalog fits, the lamps sample and the snow pass tags; `body_open.emesh`, that
+shell minus the door and the glass, plus the cabin an open door reveals -- an
+inset inner skin, a floor, seats and a dashboard; `driver_door.emesh`, the
+panel with its own inner skin and rim; and six pane files.
+
+Nothing about the cut is styled. The door's Z bounds are the painted shut lines
+in `textures/vehicles/car5/body.png` -- the front fender seam and the B-pillar
+-- and its raked upper edge is a least-squares fit of the A-pillar taken off
+the mesh, because a straight vertical cut there saws through the windscreen
+header. The window outlines came off the same atlas: Car 5 paints its glass
+onto the shell, which is why it is opaque, and the replacement panes have to
+land where that paint was. The greenhouse makes that tractable -- it is a tent,
+a belt ring at y=1.44, x=+/-1.15 and a roof ring at y=2.02, x=+/-0.87, so
+windscreen, sides and backlight separate cleanly by face orientation and each
+window only needs its own outline.
+
+Two ordering facts are load bearing. `driver_glass` is cut out of the door, not
+the body, because it is the only pane that has to swing with it, and
+`player_car_visual` expects it in slot 3. And the glass comes out before the
+cabin lining is built, or the lining stands as a wall behind every window.
+
+`tools/validate_car5_next_door.py` is the gate. It rebuilds the shut skin,
+probes the doorway for stationary obstructions, checks the glazing mirrors left
+to right, and rasterises 90 directions at 3 door angles with back-face culling
+to prove every hole the cut makes is filled by a pane or a rim, with no crack
+left over. It writes a QA sheet next to its report; look at it.
+
 `models/vehicles/common/wheel.emesh` is the shared wheel model. The player-car
 visual drives its four instances from real suspension, steering, and sim-owned
 spin. Each traffic car gets the same four-node setup; those wheels spin from

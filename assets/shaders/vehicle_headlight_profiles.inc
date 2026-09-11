@@ -6,6 +6,12 @@ HEADLIGHT_MODEL(car5, 0)
 HEADLIGHT_RECT(0.61, 0.93, 0.79, 1.08, 3.30, 3.80)
 HEADLIGHT_RECT(0.845, 0.93, 1.01, 1.08, 3.30, 3.80)
 HEADLIGHT_END
+// car5_next is Car 5's shell with the door cut out; same lenses, same id, so
+// the shader keeps one branch for both.
+HEADLIGHT_MODEL(car5_next, 0)
+HEADLIGHT_RECT(0.61, 0.93, 0.79, 1.08, 3.30, 3.80)
+HEADLIGHT_RECT(0.845, 0.93, 1.01, 1.08, 3.30, 3.80)
+HEADLIGHT_END
 HEADLIGHT_MODEL(car8, 1)
 HEADLIGHT_ROUND(0.865, 0.94, 1.085, 1.14, 2.80, 3.20)
 HEADLIGHT_END

@@ -22,6 +22,12 @@ struct GameUiSnapshot {
     float speed_mph = 0.0f;
     float vehicle_health = 100.0f;
     int wanted_level = 0;
+    // The stars FLASH while the police are searching for a suspect nobody can
+    // see, and during the radio hold after a fresh crime (PENG-46). Keyed on
+    // the sim step so a replay pulses identically.
+    bool wanted_searching = false;
+    bool wanted_report_pending = false;
+    int64_t step = 0;
     // [0, 1): midnight at 0, noon at 0.5. This is the visible sky clock.
     float time_of_day = 0.28f;
     float title_opacity = 1.0f;

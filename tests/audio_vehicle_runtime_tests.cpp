@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <vector>
+#include <string_view>
 
 #include "audio/player_car_assets.h"
 #include "app/player_car_catalog.h"
@@ -75,12 +76,25 @@ void catalog_models_have_distinct_rendered_engine_notes() {
 
     std::vector<float> previous(512), next(512);
     std::vector<float> pitches;
+    // Engine notes are distinct per SHELL, not per catalog row. A row that is
+    // only a repaint -- LEGACY CAR 8 AMBULANCE rides Car 8's own mesh -- shares
+    // the shell's note on purpose, because sound profiles are keyed by mesh
+    // folder and the two rows are one van. Demanding a second pitch for it
+    // would mean inventing a different engine for the same vehicle to satisfy
+    // a test. Every other assertion in this loop still runs for the repaint, so
+    // a row that quietly loses its profile is still caught.
+    std::vector<std::string_view> shells;
     for (const auto& car : kPlayerCars) {
         const auto profile = vehicle_sound_profile(car.mesh_path);
         REQUIRE(profile.model_key != "default");
         REQUIRE(profile.pitch >= 0.80f && profile.pitch <= 1.12f);
-        REQUIRE(std::find(pitches.begin(), pitches.end(), profile.pitch) == pitches.end());
-        pitches.push_back(profile.pitch);
+        const std::string_view shell(car.mesh_path);
+        if (std::find(shells.begin(), shells.end(), shell) == shells.end()) {
+            REQUIRE(std::find(pitches.begin(), pitches.end(), profile.pitch) ==
+                    pitches.end());
+            pitches.push_back(profile.pitch);
+            shells.push_back(shell);
+        }
         mixer.render(previous.data(), 256);
         audio.set_model(car.mesh_path);
         audio.update(frame);
@@ -96,7 +110,7 @@ void catalog_models_have_distinct_rendered_engine_notes() {
     REQUIRE_NEAR(vehicle_sound_profile("models/vehicles/car5_custom/body.emesh").pitch, 1.0, 1e-6);
     REQUIRE_NEAR(vehicle_sound_profile("/tmp/assets/models/vehicles/firetruck/body_surface.emesh").pitch, .80, 1e-6);
     REQUIRE(mixer.dropped_commands() == 0);
-    pass("every catalog model has a distinct measured idle note; live changes retain smooth bounded voices");
+    pass("every catalog shell has a distinct measured idle note, and every row sounds its own; live changes retain smooth bounded voices");
 }
 
 void cinder_model_uses_its_rendered_engine_note() {

@@ -15,6 +15,12 @@
 
 namespace apricot {
 
+// Car 5-NEXT seats a full-size rig under a body the catalog squashes to .664
+// of its authored height. Reclining buys the last few centimetres of
+// headroom that dropping the hip alone cannot, without burying the seat in
+// the floor. Pinned by the headroom probe in vehicle_driver_pose_tests.
+inline constexpr float kCar5NextRecline = 28.f;
+
 inline bool shows_mistral_driver(PlayerCarId car, bool occupied) {
     return occupied && car == PlayerCarId::VesperMistral;
 }
@@ -23,7 +29,8 @@ inline bool has_animated_driver(PlayerCarId car) {
     return car == PlayerCarId::VesperMistral || car == PlayerCarId::HarrowWorkman ||
         car==PlayerCarId::AlderPip || car==PlayerCarId::VesperScythe ||
         car==PlayerCarId::FangVenom ||
-        car==PlayerCarId::HalcyonSovereign || is_municipal_cruiser_91(car);
+        car==PlayerCarId::HalcyonSovereign || car==PlayerCarId::LegacyCar5Next ||
+        is_municipal_cruiser_91(car);
 }
 
 inline bool has_contact_driver_entry(PlayerCarId car) {
@@ -108,6 +115,18 @@ inline const VehicleDriverLayout& vehicle_driver_layout(PlayerCarId car) {
         {{.34f,.45f,.68f},{.54f,.45f,.68f}},
         {{.34f,.91f,.43f},{.54f,.91f,.43f}},
         {{.19f,.90f,.27f},{.67f,.90f,.27f}},{1.42f,.94f,-.05f},1.05f};
+    // Car 5-NEXT is an imported body, so its source units are neither metres
+    // nor any other car's. This rig is the 91-C's, converted: X by the body's
+    // own fit, Y measured up from the ground rather than the mesh origin, Z as
+    // a fraction along the driver door. The extra 8 cm of drop is real -- this
+    // roof is 1.32 m over the ground where the 91-C's is 1.37 m, and without it
+    // the driver's head sits in the headliner. Feet are exempt: both cabin
+    // floors are 0.30 m off the ground. See tools/car5_next_spec.py.
+    static const VehicleDriverLayout car5Next{
+        {0.559f,0.796f,0.264f},{{0.413f,1.263f,0.827f},{0.705f,1.263f,0.827f}},
+        {{0.452f,0.465f,1.064f},{0.719f,0.465f,1.064f}},
+        {{0.452f,1.052f,0.560f},{0.719f,1.052f,0.560f}},
+        {{0.133f,0.871f,0.235f},{1.011f,0.871f,0.235f}},{1.890f,1.112f,0.027f},1.437f};
     static const VehicleDriverLayout fangVenom{
         {0.f,.90f,-.20f},{{-.25f,1.04f,.34f},{.25f,1.04f,.34f}},
         {{-.225f,.52f,-.08f},{.225f,.52f,-.08f}},
@@ -122,6 +141,7 @@ inline const VehicleDriverLayout& vehicle_driver_layout(PlayerCarId car) {
     if(car==PlayerCarId::MunicipalCruiser91D) return cruiser91d;
     if(car==PlayerCarId::MunicipalCruiser91E) return cruiser91e;
     if(car==PlayerCarId::FangVenom) return fangVenom;
+    if(car==PlayerCarId::LegacyCar5Next) return car5Next;
     return car == PlayerCarId::HarrowWorkman ? workman : mistral;
 }
 
@@ -280,6 +300,7 @@ inline bool make_vehicle_driver_pose(PlayerCarId car,const Skeleton& skeleton,
     // Scythe's low canopy needs the measured rearward sports-car posture.
     return make_seated_driver_pose(vehicle_driver_layout(car),skeleton,bounds,body,out,
         car==PlayerCarId::VesperScythe?20.f:
+        car==PlayerCarId::LegacyCar5Next?kCar5NextRecline:
         car==PlayerCarId::FangVenom?-18.f:-12.f);
 }
 

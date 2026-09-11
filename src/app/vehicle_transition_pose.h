@@ -269,17 +269,21 @@ inline bool make_vehicle_transition_pose(
         return pose;
     };
     const auto closed = handle_pose(0.f);
+    // A full-size sedan door on a 68-degree hinge sweeps its handle as far as
+    // a fleet cruiser's does, and pulling that inside the short reach window
+    // moves the hand faster than the rest of the body can follow.
+    const bool long_door = is_municipal_cruiser_91(car) ||
+        car == PlayerCarId::LegacyCar5Next;
     // Release long truck/fleet-sedan doors before they reach the stop, keeping
     // the pulling arm in front of the shoulder instead of reaching behind it.
     const auto opened = handle_pose(car == PlayerCarId::HarrowWorkman ? .70f :
                                    car == PlayerCarId::HalcyonSovereign ? .65f :
-                                   is_municipal_cruiser_91(car) ? .72f :
+                                   long_door ? .72f :
                                    has_contact_driver_entry(car) ? .90f : 1.f);
     const float early_reach=car==PlayerCarId::HalcyonSovereign
         ? .12f*vehicle_transition_ease((sample.approach-.85f)/.15f) : 0.f;
     const float reaching = vehicle_transition_ease((sample.reach+early_reach) /
-        (car==PlayerCarId::HalcyonSovereign?.42f:
-         is_municipal_cruiser_91(car)?.46f:.3f));
+        (car==PlayerCarId::HalcyonSovereign?.42f:long_door?.46f:.3f));
     const float opening = vehicle_transition_ease((sample.reach - .3f) / .7f);
     const float sit = vehicle_transition_ease(t);
     out = standing;

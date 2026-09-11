@@ -2607,6 +2607,31 @@ bool World::set_roads(Renderer& renderer, Scene& scene, TerrainCollider& collide
     // filling every available lane slot.
     ambient_tuning_.vehicle_spacing_m = 48.0f;
     ambient_tuning_.max_vehicle_slots = 16;
+    // Kerbside parked cars are drawn (PENG-48) and are obstacles to AI drivers
+    // (PENG-49). The GAME used to opt out of the second half, because a full
+    // kerb deadlocked everything that tried to move sideways past it: a
+    // civilian's pull-aside for a siren was vetoed by the parked bodies, it
+    // stopped in the lane, and this check's cruiser sat boxed at 70 m for a
+    // minute where it reaches the player in fifteen seconds with the obstacles
+    // off. Drivers passing THROUGH parked cars was the lesser of the two.
+    //
+    // THE OPT-OUT IS GONE, because the deadlock it worked around is fixed: see
+    // emergency_path_clear's scenery rule and tests/parked_corridor_tests.cpp.
+    // Measured on --police-pursuit-check, all three states:
+    //
+    //   obstacles on, before the fix   still 66 m out at 36 s, never arrives
+    //   obstacles off (the opt-out)    PASS, officer on the player at 15.2 s
+    //   obstacles on, after the fix    PASS, officer on the player at 26.0 s
+    //
+    // The 11 s between the last two is not a deadlock and not a regression to
+    // chase here: it is what parked cars cost. A Street with a full kerb has
+    // nowhere for a civilian to pull over, so a siren waits behind it, and
+    // that is the answer a real city gives. Buying those seconds back by
+    // driving every AI car through every parked body is the worse trade —
+    // that one is visible on every street in the game, and the pursuit check
+    // passes either way. If pursuit pacing needs them, that is a police
+    // routing ticket; restoring the opt-out is the one line below.
+    // See docs/traffic-realism.md.
     // The same active-set code now drives finished character models. A calmer
     // gap keeps pavements alive without turning each road into a marching line.
     ambient_tuning_.ped_spacing_m = 52.0f;

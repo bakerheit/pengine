@@ -42,6 +42,8 @@ inline constexpr float kMeadowsPedDensity = 0.03f;
 // And nobody parks on a country road. Lower than Marrow's 0.05, which is the
 // emptiest kerb any district authors.
 inline constexpr float kMeadowsParkedDensity = 0.02f;
+// Nobody patrols the countryside: the response is the drive out from town.
+inline constexpr float kMeadowsResponseS = 22.0f;
 
 }  // namespace city
 }  // namespace apricot

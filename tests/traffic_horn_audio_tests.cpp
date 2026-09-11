@@ -71,6 +71,37 @@ struct Rig {
     void ticks(int count,bool blocked=true) {for (int i=0;i<count;++i) tick(blocked);}
 };
 
+// PENG-51. The sim's one-shot fires the horn with no patience wait and no
+// frustration at all — a rolling car that has just been cut off — and it is
+// one horn, not one per step that the level stays high.
+void player_cutoff_honks_with_no_wait() {
+    Rig rig;
+    rig.cars[0].speed_mps=3.f;
+    REQUIRE(!rig.tick(false));
+    rig.cars[0].honk_player=true; rig.cars[0].honk_player_fire=true;
+    REQUIRE(rig.tick(false));
+    REQUIRE(rig.audio.last_event().driver.slot==rig.cars[0].slot);
+    rig.cars[0].honk_player_fire=false;
+    rig.ticks(300,false);
+    REQUIRE(rig.audio.play_count()==1);
+    pass("a driver cut off by the player honks at once, once");
+}
+
+void player_honks_share_the_voice_budget() {
+    Rig rig;
+    for (uint32_t slot=18; slot<21; ++slot) rig.cars.push_back(rig.road.car(slot));
+    for (auto& car:rig.cars) { car.speed_mps=3.f; car.honk_player=true; car.honk_player_fire=true; }
+    REQUIRE(rig.tick(false));
+    REQUIRE(rig.audio.play_count()==1);
+    // The global 0.65 s spacing holds for player horns too.
+    rig.ticks(70,false);
+    REQUIRE(rig.audio.play_count()==1);
+    rig.ticks(12,false);
+    REQUIRE(rig.audio.play_count()==2);
+    REQUIRE(rig.audio.voice_count()<=TrafficHornAudio::kVoiceBudget);
+    pass("four drivers honking at the player share the voice budget and the global spacing");
+}
+
 void shipped_recordings_are_valid() {
     const auto bank=recordings();
     REQUIRE(bank.traffic_horns[0].sample_rate==44100);
@@ -313,6 +344,8 @@ void a_fresh_departure_inherits_no_horn_state() {
 
 int main(int argc,char** argv) {
     shipped_recordings_are_valid();
+    player_cutoff_honks_with_no_wait();
+    player_honks_share_the_voice_budget();
     profiles_wait_and_repeat_without_spam();
     legal_controls_do_not_build_a_horn_queue();
     voices_are_stable_bounded_and_cleaned_up();

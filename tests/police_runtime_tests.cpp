@@ -48,6 +48,9 @@ CrowdTuning police_tuning(bool reverse_scan) {
     tuning.max_peds = 0;
     tuning.reverse_scan_order = reverse_scan;
     tuning.police.patrol_fraction = 0.12f;
+    // These suites measure conversion and routing, not the radio: no hold.
+    tuning.police.radio_latency_s = 0.0f;
+    tuning.police.default_response_s = 0.0f;
     return tuning;
 }
 
@@ -198,6 +201,9 @@ void patrol_witnessing_requires_that_patrols_own_los() {
     tuning.vehicle_activate_m = 20.0f;
     tuning.vehicle_retire_m = 32.0f;
     tuning.police.patrol_fraction = 1.0f;
+    // A real radio hold, so this also proves the WITNESS is never held.
+    tuning.police.radio_latency_s = 1.5f;
+    tuning.police.default_response_s = 3.0f;
 
     Crowd crowd;
     crowd.build(network.lanes, 0x51514Eull, ambient, tuning);
@@ -231,6 +237,8 @@ void patrol_witnessing_requires_that_patrols_own_los() {
     crowd.step_vehicles(step + 1);
     REQUIRE(crowd.police_pursuit_count() == 1u);
     REQUIRE(crowd.player_in_police_view());
+    // The dispatcher is still on hold; the witness converted anyway.
+    REQUIRE(crowd.police_responding_level() == 0);
 
     crowd.set_police_context(0, target, {});
     REQUIRE(crowd.police_pursuit_count() == 0u);
@@ -311,6 +319,194 @@ void dispatcher_prefers_the_alpha_ring_then_uses_distant_patrols() {
     REQUIRE(fallback->police_unit);
     REQUIRE(distance_to_target(*fallback) > 135.0f);
     pass("dispatch prefers 55-135 m, then fills from a distant existing patrol");
+}
+
+VehicleAgent pursuit_car(const LaneGraph& lanes, LaneRef lane, float station);
+
+// THE RADIO AND THE OFF-SCREEN CRUISER (PENG-45). No patrols at all: a crime
+// is followed by 1.5 s of nothing, the radio, three seconds of response time,
+// and then a cruiser exists 220–300 m out, already pursuing — one per cadence
+// up to the level's budget, never more, identical in reversed scan order.
+void no_resident_patrol_cruiser_arrives_after_district_delay() {
+    Network network = build_network();
+    AmbientTuning ambient;
+    CrowdTuning fwd_tuning = police_tuning(false), rev_tuning = police_tuning(true);
+    for (CrowdTuning* t : {&fwd_tuning, &rev_tuning}) {
+        t->police.patrol_fraction = 0.0f;
+        t->police.radio_latency_s = 1.5f;
+        t->police.default_response_s = 3.0f;
+    }
+    Crowd forward, reverse;
+    forward.build(network.lanes, 0xD15Cull, ambient, fwd_tuning);
+    reverse.build(network.lanes, 0xD15Cull, ambient, rev_tuning);
+    const glm::vec2 target{495.0f, 495.0f};
+    forward.refresh(0, target); reverse.refresh(0, target);
+    REQUIRE(forward.vehicles().size() > 40u);
+    REQUIRE(forward.police_unit_count() == 0u);
+    auto tick = [&](Crowd& crowd, int64_t step, int level) {
+        crowd.set_police_context(level, target, {});
+        if (step % 8 == 0) crowd.refresh(step, target);
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step);
+    };
+    int64_t first_unit_step = -1;
+    for (int64_t step = 0; step < 1000; ++step) {
+        tick(forward, step, 2); tick(reverse, step, 2);
+        REQUIRE(forward.police_dispatch_radio_fires(step) == (step == 180));
+        if (step < 535) REQUIRE(forward.police_responding_level() == 0);
+        if (step >= 545) REQUIRE(forward.police_responding_level() == 2);
+        if (step < 540) REQUIRE(forward.police_unit_count() == 0u);
+        if (first_unit_step < 0 && forward.police_unit_count() > 0) first_unit_step = step;
+        REQUIRE(forward.police_unit_count() <= 4u);
+        REQUIRE(forward.population_hash() == reverse.population_hash());
+    }
+    std::printf("      first cruiser at step %lld\n", static_cast<long long>(first_unit_step));
+    REQUIRE(first_unit_step >= 540 && first_unit_step <= 560);
+    REQUIRE(forward.police_unit_count() == 4u);
+    for (const VehicleAgent& v : forward.vehicles()) {
+        if (!v.police_unit) continue;
+        REQUIRE(v.slot >= Crowd::kPoliceDispatchSlotBase);
+        REQUIRE(v.police_pursuit);
+        const Lane& lane = network.lanes.lane(v.lane);
+        REQUIRE(lane.cls != RoadClass::Dirt && lane.cls != RoadClass::Alley);
+    }
+    // Stand down, then a fresh crime: the hold runs again and the four
+    // resident cruisers are what gets converted — nothing new is spawned
+    // while patrols exist to wake.
+    tick(forward, 1000, 0); tick(reverse, 1000, 0);
+    REQUIRE(forward.police_pursuit_count() == 0u);
+    for (int64_t step = 1001; step < 1700; ++step) {
+        tick(forward, step, 2); tick(reverse, step, 2);
+        if (step < 1001 + 535) REQUIRE(forward.police_responding_level() == 0);
+        REQUIRE(forward.police_unit_count() == 4u);
+        REQUIRE(forward.population_hash() == reverse.population_hash());
+    }
+    REQUIRE(forward.police_pursuit_count() >= 1u);
+    pass("with no patrol resident, a cruiser is dispatched out of sight after the radio and the district delay");
+}
+
+// SEARCH MODE (PENG-44). A wrecked cruiser never moves, so its route target
+// is the one thing that changes: while any unit has the suspect in view the
+// centre tracks him, the moment none does it freezes where he was, and a
+// re-sighting snaps it back and replans on that same step.
+void search_centre_freezes_when_no_unit_has_los() {
+    // One long straight road: the suspect drives 65 m down it over the run
+    // and the cruiser's station must stay well inside the lane, or the crowd
+    // reads it as committed to the junction and pins its route there.
+    Network network;
+    {
+        RoadSpine road;
+        road.id = 1; road.cls = RoadClass::Arterial; road.points = {{0, 0}, {600, 0}};
+        GroundSampler ground;
+        network.roads.build({road}, {}, ground);
+        network.lanes.build(network.roads, ground);
+    }
+    AmbientTuning ambient;
+    Crowd forward, reverse;
+    forward.build(network.lanes, 0x5EA7C4ull, ambient, police_tuning(false));
+    reverse.build(network.lanes, 0x5EA7C4ull, ambient, police_tuning(true));
+    const LaneRef lane = network.lanes.nearest_lane_along({200.0f, 2.0f}, {1.0f, 0.0f}).lane;
+    REQUIRE(network.lanes.valid(lane));
+    VehicleAgent cop = pursuit_car(network.lanes, lane, 100.0f);
+    cop.speed_mps = cop.cruise_mps = 0.0f;
+    cop.mechanical.engine_failed = true;
+    const_cast<std::vector<VehicleAgent>&>(forward.vehicles()) = {cop};
+    const_cast<std::vector<VehicleAgent>&>(reverse.vehicles()) = {cop};
+    const VisiblePoliceIdentity id{cop.lane_key, cop.slot};
+    // The suspect starts 40 m ahead and drives away at 5 m/s: inside the 70 m
+    // contact range for the whole run, so "seen" is exactly the LOS list.
+    auto target_at = [&](int64_t step) {
+        const auto p = network.lanes.pose(lane, 140.0f + 5.0f * static_cast<float>(step) / 120.0f).position;
+        return glm::vec2{p.x, p.z};
+    };
+    auto tick = [&](Crowd& crowd, int64_t step, bool seen) {
+        crowd.set_police_context(1, target_at(step),
+            seen ? std::vector<VisiblePoliceIdentity>{id} : std::vector<VisiblePoliceIdentity>{});
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step);
+    };
+    for (int64_t step = 0; step < 120; ++step) {
+        tick(forward, step, true); tick(reverse, step, true);
+        REQUIRE(!forward.police_searching());
+        REQUIRE(forward.police_search_centre() == target_at(step));
+        REQUIRE(forward.population_hash() == reverse.population_hash());
+    }
+    const glm::vec2 frozen = forward.police_search_centre();
+    for (int64_t step = 120; step < 600; ++step) {
+        tick(forward, step, false); tick(reverse, step, false);
+        REQUIRE(forward.police_searching());
+        REQUIRE(forward.police_search_centre() == frozen);
+        REQUIRE(forward.population_hash() == reverse.population_hash());
+    }
+    // The route went to the frozen point, not to the moving suspect.
+    REQUIRE(forward.vehicles()[0].police_last_replan_step >= 0);
+    REQUIRE(forward.vehicles()[0].police_last_target == frozen);
+    REQUIRE(glm::distance(forward.vehicles()[0].police_last_target, target_at(599)) > 15.0f);
+    // Re-sighted: live centre, not searching, replanned THIS step.
+    tick(forward, 600, true); tick(reverse, 600, true);
+    REQUIRE(!forward.police_searching());
+    REQUIRE(forward.police_search_centre() == target_at(600));
+    REQUIRE(forward.vehicles()[0].police_last_replan_step == 600);
+    REQUIRE(forward.vehicles()[0].police_last_target == target_at(600));
+    REQUIRE(forward.population_hash() == reverse.population_hash());
+    pass("the wanted centre tracks a seen suspect, freezes when unseen, and snaps back on re-sight");
+}
+
+// Three units, none with a view: the nearest holds the centre and the other
+// two are posted to distinct exits one hop out, and the assignment does not
+// churn while the set is unchanged.
+void search_posts_are_one_hop_out_and_stable() {
+    Network network = build_network();
+    AmbientTuning ambient;
+    Crowd crowd;
+    crowd.build(network.lanes, 0x5EA7C4ull, ambient, police_tuning(false));
+    const LaneRef lane = network.lanes.nearest_lane_along({300.0f, 495.0f}, {1.0f, 0.0f}).lane;
+    REQUIRE(network.lanes.valid(lane));
+    // Grid lanes are ~70 m between junction trims: keep every station inside.
+    REQUIRE(network.lanes.length(lane) > 55.0f);
+    std::vector<VehicleAgent> cops;
+    uint32_t slot = 17;
+    for (float station : {15.0f, 25.0f, 35.0f}) {
+        VehicleAgent cop = pursuit_car(network.lanes, lane, station);
+        cop.slot = slot++;
+        cop.speed_mps = cop.cruise_mps = 0.0f;
+        cop.mechanical.engine_failed = true;
+        cops.push_back(cop);
+    }
+    const_cast<std::vector<VehicleAgent>&>(crowd.vehicles()) = cops;
+    const auto target3 = network.lanes.pose(lane, 50.0f).position;
+    const glm::vec2 target{target3.x, target3.z};
+    auto routes_end = [&]() {
+        std::vector<LaneRef> ends;
+        for (const VehicleAgent& v : crowd.vehicles()) {
+            REQUIRE(!v.police_route.empty());
+            ends.push_back(v.police_route.back());
+        }
+        return ends;
+    };
+    for (int64_t step = 0; step < 120; ++step) {
+        crowd.set_police_context(1, target, {});
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step);
+    }
+    REQUIRE(crowd.police_searching());
+    REQUIRE(crowd.police_search_centre() == target);
+    const std::vector<LaneRef> ends = routes_end();
+    // The holder is the car nearest the centre: station 35, i.e. the last
+    // one seeded; its route stays on the centre lane.
+    REQUIRE(ends[2] == lane);
+    const LaneRef post0 = police_search_post(network.lanes, lane, 0);
+    const LaneRef post1 = police_search_post(network.lanes, lane, 1);
+    REQUIRE(network.lanes.valid(post0) && network.lanes.valid(post1) && post0 != post1);
+    REQUIRE(post0 != lane && post1 != lane);
+    REQUIRE((ends[0] == post0 && ends[1] == post1) || (ends[0] == post1 && ends[1] == post0));
+    for (int64_t step = 120; step < 720; ++step) {
+        crowd.set_police_context(1, target, {});
+        crowd.rebuild_buckets();
+        crowd.step_vehicles(step);
+        REQUIRE(routes_end() == ends);
+    }
+    pass("searching units hold the centre and post to distinct junctions one hop out, stably");
 }
 
 VehicleAgent pursuit_car(const LaneGraph& lanes, LaneRef lane, float station) {
@@ -570,9 +766,12 @@ void low_heat_pursuit_follows_instead_of_ramming() {
     player.position = pose.position;
     player.velocity = pose.tangent * 8.0f;
     float closest = 1000.0f;
+    // The cruiser can see him (35 m, open road): without that it would be
+    // searching for a suspect at a frozen point instead of following one.
+    const VisiblePoliceIdentity cop_id{cop.lane_key, cop.slot};
     for (int64_t step = 0; step < 1440; ++step) {
         player.position += player.velocity * static_cast<float>(kSimDt);
-        crowd.set_police_context(1, player.position);
+        crowd.set_police_context(1, player.position, {cop_id});
         crowd.set_police_officer_context(false, false, {8, 0});
         crowd.rebuild_buckets();
         crowd.step_vehicles(step, &player);
@@ -592,6 +791,9 @@ void low_heat_pursuit_follows_instead_of_ramming() {
 
 int main() {
     std::puts("police_runtime_tests");
+    no_resident_patrol_cruiser_arrives_after_district_delay();
+    search_centre_freezes_when_no_unit_has_los();
+    search_posts_are_one_hop_out_and_stable();
     ambient_patrols_and_response_are_deterministic();
     patrol_witnessing_requires_that_patrols_own_los();
     dispatcher_prefers_the_alpha_ring_then_uses_distant_patrols();

@@ -34,7 +34,7 @@ void contact_holds_then_escape_cools() {
     REQUIRE(wanted.heat() == 3.0f);
     REQUIRE(wanted.level() == 2);
 
-    wanted.update(tuning.lose_track_window - 0.1f, false, tuning);
+    wanted.update(police_level_profile(2).escape_s - 0.1f, false, tuning);
     REQUIRE(wanted.heat() == 3.0f);
     wanted.update(1.0f, false, tuning);
     REQUIRE(wanted.heat() < 3.0f);
@@ -43,6 +43,26 @@ void contact_holds_then_escape_cools() {
     REQUIRE(wanted.heat() == 0.0f);
     REQUIRE(wanted.level() == 0);
     apricot_test::pass("police contact holds heat; losing contact starts escape cooling");
+}
+
+// More stars take longer to shake: the grace window is the level's, and it is
+// the level you held when you broke line of sight.
+void escape_window_is_per_level() {
+    PoliceTuning tuning;
+    WantedSystem five;
+    five.add_heat(12.0f);
+    REQUIRE(five.level() == 5);
+    five.update(60.0f, false, tuning);            // well past one star's window
+    REQUIRE(five.heat() == 12.0f);                // ... but inside five stars'
+    five.update(police_level_profile(5).escape_s - 60.0f + 1.0f, false, tuning);
+    REQUIRE(five.heat() < 12.0f);
+
+    WantedSystem one;
+    one.add_heat(1.0f);
+    REQUIRE(one.level() == 1);
+    one.update(police_level_profile(1).escape_s + 1.0f, false, tuning);
+    REQUIRE(one.heat() < 1.0f);
+    apricot_test::pass("the escape window scales with the wanted level");
 }
 
 void crime_report_is_one_shot_and_keeps_latest_kind() {
@@ -101,6 +121,7 @@ void traffic_and_cruiser_reports_reach_the_dispatcher() {
 int main() {
     heat_buckets_match_the_alpha();
     contact_holds_then_escape_cools();
+    escape_window_is_per_level();
     crime_report_is_one_shot_and_keeps_latest_kind();
     developer_level_setup_is_exact_and_does_not_report_a_crime();
     traffic_and_cruiser_reports_reach_the_dispatcher();

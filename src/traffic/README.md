@@ -244,14 +244,87 @@ would depend on the display.
   discharge a platoon without treating its own lead car as cross traffic. A
   stopped destination queue therefore stays behind the paint instead of
   gridlocking the signal box; after a profile-specific patience
-  delay, the driver deterministically samples open alternate turns. Overtaking,
-  physical reverse/three-point jam recovery, emergency yielding, and the full
-  maneuver-state stack in `city/traffic_ai.h` remain for a later pass. A car
+  delay, the driver deterministically samples open alternate turns. Emergency
+  yielding, civilian overtaking, lane changes and the jam-recovery ladder
+  (nudge and evaporation; the physical reverse and three-point kernels in
+  `city/traffic_ai.h` are still not wired) live in `emergency.cpp`, see the
+  section below. A car
   that has already committed uses a separate traversal state until its rear
   clears the computed box: it ignores later junction signals, maintains a
   minimum clear speed, suppresses low-speed contact yaw, quickly re-aligns to
   its lane, and escalates to clearance throttle after one stalled second.
   Parallel arrivals which merge into one exit are serialized before entry.
+
+---
+
+## Civilian overtaking and lane changes
+
+Until PENG-47 a civilian behind a stopped car waited forever: the lane graph
+had `neighbour()` and `opposing()`, `city/traffic_ai.h` had the gap-acceptance
+kernel, and nothing called either. The police bypass in `emergency.cpp` already
+did everything a civilian pass needs — an out/past/back arc, a swept clearance
+test over frozen bodies, a reservation set so two cars do not pick the same
+patch — behind two booleans that said "police only". The civilian planner
+(`Crowd::plan_civilian_maneuver`) runs in the same 10 Hz identity-phased slot,
+through the same `submit`, and adds three things:
+
+- **A separate wait clock.** `VehicleAgent::obstruction_wait_s` accrues only
+  behind something well under the driver's own cruise on open road, never
+  while `hold` (a red, a stop, a yield) or a blocked exit is what stopped the
+  car, and never behind a QUEUE — an AI car stopped at or approaching a control
+  within 60 m, or the player sitting at one. `delay_seconds` could not be
+  reused for this: it runs at any standstill, and a red light is not something
+  you overtake. `civilian_plan_candidate()` reads the clock, so free-flowing
+  traffic never builds the frozen snapshot at all and the step cost is
+  unchanged where nothing is stuck.
+- **Room to pull out.** A car that closes to its ordinary 0.6 m behind a
+  wreck cannot swing round it — no arc clears two metres of body in three
+  metres of travel, and the sweep vetoed every offset. Behind a stationary
+  obstruction that is not a queue the follow law now stops
+  `CivilianManeuverTuning::standoff_m` (10 m) back instead, which is also what
+  a driver who means to get past does.
+- **Two moves, one gate.** On a road with a same-direction neighbour the car
+  changes lane (`TrafficManeuverKind::LaneChange`, one S-curve, completion
+  re-homes it and clears the old lane's junction memory); it tries outboard
+  first, which is the keep-right bias with no roll. Safety and incentive are
+  MOBIL's: `overtake_gap_acceptable` on the target lane (its rear
+  time-to-collision term is the new-follower criterion) and a gain of at least
+  2 m/s in sustainable speed, where "sustainable" is the leader's speed, not the
+  follow law's answer for this second. On a single-lane two-way road it
+  borrows the oncoming lane around something STATIONARY only
+  (`CivilianOvertake`, the bypass geometry with `destination` unchanged), after
+  the driver's own patience has run out (`traffic_profile_may_pass_jam`: never
+  for Cautious) plus a keyed hesitation so a row of identical drivers does not
+  pull out on one step, and only when the oncoming lane's nearest car is more
+  than four seconds away at the combined closing speed.
+
+**When the pass is refused for good (PENG-50)** — the oncoming lane never
+clears, the road has no neighbour lane — the car is deep-blocked: stopped at
+its stand-off behind something stationary that is not a queue, on
+`VehicleAgent::jam_steps`. After its patience the lifted ladder runs
+(`recovery_plan`): a **Nudge** edges round the obstruction on our own half of
+the road (`nudge_pick_target` chooses the side, the same arc builder and
+sweep as the pass execute it); Reverse and the three-point turn are
+structurally ineligible this tranche because a lane agent has no drivable
+reverse (fill `rear_gap` and `road_bidirectional` later to enable them); and
+with the ladder dry, far from the player (60 m, or no player in the step) and
+past the 30 s ceiling, the car is **retired** — marked in the loop, swept after
+it with the same sequence `take_vehicle()` uses, permanently. A queue at a
+control never reaches any of this: it never accrues the clock. **Drivers also
+honk at the player (PENG-51)**: the player-hazard kernel's `honk` is latched
+into a debounced one-shot on the car (`honk_player_fire`, sim-step clock, 4 s
+interval) that `audio/traffic_horn_audio.h` plays through a second predicate,
+outranking frustration and indifferent to signal phase.
+
+Not done here, on purpose: the opposing-lane view reads one lane's bucket and
+does not look one hop past its start the way `rebuild_buckets` does for heads
+(the run is at most 44 m and the per-step sweep still stops the car);
+keep-right returns to the outer lane when it is free are not planned (that
+would fire for every inner-lane car and cost the early-out); tapers are never
+changed on or into (the auxiliary-merge code owns those). `tests/
+civilian_maneuver_tests.cpp` pins the Street pass, the oncoming refusal and
+its release, the signal queue, the Arterial lane change with its re-home, the
+reversed-order identity, and that a leader at cruise plans nothing.
 
 ---
 
@@ -338,10 +411,62 @@ clearance 1.30 m, worst junction setback 11.61 m, tightest neighbouring pair
 5.39 m. Nickel Heights comes out at **89.2 cars per km of usable kerb against
 Marrow's 3.2**.
 
-**Nothing draws them yet.** `Crowd::ambient_parked()` hands out identity, world
-pose and `TrafficVehicleKind`; `src/app/traffic_visual.*` has not been wired to
-it and neither has collision, so this is a sim-side population with a test and
-no presentation. Do not describe it as visible.
+**Drawn, not solid.** `Crowd::ambient_parked()` hands out identity, world pose
+and `TrafficVehicleKind`, and since PENG-48 `src/app/traffic_visual.*` draws
+each resident one through the same rig recipe as a moving car (a stationary
+shell agent with the parked kind; no lights, no brake lamps), reconciled on
+`(lane_key, slot)` exactly like the moving rigs. Since PENG-49 they are also
+obstacles to AI drivers: `gather_parked_near()` finds the parked bodies on a
+car's own lane, its same-direction neighbours and its opposing lane, and they
+enter the follow law (a body reaching into the driving corridor is followed
+like a leader — and, being stationary and not a queue, overtaken by the
+civilian planner) and the maneuver clearance sweep with their real footprints.
+A kerb-clear bay is passed at cruise: the corridor test uses the car's own
+half-width plus the parked half-width plus a 5 cm margin. Phantoms are never
+materialised inside an intruding bay slot.
+
+**A 14 m Street is about 10 cm too narrow for a box truck to pass a parked box
+truck, and that is left true.** The bay stands a body 1.10 m from the lane
+centre; a box truck driving that centre wants 1.20 m. On the island that is
+643 of 2,500 parked cars — every parked box truck — against the 4/15 of drivers
+that are box trucks. Those drivers go round, which is what a driver does, and
+`tests/parked_corridor_tests.cpp` is the proof they can.
+
+**That gate used to be measured against the wrong body (PENG-51).**
+`parked_lane_bay()` reasoned about `AmbientTuning::parked_half_width_m`, a
+nominal 0.95 m, while the runtime hazard test used the real footprint. The two
+disagreed by 0.20 m, so "kerb-clear" was a claim about a car that was not
+there. `widest_parked_half_width_m()` is now what the gate reads, and
+`parked_half_width_m` is documented as what it always was: the slot a body is
+PLACED in, not a body. Placement is deliberately one station for every kind —
+sizing each slot to its own body makes a wide one reach FURTHER into the lane,
+not less.
+
+**The stuck traffic was never really the geometry, it was the escape.** Three
+faults stacked: the gate above, then `emergency_path_clear` padding the body by
+0.28 m — which against a legally parked car vetoes the lane the car is already
+sitting in, and so vetoes every arc out of it — and then arcs that merged back
+onto the next parked bumper or were declined for want of a textbook run. A car
+on a maneuver has left the follow law, the recovery ladder and the intersection
+escape behind, so a permanently vetoed arc is a permanent wedge with no clock
+still running: one measured at 18.8 s mid-junction with a queue behind it. The
+sweep now excuses SCENERY — and only scenery, never a car that merely has zero
+speed this step — when the conflict exists at the lane baseline too and the
+body only clips the corridor by less than the pad; `lateral_arc_run()` fits the
+arc's end to the kerb; and an arc that cannot advance for a second is
+abandoned (`VehicleAgent::maneuver_stall_steps`).
+
+**The game no longer opts out.** `--police-pursuit-check` was the reason it
+did: obstacles on, before the fix, the cruiser was still 66 m out at 36 s and
+never arrived. It now PASSES at 26.0 s, against 15.2 s with the obstacles off —
+and those 11 s are what parked cars cost, not a regression. A Street with a
+full kerb has nowhere for a civilian to pull over, so a siren waits behind it.
+
+They still have no collision response of their own — a player who hits one
+drives through it — and `parked_lane_clearance_m` stays at 1.00 m: lowering it
+to put bays on Arterials is a separate decision with its own bench numbers,
+because every outer-lane car would then meet a hazard at its first bay and
+change inboard.
 
 **`set_parked_vehicle_poses()` is a different thing** and always was: that is
 the *app's* list of cars the **player** abandoned, which AI drivers treat as

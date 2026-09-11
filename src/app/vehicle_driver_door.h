@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/car5_next_door.h"
 #include "app/mistral_door.h"
 #include "app/workman_door.h"
 #include "app/player_car_catalog.h"
@@ -35,6 +36,10 @@ inline VehicleDriverDoor vehicle_driver_door(PlayerCarId car) {
     if(car==PlayerCarId::MunicipalCruiser91E)
         return {{1.045f,.47f,.78f},{1.065f,.98f,-.05f},-.24f,.78f,.47f,1.00f,
                 -1.2217304764f};
+    if (car == PlayerCarId::LegacyCar5Next)
+        return {kCar5NextDoorHinge, kCar5NextDoorHandle, kCar5NextDoorRearZ,
+                kCar5NextDoorFrontZ, kCar5NextDoorSillY,
+                kCar5NextDoorTopY - kCar5NextDoorSillY, kCar5NextDoorOpenRadians};
     if (car == PlayerCarId::HarrowWorkman)
         return {kWorkmanDoorHinge, kWorkmanDoorHandle, kWorkmanDoorRearZ,
                 kWorkmanDoorFrontZ, kWorkmanDoorSillY, kWorkmanDoorTopY - kWorkmanDoorSillY};

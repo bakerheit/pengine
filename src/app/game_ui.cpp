@@ -77,16 +77,19 @@ void draw_star(Hud& hud, glm::vec2 centre, float radius, glm::vec4 color) {
         hud.triangle(centre, points[i], points[(i + 1u) % points.size()], color);
 }
 
-void draw_wanted_stars(Hud& hud, int wanted_level, float right, float top) {
+void draw_wanted_stars(Hud& hud, int wanted_level, bool flash, int64_t step,
+                       float right, float top) {
     if (wanted_level <= 0) return;
     constexpr float kSpacing = 26.0f;
+    // 4 Hz on the SIM clock: 15 steps lit, 15 unlit at 120 Hz.
+    const bool lit = !flash || ((step / 15) & 1) == 0;
     for (int i = 0; i < 5; ++i) {
         const glm::vec2 centre{right - (4 - i) * kSpacing - 11.0f, top + 11.0f};
         draw_star(hud, centre + glm::vec2{2.0f, 3.0f}, 12.0f,
                   {0.0f, 0.0f, 0.0f, 0.52f});
         draw_star(hud, centre, 11.0f,
-                  i < wanted_level ? glm::vec4{1.0f, 0.68f, 0.12f, 1.0f}
-                                   : glm::vec4{0.20f, 0.22f, 0.22f, 0.92f});
+                  i < wanted_level && lit ? glm::vec4{1.0f, 0.68f, 0.12f, 1.0f}
+                                          : glm::vec4{0.20f, 0.22f, 0.22f, 0.92f});
     }
 }
 
@@ -1184,6 +1187,8 @@ void GameUi::draw_minimap(Hud& hud, const UiFlow& flow,
     hud.text_centered(clock_text, clock_right - clock_width * 0.5f,
                       clock_top + 14.0f, 28.0f, kInk);
     draw_wanted_stars(hud, std::clamp(snapshot.wanted_level, 0, 5),
+                      snapshot.wanted_searching || snapshot.wanted_report_pending,
+                      snapshot.step,
                       clock_right, clock_top + clock_height + 10.0f);
 
     const auto view = MinimapView::make(snapshot.player_position, snapshot.player_forward,

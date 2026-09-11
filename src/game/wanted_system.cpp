@@ -17,8 +17,12 @@ void WantedSystem::add_heat(float amount, Crime crime) {
 
 void WantedSystem::update(float dt, bool in_police_view,
                           const PoliceTuning& tuning) {
+    // The window in force is the one for the level you HAD when you broke
+    // line of sight: read before the step, so cooling through a level
+    // boundary never lengthens the grace mid-escape.
     const HeatDecay next = wanted_heat_decay_step(
-        heat_, lose_track_timer_, in_police_view, dt, tuning);
+        heat_, lose_track_timer_, in_police_view, dt,
+        police_level_profile(level_).escape_s, tuning);
     heat_ = next.heat;
     lose_track_timer_ = next.lose_track_timer;
     recompute_level();
