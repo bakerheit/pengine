@@ -297,4 +297,11 @@ apricot_add_suite(weapon_pose_tests)
 apricot_add_suite(weapon_hit_tests)
 apricot_add_suite(weapon_aim_tests)
 apricot_add_suite(blood_particles_tests)
+apricot_add_suite(body_damage_tests)
+apricot_add_suite(player_vitals_tests)
+apricot_add_suite(player_casualty_tests)
 apricot_add_suite(ped_impact_pose_tests)
+
+# The per-frame performance recorder behind --perf-log: dip detection,
+# percentiles, the worst-frame list and the hot-spot map.
+apricot_add_suite(frame_log_tests)

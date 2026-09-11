@@ -100,7 +100,7 @@ void App::tick_weapon_hit_check() {
             fail("body/world hit separation or Q aim release failed");return;
         }
         weapon_hit_check_done_=true;
-        AP_INFO("weapon hit check: PASS; Q aim, real NPC knockdown/blood, expiry, ground hit, Q release");
+        AP_INFO("weapon hit check: PASS; Q aim, real NPC wound/blood, expiry, ground hit, Q release");
     }
 }
 
@@ -109,11 +109,15 @@ void App::capture_weapon_hit_check() {
     if (frames_rendered_==645 && !save_screenshot(screenshot_path_+".aim-target.png"))
         weapon_hit_check_failed_=true;
     if (frames_rendered_==653) {
-        bool downed=false;
+        // ONE ROUND IS A WOUND, not a knockdown: the check asks whether the
+        // bullet SPENT HEALTH, which is what a body hit does now. It used to
+        // ask whether the victim was on the floor, and a single round no
+        // longer puts anybody there.
+        bool wounded=false;
         for (const auto& ped:world_.traffic().peds())
             if (ped.lane_key==weapon_hit_check_lane_ && ped.slot==weapon_hit_check_slot_)
-                downed=ped.activity==PedActivity::Downed;
-        if (!downed || weapon_body_hits_!=weapon_hit_check_start_hits_+1 ||
+                wounded=ped.health<kBodyHealth;
+        if (!wounded || weapon_body_hits_!=weapon_hit_check_start_hits_+1 ||
             weapon_visual_.blood_particle_count()==0 ||
             !save_screenshot(screenshot_path_+".body-hit.png")) {
             weapon_hit_check_failed_=true;

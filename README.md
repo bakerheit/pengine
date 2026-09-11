@@ -137,14 +137,36 @@ kicking back on shots, and reaching for the magazine during reload.
 The outlined crosshair follows the shoulder view; aiming tightens the view and
 keeps the player's body facing the shot. Shots trace from the camera and then
 the gun muzzle so nearby cover still blocks them. Pedestrian hits show a red
-hit marker, knock the target down, and emit the original Probable Cause-style
-short blood spray. Pedestrians recover through their existing activity system;
-this does not add permanent deaths, vehicle damage, ammo pickups, or checkpoint
-persistence for ammo. World hits show brief surface sparks.
+hit marker and emit the original Probable Cause-style short blood spray.
+
+**Everybody in Pinatty carries the same hundred points** — the player, the
+crowd and the officers — on the one scale in
+[`src/city/body_damage.h`](src/city/body_damage.h). Three centre-mass pistol
+rounds kill, or four punches; being run over kills at thirty miles an hour and
+bruises below it; falls and crashes have their own curves. A round that does
+not kill wounds: the victim flinches and runs, and carries the missing health
+until they leave the city. A round that does kill leaves a body, and the body
+stays where it fell until the streamer retires it — there is no get-up. Killing
+an officer is permanent too, and his cruiser is abandoned where he parked it.
+
+Dying is a state the player spends three seconds in: control is frozen, the
+body plays the same authored fall a shot pedestrian does, WASTED holds for the
+whole of it, and the respawn puts you beside your car at full health with the
+pursuit cleared and the pistol holstered. **Ammo, vehicle damage and health are
+still not saved**, and a respawn is always beside the current vehicle — there
+is no hospital routing yet. World hits show brief surface sparks.
 Pistol shots use the original Probable Cause
 `Glock17_Shoot_004.wav` recording (stereo, 44.1 kHz), with generated PCM as a
 missing-file fallback. Reload feedback remains generated. Sample bounds are
 tested, but live listening is not part of the automated check.
+`--damage-check --frames 2400 --screenshot build/damage-check` drives the whole
+damage model in the real game: three aimed rounds into a real spawned
+pedestrian (wound, wound, kill), the body still on the pavement eight seconds
+later, then the player killed — frozen, WASTED, and respawned whole. It exists
+because the headless suites cannot see a corpse standing back up or a banner
+playing over a world the player is already driving around in, and both of those
+broke at some point while every test passed.
+
 `--weapon-check --frames 900 --daylight --clear --screenshot build/weapon-check`
 exercises equip/cancel/unarmed, aim, semi-auto fire, reload, held-R repeats,
 and blocked wheel clicks, then Q aim, a flick-and-click hit on a real spawned
@@ -211,8 +233,11 @@ moment. A single-clip preview obeys the registry's root policy, so a death clip
 carries the body forward instead of collapsing on the spot.
 
 **In game, F (or controller X) throws a bare-fist jab** while on foot and
-unarmed. It is presentation only today: the swing, the alternating fists and
-the one-shot contact latch all run, and nothing takes damage yet.
+unarmed. The swing, the alternating fists and the one-shot contact latch run on
+the render clock, and the contact spends 25 points off whoever is within an
+arm's length — the same query the pistol makes, so a fist and a round cannot
+disagree about who is standing in front of you. Four jabs kill somebody
+untouched; fewer if they have already been shot.
 
 ```
 apricot 0.1.0
@@ -317,6 +342,40 @@ What is deliberately *not* there — no transparency pass, no shadows, no shader
 hot-reload, no terrain splat shader — is listed in
 [`src/gfx/README.md`](src/gfx/README.md).
 
+### Reading back a session's frame rate
+
+Every session records one CSV row per frame to `build/perf/session-NNN.csv` —
+numbered, not overwritten, because the interesting session is always the one
+that already happened. Nothing needs to be enabled and nothing needs to be
+running alongside; play, quit, then read it back:
+
+```sh
+tools/perf_report.sh              # the newest session
+tools/perf_report.sh --worst 40   # more of the slow frames
+```
+
+The report opens with the recorder's own trailer — percentiles, the dip count,
+the worst frames and the blocks they happened on — then a second-by-second
+timeline and the slowest frames with the counters that were high at the time.
+Each row carries position, district, mode, `cull_ms` / `mesh_ms` / `light_ms`,
+draw calls, chunks built, car and NPC counts, so the answer to "why was it slow
+*there*" is usually two columns wide.
+
+Press **`F4`** while playing whenever the frame rate stumbles. The recorder
+cannot tell which dips a player actually felt, and that turns out to be the
+column worth having: the mark is written with the position and the worst frame
+of the previous three seconds, because a stutter is noticed after it happens.
+
+`--perf-log FILE` chooses the path, `--perf-spike-ms N` moves the dip threshold
+(default 20 ms — one frame under 50 fps), and `--no-perf-log` turns it off. The
+recorder is deliberately not the `--log` logger: that one flushes every line,
+which is correct for events and would itself cause dips at 120 Hz.
+
+A file runs about 180 bytes a frame — roughly 8 MB for ten minutes at 120 Hz —
+and the path is relative to the working directory, so `build/perf` lands
+wherever you launched from. `build/` is git-ignored; delete the directory when
+the sessions in it stop being interesting.
+
 ### Tests
 
 ```sh
@@ -344,6 +403,7 @@ are here.
 | `F1` | developer menu | **yes** — pauses play and opens a GTA-style trainer menu; Classic GTA (VC / SA feel) is the default, Driving Mechanics can switch the player live between all nine handling styles, and Vehicle can repair the current car in place |
 | `F2` | report a bug to Codex | **yes** — type a report; Apricot attaches the game-window screenshot and exact world position |
 | `F3` | toggle debug stats | **yes** — the large profiling panel starts hidden and can be shown or hidden during a drive |
+| `F4` | mark the moment | **yes** — writes "I felt that" into the session's performance log, with the position and the worst frame of the previous three seconds. Press it when the frame rate stumbles; the recorder does the rest |
 | `F7` | toggle instancing | **yes** — the batching A/B, handled outside `InputFrame` on purpose |
 | `F8` | teleport across the island | **yes** — evicts the world, refills the near ring before resuming. Outside `InputFrame` for the same reason as `F7` |
 | `Esc` / `B` | back / pause | **yes** — closes the map, resumes from pause, or opens pause while driving |

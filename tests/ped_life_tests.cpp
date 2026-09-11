@@ -217,7 +217,21 @@ void quiet_street_produces_idling_and_kerb_waiting() {
 struct Encounter {
     bool alarmed = false;
     bool fled = false;
+    // `downed` is "went to the floor", either way. `killed` says which way.
+    // The pair replaced a single flag that meant PedActivity::Downed, which
+    // stopped covering the fast half of the speed range the moment being run
+    // over at thirty miles an hour started killing people: the tests below
+    // went quietly vacuous rather than failing, because a victim who died was
+    // simply never recorded as hit.
     bool downed = false;
+    bool killed = false;
+    // Sampled on the step BEFORE the blow as well as after it. Both are needed
+    // because a person can arrive at a knockdown already wounded — the car
+    // under test has usually clipped them once on the way in — and a check
+    // written against a full hundred points quietly stops meaning anything the
+    // first time that happens.
+    float health_before = kBodyHealth;
+    float health_after = kBodyHealth;
     int64_t first_downed_step = -1;
     // Sampled on the step the knockdown landed, not at the end: by then the
     // car has driven on, which is the whole reason the crowd records them.
@@ -242,6 +256,11 @@ Encounter drive_at(Crowd& crowd, Scene& scene, uint64_t key, uint32_t slot,
     glm::vec3 car = target->pos - glm::normalize(glm::vec3{0.6f, 0.0f, 0.8f}) * 26.0f;
     car.y = target->pos.y;
 
+    float before_step_health = kBodyHealth;
+    {
+        const PedAgent* at_start = find_ped(crowd, key, slot);
+        if (at_start != nullptr) before_step_health = at_start->health;
+    }
     for (int64_t step = 1; step <= steps; ++step) {
         target = find_ped(crowd, key, slot);
         REQUIRE_MSG(target != nullptr, "the person under test was retired",
@@ -256,9 +275,14 @@ Encounter drive_at(Crowd& crowd, Scene& scene, uint64_t key, uint32_t slot,
         const PedAgent* now = find_ped(crowd, key, slot);
         REQUIRE(now != nullptr);
         if (now->activity == PedActivity::Alarmed) e.alarmed = true;
+        const float health_was = before_step_health;
+        before_step_health = now->health;
         if (now->activity == PedActivity::Fleeing) e.fled = true;
-        if (now->activity == PedActivity::Downed && !e.downed) {
+        if (ped_holds_impact_pose(now->activity) && !e.downed) {
             e.downed = true;
+            e.killed = now->activity == PedActivity::Dead;
+            e.health_before = health_was;
+            e.health_after = now->health;
             e.first_downed_step = step;
             e.impact_dir_xz = now->impact_dir_xz;
             e.impact_speed_mps = now->impact_speed_mps;
@@ -409,10 +433,20 @@ void a_knocked_over_pedestrian_always_gets_up() {
     }
 
     for (const auto& id : victims) {
-        // Run them over, then take the car away and wait.
+        // Run them over at a SURVIVABLE speed, then take the car away and
+        // wait. Eight metres a second is a shade under eighteen miles an hour;
+        // vehicle_impact_damage() prices it at about a quarter of a life, so
+        // there is somebody left to recover. This used to be 14 m/s, and at
+        // fourteen there is now nobody to get up — which is a different test,
+        // and it is the one directly below this.
         const Encounter e =
-            drive_at(crowd, scene, id.first, id.second, 14.0f, 900, 0.0f);
+            drive_at(crowd, scene, id.first, id.second, 8.0f, 900, 0.0f);
         if (!e.downed) continue;
+        REQUIRE_MSG(!e.killed, "the survivable speed under test was lethal",
+                    "rig");
+        REQUIRE_MSG(e.health_after > 0.0f && e.health_after < kBodyHealth,
+                    "a knockdown that cost no health proves nothing about "
+                    "damage", "rig");
         ++knocked;
         int64_t recovery = 0;
         for (int64_t step = 1; step <= life.downed_max_steps * 3; ++step) {
@@ -513,6 +547,20 @@ void the_knockdown_reaches_as_far_as_the_bumper() {
         REQUIRE_MSG(e.impact_speed_mps <= approach + 1e-3f,
                     "the closing speed exceeds the speed the car was doing",
                     "impact-speed");
+        // What the blow COST, checked against the blow itself. The damage is
+        // priced on the recorded CLOSING speed and not on the speedometer,
+        // which is the correct reading and the non-obvious one: a person
+        // running away is hit at less than the car is doing, so a 14 m/s
+        // approach at a fleeing coward lands somewhere well under 14. Tying
+        // the assertion to `impact_speed_mps` is what keeps this honest
+        // whichever way the victim happened to be moving.
+        const float expected = vehicle_impact_damage(
+            e.impact_speed_mps, life.knockdown_speed_mps);
+        REQUIRE_MSG(e.killed == (e.health_before - expected <= 0.0f),
+                    "the death and the damage curve disagree about this "
+                    "impact", "lethal");
+        REQUIRE_NEAR(e.health_after,
+                     std::max(0.0f, e.health_before - expected), 1e-3);
     }
     REQUIRE_MSG(knocked == attempts,
                 "the car's nose passed through somebody without touching "
@@ -561,9 +609,14 @@ void a_struck_body_lands_down_the_road_and_walks_back() {
         const std::pair<uint64_t, uint32_t> id{victim->lane_key, victim->slot};
         used.push_back(id);
 
+        // Survivable, because the whole claim below is about where somebody
+        // is standing when they GET UP. At 15 m/s, which this was, nobody
+        // does.
         const Encounter e =
-            drive_at(crowd, scene, id.first, id.second, 15.0f, 900, 0.0f);
+            drive_at(crowd, scene, id.first, id.second, 11.0f, 900, 0.0f);
         if (!e.downed) continue;
+        REQUIRE_MSG(!e.killed, "the speed under test killed the person whose "
+                    "get-up this test is about", "rig");
         ++hit;
 
         // Airborne or sliding, but definitely not where they were standing.
@@ -637,6 +690,80 @@ void a_struck_body_lands_down_the_road_and_walks_back() {
     REQUIRE_MSG(worst_leftover < 0.05f,
                 "somebody never walked back to their path", "recover");
     pass("a struck body lands down the road, gets up there, and walks back");
+}
+
+// ---------------------------------------------------------------------------
+//  and the other half: a body that does not get up
+// ---------------------------------------------------------------------------
+//
+// The sibling of a_knocked_over_pedestrian_always_gets_up(), and the reason
+// that one had to be re-pointed at a survivable speed. Before city/body_damage.h
+// there was no speed at which running somebody over killed them: the crowd had
+// one knockdown, it lasted between three and a half and seven and a half
+// seconds, and at the end of it the victim of a forty mile an hour impact stood
+// up and carried on walking to the shops.
+void a_lethal_impact_leaves_a_body() {
+    Net net;
+    build(net, 3, 58.0f);
+    AmbientTuning ambient;
+    ambient.max_vehicle_slots = 0;
+    Crowd crowd;
+    crowd.build(net.lanes, kSeed, ambient, walkable_tuning());
+    Scene scene;
+    crowd.refresh(0, {58.0f, 58.0f});
+    REQUIRE(!crowd.peds().empty());
+    const PedLifeTuning life{};
+
+    std::size_t killed = 0;
+    std::vector<std::pair<uint64_t, uint32_t>> used;
+    for (int i = 0; i < 5 && killed < 3; ++i) {
+        const PedAgent* victim = pick_walker(
+            crowd, used, ped_react::Disposition::DieHard, true);
+        REQUIRE_MSG(victim != nullptr, "ran out of people on their feet",
+                    "vacuity");
+        const std::pair<uint64_t, uint32_t> id{victim->lane_key, victim->slot};
+        used.push_back(id);
+        // A die-hard stands their ground, so the closing speed is the car's
+        // speed rather than the car's speed minus a panic sprint. That is what
+        // makes this the reliable way to reach the lethal end of the curve.
+        const Encounter e =
+            drive_at(crowd, scene, id.first, id.second, 26.0f, 900, 0.0f);
+        if (!e.downed || !e.killed) continue;
+        ++killed;
+        REQUIRE(e.health_after == 0.0f);
+        REQUIRE_MSG(vehicle_impact_damage(e.impact_speed_mps,
+                                          life.knockdown_speed_mps) >=
+                        e.health_before,
+                    "a death the damage curve does not account for", "lethal");
+
+        // DEAD IS ABSORBING. Three times the longest authored knockdown, plus
+        // the get-up, is well past the point at which the old behaviour put
+        // this person back on their feet.
+        const glm::vec3 fell = find_ped(crowd, id.first, id.second)->pos;
+        for (int64_t step = 1; step <= life.downed_max_steps * 3; ++step) {
+            crowd.rebuild_buckets();
+            crowd.step_peds(step);  // no player: the car has gone
+            const PedAgent* p = find_ped(crowd, id.first, id.second);
+            REQUIRE(p != nullptr);
+            REQUIRE_MSG(p->activity == PedActivity::Dead,
+                        "a body got up off the road", "terminal");
+            REQUIRE(p->health == 0.0f);
+            REQUIRE(p->speed_mps == 0.0f);
+        }
+        // It came to rest, down the road from where it was standing, and it
+        // did NOT walk its impact offset off — that path is for the living.
+        const PedAgent* p = find_ped(crowd, id.first, id.second);
+        REQUIRE_MSG(glm::length(p->impact_offset) > 1.5f,
+                    "a body thrown by a lethal impact crept back to its lane",
+                    "teleport");
+        REQUIRE(p->impact_offset.y >= 0.0f);
+        REQUIRE_MSG(glm::distance(p->pos, fell) < 4.0f,
+                    "a settled body kept travelling", "at rest");
+    }
+    REQUIRE_MSG(killed >= 3, "too few deaths to conclude anything", "vacuity");
+    std::printf("      %zu killed outright; all still on the road three "
+                "knockdowns later\n", killed);
+    pass("a lethal impact leaves a body, and the body stays");
 }
 
 void the_activity_machine_is_free_of_scan_order() {
@@ -946,6 +1073,7 @@ int main() {
     a_knocked_over_pedestrian_always_gets_up();
     the_knockdown_reaches_as_far_as_the_bumper();
     a_struck_body_lands_down_the_road_and_walks_back();
+    a_lethal_impact_leaves_a_body();
     the_activity_machine_is_free_of_scan_order();
     the_nerve_is_a_property_of_the_person_not_of_the_queue();
     the_nerve_splits_the_street_the_way_it_is_authored();

@@ -340,7 +340,9 @@ presentation concept anywhere near it:
 | `Waiting` | held at a kerb because crossing now would be stupid |
 | `Alarmed` | has noticed a car bearing down and has not yet run |
 | `Fleeing` | panic run, pulled away from the kerb |
-| `Downed` | knocked over by the player's car |
+| `Downed` | knocked over and not getting up this second |
+| `Rising` | on the floor but getting up: stationary, not panicking |
+| `Dead` | out of health, and terminal: this one is not getting up |
 
 **`src/app/` reads `activity` and chooses a clip. The sim never names one.**
 That is the boundary, and it is the same shape `core/input_frame.h` uses: plain
@@ -364,9 +366,21 @@ ordinal is a count of **this person's** decisions, never of the population —
 which is the whole difference between a keyed draw and a sequential one, and it
 is why the activity machine survives `tests/ped_life_tests.cpp`'s reversed-scan
 comparison with `population_hash()` equal on every step. The digest folds
-`activity`, `disposition`, `activity_steps`, `activity_decisions` and
-`panic_seconds` in, because a state the digest cannot see is a state that
-comparison is not proving anything about.
+`activity`, `disposition`, `activity_steps`, `activity_decisions`,
+`panic_seconds`, `health` and `wounded_steps` in, because a state the digest
+cannot see is a state that comparison is not proving anything about.
+
+**Damage is `city/body_damage.h`, and it is one scale for the whole city.** A
+`PedAgent` carries the same hundred points the player and the officers do.
+Three pistol rounds spend them, or four punches, or one car at thirty miles an
+hour — the run-over curve is squared across the band from
+`knockdown_speed_mps` to 13.4 m/s, so a kerb-speed nudge floors somebody
+unhurt and thirty is a death. A round that does not kill holds the panic
+kernel's **trigger** down for `wounded_panic_seconds` rather than writing its
+own timer; that distinction is load-bearing and the comment on that field says
+why. `Dead` has no timer and no transition out of it: the body settles where
+it fell under the same ragdoll integrator a `Downed` one uses, and leaves the
+city the way everything else does, by being retired on distance.
 
 **Two things are deliberately not here.** A knockdown changes the *person* and
 applies no impulse to the car — a pedestrian that stops a vehicle is a worse bug

@@ -7,6 +7,8 @@
 
 #include <cstdio>
 #include <cmath>
+#include <filesystem>
+#include <string>
 #include <cstring>
 #include <cstdlib>
 #include <random>
@@ -28,6 +30,9 @@ void print_usage() {
         "  --save-file FILE use an isolated checkpoint slot\n"
         "  --verbose       log at debug level\n"
         "  --log FILE      also append the log to FILE\n"
+        "  --perf-log FILE choose where this session's frame CSV goes\n"
+        "  --no-perf-log   do not record frame timings this session\n"
+        "  --perf-spike-ms N call a frame a dip above N ms (default 20)\n"
         "  --frames N      render N frames, print a summary, then exit\n"
         "  --vehicle-entry-check run bounded entry/theft/exit regression\n"
         "  --mistral-entry-check run staged Mistral entry/blocked exit/exit/re-entry\n"
@@ -56,6 +61,8 @@ void print_usage() {
         "  --daylight      hold the sky at noon for visual QA\n"
         "  --road-start    settle --start-at after authored road collision loads\n"
         "  --weapon-check  check aim, fire, reload, NPC blood hits and input guards (900+ frames)\n"
+        "  --damage-check  check that three rounds kill a civilian, the body stays down,\n"
+        "                  and the player dies, freezes and respawns (2400+ frames)\n"
         "  --house-check   walk through 102 Sycamore's push doors and both exits\n"
         "  --signal-check  crash-test signals, street lamps and stop signs (1700+ frames)\n"
         "  --character-identity-check prove a new departure at one (lane,slot) gets a fresh rig\n"
@@ -73,6 +80,7 @@ void print_usage() {
         "  --help          this text\n"
         "\n"
         "Controls: WASD move/drive, Shift sprint, Space/left-stick click jump, E enter/exit, P pause, M map.\n"
+        "F4 marks the moment in the performance log when a dip is felt.\n"
         "Driving: H honks; J/controller L3 toggles police siren and lights.\n"
         "Weapons: Tab/LB opens wheel; RMB/LT holds aim; Q toggles aim; LMB/RT fires; R/X reloads.\n"
         "On the map: WASD/stick or drag pans; wheel or +/- zooms.\n"
@@ -95,10 +103,38 @@ void print_usage() {
         APRICOT_VERSION);
 }
 
+// Where a session's frame CSV goes when nobody said. Numbered rather than
+// overwritten, because the whole point of the recorder is that the interesting
+// session is the one that ALREADY happened — clobbering it on the next launch
+// would lose the only copy at exactly the moment someone goes looking for it.
+// build/ is git-ignored, so these never reach a commit.
+std::string default_perf_log_path() {
+    namespace fs = std::filesystem;
+    const fs::path dir = "build/perf";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec) return {};
+
+    int highest = -1;
+    for (const fs::directory_entry& e : fs::directory_iterator(dir, ec)) {
+        const std::string name = e.path().filename().string();
+        if (name.rfind("session-", 0) != 0) continue;
+        if (e.path().extension() != ".csv") continue;
+        const int n = std::atoi(name.c_str() + 8);
+        if (n > highest) highest = n;
+    }
+    char name[64];
+    std::snprintf(name, sizeof(name), "session-%03d.csv", highest + 1);
+    return (dir / name).string();
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
     const char* log_path = nullptr;
+    const char* perf_log_path = nullptr;
+    bool perf_logging = true;
+    double perf_spike_ms = 20.0;
     int frame_limit = 0;
     uint64_t session_seed=0;
     bool explicit_seed=false;
@@ -128,6 +164,7 @@ int main(int argc, char** argv) {
     bool convertible_check=false;
     int start_wanted=0;
     bool weapon_check=false;
+    bool damage_check=false;
     bool house_check=false;
     bool signal_check=false;
     bool character_identity_check=false;
@@ -159,6 +196,7 @@ int main(int argc, char** argv) {
             save_file=argv[i];continue;
         }
         if (std::strcmp(a,"--weapon-check")==0) { weapon_check=true;continue; }
+        if (std::strcmp(a,"--damage-check")==0) { damage_check=true;continue; }
         if (std::strcmp(a,"--house-check")==0) { house_check=true;continue; }
         if (std::strcmp(a,"--signal-check")==0) { signal_check=true;continue; }
         if (std::strcmp(a,"--character-identity-check")==0) {
@@ -282,6 +320,21 @@ int main(int argc, char** argv) {
             apricot::log::min_level() = apricot::log::Level::Debug;
             continue;
         }
+        if (std::strcmp(a, "--perf-log") == 0 && i + 1 < argc) {
+            perf_log_path = argv[++i];
+            continue;
+        }
+        if (std::strcmp(a, "--no-perf-log") == 0) { perf_logging = false; continue; }
+        if (std::strcmp(a, "--perf-spike-ms") == 0 && i + 1 < argc) {
+            char* end = nullptr;
+            perf_spike_ms = std::strtod(argv[++i], &end);
+            if (end == argv[i] || !(perf_spike_ms > 0.0) ||
+                !std::isfinite(perf_spike_ms)) {
+                std::fprintf(stderr, "--perf-spike-ms needs a positive number of milliseconds\n");
+                return 2;
+            }
+            continue;
+        }
         if (std::strcmp(a, "--log") == 0 && i + 1 < argc) {
             log_path = argv[++i];
             continue;
@@ -356,10 +409,24 @@ int main(int argc, char** argv) {
         return 2;
     }
 
+    std::string perf_log = perf_log_path ? std::string(perf_log_path)
+                                        : default_perf_log_path();
+    const bool perf_default_failed = !perf_log_path && perf_logging && perf_log.empty();
+    if (!perf_logging) perf_log.clear();
+
     if (log_path && !apricot::log::open_log_file(log_path)) {
         // Not fatal: console logging still works, and refusing to start over a
         // log file would be a poor trade.
         AP_WARN("could not open log file '%s'; console only", log_path);
+    }
+
+    if (perf_default_failed) {
+        // Silence here reads as "the recorder is broken". It is not: the
+        // default path is relative to the working directory, and this is what
+        // running from somewhere unwritable looks like. Placed after the log
+        // file opens so it lands in --log too.
+        AP_WARN("could not create build/perf in the working directory; "
+                "no frame log this session (use --perf-log FILE)");
     }
 
     apricot::App app;
@@ -505,6 +572,17 @@ int main(int argc, char** argv) {
         if (!screenshot_path) screenshot_path="build/weapon-check";
         app.set_weapon_check(true);
     }
+    if (damage_check) {
+        if (frame_limit<2400 || weapon_check || house_check || signal_check ||
+            police_check || police_officer_check || traffic_horn_check ||
+            lighting_benchmark || warp_every) {
+            std::fprintf(stderr,"--damage-check needs --frames 2400 or more and no other checks/warps\n");
+            return 2;
+        }
+        clear_weather=true;daylight_qa=true;
+        if (!screenshot_path) screenshot_path="build/damage-check";
+        app.set_damage_check(true);
+    }
     app.set_instancing(instancing);
     app.set_warp_interval(warp_every);
     app.set_start_position(start_position);
@@ -530,6 +608,8 @@ int main(int argc, char** argv) {
     app.set_snowplow_check(snowplow_check);
     app.set_snowplow_refill_preview(snowplow_refill_preview_seconds);
     app.set_vehicle_preview(start_car,start_driving);
+    app.set_perf_log_path(perf_log);
+    app.set_perf_spike_ms(perf_spike_ms);
     if (screenshot_path) app.set_screenshot_path(screenshot_path);
     if (!app.init()) {
         AP_ERROR("startup failed");
@@ -565,6 +645,9 @@ int main(int argc, char** argv) {
     }
     if (weapon_check && !app.weapon_check_passed()) {
         AP_ERROR("weapon selection regression did not complete");rc=1;
+    }
+    if (damage_check && !app.damage_check_passed()) {
+        AP_ERROR("damage and death check did not complete");rc=1;
     }
     if (trailer_check && !app.trailer_check_passed()) return 1;
     if (boat_check && !app.boat_check_passed()) {

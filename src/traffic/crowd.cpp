@@ -11,6 +11,8 @@
 #include "core/fixed_step.h"
 #include "game/character.h"
 #include "game/weapon_hit.h"
+#include <glm/gtc/quaternion.hpp>
+
 #include "physics/breakaway_contact.h"
 #include "physics/vehicle.h"
 
@@ -1123,6 +1125,8 @@ void Crowd::clear() {
     police_spawn_pending_ = false;
     police_player_contacts_.clear();
     police_shots_.clear();
+    ped_run_downs_.clear();
+    on_foot_player_hits_.clear();
     retired_.clear();
     lane_buckets_.clear();
     touched_lanes_.clear();
@@ -3147,6 +3151,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                           const OnFootTrafficHazard* on_foot_player) {
     if (!graph_) return;
     police_shots_.clear();
+    on_foot_player_hits_.clear();
     prepare_emergency_maneuvers(step, player, on_foot_player);
     const int k = std::max(1, tuning_.vehicle_sub_rate);
     const float dt = static_cast<float>(k) * kSimDtF;
@@ -3593,6 +3598,43 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
             v.honk_player, static_cast<double>(step) * kSimDt,
             static_cast<double>(tuning_.civilian.player_honk_interval_s),
             v.honk_debounce);
+
+        // BEING RUN OVER. The city could flatten a pedestrian at thirty miles
+        // an hour and not so much as scratch the player standing in the same
+        // road, because traffic only ever BRAKED for somebody on foot — the
+        // block above — and never touched them.
+        //
+        // This is the pedestrian knockdown test with the populations swapped:
+        // the same footprint contact against the same body radius, reported
+        // rather than resolved. Nothing is pushed back into the car, for the
+        // same reason a pedestrian does not stop one. A PURSUING cruiser is
+        // included deliberately: getting run down by the police is a way to
+        // die and always was one, and exempting them would be a rule the
+        // player can feel and cannot explain.
+        if (on_foot_player &&
+            (!std::isfinite(on_foot_player->height_m) ||
+             std::fabs(on_foot_player->height_m - v.pos.y) < 2.5f)) {
+            const auto footprint =
+                traffic_vehicle_footprint(traffic_vehicle_kind(v));
+            const float yaw = std::atan2(-v.fwd.x, -v.fwd.z);
+            const BreakawayContact contact = breakaway_contact(
+                v.pos, glm::angleAxis(yaw, glm::vec3{0.0f, 1.0f, 0.0f}),
+                {footprint.half_width_m, footprint.half_length_m},
+                {on_foot_player->position.x, v.pos.y,
+                 on_foot_player->position.y},
+                tuning_.ped_life.body_radius_m);
+            if (contact.hit) {
+                const glm::vec2 fwd_xz{v.fwd.x, v.fwd.z};
+                const float fwd_len = glm::length(fwd_xz);
+                const glm::vec2 travel = fwd_len > 1e-4f
+                    ? fwd_xz / fwd_len : glm::vec2{1.0f, 0.0f};
+                const float closing = glm::dot(
+                    travel * v.speed_mps - on_foot_player->velocity, travel);
+                if (closing >= tuning_.ped_life.knockdown_speed_mps)
+                    on_foot_player_hits_.push_back({v.lane_key, v.slot,
+                        v.police_unit, travel, closing});
+            }
+        }
 
         // Signals. Which half of the cycle is green is a pure function of the
         // STEP, like every other clock in this engine; approach_group_a() is
@@ -4434,6 +4476,7 @@ float ped_activity_speed_mul(PedActivity a, const PedLifeTuning& life) {
         case PedActivity::Waiting:
         case PedActivity::Downed: return 0.0f;
         case PedActivity::Rising: return 0.0f;
+        case PedActivity::Dead: return 0.0f;
         case PedActivity::Alarmed: return life.alarm_speed_mul;
         case PedActivity::Fleeing: return life.flee_speed_mul;
     }
@@ -4451,6 +4494,7 @@ const char* ped_activity_name(PedActivity a) {
         case PedActivity::Fleeing: return "fleeing";
         case PedActivity::Downed: return "downed";
         case PedActivity::Rising: return "rising";
+        case PedActivity::Dead: return "dead";
     }
     return "walking";
 }
@@ -4484,6 +4528,23 @@ PedShotHit Crowd::raycast_ped(glm::vec3 origin,glm::vec3 unit_direction,
 
 PedShotHit Crowd::shoot_ped(glm::vec3 origin,glm::vec3 unit_direction,
                            float max_distance,int64_t step) {
+    return strike_ped(origin,unit_direction,max_distance,kPistolBodyDamage,
+                      /*from_bullet=*/true,step);
+}
+
+// A fist reaches about as far as an arm, and it is the SAME query a bullet
+// makes — same silhouette, same nearest-body rule, same two populations — so
+// there is no second answer to "who did that land on". Only the damage and the
+// way the body falls differ, which is the whole of what a punch is.
+PedShotHit Crowd::punch_ped(glm::vec3 origin,glm::vec3 unit_direction,
+                            float reach_m,int64_t step) {
+    return strike_ped(origin,unit_direction,reach_m,kPunchBodyDamage,
+                      /*from_bullet=*/false,step);
+}
+
+PedShotHit Crowd::strike_ped(glm::vec3 origin,glm::vec3 unit_direction,
+                             float max_distance,float damage,bool from_bullet,
+                             int64_t step) {
     if (step<0) return {};
     PedShotHit hit=raycast_ped(origin,unit_direction,max_distance);
     if (!hit.hit) return hit;
@@ -4492,7 +4553,12 @@ PedShotHit Crowd::shoot_ped(glm::vec3 origin,glm::vec3 unit_direction,
             if (!car.police_unit || car.lane_key!=hit.lane_key || car.slot!=hit.slot)
                 continue;
             hit.officer_downed=police_officer_take_bullet(car.officer,
-                kPoliceOfficerBulletDamage,{unit_direction.x,unit_direction.z});
+                damage,{unit_direction.x,unit_direction.z});
+            if (!from_bullet) car.officer.impact_from_bullet=false;
+            // An officer out of health is dead, not resting, so the two flags
+            // report the same edge. They stay separate fields because the
+            // caller prices a dead officer and a dead civilian differently.
+            hit.killed=hit.officer_downed;
             break;
         }
         return hit;
@@ -4500,21 +4566,35 @@ PedShotHit Crowd::shoot_ped(glm::vec3 origin,glm::vec3 unit_direction,
     for (PedAgent& ped:peds_) {
         if (ped.lane_key!=hit.lane_key || ped.slot!=hit.slot) continue;
         const PedLifeTuning& life=tuning_.ped_life;
-        ped.activity=PedActivity::Downed;
-        ped.activity_steps=ped_roll_steps(
-            ped_roll(map_seed_,ped.lane_key,ped.slot,ped.activity_decisions,kChannelPedDowned),
-            life.downed_min_steps,life.downed_max_steps);
-        ++ped.activity_decisions;
-        ped.panic_seconds=0.f;
-        ped.speed_mps=0.f;
         const glm::vec2 travel{unit_direction.x,unit_direction.z};
         const float planar_length=glm::length(travel);
-        ped.impact_dir_xz=planar_length>1e-5f ? travel/planar_length:glm::vec2{0.f,-1.f};
+        const glm::vec2 fall=planar_length>1e-5f ? travel/planar_length
+                                                 : glm::vec2{0.f,-1.f};
+        hit.killed=apply_body_damage(ped.health,damage);
+        if (!hit.killed) {
+            // Still standing, and now running. The round is recorded in the
+            // health pool and in the panic TRIGGER, and nowhere else: a wounded
+            // person keeps their walk line, their lane and their identity, so
+            // the next round finds the same body with less of it left.
+            ped.wounded_steps=std::max(ped.wounded_steps,
+                static_cast<int64_t>(life.wounded_panic_seconds/kSimDtF));
+            break;
+        }
+        // Out of health. The fall is held forever.
+        ped.activity=PedActivity::Dead;
+        ped.activity_steps=0;
+        ped.panic_seconds=0.f;
+        ped.wounded_steps=0;
+        ped.speed_mps=0.f;
+        ped.impact_dir_xz=fall;
         // Small displacement accompanies the authored bullet fall. Vehicle
-        // impacts retain their separate airborne ragdoll response.
+        // impacts retain their separate airborne ragdoll response, and a fist
+        // borrows that one: a punch does not throw somebody the way a round
+        // does, and playing the bullet clip for it looks like a gunshot with
+        // no gun.
         ped.impact_speed_mps=3.f;
-        ped.impact_from_bullet=true;
-        ped.impact_velocity={ped.impact_dir_xz.x*.65f,.25f,ped.impact_dir_xz.y*.65f};
+        ped.impact_from_bullet=from_bullet;
+        ped.impact_velocity={fall.x*.65f,.25f,fall.y*.65f};
         break;
     }
     return hit;
@@ -4564,6 +4644,7 @@ bool Crowd::ped_crossing_is_clear(LaneRef foot_lane, int64_t step) const {
 
 void Crowd::step_peds(int64_t step, const VehicleState* player) {
     if (!graph_) return;
+    ped_run_downs_.clear();
     const int k = std::max(1, tuning_.ped_sub_rate);
     const float dt = static_cast<float>(k) * kSimDtF;
     const std::size_t table = ped_table_;
@@ -4593,6 +4674,7 @@ void Crowd::step_peds(int64_t step, const VehicleState* player) {
     stats_.peds_alarmed = 0;
     stats_.peds_fleeing = 0;
     stats_.peds_downed = 0;
+    stats_.peds_dead = 0;
 
     for (uint32_t i = 0; i < peds_.size(); ++i) {
         PedAgent& p = peds_[i];
@@ -4654,8 +4736,10 @@ void Crowd::step_peds(int64_t step, const VehicleState* player) {
         // transitions on purpose: a state machine with six states has thirty
         // edges and nobody maintains thirty edges correctly.
 
-        // 1. On the floor outranks everything, and the timer always runs down,
-        //    so nobody can be stuck there.
+        // 1. On the floor outranks everything, and every timer here runs
+        //    down, so nobody can be stuck in a state they could leave. Dead is
+        //    the one state with no timer, and it is deliberately not listed:
+        //    it is not something this person is waiting out.
         if (p.activity == PedActivity::Downed) {
             p.activity_steps -= k;
             if (p.activity_steps <= 0) {
@@ -4677,7 +4761,12 @@ void Crowd::step_peds(int64_t step, const VehicleState* player) {
         // collider and stays pure. It is the whole of the sim's opinion about
         // where a knocked-down person is; the ragdoll makes it look like a
         // person while it happens.
-        if (p.activity == PedActivity::Downed) {
+        //
+        // A BODY FALLS THE SAME WAY WHETHER OR NOT IT GETS UP AGAIN, so this
+        // runs for Dead as well — and then keeps running, because the drag and
+        // the ground skid are what bring it to rest. Gate it on Downed alone
+        // and a corpse hangs in the air at the height it was shot at.
+        if (ped_holds_impact_pose(p.activity)) {
             p.impact_velocity.y -= life.gravity_mps2 * dt;
             const float air = std::max(0.0f, 1.0f - life.launch_drag * dt);
             p.impact_velocity.x *= air;
@@ -4739,13 +4828,6 @@ void Crowd::step_peds(int64_t step, const VehicleState* player) {
                 // Knocked over. This changes the PERSON and nothing else: no
                 // impulse goes back into the car, because a pedestrian that
                 // stops a vehicle is a worse bug than one that ignores it.
-                p.activity = PedActivity::Downed;
-                p.activity_steps = ped_roll_steps(
-                    ped_roll(map_seed_, p.lane_key, p.slot, p.activity_decisions,
-                             kChannelPedDowned),
-                    life.downed_min_steps, life.downed_max_steps);
-                ++p.activity_decisions;
-                p.panic_seconds = 0.0f;
 
                 // The blow, recorded for the presentation layer. Direction is
                 // the car's travel, so a body is thrown down the road rather
@@ -4758,6 +4840,35 @@ void Crowd::step_peds(int64_t step, const VehicleState* player) {
                 p.impact_speed_mps =
                     std::max(0.0f, glm::dot(player_vel - my_vel, travel));
                 p.impact_from_bullet = false;
+
+                // And what it COST, on the same hundred points a bullet spends
+                // from. The closing speed decides both how far this person is
+                // thrown and whether they get up, which is the one thing that
+                // made the knockdown read as a real event rather than a
+                // stumble: a kerb-speed nudge floors somebody unhurt, and
+                // thirty miles an hour does not.
+                const bool killed = apply_body_damage(
+                    p.health, vehicle_impact_damage(p.impact_speed_mps,
+                                                    life.knockdown_speed_mps));
+                if (killed) {
+                    p.activity = PedActivity::Dead;
+                    p.activity_steps = 0;
+                    ped_run_downs_.push_back({p.lane_key, p.slot, p.pos,
+                                              p.impact_speed_mps});
+                    // Zeroed, not merely ignored. PedActivity::Dead already
+                    // multiplies the walk speed out, but `speed_mps` is also
+                    // what the presentation layer reads to pick a walk or a
+                    // run cycle, and a corpse must not be carrying a sprint.
+                    p.speed_mps = 0.0f;
+                } else {
+                    p.activity = PedActivity::Downed;
+                    p.activity_steps = ped_roll_steps(
+                        ped_roll(map_seed_, p.lane_key, p.slot,
+                                 p.activity_decisions, kChannelPedDowned),
+                        life.downed_min_steps, life.downed_max_steps);
+                    ++p.activity_decisions;
+                }
+                p.panic_seconds = 0.0f;
 
                 // Thrown, from wherever they were standing. The offset is not
                 // cleared: a person knocked down while still carrying the last
@@ -4784,6 +4895,17 @@ void Crowd::step_peds(int64_t step, const VehicleState* player) {
         // 3. Startle and flee are city/traffic_ai.h's panic kernel, unchanged.
         //    Its timer always decays, which is what guarantees that a person
         //    who was frightened once does not sprint for the rest of the run.
+        //
+        //    A GUNSHOT IS A TRIGGER LIKE ANY OTHER. Holding it down for a few
+        //    seconds gets the kernel's sustained-menace behaviour for free —
+        //    one flinch, then a run that ends on its own — and keeps a single
+        //    definition of what a panic is. Writing the seconds into the timer
+        //    instead put the victim in a four-second startle; see
+        //    PedLifeTuning::wounded_panic_seconds.
+        if (p.wounded_steps > 0) {
+            p.wounded_steps = std::max<int64_t>(0, p.wounded_steps - k);
+            panicking = true;
+        }
         const PanicPhase phase =
             panic_tick(p.panic_seconds, panicking, dt, life.panic);
         if (!ped_is_floored(p.activity)) {
@@ -5000,6 +5122,7 @@ void Crowd::step_peds(int64_t step, const VehicleState* player) {
             case PedActivity::Fleeing: ++stats_.peds_fleeing; break;
             case PedActivity::Downed: ++stats_.peds_downed; break;
             case PedActivity::Rising: ++stats_.peds_downed; break;
+            case PedActivity::Dead: ++stats_.peds_dead; break;
         }
     }
 }
@@ -5097,6 +5220,11 @@ uint64_t Crowd::population_hash() const {
         h = mix_bits(h, v.officer.transition.tick);
         h = mix_bits(h, v.officer.stationary_ticks);
         h = mix_bits(h, v.officer.armed ? 1u : 0u);
+        h = mix_f32(h, v.officer.health);
+        h = mix_bits(h, v.officer.dead ? 1u : 0u);
+        h = mix_bits(h, v.officer.impact_from_bullet ? 1u : 0u);
+        h = mix_f32(h, v.officer.impact_dir_xz.x);
+        h = mix_f32(h, v.officer.impact_dir_xz.y);
         h = mix_bits(h, static_cast<uint64_t>(v.officer.next_shot_step));
         h = mix_bits(h, v.officer.shots_fired);
         h = mix_bits(h, v.officer.weapon_flash_ticks);
@@ -5220,6 +5348,13 @@ uint64_t Crowd::population_hash() const {
         h = mix_bits(h, static_cast<uint64_t>(p.activity_steps));
         h = mix_bits(h, p.activity_decisions);
         h = mix_f32(h, p.panic_seconds);
+        // Damage, for exactly the reason the activity machine is here: a state
+        // the digest cannot see is a state the scan-order and reordering
+        // suites are not actually proving anything about. Two crowds that
+        // agree about who is standing and disagree about how much health they
+        // have left are not the same crowd.
+        h = mix_f32(h, p.health);
+        h = mix_bits(h, static_cast<uint64_t>(p.wounded_steps));
         h = mix_f32(h, p.pos.x);
         h = mix_f32(h, p.pos.y);
         h = mix_f32(h, p.pos.z);

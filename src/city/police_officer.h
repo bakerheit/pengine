@@ -6,6 +6,7 @@
 
 #include <glm/glm.hpp>
 
+#include "city/body_damage.h"
 #include "game/vehicle_transition.h"
 
 namespace apricot {
@@ -16,13 +17,17 @@ inline constexpr float kPoliceArrestHoldSeconds = 3.0f;
 inline constexpr float kPoliceOfficerFootStandOffM = kPoliceArrestRangeM - 0.4f;
 inline constexpr float kPoliceBlockedApproachRangeM = 45.0f;
 
-// An officer on foot is a person the player can shoot at. Three centre-mass
-// pistol rounds put one down; the window is long enough that neutralising a
-// unit is worth the extra heat it costs, and short enough that a chase does
-// not quietly drain to nothing while the player hides.
-inline constexpr float kPoliceOfficerHealth = 100.0f;
-inline constexpr float kPoliceOfficerBulletDamage = 34.0f;
-inline constexpr uint32_t kPoliceOfficerDownedTicks = 1440;  // 12 s at 120 Hz
+// An officer on foot is a person the player can shoot at, and he carries the
+// same hundred points as everybody else in the city — three centre-mass pistol
+// rounds. city/body_damage.h owns both numbers; these names remain because the
+// officer code reads better for them, but they are NOT a second opinion.
+//
+// This used to be a twelve-second knockdown that restored the officer to full
+// health and put him back in the chase. That was damage standing in for death,
+// and it read exactly as badly as it sounds: the only thing a player could do
+// to a police officer was inconvenience him.
+inline constexpr float kPoliceOfficerHealth = kBodyHealth;
+inline constexpr float kPoliceOfficerBulletDamage = kPistolBodyDamage;
 
 // The officer belongs to the cruiser's stable (lane_key, slot) identity. There
 // is no second pedestrian spawn to duplicate when the officer changes seats.
@@ -45,12 +50,15 @@ struct PoliceOfficerState {
     // (lane_key, slot) identity through being shot, so no rig is orphaned and
     // no second spawn appears to replace a body.
     float health = kPoliceOfficerHealth;
-    uint32_t downed_ticks = 0;
+    // Terminal, like a pedestrian's PedActivity::Dead. No timer, because
+    // nothing is being waited for: the officer stays on the road until the
+    // cruiser he belongs to is streamed out with him.
+    bool dead = false;
     glm::vec2 impact_dir_xz{0.0f, -1.0f};
-    // Sticky, exactly like a pedestrian's. It selects the authored bullet fall
-    // AND pins the clip's horizontal root for the whole fall-and-recover cycle;
-    // clearing it at get-up would hand the recovery a different root than the
-    // fall had and pop the body across the road.
+    // Sticky, exactly like a pedestrian's: it selects the authored bullet fall
+    // and pins the clip's horizontal root where the body went down. Set by a
+    // non-lethal round too, so the wound that does not kill still decides how
+    // he falls when the one after it does.
     bool impact_from_bullet = false;
     bool armed = false;
     int64_t next_shot_step = -1;
@@ -75,9 +83,10 @@ inline bool police_officer_on_foot(const PoliceOfficerState& state) {
 
 // On the ground. Holds the phase rather than clearing it, because the phase is
 // what says which cruiser door this person owns; clearing it would strand the
-// officer walking to a car they are no longer assigned to on the way back up.
+// body in a door traversal it can no longer finish, and the presentation layer
+// reads the phase to know where to draw him.
 inline bool police_officer_downed(const PoliceOfficerState& state) {
-    return state.downed_ticks > 0;
+    return state.dead;
 }
 
 // Only a person standing in the street can be shot. A seated officer is inside
@@ -87,21 +96,26 @@ inline bool police_officer_shootable(const PoliceOfficerState& state) {
     return police_officer_on_foot(state) && !police_officer_downed(state);
 }
 
-// One bullet. Returns true only for the round that puts the officer down, so
-// the caller can charge the heat for THAT and not for every hit on a body
-// already lying in the road.
+// One bullet. Returns true only for the round that KILLS the officer, so the
+// caller can charge the heat for THAT and not for every hit on a body already
+// lying in the road.
 inline bool police_officer_take_bullet(PoliceOfficerState& state, float damage,
                                        glm::vec2 direction_xz) {
     if (police_officer_downed(state) || !police_officer_on_foot(state)) return false;
-    if (!std::isfinite(damage) || damage <= 0.0f) return false;
     const float length = std::sqrt(direction_xz.x * direction_xz.x +
                                    direction_xz.y * direction_xz.y);
     if (std::isfinite(length) && length > 1e-5f)
         state.impact_dir_xz = direction_xz / length;
+    // The direction is recorded before the damage is judged: a round that is
+    // refused as garbage must not also leave the fall pointing at whatever the
+    // previous one did, and a non-lethal round still decides which way he goes
+    // down when a later one lands.
+    if (!apply_body_damage(state.health, damage)) {
+        if (std::isfinite(damage) && damage > 0.0f) state.impact_from_bullet = true;
+        return false;
+    }
     state.impact_from_bullet = true;
-    state.health = std::max(0.0f, state.health - damage);
-    if (state.health > 0.0f) return false;
-    state.downed_ticks = kPoliceOfficerDownedTicks;
+    state.dead = true;
     state.armed = false;
     state.next_shot_step = -1;
     state.weapon_flash_ticks = 0;
@@ -136,12 +150,11 @@ struct PoliceOfficerStepInput {
 // door. Returning and entering always keep the cruiser physically braked.
 inline void step_police_officer_phase(PoliceOfficerState& state,
                                       const PoliceOfficerStepInput& input) {
-    // A body on the road is not making decisions. The phase is frozen for the
-    // whole window — including the door transitions, which would otherwise
-    // advance a traversal with nobody walking it — and health comes back with
-    // the officer so the same unit can be put down again.
-    if (state.downed_ticks > 0) {
-        if (--state.downed_ticks == 0) state.health = kPoliceOfficerHealth;
+    // A body on the road is not making decisions, and never will be again. The
+    // phase is frozen — including the door transitions, which would otherwise
+    // advance a traversal with nobody walking it — and the cruiser stays
+    // stationary, because its driver is lying beside it.
+    if (state.dead) {
         state.stationary_ticks =
             std::min<uint32_t>(120, state.stationary_ticks + 1);
         return;

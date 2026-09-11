@@ -172,6 +172,10 @@ public:
                         float max_distance, int64_t step) {
         return crowd_.shoot_ped(origin,direction,max_distance,step);
     }
+    PedShotHit punch_ped(glm::vec3 origin, glm::vec3 direction,
+                         float reach_m, int64_t step) {
+        return crowd_.punch_ped(origin,direction,reach_m,step);
+    }
     bool take_traffic_vehicle(uint64_t key, uint32_t slot, VehicleAgent& out) {
         return crowd_.take_vehicle(key,slot,out);
     }

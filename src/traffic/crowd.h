@@ -11,6 +11,7 @@
 
 #include <glm/glm.hpp>
 
+#include "city/body_damage.h"
 #include "city/traffic_ai.h"
 #include "city/pedestrian_reactions.h"
 #include "city/police_officer.h"
@@ -411,6 +412,29 @@ struct PolicePlayerContact {
     glm::vec3 normal{0.0f};             // from police body toward player
 };
 
+// The player, hit by an AI car while on foot. Reported once per step per
+// vehicle; the app decides what it costs in health, exactly as it does for a
+// pedestrian the player runs over. `closing_speed_mps` is the approach speed
+// along the car's travel, so a car that clips you while you run the same way
+// reports what you actually felt rather than what its speedometer said.
+struct OnFootPlayerHitEvent {
+    uint64_t lane_key = 0;
+    uint32_t slot = 0;
+    bool police_unit = false;
+    glm::vec2 travel_xz{0.0f};
+    float closing_speed_mps = 0.0f;
+};
+
+// Somebody the PLAYER'S car killed, reported once on the step it happened.
+// The crowd owns the body; the app owns what it costs, and the two are kept
+// apart because the sim has no opinion about heat and must not grow one.
+struct PedRunDownEvent {
+    uint64_t lane_key = 0;
+    uint32_t slot = 0;
+    glm::vec3 position{0.0f};
+    float closing_speed_mps = 0.0f;
+};
+
 // Stable identity of one police vehicle whose ray to the wanted target is
 // unobstructed in the production world. World collision owns that raycast;
 // Crowd owns the range/FOV/contact rules applied after it.
@@ -446,10 +470,18 @@ struct VisiblePoliceIdentity {
 //   Fleeing  panic run, away from the kerb
 //   Downed   knocked over, and not getting up this second
 //   Rising   on the floor but getting up: stationary, and not panicking
+//   Dead     out of health: on the floor, and this one is not getting up
 //
 // Alarmed and Fleeing are the two halves of city/traffic_ai.h's PanicPhase,
 // which already exists, is already pure and is already pinned. They are not a
 // second panic concept; see ped_panic_phase() in crowd.cpp.
+//
+// Dead is TERMINAL and has no timer. Every other activity here is something a
+// person is doing for a while and then stops doing, and for a long time being
+// shot was one of them: a round floored somebody for seven seconds and they
+// walked away. The absorbing state is the point of city/body_damage.h — the
+// body stays where it fell and leaves the city the way anything else leaves
+// it, by being streamed out when the player is far enough away.
 enum class PedActivity : uint8_t {
     Walking = 0,
     Idling = 1,
@@ -458,6 +490,7 @@ enum class PedActivity : uint8_t {
     Fleeing = 4,
     Downed = 5,
     Rising = 6,
+    Dead = 7,
 };
 
 const char* ped_activity_name(PedActivity a);
@@ -520,6 +553,19 @@ struct PedAgent {
     // guarantees it always decays, so a person cannot get stuck panicking.
     float panic_seconds = 0.0f;
 
+    // Steps left of running because somebody shot at this person and missed
+    // killing them. It feeds the panic kernel's TRIGGER, not its timer — see
+    // step_peds() — because the kernel owns what a panic looks like and a
+    // second opinion about that is how you get somebody sprinting for a minute.
+    int64_t wounded_steps = 0;
+
+    // The hundred points from city/body_damage.h, on the same scale as the
+    // player's and the officers'. Rolled back to full ONLY at spawn — a
+    // wounded person stays wounded for as long as they are in the city, which
+    // is what makes a second round matter and what makes running somebody over
+    // twice worse than running them over once.
+    float health = kBodyHealth;
+
     // --- the blow that put this person down --------------------------------
     //
     // Written once, on the step the knockdown lands, and valid for as long as
@@ -569,6 +615,10 @@ struct PedShotHit {
     // Set only on the round that put a police officer on the ground, so the
     // caller charges the heat for the kill and not for each round after it.
     bool officer_downed=false;
+    // Set only on the round that emptied this person's health, civilian or
+    // officer. Same one-shot contract as officer_downed, and for the same
+    // reason: heat, the kill counter and the log line each want the EDGE.
+    bool killed=false;
 };
 
 // True while this person is on their feet and making progress. The presentation
@@ -579,11 +629,24 @@ inline bool ped_is_moving(PedActivity a) {
            a == PedActivity::Fleeing;
 }
 
-// On the floor, either way: flat out or halfway up. Neither can walk, panic,
-// cross a road or be thrown any further, and the three places that care all
-// wanted the pair rather than one of them.
+// Nobody home. Terminal, so every caller that would otherwise ask "is the
+// timer up yet" can stop asking.
+inline bool ped_is_dead(PedActivity a) { return a == PedActivity::Dead; }
+
+// On the floor, any way: flat out, halfway up, or not getting up. None of them
+// can walk, panic, cross a road or be thrown any further, and the places that
+// care all wanted the set rather than one of them.
 inline bool ped_is_floored(PedActivity a) {
-    return a == PedActivity::Downed || a == PedActivity::Rising;
+    return a == PedActivity::Downed || a == PedActivity::Rising ||
+           a == PedActivity::Dead;
+}
+
+// Holding the fall pose: face down where they landed, with no stand-up coming.
+// The presentation layer asks this rather than comparing against Downed, which
+// is what it used to do — and a body that dies simply stopped holding the pose
+// and stood back up in its walk cycle, on the road, having been shot dead.
+inline bool ped_holds_impact_pose(PedActivity a) {
+    return a == PedActivity::Downed || a == PedActivity::Dead;
 }
 
 // The knobs behind PedActivity. Everything timed is in STEPS; everything the
@@ -660,6 +723,28 @@ struct PedLifeTuning {
     // a 4.667 s clip at rate 1.35 with the first 1.60 s skipped. If that clip
     // or its rate changes, this is the number that has to follow it.
     int64_t rising_steps = 273;
+
+    // Shot and still standing. A round that does not kill does NOT floor
+    // anybody any more — it holds the panic kernel's TRIGGER down for this
+    // long, which is the kernel's own "sustained menace" path: the person
+    // flinches once and then runs for the rest of it. Longer than the 2.5 s a
+    // near-miss buys, because being shot at is worse than being driven at and
+    // because a two-second sprint leaves a wounded man inside pistol range of
+    // where he was standing.
+    //
+    // IT IS A TRIGGER AND NOT A TIMER, and that distinction cost a real bug:
+    // written straight into panic_seconds it exceeded PanicTuning::duration,
+    // and panic_tick() reads the phase from how much of the duration has
+    // ELAPSED — so a timer above the duration reads as negative elapsed, which
+    // is Startle. A shot pedestrian stood still for four and a half seconds
+    // and then ran. Exactly backwards, and invisible to every test that only
+    // asked whether they panicked.
+    //
+    // This replaced a bullet that knocked its victim flat on the FIRST hit.
+    // With that behaviour a health pool could never be spent: everyone the
+    // player shot was instantly on the floor, out of the raycast, and back on
+    // their feet seven seconds later at full health.
+    float wounded_panic_seconds = 6.0f;
 
     // The thrown body, as a point mass. This is not the ragdoll — the ragdoll
     // is presentation and follows this — it is the deterministic answer to
@@ -1028,6 +1113,10 @@ struct CrowdStats {
     std::size_t peds_alarmed = 0;
     std::size_t peds_fleeing = 0;
     std::size_t peds_downed = 0;
+    // Bodies on the pavement. Counted apart from `peds_downed` because the two
+    // answer different questions: how much of the crowd is currently on the
+    // floor, versus how much of it is never getting up.
+    std::size_t peds_dead = 0;
 
     // Ambient parked cars currently resident. Not agents; see AmbientParkedCar.
     std::size_t parked = 0;
@@ -1090,6 +1179,10 @@ public:
                           float max_distance) const;
     PedShotHit shoot_ped(glm::vec3 origin,glm::vec3 unit_direction,
                         float max_distance,int64_t step);
+    // The fist. Same query as shoot_ped over a much shorter reach, so a punch
+    // and a round cannot disagree about who is standing in front of you.
+    PedShotHit punch_ped(glm::vec3 origin,glm::vec3 unit_direction,
+                         float reach_m,int64_t step);
 
     // Wanted response context for the next fixed step. Only identities in
     // `visible_police` passed their own production-world LOS raycast. An empty
@@ -1122,6 +1215,15 @@ public:
     }
     const std::vector<PolicePlayerContact>& police_player_contacts() const {
         return police_player_contacts_;
+    }
+    // Cleared and refilled by every step_peds(), like police_player_contacts().
+    // Read it in the same step or lose it; it is an edge, not a tally.
+    const std::vector<PedRunDownEvent>& ped_run_downs() const {
+        return ped_run_downs_;
+    }
+    // Cleared and refilled by every step_vehicles(). Same edge contract.
+    const std::vector<OnFootPlayerHitEvent>& on_foot_player_hits() const {
+        return on_foot_player_hits_;
     }
     const std::vector<PoliceShotEvent>& police_shots() const {
         return police_shots_;
@@ -1439,6 +1541,11 @@ private:
     // must be skipped entirely.
     bool step_police_free_chase(VehicleAgent& agent, float dt);
     std::vector<PolicePlayerContact> police_player_contacts_;
+    std::vector<PedRunDownEvent> ped_run_downs_;
+    std::vector<OnFootPlayerHitEvent> on_foot_player_hits_;
+    PedShotHit strike_ped(glm::vec3 origin,glm::vec3 unit_direction,
+                          float max_distance,float damage,bool from_bullet,
+                          int64_t step);
     std::vector<PoliceShotEvent> police_shots_;
 
     // Permanent: a retired agent never returns, because the closed form that

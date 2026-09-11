@@ -398,39 +398,44 @@ void a_shot_officer_goes_down_and_stops_responding() {
     const auto [muzzle, direction] = aim();
     const PedShotHit killing = crowd.shoot_ped(muzzle, direction, 60.0f, step);
     REQUIRE(killing.hit && killing.officer && killing.officer_downed);
+    // The general kill flag and the officer-specific one report the same edge.
+    REQUIRE(killing.killed);
     drive(step++);
     {
         const auto& officer = crowd.vehicles().front().officer;
         REQUIRE(police_officer_downed(officer));
+        REQUIRE(officer.dead);
         REQUIRE(officer.health == 0.0f);
         REQUIRE(!officer.armed);
         REQUIRE(officer.impact_from_bullet);
     }
 
-    // Down means OUT: no shots, no witnessing, no further hits, and the body
-    // stays where it fell instead of continuing the walk it was on.
+    // DEAD MEANS DEAD, and this loop is the whole reason the officer carries a
+    // health pool rather than a knockdown timer. It used to run for twelve
+    // seconds and then assert that the same officer stood back up at full
+    // health, which is what the old behaviour did: the player could not do
+    // anything to an officer except delay him. Run it well past that window —
+    // no shots, no witnessing, no further hits, and a body that stays where it
+    // fell instead of resuming the walk it was on.
     const glm::vec3 fell = crowd.vehicles().front().officer.pos;
     const int64_t downed_first = step;
-    for (; step < downed_first + 400; ++step) {
+    for (; step < downed_first + 2400; ++step) {
         drive(step);
         const auto& officer = crowd.vehicles().front().officer;
+        REQUIRE(officer.dead);
+        REQUIRE(officer.health == 0.0f);
         REQUIRE(crowd.police_shots().empty());
         REQUIRE(!officer.armed);
         REQUIRE(glm::distance(officer.pos, fell) < 1e-4f);
         REQUIRE(!crowd.player_in_police_view());
         REQUIRE(!crowd.raycast_ped(muzzle, direction, 60.0f).hit);
     }
-
-    // And back up when the window lapses, at full health, on the same unit.
-    for (; step < downed_first + static_cast<int64_t>(kPoliceOfficerDownedTicks) + 4;
-         ++step)
-        drive(step);
-    const auto& recovered = crowd.vehicles().front().officer;
-    REQUIRE(!police_officer_downed(recovered));
-    REQUIRE(recovered.health == kPoliceOfficerHealth);
+    // Still the same unit, still holding its identity, and still not a target:
+    // a second round into a body must not re-charge the player for the kill.
     REQUIRE(crowd.vehicles().front().lane_key == id.lane_key);
-    REQUIRE(crowd.raycast_ped(muzzle, direction, 60.0f).officer);
-    apricot_test::pass("a real officer takes pistol rounds, goes down, stops responding and gets back up");
+    const PedShotHit again = crowd.shoot_ped(muzzle, direction, 60.0f, step);
+    REQUIRE(!again.hit && !again.killed && !again.officer_downed);
+    apricot_test::pass("a real officer takes pistol rounds, dies, and does not get back up");
 }
 
 }  // namespace

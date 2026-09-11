@@ -15,13 +15,31 @@ inline constexpr float kPoliceBulletHitRadiusM = 0.45f;
 inline constexpr int64_t kPoliceShotPeriodSteps = 138;   // 1.15 s at 120 Hz
 inline constexpr int64_t kPoliceShotReactionSteps = 42; // 0.35 s after aim
 
-// Shooting AT a cop and putting one DOWN are different crimes, priced on the
-// same scale as the rest (level 2 at 3 heat, level 3 at 6, level 5 at 12).
-// A wound is a shade under an armed-threat report; downing an officer on top
-// of that lands the average player straight into a three-star response, which
-// is the point — a unit you neutralise costs you a heavier one.
+// Shooting AT a cop and KILLING one are different crimes, priced on the same
+// scale as the rest (level 2 at 3 heat, level 3 at 6, level 5 at 12). A wound
+// is a shade under an armed-threat report; killing an officer on top of that
+// lands the average player straight into a three-star response, which is the
+// point - a unit you take off the board costs you a heavier one.
 inline constexpr float kOfficerWoundedHeat = 2.0f;
-inline constexpr float kOfficerDownedHeat = 4.0f;
+inline constexpr float kOfficerKilledHeat = 4.0f;
+
+// Civilians, on the same scale and a tier below the uniform. Two rounds into a
+// shopper plus the third that kills them comes to 4.5 heat - a two-star
+// response, short of the three an officer's death buys.
+//
+// Killing somebody with the CAR is priced under killing them with the pistol,
+// and deliberately so: at the moment it happens the city cannot tell a
+// hit-and-run from a bad accident, and pricing the two identically turns every
+// clipped kerb-stepper into a shooting.
+inline constexpr float kCivilianWoundedHeat = 0.75f;
+inline constexpr float kCivilianKilledHeat = 3.0f;
+inline constexpr float kCivilianRunDownHeat = 2.0f;
+
+// THE CITY NOTICES A KILLING WHETHER OR NOT ANYBODY WATCHED IT. That is the
+// call app.cpp already makes for shooting an officer, stated once here so the
+// two cannot drift: the witness cone in game/police_offenses.h gates the
+// offences that are arguable - speeding, a red light, a drawn weapon - and a
+// body in the road is not one of them.
 
 struct PoliceShotEvent {
     uint64_t lane_key = 0;

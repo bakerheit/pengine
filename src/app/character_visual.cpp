@@ -285,14 +285,16 @@ void CharacterVisual::sync_rig(Rig& rig, const PedAgent& agent,
     Transform root = facing_transform(agent.pos, agent.fwd);
     root.position.y += kPedSurfaceLift;
 
-    // Only Downed holds the fall; Rising releases it into the stand-up clip.
-    // The incoming direction selects forward/backward for an authored bullet
-    // fall, while a car impact keeps the physical tumbling response.
+    // Downed and Dead hold the fall; Rising releases it into the stand-up
+    // clip, and Dead never does. The incoming direction selects
+    // forward/backward for an authored bullet fall, while a car impact keeps
+    // the physical tumbling response.
     CharacterAnimInput input = pedestrian_impact_input(
-        agent.activity == PedActivity::Downed, agent.impact_from_bullet,
+        ped_holds_impact_pose(agent.activity), agent.impact_from_bullet,
         glm::dot(agent.impact_dir_xz, glm::vec2{agent.fwd.x, agent.fwd.z}) < 0.0f);
     input.identity = ped_identity(agent);
-    input.speed_mps = std::max(agent.speed_mps, 0.0f);
+    input.speed_mps = ped_is_floored(agent.activity)
+        ? 0.0f : std::max(agent.speed_mps, 0.0f);
     input.sprinting = input.speed_mps > kPedRunSpeed;
     // dt is read before advance_rig consumes it, because the ragdoll and the
     // animator owe the same seconds and must not disagree about how many.
@@ -445,7 +447,8 @@ void CharacterVisual::sync(const Crowd& crowd,
                            const PlayerCharacterState& player, float alpha,
                            int64_t step, bool player_visible, glm::vec3 focus,
                            float presentation_radius_m,
-                           const TerrainCollider* world) {
+                           const TerrainCollider* world,
+                           bool player_dead) {
     driver_visible_ = false;
     const float blend = std::clamp(alpha, 0.0f, 1.0f);
     const float player_yaw = mixed_angle(
@@ -464,11 +467,17 @@ void CharacterVisual::sync(const Crowd& crowd,
     // THE TRANSLATION, player side. Same ten lines, different source.
     CharacterAnimInput input;
     input.identity = kPlayerAnimIdentity;
-    input.speed_mps = glm::length(glm::vec2{player.velocity.x,
-                                            player.velocity.z});
-    input.sprinting = player.sprinting;
-    input.grounded = player.grounded;
-    input.punch = player_punch_.consume();
+    input.speed_mps = player_dead ? 0.0f
+        : glm::length(glm::vec2{player.velocity.x, player.velocity.z});
+    input.sprinting = !player_dead && player.sprinting;
+    input.grounded = player_dead || player.grounded;
+    // A corpse throws no punches, and a jab latched on the frame the player
+    // died would otherwise fire out of the body on the way down.
+    const bool swing = player_punch_.consume();
+    input.punch = swing && !player_dead;
+    // `dead` selects the authored fall in the animator, exactly as it does for
+    // a shot pedestrian in app/ped_impact_pose.h.
+    input.dead = player_dead;
     player_animator_.advance(player_model_.clips, input, dt);
     if (player_animator_.consume_punch_contact()) player_punch_contact_ = true;
 

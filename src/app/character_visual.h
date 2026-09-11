@@ -54,12 +54,17 @@ public:
     // `world` is the collider knocked-down pedestrians fall onto. Passing
     // nullptr is legal and means no ragdoll: bodies hold the knockdown clip's
     // last frame instead, which is what happens before the terrain exists.
+    // `player_dead` plays the SAME authored fall a shot pedestrian gets. It is
+    // the presentation half of PlayerVitals: without it the player stood to
+    // attention under the WASTED banner while the person they had just shot
+    // lay on the pavement beside them.
     void sync(const Crowd& crowd,
               const PlayerCharacterState& previous_player,
               const PlayerCharacterState& player,
               float alpha, int64_t step, bool player_visible,
               glm::vec3 focus, float presentation_radius_m = 0.0f,
-              const TerrainCollider* world = nullptr);
+              const TerrainCollider* world = nullptr,
+              bool player_dead = false);
     // The ambient reconciliation, driven from an explicit agent list rather
     // than the live crowd. sync() calls this; a host QA check calls it directly
     // to stage a departure change at one (lane_key, slot) that the live crowd

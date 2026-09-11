@@ -154,7 +154,8 @@ whether the police code was good or not.
 | `traffic_ai.{h,cpp}` | Follow gaps, yellow lights, jam passing, the recovery ladder, permissive-left yield, overtake gap acceptance, player hazards, panic, emergency yield, go-around kinematics |
 | `police_ai.{h,cpp}` | Witness and contact gates, the free-drive pursuit command (`police_terminal_pursuit_cmd`) and its hand-off range, the engaged-unit control override and ram gate, wanted heat decay, graceful stand-down, response delay, ram attribution, roadblock composition |
 | `pedestrian_separation.h` | One pedestrian's per-frame sidestep |
-| `police_officer.h` | The officer occupancy phase machine, and his health: three pistol rounds put an on-foot officer down, which freezes his phase, disarms him and holds his cruiser for the window |
+| `police_officer.h` | The officer occupancy phase machine, and his death: three pistol rounds kill an on-foot officer, which freezes his phase permanently, disarms him and abandons his cruiser where it stopped. He does not come back; this used to be a twelve-second knockdown that restored him to full health |
+| `body_damage.h` | The ONE damage scale for every person in Pinatty — the player, the crowd and the officers. A hundred points, what a round, a punch, a car, a fall and a crash each cost, and the killing-blow edge every consumer charges heat on |
 | `pedestrian_reactions.h` | How a punched pedestrian reacts, and the fighter tunables |
 | `character_punch.h` / `character_getup.h` | The melee and get-up phase clocks |
 | `weather.{h,cpp}` | The weather state machine: kinds, scheduler, drift, Rain→Storm progression |

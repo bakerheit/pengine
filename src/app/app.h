@@ -21,6 +21,7 @@
 #include "game/weapon.h"
 #include "game/wanted_system.h"
 #include "game/police_offenses.h"
+#include "game/player_vitals.h"
 #include "game/police_arrest.h"
 #include "game/police_visibility.h"
 #include "game/repair_shop.h"
@@ -37,6 +38,7 @@
 #include "audio/traffic_horn_audio.h"
 #include "audio/police_siren.h"
 #include "core/fixed_step.h"
+#include "core/frame_log.h"
 #include "game/conditions.h"
 #include "game/snowpack.h"
 #include "app/snowplow_service.h"
@@ -130,6 +132,10 @@ public:
     bool weapon_check_passed() const {
         return weapon_check_captures_==255 && weapon_hit_check_done_ && !weapon_hit_check_failed_;
     }
+    void set_damage_check(bool on) { damage_check_=on; }
+    bool damage_check_passed() const {
+        return damage_check_done_ && !damage_check_failed_;
+    }
     void set_house_check(bool enabled) { house_check_=enabled; }
     bool house_check_passed() const { return house_check_complete_ && !house_check_failed_; }
     void set_signal_check(bool enabled) { signal_check_=enabled; }
@@ -180,6 +186,11 @@ public:
 
     // Capture the final bounded-smoke frame as a BMP for visual regression
     // checks. Ignored for an unbounded interactive run.
+    // Where this session's per-frame performance CSV goes. Empty disables the
+    // recorder entirely, and a disabled recorder does no per-frame work.
+    void set_perf_log_path(std::string path) { perf_log_path_ = std::move(path); }
+    void set_perf_spike_ms(double ms) { perf_spike_ms_ = ms; }
+
     void set_screenshot_path(std::string path) {
         screenshot_path_ = std::move(path);
     }
@@ -364,12 +375,33 @@ private:
     bool weapon_focus_=true;
     unsigned weapon_shots_=0;
     unsigned weapon_body_hits_=0;
+    // Bodies, not hits. Counted apart because three rounds into one person and
+    // one round into each of three people are the same number of body hits and
+    // very different things to have done.
+    unsigned weapon_kills_=0;
     float weapon_hit_feedback_=0.f;
     glm::vec3 weapon_socket_player_position_{0.f};
     float weapon_socket_player_yaw_=0.f;
     void step_weapon_use(bool available, float dt);
     void tick_weapon_hit_check();
     void capture_weapon_hit_check();
+    // --damage-check. See src/app/damage_check.cpp for what it drives and why
+    // a headless suite cannot replace it.
+    bool damage_check_=false;
+    bool damage_check_done_=false, damage_check_failed_=false;
+    int damage_check_stage_=0;
+    int damage_check_rounds_=0;
+    int damage_check_last_shot_frame_=-100;
+    int damage_check_last_restage_frame_=-100;
+    float damage_check_last_health_=kBodyHealth;
+    int damage_check_stage_frame_=0;
+    uint64_t damage_check_lane_=0;
+    uint32_t damage_check_slot_=0;
+    glm::vec3 damage_check_body_{0.f};
+    glm::vec3 damage_check_death_position_{0.f};
+    void tick_damage_check();
+    void capture_damage_check();
+
     bool weapon_hit_check_done_=false, weapon_hit_check_failed_=false;
     uint64_t weapon_hit_check_lane_=0;
     uint32_t weapon_hit_check_slot_=0;
@@ -478,9 +510,29 @@ private:
     unsigned police_armed_reports_=0;
     unsigned police_collision_reports_=0;
     unsigned police_shot_reports_=0;
-    float player_health_=100.0f;
-    float police_hit_feedback_s_=0.0f;
-    float police_shot_down_feedback_s_=0.0f;
+    unsigned pedestrian_kill_reports_=0;
+    unsigned player_death_reports_=0;
+    unsigned player_run_down_reports_=0;
+
+    // The player's hundred points and the span of being dead. See
+    // game/player_vitals.h for why the span exists; the short version is that
+    // health used to hit zero and respawn in the same statement, so there was
+    // no state in which the player was dead and nothing else could hook into
+    // it. src/app/player_damage.cpp is the only file that writes this.
+    PlayerVitals player_vitals_;
+    // Downward speed on the last airborne step, kept because the character
+    // solver has already zeroed it by the time `grounded` goes true.
+    float player_landing_speed_mps_=0.0f;
+    // Red edge flash, from ANY damage source rather than only a police round.
+    float player_hit_feedback_s_=0.0f;
+    bool damage_player(float amount, const char* cause);
+    void begin_player_death(const char* cause);
+    void step_player_vitals(float dt);
+    void check_player_fall_damage(bool was_grounded);
+    void check_player_crash_damage(float impact_speed_mps);
+    void check_pedestrian_casualties();
+    void check_on_foot_traffic_hits();
+    void throw_player_punch();
     bool police_officer_check_=false;
     bool police_pursuit_check_=false;
     bool police_pursuit_check_saw_yield_=false;
@@ -566,6 +618,9 @@ private:
     // the program, so this is measured here and not inside World.
     double last_fill_ms_ = 0.0;
     int last_fill_steps_ = 0;
+    // Which frame the fill above was charged to, so the per-frame performance
+    // log can report it once instead of forever.
+    int last_fill_frame_ = -2;
 
     // Frame costs, measured here for the same reason. Display only; neither
     // ever reaches the sim, which sees a constant dt and nothing else.
@@ -598,6 +653,21 @@ private:
     // Last frame's renderer stats, forwarded to the overlay and the exit
     // summary.
     Renderer::Stats render_stats_;
+
+    // The per-frame performance recorder. Fed from the TOP of the loop, where
+    // the members above still hold the frame that the measured delta paid for
+    // — see record_frame_sample().
+    FrameLog perf_log_;
+    std::string perf_log_path_;
+    double perf_spike_ms_ = 20.0;
+    bool perf_mark_pending_ = false;
+    bool perf_clock_reset_ = false;
+    int perf_marks_ = 0;
+    int perf_spikes_logged_ = 0;
+
+    // Assemble one FrameSample from everything the app knows and hand it to
+    // perf_log_. `ms` is what the PREVIOUS frame cost.
+    void record_frame_sample(double ms);
 };
 
 }  // namespace apricot

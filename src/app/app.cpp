@@ -784,6 +784,7 @@ bool App::init() {
         present_loading("PREPARING WORLD");
         const WallClock::time_point t0 = WallClock::now();
         last_fill_steps_ = world_.fill(scene_, renderer_, player_focus_position());
+        last_fill_frame_ = frames_rendered_;
         last_fill_ms_ = std::chrono::duration<double>(WallClock::now() - t0)
                             .count() * 1000.0;
         AP_INFO("cold fill: %d steps, %.1f ms, %zu chunks, %.1f MB of terrain",
@@ -1098,16 +1099,29 @@ void App::step_weapon_use(bool available, float dt) {
             weapon_hit_feedback_=.25f;
             if (body.officer) {
                 // The heat lands whether or not anybody watched. Shooting a
-                // uniformed officer is not a crime that needs a witness cone.
-                wanted_.add_heat(body.officer_downed ? kOfficerDownedHeat
-                                                     : kOfficerWoundedHeat,
+                // uniformed officer is not a crime that needs a witness cone;
+                // see game/police_combat.h.
+                wanted_.add_heat(body.killed ? kOfficerKilledHeat
+                                             : kOfficerWoundedHeat,
                                  WantedSystem::Crime::OfficerAssault);
+                if (body.killed) ++weapon_kills_;
                 AP_INFO("pistol %s police officer %llu/%u; wanted %d",
-                    body.officer_downed ? "downed" : "hit",
+                    body.killed ? "killed" : "hit",
                     static_cast<unsigned long long>(body.lane_key),body.slot,
                     wanted_.level());
             } else {
-                AP_INFO("pistol body hit: pedestrian %llu/%u",static_cast<unsigned long long>(body.lane_key),body.slot);
+                // Same rule, a tier down. A wound is a crime; the round that
+                // kills is a bigger one, and `killed` is the one-shot edge so
+                // the player is charged for the death exactly once.
+                wanted_.add_heat(body.killed ? kCivilianKilledHeat
+                                             : kCivilianWoundedHeat,
+                                 body.killed ? WantedSystem::Crime::Violent
+                                             : WantedSystem::Crime::Assault);
+                if (body.killed) ++weapon_kills_;
+                AP_INFO("pistol %s pedestrian %llu/%u; wanted %d",
+                    body.killed ? "killed" : "hit",
+                    static_cast<unsigned long long>(body.lane_key),body.slot,
+                    wanted_.level());
             }
         } else if (hit.hit) weapon_visual_.show_impact(muzzle+travel/distance*hit.distance);
     }
@@ -1264,9 +1278,10 @@ void App::poll_events() {
         if (emergency_toggle && road_vehicle_controls &&
             is_convertible(car_visual_.active_car())) soft_top_toggle_pending_=true;
         // The bare-fist jab, on F or controller X while on foot and unarmed.
-        // Handled here for the same reason as the siren above: it drives the
-        // character animator and its one-shot contact latch and applies no
-        // damage yet, so it is presentation and costs no replay-format change.
+        // Handled here rather than through InputFrame for the same reason as
+        // the siren above: it drives the character animator, which runs on the
+        // render clock. The DAMAGE it does is applied where the animator's
+        // one-shot contact latch is consumed, in the sync block below.
         // city/character_punch.h owns the timing; app/character_animation.h is
         // the caller. A RELEASE always clears the level, whatever the context,
         // so leaving the state that allows a punch cannot leave one latched on.
@@ -1311,6 +1326,18 @@ void App::poll_events() {
             controls_.toggle_stats();
             AP_INFO("debug stats %s",
                     controls_.stats_visible ? "VISIBLE" : "HIDDEN");
+        }
+
+        // F4 marks the moment. The single most valuable column in the
+        // performance log is the one a human writes: a profiler can rank
+        // frames by cost all day and still not know which of them the player
+        // actually felt. Latched, then resolved in record_frame_sample()
+        // against the frames that have already gone by — a stutter is noticed
+        // after it happens, so the frame being reported is always behind the
+        // key press.
+        if (e.type == SDL_KEYDOWN && e.key.repeat == 0 &&
+            e.key.keysym.sym == SDLK_F4 && perf_log_.enabled()) {
+            perf_mark_pending_ = true;
         }
 
         // F8 warps across the island. Same reasoning as F7: a debug action
@@ -2058,6 +2085,7 @@ void App::teleport(glm::vec3 to, float heading_radians) {
 
     const WallClock::time_point t0 = WallClock::now();
     last_fill_steps_ = world_.fill(scene_, renderer_, player_focus_position());
+    last_fill_frame_ = frames_rendered_;
     last_fill_ms_ =
         std::chrono::duration<double>(WallClock::now() - t0).count() * 1000.0;
 
@@ -2930,25 +2958,33 @@ void App::render() {
             if (on_foot_ && !dev_menu_.open() && !bank_interaction_.modal()) {
                 char health[32];
                 std::snprintf(health, sizeof(health), "HEALTH %3.0f",
-                    static_cast<double>(player_health_));
-                const glm::vec4 health_color = player_health_ <= 32.0f
+                    static_cast<double>(player_vitals_.health));
+                const glm::vec4 health_color = player_vitals_.health <= 32.0f
                     ? glm::vec4{1.0f, 0.18f, 0.10f, 1.0f}
                     : glm::vec4{0.82f, 0.93f, 0.76f, 1.0f};
                 hud_.text(health, {vp.x - 216.0f, 142.0f}, 21.0f, health_color);
                 hud_.rect({vp.x - 216.0f, 171.0f}, {vp.x - 56.0f, 177.0f},
                           {0.04f, 0.05f, 0.05f, 0.9f});
                 hud_.rect({vp.x - 216.0f, 171.0f},
-                          {vp.x - 216.0f + 160.0f *
-                              glm::clamp(player_health_ / 100.0f, 0.0f, 1.0f),
+                          {vp.x - 216.0f + 160.0f * player_vitals_.fraction(),
                            177.0f}, health_color);
             }
-            if (police_hit_feedback_s_ > 0.0f)
+            if (player_hit_feedback_s_ > 0.0f)
                 hud_.outline({5.0f, 5.0f}, {vp.x - 5.0f, vp.y - 5.0f}, 9.0f,
                     {1.0f, 0.05f, 0.02f,
-                     0.65f * glm::clamp(police_hit_feedback_s_ / 0.45f, 0.0f, 1.0f)});
-            if (police_shot_down_feedback_s_ > 0.0f)
+                     0.65f * glm::clamp(player_hit_feedback_s_ / 0.45f, 0.0f, 1.0f)});
+            // WASTED is drawn off the DEATH ITSELF rather than off a feedback
+            // timer that happened to be set beside a respawn, so the banner is
+            // up for exactly as long as the player is dead and not a moment
+            // during which they are already driving again.
+            if (!player_vitals_.alive()) {
+                hud_.rect({0.0f, 0.0f}, vp,
+                    {0.28f, 0.0f, 0.0f,
+                     0.55f * glm::clamp(player_vitals_.dead_seconds / 0.6f,
+                                        0.0f, 1.0f)});
                 hud_.title_text_centered("WASTED", vp.x * 0.5f, 116.0f, 58.0f,
                                          {0.92f, 0.08f, 0.05f, 1.0f});
+            }
             draw_weapon_wheel(hud_,weapon_wheel_,vp);
             if(repair_shop_feedback_s_>0)
                 hud_.text_centered("CAR REPAIRED",vp.x*.5f,vp.y*.25f,30,{.65f,1,.65f,1});
@@ -3230,8 +3266,123 @@ void App::tire_track_check_camera() {
         look.y, glm::length(glm::vec2{look.x, look.z}));
 }
 
+void App::record_frame_sample(double ms) {
+    if (!perf_log_.enabled()) return;
+
+    const glm::vec3 focus = player_focus_position();
+    const World::Stats& ws = world_.stats();
+
+    FrameSample s;
+    s.frame = frames_rendered_;
+    // The SAME clock the text log stamps its lines with, on purpose: a WARN
+    // about a dip and the CSV rows around it have to line up by eye, and two
+    // timelines that nearly agree are worse than one.
+    s.t_s = log::uptime_seconds();
+    s.ms = ms;
+
+    s.place = city::district_name(city::district_at(focus.x, focus.z));
+    s.mode = interior_presentation_lod_ ? "indoor"
+             : in_aircraft_             ? "air"
+             : in_boat_                 ? "boat"
+             : on_foot_                 ? "foot"
+                                        : "drive";
+    // The ATMOSPHERIC weather, not the road surface: rain, snow and storms are
+    // what cost frames, and "dry" on every row of a blizzard helps nobody.
+    s.weather = atmospheric_weather_name(conditions_.atmosphere);
+    s.x = focus.x;
+    s.y = focus.y;
+    s.z = focus.z;
+    s.speed_mph = metres_per_second_to_miles_per_hour(glm::length(
+        on_foot_ ? player_character_.velocity
+                 : (in_boat_ ? boat_.velocity
+                             : (in_aircraft_ ? aircraft_.velocity
+                                             : car_.velocity))));
+    s.time_of_day = conditions_.time_of_day;
+
+    s.sim_steps = last_steps_;
+    s.step_clamped = last_clamped_;
+    s.cull_ms = cull_ms_;
+    s.mesh_ms = mesh_ms_;
+    s.light_ms = tiled_lighting_.build_ms() + tiled_lighting_.upload_ms();
+    // Only on the frame that actually paid for it. last_fill_ms_ is sticky by
+    // design — the overlay wants "what the last fill cost" — but a per-frame
+    // column repeating 22.0 for a whole session reads as a fill every frame,
+    // which is the exact wrong conclusion to hand someone hunting a dip.
+    s.fill_ms = (last_fill_frame_ >= frames_rendered_ - 1) ? last_fill_ms_ : 0.0;
+
+    s.draw_calls = render_stats_.draw_calls;
+    s.instances = render_stats_.instances;
+    s.visible_nodes = render_stats_.visible_nodes;
+    s.scene_nodes = static_cast<int>(scene_.size());
+    s.batches = render_stats_.batches;
+    s.skipped_binds = render_stats_.skipped_binds;
+
+    s.chunks_built = ws.chunks_built;
+    s.chunks_evicted = ws.chunks_evicted;
+    s.resident_chunks = ws.resident_chunks;
+    s.terrain_mb = static_cast<double>(ws.mesh_bytes) / (1024.0 * 1024.0);
+    s.budget_hit = ws.budget_exhausted;
+
+    s.cars = static_cast<int>(traffic_visual_.car_count());
+    s.parked = static_cast<int>(traffic_visual_.parked_car_count());
+    s.npcs = static_cast<int>(character_visual_.ambient_npc_count() +
+                              character_visual_.staff_count());
+    s.character_draws = character_visual_.last_draw_count();
+    s.lights = tiled_lighting_.grid().visible_lights;
+    s.rain_quads = rain_.drawn_quads();
+    s.hud_quads = hud_.last_quad_count();
+    s.gl_errors = gl_errors_;
+
+    if (perf_mark_pending_) {
+        perf_mark_pending_ = false;
+        ++perf_marks_;
+        perf_log_.mark("player-marked", s);
+        AP_INFO("perf mark %d at t=%.1f s, (%.0f, %.0f) in %s", perf_marks_,
+                s.t_s, static_cast<double>(s.x), static_cast<double>(s.z),
+                s.place);
+    }
+
+    // A frame whose delta was measured across a clock reset — a resume from
+    // the pause screen, the end of a cutscene, a teleport — is not a frame
+    // anybody rendered. Recording it puts a fake sub-millisecond sample in the
+    // histogram and drags the median under the truth.
+    if (perf_clock_reset_) {
+        perf_clock_reset_ = false;
+        return;
+    }
+
+    if (!perf_log_.record(s)) return;
+
+    // Put the first stretch of dips in the text log too, so a session run with
+    // --log leaves a human-readable trail without anyone opening the CSV.
+    // Capped, because a log line per dip in a genuinely bad session is both
+    // useless and — this logger flushes every line — a cause of more dips.
+    constexpr int kMaxSpikeLines = 40;
+    if (++perf_spikes_logged_ > kMaxSpikeLines) return;
+    AP_WARN("frame dip: %.1f ms at t=%.1f s, (%.0f, %.0f) in %s [%s] — "
+            "cull %.2f mesh %.2f light %.2f fill %.1f, %d draws, %d chunks "
+            "built, %d cars, %d npcs%s",
+            s.ms, s.t_s, static_cast<double>(s.x), static_cast<double>(s.z),
+            s.place, s.mode, s.cull_ms, s.mesh_ms, s.light_ms, s.fill_ms,
+            s.draw_calls, s.chunks_built, s.cars, s.npcs,
+            perf_spikes_logged_ == kMaxSpikeLines ? " (last one logged)" : "");
+}
+
 int App::run() {
     if (!running_) return 1;
+
+    if (!perf_log_path_.empty()) {
+        FrameLog::Config cfg;
+        cfg.spike_ms = perf_spike_ms_;
+        perf_log_.configure(cfg);
+        if (perf_log_.open(perf_log_path_.c_str())) {
+            AP_INFO("performance log: %s (dips over %.1f ms; F4 marks a moment)",
+                    perf_log_path_.c_str(), perf_spike_ms_);
+        } else {
+            AP_WARN("could not open performance log '%s'; not recording",
+                    perf_log_path_.c_str());
+        }
+    }
 
     WallClock::time_point last = WallClock::now();
 
@@ -3258,6 +3409,7 @@ int App::run() {
         if(traffic_horn_check_ && (traffic_horn_check_failed_ ||
             (traffic_horn_check_done_ && traffic_horn_check_capture_.empty())))break;
         if (delivery_check_) tick_delivery_check();
+        if (damage_check_) { tick_damage_check(); capture_damage_check(); }
         if (weapon_check_) {
             tick_weapon_hit_check();
             const auto key=[&](SDL_Keycode code,bool down) {
@@ -3353,6 +3505,14 @@ int App::run() {
             frame_ms_total_ += dt * 1000.0;
             ++frames_timed_;
             if (dt * 1000.0 > worst_frame_ms_) worst_frame_ms_ = dt * 1000.0;
+            // Recorded HERE, at the top of the loop, and not after render().
+            // `dt` is the span between this loop top and the last one, so it
+            // is the cost of the PREVIOUS frame — and every counter below
+            // still holds that frame's values, because this iteration has not
+            // overwritten them yet. Sampling after render() instead would pair
+            // a frame's duration with the next frame's counters and quietly
+            // blame the wrong one.
+            record_frame_sample(dt * 1000.0);
         }
 
         poll_events();
@@ -3364,7 +3524,7 @@ int App::run() {
             step_weapon_use(false,0.f);
             camera_frame_dt_=static_cast<float>(std::clamp(dt,0.0,0.1));
             const float elapsed=frame_limit_>0 ? 1.f/30.f : camera_frame_dt_;
-            if (opening_cutscene_.advance(elapsed)) { finish_opening();dt=0;last=WallClock::now(); }
+            if (opening_cutscene_.advance(elapsed)) { finish_opening();dt=0;last=WallClock::now();perf_clock_reset_=true; }
             else {
                 opening_cutscene_.sync();
                 camera_=opening_cutscene_.camera(window_.aspect());
@@ -3372,12 +3532,13 @@ int App::run() {
                 render();first_frame=false;clock_.reset();continue;
             }
         }
-        if (cinematic_before_ui && !opening_cutscene_.active()) { dt=0;last=WallClock::now(); }
+        if (cinematic_before_ui && !opening_cutscene_.active()) { dt=0;last=WallClock::now();perf_clock_reset_=true; }
         const bool began_or_resumed =
             screen_before_ui != UiScreen::Driving &&
             ui_.screen() == UiScreen::Driving;
         if (began_or_resumed) {
             last = WallClock::now();
+            perf_clock_reset_ = true;
         }
 
         camera_frame_dt_ = static_cast<float>(std::clamp(dt, 0.0, 0.1));
@@ -3386,10 +3547,7 @@ int App::run() {
             0.f,mission_success_feedback_s_-camera_frame_dt_);
         if (ui_.screen()==UiScreen::Driving)
             arrested_feedback_s_=std::max(0.f,arrested_feedback_s_-camera_frame_dt_);
-        police_hit_feedback_s_ = std::max(
-            0.0f, police_hit_feedback_s_ - camera_frame_dt_);
-        police_shot_down_feedback_s_ = std::max(
-            0.0f, police_shot_down_feedback_s_ - camera_frame_dt_);
+
         impact_feedback_seconds_ =
             std::max(0.0f, impact_feedback_seconds_ - camera_frame_dt_);
         if (ui_.screen() == UiScreen::Driving && on_foot_ && !vehicle_transition_.active() &&
@@ -3429,11 +3587,19 @@ int App::run() {
         }
 
         for (int i = 0; i < tick.steps; ++i) {
-            const InputFrame raw_input = tire_track_check_
+            const InputFrame live_input = tire_track_check_
                 ? tire_track_check_input()
                 : (signal_check_ ? signal_check_input()
                     : (traffic_horn_check_ ? traffic_horn_check_input()
                         : (police_officer_check_ ? police_officer_check_input() : input_.frame())));
+            // A DEAD PLAYER DRIVES NOTHING. Gating here rather than at each
+            // consumer is deliberate: the car, the character, the weapon and
+            // the door interactions all read from this one frame, and a gate
+            // added to three of the four is the version where the corpse can
+            // still shoot. The world keeps running underneath — traffic,
+            // police and the crowd are not paused by the player dying.
+            const InputFrame raw_input =
+                player_vitals_.alive() ? live_input : InputFrame{};
             // Snapshot before EACH step, not before the batch: prev_car_ has to
             // be exactly one step behind or the render interpolation covers the
             // wrong span on a multi-step frame.
@@ -3529,7 +3695,7 @@ int App::run() {
                     static_cast<float>(kSimDt),parked.state.mechanical_key);
             if (transitioning) step_vehicle_transition();
             if (on_foot_ && !transitioning && !boat_was_transitioning) {
-                InputFrame character_input = apply_drunk_input(input_.frame(), drunk_);
+                InputFrame character_input = apply_drunk_input(raw_input, drunk_);
                 character_input.look_dx = i == 0
                     ? character_look_dx_pending_ : 0.0f;
                 character_input.look_dy = i == 0
@@ -3544,9 +3710,11 @@ int App::run() {
                 }
                 world_.step_house_doors(scene_,collider_,&player_character_,character_tuning_,
                     character_input,static_cast<float>(kSimDt));
+                const bool was_grounded = player_character_.grounded;
                 player_character_ = step_character(
                     player_character_, character_tuning_, character_input,
                     collider_, static_cast<float>(kSimDt));
+                check_player_fall_damage(was_grounded);
                 if (conditions_.tornado_intensity > 0.0f) {
                     const TornadoForce tornado = apricot::tornado_force_at(
                         {player_character_.position.x,
@@ -3603,6 +3771,8 @@ int App::run() {
             world_.step_traffic(static_cast<int64_t>(step_index_), car_,
                                 foot_hazard_ptr);
             check_police_shots();
+            check_pedestrian_casualties();
+            check_on_foot_traffic_hits();
             snowplow_service_.step(world_.traffic().vehicles(), snow_clearance_,
                                     conditions_.snow_depth_m);
             traffic_horn_audio_.update(step_index_,world_.traffic().vehicles(),
@@ -3649,11 +3819,13 @@ int App::run() {
                 seen_impact_count_ = car_.impact_count;
                 impact_feedback_seconds_ = 0.55f;
                 chase_camera_.add_impact(car_.last_impact_speed);
+                check_player_crash_damage(car_.last_impact_speed);
                 AP_INFO("vehicle impact: %.1f m/s, %.1f damage, %.0f health",
                         static_cast<double>(car_.last_impact_speed),
                         static_cast<double>(car_.last_impact_damage),
                         static_cast<double>(car_.health));
             }
+            step_player_vitals(static_cast<float>(kSimDt));
             ++step_index_;
             if (vehicle_entry_check_ && !vehicle_entry_check_passed_) run_vehicle_entry_check();
             if (driver_transition_check_ && driver_check_stage_<6) run_driver_transition_check();
@@ -3708,6 +3880,7 @@ int App::run() {
                                std::sin(angle) * radius});
             ++warps_done_;
             last = WallClock::now();  // do not charge the fill to the next frame
+            perf_clock_reset_ = true;
         } else {
             const WallClock::time_point mesh_t0 = WallClock::now();
             world_.update(scene_, renderer_, player_focus_position());
@@ -3868,7 +4041,7 @@ int App::run() {
             world_.traffic(), prev_player_character_,
             player_character_, static_cast<float>(clock_.alpha()),
             static_cast<int64_t>(step_index_), on_foot_, presentation_focus,
-            npc_presentation_radius, &collider_);
+            npc_presentation_radius, &collider_, !player_vitals_.alive());
         if (boat_transition_.active())
             character_visual_.sync_boat_transition(world_.rendered_boat_transform(scene_),
                 boat_transition_,static_cast<float>(clock_.alpha()));
@@ -3880,6 +4053,10 @@ int App::run() {
                 vehicle_transition_,transition_waiting_ ? 1.f : static_cast<float>(clock_.alpha()));
         else character_visual_.sync_driver(car_visual_.active_car(),
             !on_foot_ && !in_aircraft_ && !in_boat_,car_visual_.rendered_body_transform(scene_));
+        // The fist LANDS. The animator opens a one-shot contact window in the
+        // middle of the jab (city/character_punch.h owns that clock), and this
+        // is the one place it is consumed.
+        if (character_visual_.consume_player_punch_contact()) throw_player_punch();
         glm::mat4 weapon_hand{1};
         const bool has_weapon_hand=on_foot_ && !vehicle_transition_.active() && !boat_transition_.active() &&
             character_visual_.player_right_hand_transform(weapon_hand);
@@ -3919,6 +4096,7 @@ int App::run() {
             first_frame = false;
             clock_.reset();
             last = WallClock::now();
+            perf_clock_reset_ = true;
         }
     }
 
@@ -3995,6 +4173,28 @@ int App::run() {
                     static_cast<double>(world_.roads().gpu_bytes()) /
                         (1024.0 * 1024.0));
         }
+    }
+
+    // Closed HERE rather than at the end of run(), because the paths below
+    // return early on a failed check and a performance log without its trailer
+    // is the half of the file nobody can read.
+    if (perf_log_.enabled()) {
+        const FrameLog::Summary perf = perf_log_.summary();
+        AP_INFO("performance: %d frames, p50 %.2f ms (%.0f fps), p99 %.2f ms, "
+                "worst %.2f ms; %d dips (%.2f%%), %.0f ms of stutter",
+                perf.frames, perf.p50_ms,
+                perf.p50_ms > 0.0 ? 1000.0 / perf.p50_ms : 0.0, perf.p99_ms,
+                perf.worst_ms, perf.spikes,
+                perf.frames > 0 ? 100.0 * perf.spikes / perf.frames : 0.0,
+                perf.stutter_ms);
+        for (const FrameLog::Hotspot& h : perf_log_.hotspots()) {
+            AP_INFO("  dips at (%.0f, %.0f) %s: %u of %u frames slow, worst %.1f ms",
+                    static_cast<double>(h.x), static_cast<double>(h.z), h.place,
+                    h.slow, h.frames, h.worst_ms);
+        }
+        const std::string perf_path = perf_log_.path();
+        perf_log_.close();
+        AP_INFO("performance log written: %s", perf_path.c_str());
     }
 
     gl_errors_ += drain_gl_errors("at shutdown");

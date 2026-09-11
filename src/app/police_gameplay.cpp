@@ -118,8 +118,26 @@ void App::check_police_arrest(const std::vector<VisiblePoliceIdentity>& visible)
         kPoliceArrestRangeM,kPoliceArrestHoldSeconds);
 }
 
+// Bodies the player's car left in the road, drained on the step they happen.
+//
+// The crowd decides who dies — it owns the footprint, the closing speed and
+// city/body_damage.h's curve — and this decides what it costs. Keeping the
+// split means the sim never grows an opinion about heat, and it is the same
+// split check_police_collision_offenses() already makes for cruisers.
+void App::check_pedestrian_casualties() {
+    for (const auto& kill : world_.traffic().ped_run_downs()) {
+        ++pedestrian_kill_reports_;
+        wanted_.add_heat(kCivilianRunDownHeat,
+                         WantedSystem::Crime::VehicularAssault);
+        AP_INFO("ran down pedestrian %llu/%u at %.1f mph; wanted %d",
+            static_cast<unsigned long long>(kill.lane_key), kill.slot,
+            static_cast<double>(kill.closing_speed_mps * 2.2369363f),
+            wanted_.level());
+    }
+}
+
 void App::check_police_shots() {
-    if (!on_foot_ || player_health_ <= 0.0f) return;
+    if (!on_foot_ || !player_vitals_.alive()) return;
     const glm::vec3 torso = player_character_.position + glm::vec3{0.0f, 1.05f, 0.0f};
     for (const PoliceShotEvent& shot : world_.traffic().police_shots()) {
         ++police_shot_reports_;
@@ -140,23 +158,11 @@ void App::check_police_shots() {
 
         weapon_visual_.show_blood(torso, travel / distance,
             shot.lane_key ^ (static_cast<uint64_t>(shot.ordinal) << 32));
-        player_health_ = std::max(0.0f, player_health_ - kPoliceBulletDamage);
-        police_hit_feedback_s_ = 0.45f;
-        AP_INFO("police shot hit player: health %.0f", static_cast<double>(player_health_));
-        if (player_health_ > 0.0f) continue;
-
-        wanted_.reset();
-        police_offenses_.reset();
-        police_arrest_.reset();
-        world_.set_police_context(0, player_focus_position());
-        weapon_wheel_.equipped = WeaponId::Unarmed;
-        weapon_use_ = WeaponUseState{};
-        place_character_next_to_car();
-        prev_player_character_ = player_character_;
-        player_health_ = 100.0f;
-        police_shot_down_feedback_s_ = 3.0f;
-        AP_INFO("player shot down by police and respawned beside current vehicle");
-        break;
+        // One door for every cause of death; src/app/player_damage.cpp owns
+        // what dying means. This used to inline the respawn right here, which
+        // is why there was only ever one thing in the city that could kill
+        // you.
+        if (damage_player(kPoliceBulletDamage, "a police round")) break;
     }
 }
 
@@ -298,7 +304,7 @@ InputFrame App::police_officer_check_input() {
             police_officer_check_capture_="on-foot";
             police_armed_reports_=0;
             police_shot_reports_=0;
-            player_health_=100.0f;
+            player_vitals_.revive();
             weapon_wheel_.equipped=WeaponId::Pistol;
             advance(5);
             AP_INFO("police officer check: officer walking toward suspect; drawing pistol");
