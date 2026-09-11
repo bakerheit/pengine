@@ -2586,12 +2586,41 @@ bool Crowd::step_police_free_chase(VehicleAgent& v, float dt) {
             v.dist_along_m = v.last_dist_m = snap.dist_along_m;
             v.cruise_mps = std::min(v.cruise_mps,
                                     graph_->lane(snap.lane).speed_limit_mps);
+            // REJOIN ON AN ARC, NOT ON A FRAME. Handing the road back used to
+            // assign the lane and let the next step read the pose straight off
+            // it, which teleports the heading from wherever the car was
+            // actually pointing to the lane tangent — measured at 25 degrees
+            // inside one step, and the eye reads that as the car twitching.
+            // The maneuver system already exists to carry a body from a real
+            // pose onto a lane, so use it: the curve holds the heading while
+            // the car drives back into line.
+            const Lane& home = graph_->lane(snap.lane);
+            const float rejoin_end = std::min(home.length_m,
+                                              snap.dist_along_m + 14.0f);
+            // Only a MOVING car needs the arc. A stopped one has no visible
+            // heading pop worth smoothing, and stopped is exactly the case
+            // where the officer is about to get out — see the deadlock note on
+            // the cancel in step_emergency_maneuver().
+            if (v.speed_mps > 3.0f && rejoin_end > snap.dist_along_m + 1.0f) {
+                const glm::vec3 right{-forward.z, 0.0f, forward.x};
+                const LanePose from{v.pos, forward, right};
+                const LanePose to = graph_->pose(snap.lane, rejoin_end);
+                TrafficManeuver rejoin;
+                rejoin.kind = TrafficManeuverKind::MergeBack;
+                rejoin.destination = snap.lane;
+                rejoin.end_station_m = rejoin_end;
+                rejoin.end_offset_m = 0.0f;
+                rejoin.speed_limit_mps = std::max(6.0f, v.speed_mps);
+                rejoin.curves[0] = traffic_steering_curve(from, to);
+                rejoin.count = 1;
+                rejoin.length_m = rejoin.curves[0].length_m;
+                if (rejoin.length_m > 1.0f) v.maneuver = rejoin;
+            }
         }
         v.mode = AgentMode::Integrating;
         v.collision_offset_xz = {0.0f, 0.0f};
         v.collision_velocity_xz = {0.0f, 0.0f};
         v.roadside_offset_m = 0.0f;
-        v.maneuver = {};
         v.police_route.clear();
         v.police_route_index = 0;
         v.police_last_replan_step = -1;
@@ -2626,8 +2655,16 @@ bool Crowd::step_police_free_chase(VehicleAgent& v, float dt) {
         if (!police_has_line_of_sight(v)) return false;
         // Hand over from the pose the lane path was already showing, so the
         // switch is invisible: seeding from anything else pops the car.
+        // TWO CONVENTIONS FOR "WHERE THE CAR IS", and they differ by a ride
+        // height. VehicleAgent::pos is the road surface — traffic_visual lifts
+        // the body onto its wheels from there — while VehicleState::position
+        // is the chassis origin, sitting up on its springs. Seed one from the
+        // other without this and the cruiser spawns half a metre into the
+        // tarmac; write it back without it and the renderer adds the body
+        // offset on top of a chassis height and the car floats.
+        const float ride = vehicle_rest_ride_height(police_vehicle_tuning_);
         v.chase = VehicleState{};
-        v.chase.position = v.pos;
+        v.chase.position = v.pos + glm::vec3{0.0f, ride, 0.0f};
         glm::vec3 forward{v.fwd.x, 0.0f, v.fwd.z};
         forward = glm::length(forward) > 1e-5f ? glm::normalize(forward)
                                                : glm::vec3{0.0f, 0.0f, -1.0f};
@@ -2688,7 +2725,8 @@ bool Crowd::step_police_free_chase(VehicleAgent& v, float dt) {
 
     v.chase = step_vehicle(v.chase, police_vehicle_tuning_, intent,
                            *police_officer_world_, dt);
-    v.pos = v.chase.position;
+    v.pos = v.chase.position -
+            glm::vec3{0.0f, vehicle_rest_ride_height(police_vehicle_tuning_), 0.0f};
     v.fwd = forward3;
     v.speed_mps = std::max(0.0f, vehicle_forward_speed(v.chase));
     v.mode = AgentMode::Integrating;

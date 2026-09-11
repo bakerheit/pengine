@@ -503,6 +503,20 @@ float wheel_steer_angle(const VehicleTuning& tuning, float central_angle,
 
 // --- queries -----------------------------------------------------------------
 
+// Resting height of the chassis ORIGIN above the contact patch, straight off
+// the geometry documented on VehicleTuning::suspension_rest.
+//
+// This is the number that converts between the two conventions for "where a
+// car is". A lane pose puts a traffic agent at the ROAD SURFACE and the
+// renderer lifts the body onto its wheels from there; a VehicleState puts the
+// body where it actually sits on its springs, half a metre up. Assigning one
+// to the other without this leaves the car floating by exactly a ride height.
+inline float vehicle_rest_ride_height(const VehicleTuning& t) {
+    const float sag = t.mass_kg * t.gravity /
+                      (4.0f * std::max(1.0f, t.spring_k));
+    return std::max(0.0f, t.suspension_rest - sag + t.wheel_radius);
+}
+
 inline glm::vec3 vehicle_forward(const VehicleState& s) {
     return s.orientation * glm::vec3{0.0f, 0.0f, -1.0f};
 }

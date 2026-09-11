@@ -58,6 +58,12 @@ struct Chase {
     long reversing = 0;
     long facing_away = 0;
     float worst_yaw_rate = 0.0f;        // deg/s, any pursuer, any step
+    float worst_step_dy = 0.0f;         // biggest vertical jump in one step
+    float worst_chase_step_dy = 0.0f;   // ... for free-driving cruisers
+    float worst_float_m = 0.0f;         // body sitting above the ground
+    float worst_chase_float_m = 0.0f;   // ... while free-driving
+    float worst_lane_float_m = 0.0f;    // ... while lane-following
+    float worst_sink_m = 0.0f;          // body sunk into it
     float worst_chase_yaw_rate = 0.0f;  // deg/s, free-driving cruisers only
     float closest_offroad = 1e9f;  // best approach once the player is off-road
     double sum_speed = 0.0;
@@ -247,9 +253,44 @@ Chase run_chase(const LaneGraph& lanes, const GroundSampler& ground,
                             if (a.chase_active)
                                 out.worst_chase_yaw_rate =
                                     std::max(out.worst_chase_yaw_rate, rate);
+
                         }
                         last_fwd[id] = unit;
                         last_xz[id] = now_xz;
+                    }
+                    // VERTICAL CONTINUITY, on the same terms. The free-drive
+                    // hand-off seeds a VehicleState from the LANE pose and the
+                    // release snaps back to it; if the lane's draped height
+                    // disagrees with the surface step_vehicle actually rides
+                    // on, the car pops up or drops on the seam. Same "placed
+                    // not driven" guard, so a re-instantiation is not counted.
+                    static std::map<std::tuple<uint64_t, uint32_t, int64_t>,
+                                    float> last_y;
+                    const auto had_y = last_y.find(id);
+                    const auto was_xz = last_xz.find(id);
+                    const bool teleported = was_xz != last_xz.end() &&
+                        glm::distance(now_xz, was_xz->second) > 1.0f;
+                    if (had_y != last_y.end() && !teleported) {
+                        const float dy = std::fabs(a.pos.y - had_y->second);
+                        out.worst_step_dy = std::max(out.worst_step_dy, dy);
+                        if (a.chase_active)
+                            out.worst_chase_step_dy =
+                                std::max(out.worst_chase_step_dy, dy);
+                    }
+                    last_y[id] = a.pos.y;
+                    // And is the body sitting ON what it is driving over?
+                    const auto probe = world.probe_down(
+                        a.pos + glm::vec3{0.0f, 4.0f, 0.0f}, 14.0f);
+                    if (probe.hit) {
+                        const float clearance = a.pos.y - probe.point.y;
+                        out.worst_float_m = std::max(out.worst_float_m, clearance);
+                        if (a.chase_active)
+                            out.worst_chase_float_m =
+                                std::max(out.worst_chase_float_m, clearance);
+                        else
+                            out.worst_lane_float_m =
+                                std::max(out.worst_lane_float_m, clearance);
+                        out.worst_sink_m = std::max(out.worst_sink_m, -clearance);
                     }
                 }
                 if (off_road)
@@ -353,6 +394,15 @@ void a_pursuit_stays_on_a_fleeing_player() {
         chase.reversing += one.reversing;
         chase.facing_away += one.facing_away;
         chase.worst_yaw_rate = std::max(chase.worst_yaw_rate, one.worst_yaw_rate);
+        chase.worst_step_dy = std::max(chase.worst_step_dy, one.worst_step_dy);
+        chase.worst_chase_step_dy =
+            std::max(chase.worst_chase_step_dy, one.worst_chase_step_dy);
+        chase.worst_float_m = std::max(chase.worst_float_m, one.worst_float_m);
+        chase.worst_chase_float_m =
+            std::max(chase.worst_chase_float_m, one.worst_chase_float_m);
+        chase.worst_lane_float_m =
+            std::max(chase.worst_lane_float_m, one.worst_lane_float_m);
+        chase.worst_sink_m = std::max(chase.worst_sink_m, one.worst_sink_m);
         chase.worst_chase_yaw_rate =
             std::max(chase.worst_chase_yaw_rate, one.worst_chase_yaw_rate);
     }
@@ -435,6 +485,28 @@ void a_pursuit_stays_on_a_fleeing_player() {
     // never performed.
     std::printf("      worst yaw rate: %.0f deg/s any pursuer, %.0f deg/s free-driving\n",
         double(chase.worst_yaw_rate), double(chase.worst_chase_yaw_rate));
+    std::printf("      HEIGHT: worst one-step pop %.2f m any pursuer, %.2f m free-driving;"
+                " floats up to %.2f m (free-driving %.2f m, lane-following %.2f m),"
+                " sinks up to %.2f m\n",
+        double(chase.worst_step_dy), double(chase.worst_chase_step_dy),
+        double(chase.worst_float_m), double(chase.worst_chase_float_m),
+        double(chase.worst_lane_float_m), double(chase.worst_sink_m));
+    // FLOATING. VehicleAgent::pos is a ROAD SURFACE point — traffic_visual
+    // lifts the body onto its wheels from there — while VehicleState::position
+    // is the chassis origin sitting up on its springs. Writing one into the
+    // other without vehicle_rest_ride_height() left free-driving cruisers
+    // hovering by exactly a ride height (0.59 m against 0.14 m for the same
+    // cars on the lane path). The pop bound is the hand-off seam itself: the
+    // step where a cruiser stops being a lane pose and becomes a car must not
+    // move it vertically at all. Both are generous against the measured 0.09 m
+    // and 0.00 m, because a cop genuinely leaves the ground over a kerb.
+    std::printf("      height: free-driving floats %.2f m, hand-off pop %.2f m\n",
+        double(chase.worst_chase_float_m), double(chase.worst_chase_step_dy));
+    REQUIRE_MSG(chase.worst_chase_float_m < 0.45f,
+                "free-driving cruisers are floating above the road", "height");
+    REQUIRE_MSG(chase.worst_chase_step_dy < 0.15f,
+                "the free-drive hand-off moves the car vertically", "height");
+
     REQUIRE_MSG(chase.worst_chase_yaw_rate < 400.0f,
                 "a free-driving cruiser snapped its heading instead of turning",
                 "pose-snap");

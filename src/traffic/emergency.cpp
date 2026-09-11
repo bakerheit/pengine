@@ -469,6 +469,18 @@ void Crowd::prepare_emergency_maneuvers(int64_t step, const VehicleState* player
 
 bool Crowd::step_emergency_maneuver(uint32_t index, float dt) {
     auto& v = vehicles_[index];
+    // A REJOIN ARC AND A DISMOUNT DEADLOCK EACH OTHER. An officer who is not
+    // seated forces this maneuver's target speed to zero, while the phase
+    // machine will not open his door until the car is out of a maneuver
+    // (safe_road_position). Neither side can move, and the cruiser sits frozen
+    // mid-arc with the officer stuck in Braking for the rest of the chase.
+    // The arc is cosmetic; the arrest is not. Drop it.
+    if (v.maneuver.kind == TrafficManeuverKind::MergeBack && v.police_unit &&
+        !police_officer_driving_allowed(v.officer)) {
+        v.maneuver = {};
+        v.roadside_offset_m = 0.0f;
+        return false;
+    }
     if (v.maneuver.count == 0 && std::fabs(v.roadside_offset_m) < .01f) return false;
     v.mode = AgentMode::Integrating;
     if (v.maneuver.count == 0) { v.speed_mps = 0; v.maneuver_steer_rad = 0; return true; }
