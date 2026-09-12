@@ -49,6 +49,7 @@
 #include "game/drunk.h"
 #include "game/aircraft.h"
 #include "game/helicopter.h"
+#include "game/wreck_explosion.h"
 #include "game/boat.h"
 #include "gfx/camera.h"
 #include "gfx/chase_camera.h"
@@ -459,6 +460,9 @@ private:
     AircraftState aircraft_, prev_aircraft_;
     bool aircraft_check_=false, aircraft_check_ran_=false, aircraft_check_passed_=false;
     HelicopterState helicopter_, prev_helicopter_;
+    // Fired off HelicopterState::impacts, which bumps once per collision --
+    // the hit that wrecks it, and again when the wreck reaches the ground.
+    WreckExplosion helicopter_blast_;
     bool helicopter_check_=false, helicopter_check_ran_=false,
          helicopter_check_passed_=false;
     bool character_spawned_ = false;

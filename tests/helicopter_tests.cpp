@@ -168,6 +168,106 @@ int main() {
     const auto cleared = drift_into(disc + 3.f);
     REQUIRE(!cleared.crashed && cleared.position.x > stand.x);
 
+    // --- A wreck FALLS ----------------------------------------------------
+    // The bug this pins: flying into a building set crashed and then returned
+    // out of the step before any physics ran, so the machine hung in the air
+    // at the point of impact with its blades winding down. Everything below
+    // was passing at the time -- the old rim test asserted `crashed` and
+    // stopped there, which is exactly the half of the behaviour that worked.
+    TerrainCollider tower{42};
+    tower.add_static_ground_rect({0,0},200,{8000,8000},0,Surface::Rock);
+    // The box spans y 200..260; fly at its SIDE at 240, not over its roof.
+    tower.add_static_oriented_box({260,230,0},{6,30,6},0);
+    auto into_it = hover;
+    into_it.position = {200,240,0};
+    into_it.velocity = {34,0,0};
+    into_it.yaw = -glm::half_pi<float>();          // nose along +X, at the tower
+    const unsigned before_impacts = into_it.impacts;
+    for (int i=0;i<600 && !into_it.crashed;++i)
+        into_it = step_helicopter(into_it,{},tower,1.f/120);
+    REQUIRE(into_it.crashed);
+    REQUIRE(!into_it.grounded);                    // hit it in the air
+    REQUIRE(into_it.impacts > before_impacts);     // the host gets an edge
+    REQUIRE(glm::length(into_it.velocity) > 1.f);  // carries off the wall
+    REQUIRE(glm::length(into_it.tumble) > .1f);    // and is turning over
+
+    // It comes down. Twelve seconds is far longer than 60 m of fall needs, and
+    // the point of the bound is that it must not still be up there.
+    const float struck_at = into_it.position.y;
+    auto falling = into_it;
+    bool turned_over = false;
+    for (int i=0;i<1440 && !falling.grounded;++i) {
+        const auto before = falling;
+        falling = step_helicopter(falling,{},tower,1.f/120);
+        if (!falling.grounded) {
+            REQUIRE(falling.position.y <= before.position.y + .01f);  // never climbs
+            if (std::fabs(falling.pitch-before.pitch) > 1e-5f ||
+                std::fabs(falling.roll-before.roll) > 1e-5f) turned_over = true;
+        }
+    }
+    REQUIRE(falling.grounded);
+    REQUIRE(turned_over);
+    REQUIRE(falling.position.y < struck_at - 20.f);
+    REQUIRE(falling.impacts > into_it.impacts);     // second bang, on arrival
+    REQUIRE_NEAR(glm::length(falling.velocity), 0.0, 1e-5);
+    REQUIRE_NEAR(glm::length(falling.tumble), 0.0, 1e-5);
+    // It lies there. Not standing on its nose, and not still rolling.
+    REQUIRE(std::fabs(falling.pitch) <= kHeliWreckRestTilt + 1e-5f);
+    REQUIRE(std::fabs(falling.roll) <= kHeliWreckRestTilt + 1e-5f);
+    // And it stays lying there under full collective: a wreck takes no input.
+    const auto lying = falling;
+    for (int i=0;i<600;++i) falling = step_helicopter(falling,climb,tower,1.f/120);
+    REQUIRE(falling.position == lying.position && falling.grounded);
+    REQUIRE(falling.impacts == lying.impacts);
+    REQUIRE(!helicopter_in_boarding_range(falling,
+        helicopter_point(falling,{-2.3f,0,4.f}), falling.position.y));
+
+    // Flying at the SIDE of a low wall is a crash, not a landing. probe_down()
+    // reports the top of whatever is under the origin, so a five-metre wall
+    // ahead of the machine reads as a floor ABOVE it -- and the ground-contact
+    // check would snap a fifty-knot impact up onto the parapet and call it
+    // parked. That is what the first in-game run of this actually did.
+    TerrainCollider parapet{42};
+    parapet.add_static_ground_rect({0,0},200,{8000,8000},0,Surface::Rock);
+    parapet.add_static_oriented_box({250,203,0},{4,3,30},0);   // top at y 206
+    auto at_wall = hover;
+    at_wall.position = {200,204,0};           // flying BELOW the wall's top
+    at_wall.velocity = {30,0,0};
+    at_wall.yaw = -glm::half_pi<float>();
+    for (int i=0;i<600 && !at_wall.crashed;++i)
+        at_wall = step_helicopter(at_wall,{},parapet,1.f/120);
+    REQUIRE(at_wall.crashed);
+    REQUIRE_MSG(at_wall.position.y < 206.f, "never parked on the parapet", "wall");
+    // Descending onto that same wall from above IS a landing.
+    auto onto_wall = hover;
+    onto_wall.position = {250,214,0};
+    onto_wall.velocity = {0,0,0};
+    for (int i=0;i<2400 && !onto_wall.grounded;++i)
+        onto_wall = step_helicopter(onto_wall,sink,parapet,1.f/120);
+    REQUIRE(onto_wall.grounded && !onto_wall.crashed);
+    REQUIRE_NEAR(onto_wall.position.y, 206.0, .05);
+
+    // A wreck falling onto a roof stops on the roof rather than dropping
+    // through the building it just bounced off.
+    TerrainCollider roof{42};
+    roof.add_static_ground_rect({0,0},200,{8000,8000},0,Surface::Rock);
+    roof.add_static_oriented_box({200,230,0},{40,30,40},0);
+    auto onto = hover;
+    onto.position = {200,268,0};
+    onto.crashed = true; onto.grounded = false;
+    onto.velocity = {0,-6,0}; onto.tumble = {1.1f,0,.4f};
+    for (int i=0;i<1200 && !onto.grounded;++i)
+        onto = step_helicopter(onto,{},roof,1.f/120);
+    REQUIRE(onto.grounded && onto.position.y > 250.f);
+
+    // A tidy landing is not an explosion, so it must NOT bump the counter.
+    auto quiet = hover;
+    const unsigned quiet_before = quiet.impacts;
+    for (int i=0;i<4000 && !quiet.grounded;++i)
+        quiet = step_helicopter(quiet,sink,field,1.f/120);
+    REQUIRE(quiet.grounded && !quiet.crashed);
+    REQUIRE(quiet.impacts == quiet_before);
+
     // --- Water is not a helipad -------------------------------------------
     TerrainCollider sea{42};
     sea.add_static_ground_rect({0,0},0,{8000,8000},0,Surface::Rock);
@@ -187,6 +287,7 @@ int main() {
 
     apricot_test::pass("helicopter boarding, spool gate, parked stability, "
                        "deterministic takeoff, hover trim, cyclic cruise, pedal "
-                       "turn, landing, hard landing, rotor rim and ditching");
+                       "turn, landing, hard landing, rotor rim, a wreck that "
+                       "falls, tumbles, grazes and arrives, and ditching");
     return apricot_test::done("helicopter_tests");
 }

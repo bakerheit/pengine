@@ -68,6 +68,7 @@
 #include "core/rng.h"
 #include "game/aircraft.h"
 #include "game/helicopter.h"
+#include "game/wreck_explosion.h"
 #include "gfx/primitives.h"
 #include "gfx/texture.h"
 #include "gfx/loom_museum_meshes.h"
@@ -3562,6 +3563,32 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
             halberd_helicopter_colliders_.push_back(id);
             collider.set_kinematic_enabled(id, halberd_helicopter_collision_enabled_);
         }
+        // Particles for the fireball. One alpha-blended white material and one
+        // unit cube shared by all of them; the tint carries the colour and the
+        // fade, exactly as game/blood_particles.h does it.
+        Texture soot;
+        if (!soot.make_white()) {
+            AP_ERROR("halberd: wreck particle texture failed");
+            return false;
+        }
+        wreck_particle_material_ = renderer.add_material(std::move(soot), true);
+        const MeshData particle = make_box(glm::vec3{0.5f});
+        wreck_particle_mesh_ = renderer.add_mesh(particle);
+        if (wreck_particle_mesh_ == kInvalidId ||
+            wreck_particle_material_ == kInvalidId) return false;
+        wreck_particle_nodes_.reserve(WreckExplosion::kCapacity);
+        for (std::size_t i = 0; i < WreckExplosion::kCapacity; ++i) {
+            Renderable spark;
+            spark.mesh = wreck_particle_mesh_;
+            spark.material = wreck_particle_material_;
+            const NodeId node = scene.create(spark, Transform{}, particle.bounds);
+            if (auto* placed = scene.get(node)) {
+                placed->visible = false;
+                placed->max_draw_distance = 900.0f;
+            }
+            start_nodes_.push_back(node);
+            wreck_particle_nodes_.push_back(node);
+        }
         AP_INFO("halberd: %s [%s] parked at %.1f, %.1f, %.1f; airframe + rotor loaded",
                 city::kHalberdHelicopterName, city::kHalberdHelicopterId,
                 pose.position.x, pose.position.y, pose.position.z);
@@ -3861,6 +3888,26 @@ void World::sync_helicopter(Scene& scene, TerrainCollider& collider,
             collider.set_kinematic_box(id, bounds);
         }
         collider.set_kinematic_enabled(id, halberd_helicopter_collision_enabled_);
+    }
+}
+
+void World::sync_wreck_explosion(Scene& scene, const WreckExplosion& blast) {
+    for (std::size_t i = 0; i < wreck_particle_nodes_.size(); ++i) {
+        const auto draw = blast.draw(i);
+        auto* node = scene.get(wreck_particle_nodes_[i]);
+        if (!node) continue;
+        node->visible = draw.visible;
+        if (!draw.visible) continue;
+        node->renderable.tint = draw.tint;
+        Transform spark;
+        spark.position = draw.position;
+        spark.scale = draw.scale;
+        // Tumble each mote about a fixed skew axis. Billboarding would be
+        // better and is not worth a second shader here: at PSX scale a
+        // spinning cube reads as a piece of burning debris perfectly well.
+        spark.rotation = glm::angleAxis(draw.spin,
+            glm::normalize(glm::vec3{0.42f, 0.78f, 0.47f}));
+        scene.set_transform(wreck_particle_nodes_[i], spark);
     }
 }
 

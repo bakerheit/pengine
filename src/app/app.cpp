@@ -4095,6 +4095,15 @@ int App::run() {
                                             static_cast<float>(kSimDt));
                 world_.sync_helicopter(scene_,collider_,helicopter_);
                 world_.enable_helicopter_collision(collider_,true);
+            } else if (!helicopter_.grounded && helicopter_.crashed) {
+                // Wrecked but still in the air with nobody aboard -- it has to
+                // keep falling, or stepping it only while occupied would leave
+                // one hanging over the city the moment the player bails.
+                world_.enable_helicopter_collision(collider_,false);
+                helicopter_=step_helicopter(helicopter_,{},collider_,
+                                            static_cast<float>(kSimDt));
+                world_.sync_helicopter(scene_,collider_,helicopter_);
+                world_.enable_helicopter_collision(collider_,true);
             } else if (helicopter_.rotor > 0) {
                 helicopter_.rotor=std::max(0.0f,
                     helicopter_.rotor-kHeliSpoolRate*static_cast<float>(kSimDt));
@@ -4103,6 +4112,17 @@ int App::run() {
                     glm::two_pi<float>());
                 world_.sync_helicopter(scene_,collider_,helicopter_);
             }
+            // One bang per bump of the counter, wherever the machine was when
+            // it happened. Reading the edge rather than the flag is what gets
+            // the second blast when the falling wreck finally arrives.
+            if (helicopter_.impacts != prev_helicopter_.impacts) {
+                helicopter_blast_.emit(
+                    helicopter_point(helicopter_,{0,2.f,0}), helicopter_.impacts);
+            }
+            // The smoke outlives the crash, and it outlives R as well, so this
+            // runs every step rather than only while something is burning.
+            helicopter_blast_.step(static_cast<float>(kSimDt));
+            world_.sync_wreck_explosion(scene_,helicopter_blast_);
 
             // Conditions are a pure function of (seed, ABSOLUTE step), never an
             // accumulator, so a tape replayed from any point in the session

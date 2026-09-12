@@ -33,6 +33,10 @@ apricot_add_suite(aircraft_tests)
 # The Halberd gunship: hover trim, the spool gate, the rotor-rim sweep and
 # the touchdown limits that separate a landing from a wreck.
 apricot_add_suite(helicopter_tests)
+
+# The fireball a wrecked vehicle throws: bounded, deterministic, and ordered
+# so the fire is gone while the smoke is still standing over the wreck.
+apricot_add_suite(wreck_explosion_tests)
 apricot_add_suite(boat_tests)
 apricot_add_suite(boat_driver_pose_tests)
 
