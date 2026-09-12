@@ -385,7 +385,11 @@ the worst frames, the blocks they happened on, and the **phase breakdown**:
 # phase              all      dips
 # sim               0.90      1.70      the fixed-step loop
 #   traffic         0.58      1.12        world_.step_traffic + collisions
-#   police          0.06      0.09        offences, arrest, wanted
+#   police          1.52      3.98        offences, arrest, wanted
+#     visible       1.51      3.97          visible_police() line of sight
+#     context       0.00      0.00          the three set_police_* handoffs
+#     other         0.00      0.00          the residual inside the block
+#     calls          4.1       5.1          visible_police() calls per frame
 #   character       0.11      0.30        the on-foot character step
 #   other           0.27      0.49        the residual inside the step
 # world             0.34      0.30      terrain streaming and meshing
@@ -397,8 +401,11 @@ the worst frames, the blocks they happened on, and the **phase breakdown**:
 # gpu               7.38     10.01      concurrent with the CPU, not a slice of it
 ```
 
-The indented rows **partition** `sim` rather than adding to it, and `other` is
-the residual that keeps the split honest — the same rule one level down.
+The indented rows **partition** their parent rather than adding to it, and each
+`other` is the residual that keeps the split honest — the same rule at every
+level. `calls` is a count rather than a duration because the same work repeated
+five times a step and the same work made five times slower are
+indistinguishable in a millisecond column.
 
 **`swap` and `unaccounted` are the two that decide where to look.** Time in
 swap is not work, it is the CPU blocked waiting for the display: when a dip is

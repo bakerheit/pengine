@@ -697,6 +697,51 @@ void test_the_trailer_breaks_the_sim_down() {
     apricot_test::pass("the trailer names which part of the sim ate the step");
 }
 
+// The police split is a partition of sim_police_ms, one level below the sim
+// split, and carries the same double-counting hazard.
+void test_the_police_split_is_a_partition_of_the_police_block() {
+    FrameSample s = frame_at(0, 0.0, 40.0);
+    s.sim_ms = 30.0;
+    s.sim_police_ms = 24.0;
+    s.police_vis_ms = 20.0;
+    s.police_ctx_ms = 3.0;
+    REQUIRE_NEAR(police_other_ms(s), 1.0, 1e-9);
+    REQUIRE_NEAR(s.police_vis_ms + s.police_ctx_ms + police_other_ms(s),
+                 s.sim_police_ms, 1e-9);
+    // ...and it must not inflate the frame budget, which sim_ms already holds.
+    REQUIRE_NEAR(accounted_ms(s), 30.0, 1e-9);
+    apricot_test::pass("the police sub-phases partition the police block, not the frame");
+}
+
+void test_police_overshoot_cannot_produce_negative_other() {
+    FrameSample s = frame_at(0, 0.0, 10.0);
+    s.sim_police_ms = 4.0;
+    s.police_vis_ms = 4.0000001;
+    REQUIRE(police_other_ms(s) == 0.0);
+    apricot_test::pass("a police sub-phase overshooting its parent reports no residual");
+}
+
+// The call count is a column of its own because the same work repeated five
+// times a step and the same work made five times slower are indistinguishable
+// in a millisecond figure.
+void test_the_visibility_call_count_is_recorded() {
+    FrameLog log;
+    log.capture_in_memory();
+    FrameSample s = frame_at(0, 0.0, 30.0);
+    s.sim_police_ms = 24.0;
+    s.police_vis_ms = 24.0;
+    s.police_calls = 60;
+    s.police_units = 7;
+    log.record(s);
+
+    const std::string row = nth_data_line(log.buffer(), 0);
+    REQUIRE(nth_field(row, column_of("police_calls")) == "60");
+    REQUIRE(nth_field(row, column_of("police_units")) == "7");
+    REQUIRE(nth_field(row, column_of("police_vis_ms")) == "24.000");
+    REQUIRE_NEAR(log.summary().police_calls, 60.0, 1e-9);
+    apricot_test::pass("how many times the visibility query ran is its own column");
+}
+
 }  // namespace
 
 int main() {
@@ -729,5 +774,8 @@ int main() {
     test_the_sim_split_is_a_partition_of_the_sim();
     test_a_rounding_overshoot_cannot_produce_negative_other();
     test_the_trailer_breaks_the_sim_down();
+    test_the_police_split_is_a_partition_of_the_police_block();
+    test_police_overshoot_cannot_produce_negative_other();
+    test_the_visibility_call_count_is_recorded();
     return apricot_test::done("frame_log_tests");
 }

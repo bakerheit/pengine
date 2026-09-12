@@ -77,6 +77,14 @@ struct FrameSample {
     double sim_traffic_ms = 0.0;
     double sim_police_ms = 0.0;
     double sim_character_ms = 0.0;
+    // Inside sim_police_ms: the line-of-sight query, the three context
+    // handoffs, and how many times the query ran this frame. The call count
+    // is here because the same work repeated five times a step and the same
+    // work made five times slower look identical in a millisecond column.
+    double police_vis_ms = 0.0;
+    double police_ctx_ms = 0.0;
+    int police_calls = 0;
+    int police_units = 0;
     double world_ms = 0.0;   // terrain streaming and chunk meshing
     double visual_ms = 0.0;  // building scene nodes from sim state
     double scene_ms = 0.0;   // Scene::update()
@@ -126,6 +134,15 @@ inline double sim_other_ms(const FrameSample& s) {
     const double named =
         s.sim_traffic_ms + s.sim_police_ms + s.sim_character_ms;
     return (s.sim_ms > named) ? s.sim_ms - named : 0.0;
+}
+
+// Whatever in the police block is neither the visibility query nor the
+// context handoffs. Clamped at zero for the same reason sim_other_ms is: the
+// inner timers and the outer bracket are sampled at different points, so
+// rounding can put the parts a hair over the whole.
+inline double police_other_ms(const FrameSample& s) {
+    const double named = s.police_vis_ms + s.police_ctx_ms;
+    return (s.sim_police_ms > named) ? s.sim_police_ms - named : 0.0;
 }
 
 inline double accounted_ms(const FrameSample& s) {
@@ -211,6 +228,10 @@ public:
         double sim_ms = 0.0, world_ms = 0.0, visual_ms = 0.0, scene_ms = 0.0;
         double sim_traffic_ms = 0.0, sim_police_ms = 0.0, sim_character_ms = 0.0;
         double sim_other_ms = 0.0;
+        double police_vis_ms = 0.0, police_ctx_ms = 0.0, police_other_ms = 0.0;
+        double police_calls = 0.0;
+        double dip_police_vis_ms = 0.0, dip_police_ctx_ms = 0.0;
+        double dip_police_other_ms = 0.0, dip_police_calls = 0.0;
         double dip_sim_traffic_ms = 0.0, dip_sim_police_ms = 0.0;
         double dip_sim_character_ms = 0.0, dip_sim_other_ms = 0.0;
         double render_ms = 0.0, swap_ms = 0.0, gpu_ms = 0.0, unaccounted_ms = 0.0;
@@ -345,6 +366,14 @@ public:
         out.dip_sim_police_ms = phase_dip(dip_phase_.police, d);
         out.dip_sim_character_ms = phase_dip(dip_phase_.character, d);
         out.dip_sim_other_ms = phase_dip(dip_phase_.sim_other, d);
+        out.police_vis_ms = phase_.police_vis / n;
+        out.police_ctx_ms = phase_.police_ctx / n;
+        out.police_other_ms = phase_.police_other / n;
+        out.police_calls = phase_.police_calls / n;
+        out.dip_police_vis_ms = phase_dip(dip_phase_.police_vis, d);
+        out.dip_police_ctx_ms = phase_dip(dip_phase_.police_ctx, d);
+        out.dip_police_other_ms = phase_dip(dip_phase_.police_other, d);
+        out.dip_police_calls = phase_dip(dip_phase_.police_calls, d);
         out.dip_sim_ms = phase_dip(dip_phase_.sim, d);
         out.dip_world_ms = phase_dip(dip_phase_.world, d);
         out.dip_visual_ms = phase_dip(dip_phase_.visual, d);
@@ -413,6 +442,8 @@ public:
                "sim_steps,clamped,"
                "sim_ms,sim_traffic_ms,sim_police_ms,sim_character_ms,"
                "sim_other_ms,"
+               "police_vis_ms,police_ctx_ms,police_other_ms,"
+               "police_calls,police_units,"
                "world_ms,visual_ms,scene_ms,render_ms,swap_ms,gpu_ms,"
                "accounted_ms,unaccounted_ms,"
                "cull_ms,mesh_ms,light_ms,fill_ms,"
@@ -444,6 +475,8 @@ private:
         double sim = 0.0, world = 0.0, visual = 0.0, scene = 0.0;
         double render = 0.0, swap = 0.0, gpu = 0.0, unaccounted = 0.0;
         double traffic = 0.0, police = 0.0, character = 0.0, sim_other = 0.0;
+        double police_vis = 0.0, police_ctx = 0.0, police_other = 0.0;
+        double police_calls = 0.0;
     };
 
     static void add_phases(Phases& p, const FrameSample& s) {
@@ -459,6 +492,10 @@ private:
         p.police += s.sim_police_ms;
         p.character += s.sim_character_ms;
         p.sim_other += sim_other_ms(s);
+        p.police_vis += s.police_vis_ms;
+        p.police_ctx += s.police_ctx_ms;
+        p.police_other += police_other_ms(s);
+        p.police_calls += s.police_calls;
     }
 
     static double phase_dip(double total, double count) { return total / count; }
@@ -562,6 +599,7 @@ private:
             "%d,%.3f,%.3f,%.1f,%d,%s,%.1f,%.1f,%.1f,%s,%s,%.1f,"
             "%d,%d,"
             "%.3f,%.3f,%.3f,%.3f,%.3f,"
+            "%.3f,%.3f,%.3f,%d,%d,"
             "%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,"
             "%.3f,%.3f,"
             "%.3f,%.3f,%.3f,%.1f,"
@@ -576,6 +614,8 @@ private:
             s.step_clamped ? 1 : 0,
             s.sim_ms, s.sim_traffic_ms, s.sim_police_ms, s.sim_character_ms,
             sim_other_ms(s),
+            s.police_vis_ms, s.police_ctx_ms, police_other_ms(s),
+            s.police_calls, s.police_units,
             s.world_ms, s.visual_ms, s.scene_ms, s.render_ms,
             s.swap_ms, s.gpu_ms, accounted_ms(s), s.ms - accounted_ms(s),
             s.cull_ms, s.mesh_ms, s.light_ms, s.fill_ms,
@@ -629,6 +669,11 @@ private:
         phase_row("sim", sum.sim_ms, sum.dip_sim_ms);
         phase_row("  traffic", sum.sim_traffic_ms, sum.dip_sim_traffic_ms);
         phase_row("  police", sum.sim_police_ms, sum.dip_sim_police_ms);
+        phase_row("    visible", sum.police_vis_ms, sum.dip_police_vis_ms);
+        phase_row("    context", sum.police_ctx_ms, sum.dip_police_ctx_ms);
+        phase_row("    other", sum.police_other_ms, sum.dip_police_other_ms);
+        say("# %-12s %9.1f %9.1f  (visible_police() calls per frame)\n",
+            "    calls", sum.police_calls, sum.dip_police_calls);
         phase_row("  character", sum.sim_character_ms, sum.dip_sim_character_ms);
         phase_row("  other", sum.sim_other_ms, sum.dip_sim_other_ms);
         phase_row("world", sum.world_ms, sum.dip_world_ms);

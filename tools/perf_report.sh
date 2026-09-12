@@ -131,7 +131,7 @@ awk -F, "$AWK_HEADER"'
     {
         printf "%012.4f %.1f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %d %s %s %d %d\n",
                num("ms"), num("t_s"), num("sim_ms"), num("sim_traffic_ms"),
-               num("sim_police_ms"), num("sim_character_ms"), num("world_ms"),
+               num("sim_police_ms"), num("police_vis_ms"), num("world_ms"),
                num("visual_ms"), num("render_ms"), num("swap_ms"),
                num("unaccounted_ms"), num("gpu_ms"), num("draw_calls"),
                (f("place") == "" ? "-" : f("place")), f("mode"),
@@ -140,7 +140,7 @@ awk -F, "$AWK_HEADER"'
 ' "$FILE" | sort -r | awk -v keep="$WORST" 'NR <= keep' | awk '
     BEGIN {
         printf "%8s %6s | %6s %6s %6s %6s | %6s %6s %6s %6s %6s | %6s %6s  %-15s %-6s %5s %5s\n",
-               "ms", "t_s", "sim", "traf", "pol", "char", "world", "visual",
+               "ms", "t_s", "sim", "traf", "pol", "pol.vis", "world", "visual",
                "render", "swap", "unacc", "gpu", "draws", "place", "mode",
                "cars", "npcs";
     }

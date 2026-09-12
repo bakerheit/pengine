@@ -1831,6 +1831,8 @@ glm::vec3 App::player_focus_forward() const {
 
 std::vector<VisiblePoliceIdentity> App::visible_police(
         glm::vec3 target, bool witness_only) const {
+    const WallClock::time_point vis_t0 = WallClock::now();
+    ++police_vis_calls_;
     std::vector<VisiblePoliceIdentity> visible;
     const PoliceTuning& police = world_.traffic().police_tuning();
     const glm::vec2 target_xz{target.x, target.z};
@@ -1876,6 +1878,8 @@ std::vector<VisiblePoliceIdentity> App::visible_police(
                 {agent.lane_key,agent.slot}))
             visible.push_back({agent.lane_key, agent.slot});
     }
+    police_vis_ms_ += std::chrono::duration<double>(
+                          WallClock::now() - vis_t0).count() * 1000.0;
     return visible;
 }
 
@@ -3486,6 +3490,10 @@ void App::record_frame_sample(double ms) {
     s.sim_traffic_ms = sim_traffic_ms_;
     s.sim_police_ms = sim_police_ms_;
     s.sim_character_ms = sim_character_ms_;
+    s.police_vis_ms = police_vis_ms_;
+    s.police_ctx_ms = police_ctx_ms_;
+    s.police_calls = police_vis_calls_;
+    s.police_units = static_cast<int>(world_.traffic().police_unit_count());
     // world_.update() is what mesh_ms_ has always measured; the phase column
     // is the same number under the name that says what it actually covers.
     s.world_ms = mesh_ms_;
@@ -3774,6 +3782,8 @@ int App::run() {
 
         const WallClock::time_point sim_t0 = WallClock::now();
         sim_traffic_ms_ = sim_police_ms_ = sim_character_ms_ = 0.0;
+        police_vis_ms_ = police_ctx_ms_ = 0.0;
+        police_vis_calls_ = 0;
         // Accumulate rather than assign: a frame can owe a dozen steps, and
         // the question is what the FRAME spent, not what its last step did.
         const auto add_ms = [](double& into, WallClock::time_point from) {
@@ -3961,6 +3971,7 @@ int App::run() {
             check_police_driving_offenses();
             check_police_armed_offense(player_armed);
             const auto police_visible = visible_police(police_target);
+            const WallClock::time_point ctx_t0 = WallClock::now();
             world_.set_police_context(wanted_.level(), police_target,
                                       police_visible);
             const glm::vec3 target_velocity = on_foot_
@@ -3974,6 +3985,7 @@ int App::run() {
                 player_model_tuning(driving_mechanics_style_,
                                     PlayerCarId::MunicipalCruiser91C),
                 road_conditions));
+            add_ms(police_ctx_ms_, ctx_t0);
             add_ms(sim_police_ms_, police_t0);
 
             const WallClock::time_point traffic_t0 = WallClock::now();

@@ -639,6 +639,14 @@ private:
     double sim_traffic_ms_ = 0.0;
     double sim_police_ms_ = 0.0;
     double sim_character_ms_ = 0.0;
+
+    // Inside sim_police_ms_. visible_police() is const and is reached from
+    // five different callers per step, so it accounts for ITSELF rather than
+    // being bracketed at each site — a bracket per call site is a bracket
+    // somebody forgets to add to the sixth caller.
+    mutable double police_vis_ms_ = 0.0;
+    mutable int police_vis_calls_ = 0;
+    double police_ctx_ms_ = 0.0;
     double visual_ms_ = 0.0;
     double scene_ms_ = 0.0;
     double render_ms_ = 0.0;
