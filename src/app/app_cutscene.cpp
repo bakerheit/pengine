@@ -38,7 +38,7 @@ void App::begin_new_game() {
     tuning_=player_model_tuning(driving_mechanics_style_,start_car_);
     car_visual_.select(scene_,tuning_,car_,start_car_);
     dev_menu_.set_player_car(start_car_);
-    on_foot_=true;in_boat_=false;in_aircraft_=false;
+    on_foot_=true;in_boat_=false;in_aircraft_=false;in_helicopter_=false;
     reset_boat();reset_aircraft();
     reset_freight_yard(true);
     teleport({start_position_.x,0,start_position_.y},start_heading_radians_);
@@ -78,7 +78,7 @@ bool App::begin_delivery_cutscene() {
 void App::finish_opening() {
     const auto position=opening_cutscene_.handoff_position();
     const float yaw=opening_cutscene_.handoff_yaw();
-    opening_cutscene_.stop();on_foot_=true;in_boat_=false;in_aircraft_=false;
+    opening_cutscene_.stop();on_foot_=true;in_boat_=false;in_aircraft_=false;in_helicopter_=false;
     player_character_=spawn_character(collider_,position.x,position.z,yaw);
     player_character_.view_yaw=yaw;prev_player_character_=player_character_;
     character_look_dx_pending_=character_look_dy_pending_=0;

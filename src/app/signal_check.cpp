@@ -31,7 +31,7 @@ InputFrame App::signal_check_input() {
         const auto p=signal_check_base_-signal_check_direction_*distance;
         const float yaw=std::atan2(-signal_check_direction_.x,-signal_check_direction_.z);
         teleport(p,yaw);
-        on_foot_=false;in_aircraft_=false;in_boat_=false;
+        on_foot_=false;in_aircraft_=false;in_helicopter_=false;in_boat_=false;
         car_.velocity=signal_check_direction_*speed;
         prev_car_=car_;
     };

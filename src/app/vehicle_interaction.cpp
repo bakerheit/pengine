@@ -70,7 +70,7 @@ App::VehicleEntryTarget App::nearby_vehicle() const {
 }
 
 void App::sync_current_vehicle_obstacle() {
-    if (!on_foot_ && !in_aircraft_ && !in_boat_) {
+    if (!on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_) {
         collider_.set_kinematic_enabled(current_vehicle_collider_,false);
         return;
     }

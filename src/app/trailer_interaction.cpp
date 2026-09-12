@@ -55,7 +55,7 @@ void App::drop_trailer() {
     sync_trailer_collision();
 }
 void App::toggle_trailer() {
-    if(on_foot_ || in_boat_ || in_aircraft_ || vehicle_transition_.active() ||
+    if(on_foot_ || in_boat_ || in_helicopter_ || in_aircraft_ || vehicle_transition_.active() ||
        car_visual_.active_car()!=PlayerCarId::HarrowHauler)return;
     const auto notice=[&](const char* message){vehicle_interaction_notice_=message;vehicle_notice_until_=step_index_+300;};
     if(!trailer_stopped(car_)) {notice("Stop the truck before using the hitch");return;}
@@ -115,7 +115,7 @@ void App::run_trailer_check() {
     enable_trailer_collision(false);
     car_=spawn_vehicle(tuning_,collider_,p.x,p.z,trailer_.yaw);prev_car_=car_;
     car_visual_.select(scene_,tuning_,car_,PlayerCarId::HarrowHauler);
-    on_foot_=false;in_boat_=false;in_aircraft_=false;vehicle_transition_={};
+    on_foot_=false;in_boat_=false;in_aircraft_=false;in_helicopter_=false;vehicle_transition_={};
     dev_menu_.set_player_car(PlayerCarId::HarrowHauler);
     sync_trailer_collision();
     car_.velocity={0,0,2};toggle_trailer();if(trailer_.attached){fail("moving attach accepted");return;}

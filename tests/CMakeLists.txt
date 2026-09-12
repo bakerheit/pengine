@@ -29,6 +29,10 @@ apricot_add_suite(rng_determinism_tests)
 apricot_add_suite(fixed_step_tests)
 apricot_add_suite(vehicle_interaction_tests)
 apricot_add_suite(aircraft_tests)
+
+# The Halberd gunship: hover trim, the spool gate, the rotor-rim sweep and
+# the touchdown limits that separate a landing from a wreck.
+apricot_add_suite(helicopter_tests)
 apricot_add_suite(boat_tests)
 apricot_add_suite(boat_driver_pose_tests)
 

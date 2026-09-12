@@ -24,7 +24,7 @@ bool App::save_game() {
     if (opening_cutscene_.active() || vehicle_transition_.active() || boat_transition_.active()) {
         save_notice_ = "Finish the current scene or movement before saving."; return false;
     }
-    if (in_aircraft_ || in_boat_) {
+    if (in_aircraft_ || in_helicopter_ || in_boat_) {
         save_notice_ = "Step onto land or into a car before saving."; return false;
     }
     GameSave saved;
@@ -62,7 +62,7 @@ bool App::load_game() {
     }
     cancel_vehicle_transition(); boat_transition_={}; transition_camera_release_=0;
     vehicle_audio_.exit_vehicle();
-    in_aircraft_=false; in_boat_=false; on_foot_=saved.on_foot;
+    in_aircraft_=false;in_helicopter_=false; in_boat_=false; on_foot_=saved.on_foot;
     tuning_=next_tuning; driving_mechanics_style_=style;
     dev_menu_.set_driving_mechanics(style); dev_menu_.set_player_car(model);
     car_=next_car; prev_car_=car_;

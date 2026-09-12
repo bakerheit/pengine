@@ -48,6 +48,7 @@
 #include "game/character.h"
 #include "game/drunk.h"
 #include "game/aircraft.h"
+#include "game/helicopter.h"
 #include "game/boat.h"
 #include "gfx/camera.h"
 #include "gfx/chase_camera.h"
@@ -108,6 +109,8 @@ public:
     bool driver_transition_check_passed() const { return driver_check_stage_==6; }
     void set_aircraft_check(bool enabled) { aircraft_check_=enabled; }
     bool aircraft_check_passed() const { return aircraft_check_passed_; }
+    void set_helicopter_check(bool enabled) { helicopter_check_=enabled; }
+    bool helicopter_check_passed() const { return helicopter_check_passed_; }
     void set_trailer_check(bool enabled) { trailer_check_=enabled; }
     bool trailer_check_passed() const { return trailer_check_passed_; }
     void set_boat_check(bool enabled) { boat_check_=enabled; }
@@ -259,6 +262,7 @@ private:
     bool place_character_next_to_car(bool require_clear = false);
     void toggle_player_mode();
     bool nearby_aircraft() const;
+    bool nearby_helicopter() const;
     bool nearby_boat() const;
     bool nearby_bent_elbow() const;
     void drink_at_bent_elbow();
@@ -268,6 +272,8 @@ private:
     void run_boat_check();
     void reset_aircraft();
     void run_aircraft_check();
+    void reset_helicopter();
+    void run_helicopter_check();
     void run_vehicle_entry_check();
     void run_driver_transition_check();
     InputFrame house_check_input();
@@ -431,6 +437,7 @@ private:
     Camera transition_camera_;
     float transition_camera_release_ = 0;
     bool in_aircraft_ = false;
+    bool in_helicopter_ = false;
     bool in_boat_ = false;
     TrailerState trailer_,prev_trailer_;
     TrailerVisual trailer_visual_;
@@ -451,6 +458,9 @@ private:
     bool boat_check_=false,boat_check_ran_=false,boat_check_passed_=false;
     AircraftState aircraft_, prev_aircraft_;
     bool aircraft_check_=false, aircraft_check_ran_=false, aircraft_check_passed_=false;
+    HelicopterState helicopter_, prev_helicopter_;
+    bool helicopter_check_=false, helicopter_check_ran_=false,
+         helicopter_check_passed_=false;
     bool character_spawned_ = false;
     struct ParkedVehicle {
         PlayerCarVisual visual;

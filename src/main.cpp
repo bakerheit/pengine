@@ -38,6 +38,7 @@ void print_usage() {
         "  --mistral-entry-check run staged Mistral entry/blocked exit/exit/re-entry\n"
         "  --workman-entry-check run staged Workman entry/blocked exit/exit/re-entry\n"
         "  --aircraft-check run bounded boarding/flight regression\n"
+        "  --helicopter-check run bounded Halberd gunship boarding/flight regression\n"
         "  --boat-check     run bounded boarding/boat regression\n"
         "  --police-check capture real siren/light toggle, red/blue/off phases\n"
         "  --police-officer-check test witnessed red, impact, officer exit/fire/arrest/return (6000+ frames)\n"
@@ -130,6 +131,7 @@ int main(int argc, char** argv) {
     bool driver_transition_check=false;
     apricot::PlayerCarId transition_check_car=apricot::PlayerCarId::VesperMistral;
     bool aircraft_check=false;
+    bool helicopter_check=false;
     bool boat_check=false;
     bool trailer_check=false;
     bool tire_track_check=false;
@@ -200,6 +202,7 @@ int main(int argc, char** argv) {
             driver_transition_check=true; transition_check_car=apricot::PlayerCarId::HarrowWorkman; continue;
         }
         if (std::strcmp(a,"--aircraft-check")==0) { aircraft_check=true; continue; }
+        if (std::strcmp(a,"--helicopter-check")==0) { helicopter_check=true; continue; }
         if (std::strcmp(a,"--trailer-check")==0) { trailer_check=true; continue; }
         if (std::strcmp(a,"--boat-check")==0) { boat_check=true; continue; }
         if (std::strcmp(a,"--police-check")==0) { police_check=true; continue; }
@@ -410,7 +413,7 @@ int main(int argc, char** argv) {
     }
     if (traffic_horn_check) {
         if (frame_limit<6000 || house_check || signal_check || tire_track_check ||
-            vehicle_entry_check || driver_transition_check || aircraft_check || boat_check ||
+            vehicle_entry_check || driver_transition_check || aircraft_check || helicopter_check || boat_check ||
             trailer_check || police_check || police_officer_check || weapon_check ||
             lighting_benchmark || warp_every || opening_preview || delivery_preview || delivery_check) {
             std::fprintf(stderr,"--traffic-horn-check needs --frames 6000 or more and no other checks/previews/warps\n");
@@ -423,7 +426,7 @@ int main(int argc, char** argv) {
     }
     if (police_officer_check) {
         if (frame_limit<6000 || house_check || signal_check || tire_track_check ||
-            vehicle_entry_check || driver_transition_check || aircraft_check || boat_check ||
+            vehicle_entry_check || driver_transition_check || aircraft_check || helicopter_check || boat_check ||
             trailer_check || police_check || weapon_check || lighting_benchmark || warp_every ||
             opening_preview || delivery_preview || delivery_check) {
             std::fprintf(stderr,"--police-officer-check needs --frames 6000 or more and no other checks/previews/warps\n");
@@ -437,7 +440,7 @@ int main(int argc, char** argv) {
     }
     if(signal_check) {
         if(frame_limit<1700 || house_check || tire_track_check || vehicle_entry_check || driver_transition_check ||
-            aircraft_check || boat_check || police_check || weapon_check || lighting_benchmark || warp_every || opening_preview) {
+            aircraft_check || helicopter_check || boat_check || police_check || weapon_check || lighting_benchmark || warp_every || opening_preview) {
             std::fprintf(stderr,"--signal-check needs --frames 1700 or more and no other checks/warps\n");
             return 2;
         }
@@ -447,7 +450,7 @@ int main(int argc, char** argv) {
     }
     if(tire_track_check) {
         if(frame_limit<650 || house_check || signal_check || vehicle_entry_check ||
-            driver_transition_check || aircraft_check || boat_check || trailer_check ||
+            driver_transition_check || aircraft_check || helicopter_check || boat_check || trailer_check ||
             police_check || weapon_check || lighting_benchmark || warp_every ||
             opening_preview || delivery_preview || delivery_check) {
             std::fprintf(stderr,"--tire-track-check needs --frames 650 or more and no other checks/previews\n");
@@ -471,14 +474,14 @@ int main(int argc, char** argv) {
         clear_weather=true;
         app.set_house_check(true);
     }
-    if ((vehicle_entry_check || aircraft_check || boat_check || driver_transition_check) && frame_limit<=0) {
+    if ((vehicle_entry_check || aircraft_check || helicopter_check || boat_check || driver_transition_check) && frame_limit<=0) {
         std::fprintf(stderr,"entry/aircraft checks require --frames\n");
         return 2;
     }
     app.set_vehicle_entry_check(vehicle_entry_check);
     app.set_driver_transition_check(driver_transition_check);
     if (driver_transition_check) {
-        if (vehicle_entry_check || aircraft_check || boat_check || police_check || lighting_benchmark || warp_every) {
+        if (vehicle_entry_check || aircraft_check || helicopter_check || boat_check || police_check || lighting_benchmark || warp_every) {
             std::fprintf(stderr,"driver transition checks must run without other check/warp modes\n");
             return 2;
         }
@@ -490,12 +493,17 @@ int main(int argc, char** argv) {
         start_driving=false;
     }
     app.set_aircraft_check(aircraft_check);
-    if (boat_check && (aircraft_check || vehicle_entry_check || police_check || lighting_benchmark || warp_every)) {
+    if (helicopter_check && aircraft_check) {
+        std::fprintf(stderr,"--helicopter-check and --aircraft-check must run separately\n");
+        return 2;
+    }
+    app.set_helicopter_check(helicopter_check);
+    if (boat_check && (aircraft_check || helicopter_check || vehicle_entry_check || police_check || lighting_benchmark || warp_every)) {
         std::fprintf(stderr,"--boat-check must run without other check/warp modes\n");return 2;
     }
     app.set_boat_check(boat_check);
     if(trailer_check) {
-        if(frame_limit<300 || boat_check || aircraft_check || vehicle_entry_check || driver_transition_check ||
+        if(frame_limit<300 || boat_check || aircraft_check || helicopter_check || vehicle_entry_check || driver_transition_check ||
            opening_preview || delivery_preview || delivery_check || house_check || signal_check || police_check ||
            weapon_check || lighting_benchmark || warp_every) {
             std::fprintf(stderr,"--trailer-check needs --frames 300 or more and no other checks/previews\n");return 2;
@@ -526,7 +534,7 @@ int main(int argc, char** argv) {
     app.set_delivery_preview(delivery_preview);
     if(delivery_check && (frame_limit<900 || opening_preview || delivery_preview ||
         house_check || signal_check || weapon_check || boat_check || driver_transition_check ||
-        vehicle_entry_check || aircraft_check || police_check || lighting_benchmark || warp_every)) {
+        vehicle_entry_check || aircraft_check || helicopter_check || police_check || lighting_benchmark || warp_every)) {
         std::fprintf(stderr,"--delivery-check needs --frames 900 or more and no other checks/previews\n");return 2;
     }
     app.set_delivery_check(delivery_check);
@@ -623,6 +631,9 @@ int main(int argc, char** argv) {
     }
     if (police_check && !app.police_check_passed()) {
         AP_ERROR("police light toggle regression did not complete"); rc=1;
+    }
+    if (helicopter_check && !app.helicopter_check_passed()) {
+        AP_ERROR("helicopter regression did not complete"); rc=1;
     }
     if (aircraft_check && !app.aircraft_check_passed()) {
         AP_ERROR("aircraft regression did not complete"); rc=1;

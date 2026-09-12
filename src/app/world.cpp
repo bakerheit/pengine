@@ -13,6 +13,7 @@
 #include "city/airport.h"
 #include "city/florangia_airport.h"
 #include "city/airport_parking_garage.h"
+#include "city/halberd_helicopter.h"
 #include "city/marina.h"
 #include "city/miandi_bayfront.h"
 #include "city/miandi_calle_ocho.h"
@@ -66,6 +67,7 @@
 #include "core/log.h"
 #include "core/rng.h"
 #include "game/aircraft.h"
+#include "game/helicopter.h"
 #include "gfx/primitives.h"
 #include "gfx/texture.h"
 #include "gfx/loom_museum_meshes.h"
@@ -3502,6 +3504,68 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
     AP_INFO("airport: %s [%s] parked at %.1f, %.1f, %.1f; body + landing gear loaded",
         city::kAirportAircraftName, city::kAirportAircraftId,
         aircraft_pose.position.x, aircraft_pose.position.y, aircraft_pose.position.z);
+    // The Halberd gunship. Two meshes and two materials, not one: the rotor
+    // disc is a single alpha-cut quad and an opaque material would draw it as
+    // a 14 m black square over the apron.
+    {
+        Texture heli_paint, rotor_paint;
+        if (!heli_paint.load_file(asset_path(city::kHalberdHelicopterTexture)) ||
+            !rotor_paint.load_file(asset_path(city::kHalberdHelicopterRotorTexture))) {
+            AP_ERROR("halberd: gunship atlas failed to load");
+            return false;
+        }
+        const MaterialId airframe = renderer.add_material(std::move(heli_paint));
+        const MaterialId disc = renderer.add_material(std::move(rotor_paint), true);
+        HelicopterState initial;
+        initial.position = {city::kHalberdHelicopterWorldX,
+                            city::kHalberdHelicopterWorldY,
+                            city::kHalberdHelicopterWorldZ};
+        initial.yaw = city::kHalberdHelicopterYaw;
+        Transform pose;
+        pose.position = initial.position;
+        pose.rotation = helicopter_rotation(initial);
+        const struct { const char* path; MaterialId material; bool rotor; } kParts[] = {
+            {city::kHalberdHelicopterBody, airframe, false},
+            {city::kHalberdHelicopterRotor, disc, true},
+        };
+        for (const auto& part : kParts) {
+            StaticEmesh mesh;
+            if (!read_static_emesh(asset_path(part.path), mesh)) {
+                AP_ERROR("halberd: gunship mesh '%s' failed to load", part.path);
+                return false;
+            }
+            Renderable piece;
+            piece.mesh = renderer.add_mesh(mesh);
+            piece.material = part.material;
+            if (piece.mesh == kInvalidId) return false;
+            halberd_helicopter_meshes_.push_back(piece.mesh);
+            Transform placed_pose = pose;
+            if (part.rotor)
+                placed_pose.position = pose.transform_point(
+                    {city::kHalberdHelicopterRotorHub.x,
+                     city::kHalberdHelicopterRotorHub.y,
+                     city::kHalberdHelicopterRotorHub.z});
+            const NodeId node = scene.create(piece, placed_pose, mesh.bounds);
+            start_nodes_.push_back(node);
+            if (part.rotor) halberd_helicopter_rotor_node_ = node;
+            else halberd_helicopter_nodes_.push_back(node);
+            if (auto* in_scene = scene.get(node)) in_scene->max_draw_distance = 1800.0f;
+        }
+        for (const auto& box : city::kHalberdHelicopterCollision) {
+            const std::size_t id = collider.add_kinematic_oriented_box(
+                pose.transform_point({box.centre.x, box.centre.y, box.centre.z}),
+                {box.half.x, box.half.y, box.half.z}, city::kHalberdHelicopterYaw);
+            if (id == static_cast<std::size_t>(-1)) {
+                AP_ERROR("halberd: gunship compound collider failed to register");
+                return false;
+            }
+            halberd_helicopter_colliders_.push_back(id);
+            collider.set_kinematic_enabled(id, halberd_helicopter_collision_enabled_);
+        }
+        AP_INFO("halberd: %s [%s] parked at %.1f, %.1f, %.1f; airframe + rotor loaded",
+                city::kHalberdHelicopterName, city::kHalberdHelicopterId,
+                pose.position.x, pose.position.y, pose.position.z);
+    }
     // A purpose-built, wheel-free boat actor with movable collision slots.
     Texture boat_paint;
     StaticEmesh boat_body;
@@ -3750,6 +3814,60 @@ void World::sync_aircraft(Scene& scene, TerrainCollider& collider,
         // Preserve query exclusion explicitly; crashed is not an exclusion.
         collider.set_kinematic_enabled(id, airport_aircraft_collision_enabled_);
     }
+}
+
+void World::sync_helicopter(Scene& scene, TerrainCollider& collider,
+                            const HelicopterState& state) {
+    Transform pose;
+    pose.position = state.position;
+    pose.rotation = helicopter_rotation(state);
+    for (NodeId node : halberd_helicopter_nodes_) scene.set_transform(node, pose);
+
+    // The disc rides the airframe and then spins on top of it. Its own mesh is
+    // cooked about the hub, so the hub offset goes in the node's POSITION and
+    // the spin goes in its rotation -- put the spin on the airframe pose and
+    // the whole helicopter turns instead of the blades.
+    if (halberd_helicopter_rotor_node_ != kInvalidId) {
+        Transform rotor = pose;
+        rotor.position = pose.transform_point({city::kHalberdHelicopterRotorHub.x,
+                                               city::kHalberdHelicopterRotorHub.y,
+                                               city::kHalberdHelicopterRotorHub.z});
+        rotor.rotation = pose.rotation *
+            glm::angleAxis(state.rotor_angle, glm::vec3{0, 1, 0});
+        scene.set_transform(halberd_helicopter_rotor_node_, rotor);
+    }
+
+    const bool yaw_only = std::fabs(state.pitch) <= 1e-6f &&
+                          std::fabs(state.roll) <= 1e-6f;
+    for (std::size_t i = 0; i < halberd_helicopter_colliders_.size(); ++i) {
+        const auto& local = city::kHalberdHelicopterCollision[i];
+        const glm::vec3 centre{local.centre.x, local.centre.y, local.centre.z};
+        const glm::vec3 half{local.half.x, local.half.y, local.half.z};
+        const std::size_t id = halberd_helicopter_colliders_[i];
+        if (yaw_only) {
+            collider.set_kinematic_oriented_box(id, pose.transform_point(centre),
+                                                half, state.yaw);
+        } else {
+            // Same rule as the airliner: enclose each tilted box on its own,
+            // never the whole airframe, or a banked helicopter fences off the
+            // street underneath it.
+            AABB bounds;
+            for (int x : {-1, 1})
+                for (int y : {-1, 1})
+                    for (int z : {-1, 1})
+                        bounds.expand(pose.transform_point(centre + half * glm::vec3{
+                            static_cast<float>(x), static_cast<float>(y),
+                            static_cast<float>(z)}));
+            collider.set_kinematic_box(id, bounds);
+        }
+        collider.set_kinematic_enabled(id, halberd_helicopter_collision_enabled_);
+    }
+}
+
+void World::enable_helicopter_collision(TerrainCollider& collider, bool enabled) {
+    halberd_helicopter_collision_enabled_ = enabled;
+    for (std::size_t id : halberd_helicopter_colliders_)
+        collider.set_kinematic_enabled(id, enabled);
 }
 
 void World::enable_aircraft_collision(TerrainCollider& collider, bool enabled) {
