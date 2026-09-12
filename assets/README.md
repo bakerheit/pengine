@@ -126,16 +126,28 @@ and a five-pointed star, both of which mirror cleanly. The atlas is written at
 NEAREST, so nothing of the original is blended and the extra resolution only
 carries what the script draws.
 
-The lightbar is the Municipal Cruiser 91-C's, converted into this body's source
-units and re-fitted to a narrower roof (the 91-C's bar is 1.52 m across a body
-half a metre wider than this one, so its width does not scale over). It is
-welded onto the body rather than loaded as a part, because the emergency glow
-pass redraws the body mesh and lets the lit shader keep only what falls inside
-a lens box -- which is also why the patrol car needs its own headlight profile
-id, 29, even though it shares Car 5's actual lenses: the id is what
-`lit.frag` matches to find a lightbar, and Car 5 has none. The box, the plinth
-and the lamp centres all come from `tools/car5_next_police_spec.py`; changing
-one there means changing the shader box beside it.
+The lightbar takes the Municipal Cruiser 91-C's proportions -- converted into
+this body's source units, which are not metres -- but is built up rather than
+copied. It is a stack of slabs: two mounting feet with a siren speaker slung
+between them, a dark base shell, a band of six lens cells (three per bank) with
+chrome ribs, spine and end caps, and a chrome top rail. The cells stand proud
+of the frame and the frame is recessed, which is what makes it read as parts
+rather than one painted block at the distance you see it from. Its width does
+NOT scale over from the 91-C: that bar is 1.52 m across a body half a metre
+wider than this one, so it is re-fitted to Car 5's narrower roof.
+
+Two things about it are easy to break later. It is welded onto the body mesh
+rather than loaded as a part, because the emergency glow pass redraws the body
+and lets the lit shader keep only what falls inside a glow box. And there is
+one box per lens CELL, not one for the whole bank -- a single box would light
+the chrome ribs along with the lenses. That is also why the patrol car needs
+its own headlight profile id, 29, despite sharing Car 5's actual lenses: the id
+is what `lit.frag` matches to find a lightbar, and Car 5 has none.
+
+`tools/car5_next_police_spec.py` owns the geometry and prints the matching
+`lit.frag` clause from `glsl()`. Nothing in the build forces those two files to
+agree, so the cook validator parses the boxes back out of the shader and checks
+every lens cell falls inside one and no chrome part does.
 
 `tools/validate_car5_next_door.py car5_next_police` holds it to the same four
 properties as the plain car.
