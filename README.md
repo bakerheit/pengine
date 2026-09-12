@@ -344,10 +344,34 @@ hot-reload, no terrain splat shader — is listed in
 
 ### Reading back a session's frame rate
 
-Every session records one CSV row per frame to `build/perf/session-NNN.csv` —
-numbered, not overwritten, because the interesting session is always the one
-that already happened. Nothing needs to be enabled and nothing needs to be
-running alongside; play, quit, then read it back:
+Recording is **off by default** and turned on from the developer menu:
+**`F1` → FRAME LOGGING**. It writes a file and costs a little every frame, so a
+session nobody asked to profile should not be paying for one. Each switch-on
+starts a fresh file — appending would put two unrelated stretches of play under
+one summary, and the percentiles of a blend are nobody's percentiles. The
+`REC nnn` badge appears under the clock while it is running.
+
+`--perf-record` records from launch instead, and `--perf-log FILE` does the
+same to a chosen path.
+
+When recording, it writes one CSV row per frame, numbered and never overwritten,
+because the interesting session is always the one that already happened. The
+files go next to the save game:
+
+```
+~/Library/Application Support/Bakerheit/Probable Cause/perf/session-NNN.csv
+```
+
+That folder and not `build/`, because it is writable no matter how the app was
+launched. The default used to be `build/perf` resolved against the WORKING
+DIRECTORY, which is right exactly once — typing `./build/bin/apricot` from the
+repo root. Launch `Probable Cause.app` instead, the normal way anyone starts a
+game here, and the working directory is `/`: the recorder wrote nothing, said
+nothing visible, and a real play session was lost. The startup line now prints
+the absolute path for the same reason.
+
+Nothing needs to be enabled and nothing needs to be running alongside; play,
+quit, then read it back:
 
 ```sh
 tools/perf_report.sh              # the newest session
@@ -355,26 +379,66 @@ tools/perf_report.sh --worst 40   # more of the slow frames
 ```
 
 The report opens with the recorder's own trailer — percentiles, the dip count,
-the worst frames and the blocks they happened on — then a second-by-second
-timeline and the slowest frames with the counters that were high at the time.
-Each row carries position, district, mode, `cull_ms` / `mesh_ms` / `light_ms`,
-draw calls, chunks built, car and NPC counts, so the answer to "why was it slow
-*there*" is usually two columns wide.
+the worst frames, the blocks they happened on, and the **phase breakdown**:
+
+```
+# phase              all      dips
+# sim               0.90      1.70      the fixed-step loop
+#   traffic         0.58      1.12        world_.step_traffic + collisions
+#   police          0.06      0.09        offences, arrest, wanted
+#   character       0.11      0.30        the on-foot character step
+#   other           0.27      0.49        the residual inside the step
+# world             0.34      0.30      terrain streaming and meshing
+# visual            1.61      2.23      building scene nodes from sim state
+# scene             0.07      0.09      Scene::update()
+# render            5.16      7.01      render(), CPU side, swap excluded
+# swap              3.91     10.53      blocked on the display — vsync lives here
+# unaccounted       0.11      3.30      the residual, and the honesty check
+# gpu               7.38     10.01      concurrent with the CPU, not a slice of it
+```
+
+The indented rows **partition** `sim` rather than adding to it, and `other` is
+the residual that keeps the split honest — the same rule one level down.
+
+**`swap` and `unaccounted` are the two that decide where to look.** Time in
+swap is not work, it is the CPU blocked waiting for the display: when a dip is
+mostly swap, every CPU phase above it was already fast enough and `gpu` is the
+number that matters. And `unaccounted` is the residual the phases could not
+explain — it exists so the breakdown can never quietly stop adding up. The
+first version of this recorder logged only `cull` / `mesh` / `light` / `fill`,
+which on a real 31 ms dip frame summed to 1.35 ms and left 96% of the frame
+unexplained; detail that does not add up to the whole is not detail, it is a
+decoy.
+
+Then a second-by-second timeline, and the slowest frames with each one's phases
+side by side. Rows also carry position, district, mode, draw calls, chunks
+built, car and NPC counts, so "why was it slow *there*" is usually one line
+wide.
+
+A **`REC nnn`** badge sits under the in-game clock whenever a session is being
+recorded, naming the file it is writing to. It is there because a recorder you
+cannot see is one you cannot trust: without it, "did that run get logged?" is
+only answerable after quitting, which is exactly too late. Pressing `F4` turns
+it green and counts the mark, so the keystroke has visible confirmation rather
+than going into a void.
 
 Press **`F4`** while playing whenever the frame rate stumbles. The recorder
 cannot tell which dips a player actually felt, and that turns out to be the
 column worth having: the mark is written with the position and the worst frame
 of the previous three seconds, because a stutter is noticed after it happens.
 
+Columns are addressed **by name** from the header, never by position, so a new
+column can be added to the recorder without the report tool silently
+misreading every older log on disk.
+
 `--perf-log FILE` chooses the path, `--perf-spike-ms N` moves the dip threshold
 (default 20 ms — one frame under 50 fps), and `--no-perf-log` turns it off. The
 recorder is deliberately not the `--log` logger: that one flushes every line,
 which is correct for events and would itself cause dips at 120 Hz.
 
-A file runs about 180 bytes a frame — roughly 8 MB for ten minutes at 120 Hz —
-and the path is relative to the working directory, so `build/perf` lands
-wherever you launched from. `build/` is git-ignored; delete the directory when
-the sessions in it stop being interesting.
+A file runs about 250 bytes a frame — roughly 11 MB for ten minutes at 120 Hz.
+They accumulate, including from bounded `--frames` QA runs; delete the folder
+when the sessions in it stop being interesting.
 
 ### Tests
 
@@ -403,7 +467,11 @@ are here.
 | `F1` | developer menu | **yes** — pauses play and opens a GTA-style trainer menu; Classic GTA (VC / SA feel) is the default, Driving Mechanics can switch the player live between all nine handling styles, and Vehicle can repair the current car in place |
 | `F2` | report a bug to Codex | **yes** — type a report; Apricot attaches the game-window screenshot and exact world position |
 | `F3` | toggle debug stats | **yes** — the large profiling panel starts hidden and can be shown or hidden during a drive |
-| `F4` | mark the moment | **yes** — writes "I felt that" into the session's performance log, with the position and the worst frame of the previous three seconds. Press it when the frame rate stumbles; the recorder does the rest |
+| `F1` → FRAME LOGGING | start/stop the frame recorder | **yes** — off by default; each switch-on opens a fresh session file |
+| `F1` → PLAYER & VEHICLE → GOD MODE | player takes no damage | **yes** — one early return at `damage_player()`, the door every source of harm already goes through |
+| `F1` → PLAYER & VEHICLE → VEHICLE GOD MODE | no impact damage or dents | **yes** — zeroes `impact_damage_per_mps` and `body_damage_gain` on the per-step tuning. Prevents new damage; it does not repair existing damage (REPAIR does that) |
+| `F1` → PLAYER & VEHICLE → WANTED LEVEL → NEVER WANTED | police never engage | **yes** — `WantedSystem::set_enabled(false)`; switching it on mid-chase ends the pursuit rather than freezing it |
+| `F4` | mark the moment | **yes** — writes "I felt that" into the session's performance log, with the position and the worst frame of the previous three seconds. Press it when the frame rate stumbles; the recorder does the rest. The `REC` badge under the clock turns green and counts the mark |
 | `F7` | toggle instancing | **yes** — the batching A/B, handled outside `InputFrame` on purpose |
 | `F8` | teleport across the island | **yes** — evicts the world, refills the near ring before resuming. Outside `InputFrame` for the same reason as `F7` |
 | `Esc` / `B` | back / pause | **yes** — closes the map, resumes from pause, or opens pause while driving |

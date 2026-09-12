@@ -10,6 +10,7 @@
 // so this is the producer under test and not a re-implementation of it.
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -57,6 +58,18 @@ std::string nth_field(const std::string& line, std::size_t n) {
     }
     const std::size_t end = line.find(',', start);
     return line.substr(start, end == std::string::npos ? end : end - start);
+}
+
+// Resolve a column by NAME. Every assertion below goes through this: a test
+// that hardcodes an index breaks the moment a column is inserted, and worse,
+// a test that hardcodes the WRONG index passes while asserting on a neighbour.
+std::size_t column_of(const char* name) {
+    const std::string header(FrameLog::header_line());
+    for (std::size_t c = 0; c < 80; ++c) {
+        if (nth_field(header, c) == name) return c;
+    }
+    REQUIRE_MSG(false, "the header must name this column", name);
+    return 0;
 }
 
 std::string nth_data_line(const std::string& csv, std::size_t n) {
@@ -110,9 +123,9 @@ void test_header_and_row_widths_match() {
     // reads fine and means something else entirely.
     REQUIRE_MSG(commas(header) == commas(row),
                 "row field count must match the header", "widths");
-    REQUIRE(nth_field(row, 0) == "0");
-    REQUIRE(nth_field(row, 9) == "Downtown");
-    REQUIRE(nth_field(row, 10) == "drive");
+    REQUIRE(nth_field(row, column_of("frame")) == "0");
+    REQUIRE(nth_field(row, column_of("place")) == "Downtown");
+    REQUIRE(nth_field(row, column_of("mode")) == "drive");
     apricot_test::pass("every row lines up with the header it was written under");
 }
 
@@ -128,8 +141,8 @@ void test_string_fields_are_scrubbed() {
     const std::string row = nth_data_line(log.buffer(), 0);
     // Spaces survive — "the Meadows" is a real district name. Only the
     // characters that would break the column structure are replaced.
-    REQUIRE(nth_field(row, 9) == "Ostend_ East");
-    REQUIRE(nth_field(row, 10) == "on _foot_");
+    REQUIRE(nth_field(row, column_of("place")) == "Ostend_ East");
+    REQUIRE(nth_field(row, column_of("mode")) == "on _foot_");
     apricot_test::pass("commas and quotes in a place name cannot shift the columns");
 }
 
@@ -146,8 +159,8 @@ void test_absolute_threshold_flags_the_slow_frame() {
     REQUIRE(log.summary().spikes == 1);
 
     // The flag reaches the row, not just the tally: the CSV is what gets read.
-    REQUIRE(nth_field(nth_data_line(log.buffer(), 0), 4) == "0");
-    REQUIRE(nth_field(nth_data_line(log.buffer(), 1), 4) == "1");
+    REQUIRE(nth_field(nth_data_line(log.buffer(), 0), column_of("spike")) == "0");
+    REQUIRE(nth_field(nth_data_line(log.buffer(), 1), column_of("spike")) == "1");
     apricot_test::pass("a frame over the absolute threshold is flagged in the row");
 }
 
@@ -419,7 +432,7 @@ void test_a_mark_writes_its_own_row_and_is_not_counted_as_a_frame() {
     REQUIRE_MSG(data_rows(log.buffer()) == 6, "the mark is a row", "rows");
     REQUIRE_MSG(log.summary().frames == 5,
                 "but it is not a sixth timed frame", "frames");
-    REQUIRE(nth_field(nth_data_line(log.buffer(), 5), 5) == "here");
+    REQUIRE(nth_field(nth_data_line(log.buffer(), 5), column_of("mark")) == "here");
     apricot_test::pass("a mark lands in the timeline without inflating the frame count");
 }
 
@@ -508,6 +521,182 @@ void test_a_long_session_stays_bounded() {
     apricot_test::pass("a three-hour session keeps its bookkeeping the same size as a one-minute one");
 }
 
+// The accounting rule is the one thing here that can be wrong in a way that
+// LOOKS right: world_ms already contains mesh_ms and render_ms already
+// contains cull_ms and light_ms, so a naive sum double-counts and reports more
+// than 100% of a frame explained.
+void test_accounting_does_not_double_count_nested_costs() {
+    FrameSample s = frame_at(0, 0.0, 20.0);
+    s.sim_ms = 4.0;
+    s.world_ms = 5.0;
+    s.mesh_ms = 4.5;    // a SUBSET of world_ms
+    s.visual_ms = 3.0;
+    s.scene_ms = 1.0;
+    s.render_ms = 6.0;
+    s.cull_ms = 2.0;    // a SUBSET of render_ms
+    s.light_ms = 1.0;   // likewise
+    s.swap_ms = 1.0;
+    s.gpu_ms = 15.0;    // concurrent, not a slice
+
+    REQUIRE_NEAR(accounted_ms(s), 20.0, 1e-9);
+    REQUIRE_MSG(accounted_ms(s) <= s.ms,
+                "the phases must never explain more than the frame", "sum");
+    apricot_test::pass("nested costs are counted once and the GPU is not counted at all");
+}
+
+void test_unaccounted_time_is_reported_not_hidden() {
+    FrameLog log;
+    log.capture_in_memory();
+    FrameSample s = frame_at(0, 0.0, 30.0);
+    s.sim_ms = 2.0;
+    s.render_ms = 3.0;   // only 5 of 30 ms explained
+    log.record(s);
+
+    const FrameLog::Summary sum = log.summary();
+    REQUIRE_NEAR(sum.unaccounted_ms, 25.0, 1e-9);
+
+    // ...and it reaches the row, which is where anyone slicing the CSV will
+    // look for it.
+    const std::string row = nth_data_line(log.buffer(), 0);
+    REQUIRE(nth_field(row, column_of("accounted_ms")) == "5.000");
+    REQUIRE(nth_field(row, column_of("unaccounted_ms")) == "25.000");
+    apricot_test::pass("a frame the phases cannot explain says so, in its own column");
+}
+
+// The phase columns exist to separate an average frame from a bad one. If the
+// dip means were folded in with the rest, the distinction would be lost.
+void test_dip_phases_are_tracked_apart_from_the_average() {
+    FrameLog log;
+    FrameLog::Config cfg;
+    cfg.spike_ms = 20.0;
+    log.configure(cfg);
+    log.capture_in_memory();
+
+    for (int i = 0; i < 99; ++i) {
+        FrameSample s = frame_at(i, i * 0.008, 8.0);
+        s.render_ms = 8.0;
+        log.record(s);
+    }
+    FrameSample bad = frame_at(99, 0.8, 40.0);
+    bad.sim_ms = 38.0;       // the dip is the SIM, not the renderer
+    bad.render_ms = 2.0;
+    REQUIRE(log.record(bad));
+
+    const FrameLog::Summary sum = log.summary();
+    REQUIRE_NEAR(sum.dip_sim_ms, 38.0, 1e-9);
+    REQUIRE_NEAR(sum.dip_render_ms, 2.0, 1e-9);
+    // The all-frames mean is dominated by the 99 healthy frames and would
+    // point at the renderer — the exact wrong conclusion.
+    REQUIRE(sum.render_ms > sum.sim_ms);
+    REQUIRE_MSG(sum.dip_sim_ms > sum.dip_render_ms,
+                "the dip view must point at the sim", "dip");
+    apricot_test::pass("a dip caused by the sim is not averaged away by healthy render frames");
+}
+
+void test_the_trailer_names_where_the_time_went() {
+    FrameLog log;
+    FrameLog::Config cfg;
+    cfg.spike_ms = 20.0;
+    log.configure(cfg);
+    log.capture_in_memory();
+    for (int i = 0; i < 50; ++i) {
+        FrameSample s = frame_at(i, i * 0.03, 30.0);
+        s.swap_ms = 26.0;   // blocked on the display
+        s.render_ms = 2.0;
+        s.sim_ms = 1.0;
+        log.record(s);
+    }
+    log.close();
+
+    const std::string& out = log.buffer();
+    REQUIRE(out.find("---- where the time goes") != std::string::npos);
+    REQUIRE(out.find("swap") != std::string::npos);
+    REQUIRE(out.find("unaccounted") != std::string::npos);
+    // A session that spends its dips blocked in swap must SAY so: the CPU
+    // numbers above it are all small and would otherwise read as "all fine".
+    REQUIRE_MSG(out.find("missed a display deadline") != std::string::npos,
+                "a swap-dominated dip is called out by name", "swap");
+    apricot_test::pass("the trailer names the phase that ate the frame");
+}
+
+// Columns are read by NAME by the report tool. If the header and the row drift
+// apart, every number downstream is silently attributed to the wrong phase.
+void test_phase_columns_sit_where_the_header_says() {
+    FrameLog log;
+    log.capture_in_memory();
+    FrameSample s = frame_at(0, 0.0, 10.0);
+    s.sim_ms = 1.0; s.world_ms = 2.0; s.visual_ms = 3.0;
+    s.scene_ms = 4.0; s.render_ms = 5.0; s.swap_ms = 6.0; s.gpu_ms = 7.0;
+    log.record(s);
+
+    const std::string header(FrameLog::header_line());
+    const std::string row = nth_data_line(log.buffer(), 0);
+    const char* names[] = {"sim_ms", "world_ms", "visual_ms", "scene_ms",
+                           "render_ms", "swap_ms", "gpu_ms"};
+    const double want[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0};
+    (void)header;
+    for (std::size_t i = 0; i < 7; ++i) {
+        REQUIRE_MSG(std::atof(nth_field(row, column_of(names[i])).c_str()) == want[i],
+                    "the value must sit under its own name", names[i]);
+    }
+    apricot_test::pass("each phase value sits under the header name that claims it");
+}
+
+// The sim split has the same double-counting hazard one level down: the three
+// named sub-phases live INSIDE sim_ms, and "other" is the residual that keeps
+// them honest rather than a fourth measurement.
+void test_the_sim_split_is_a_partition_of_the_sim() {
+    FrameSample s = frame_at(0, 0.0, 30.0);
+    s.sim_ms = 20.0;
+    s.sim_traffic_ms = 11.0;
+    s.sim_police_ms = 4.0;
+    s.sim_character_ms = 3.0;
+    REQUIRE_NEAR(sim_other_ms(s), 2.0, 1e-9);
+    REQUIRE_NEAR(s.sim_traffic_ms + s.sim_police_ms + s.sim_character_ms +
+                     sim_other_ms(s),
+                 s.sim_ms, 1e-9);
+
+    // The sub-phases must NOT be added into the frame budget again — sim_ms
+    // already carries them.
+    REQUIRE_NEAR(accounted_ms(s), 20.0, 1e-9);
+    apricot_test::pass("the sim sub-phases partition sim_ms instead of adding to it");
+}
+
+// The sub-timers are sampled inside the step loop and sim_ms outside it, so
+// rounding can put the named parts a hair above the whole. That must read as
+// zero, not as a negative residual that looks like a broken instrument.
+void test_a_rounding_overshoot_cannot_produce_negative_other() {
+    FrameSample s = frame_at(0, 0.0, 10.0);
+    s.sim_ms = 5.0;
+    s.sim_traffic_ms = 5.0000001;
+    REQUIRE(sim_other_ms(s) == 0.0);
+    apricot_test::pass("a sub-phase overshooting its parent reports no residual, never a negative one");
+}
+
+void test_the_trailer_breaks_the_sim_down() {
+    FrameLog log;
+    FrameLog::Config cfg;
+    cfg.spike_ms = 20.0;
+    log.configure(cfg);
+    log.capture_in_memory();
+    for (int i = 0; i < 40; ++i) {
+        FrameSample s = frame_at(i, i * 0.04, 40.0);
+        s.sim_ms = 36.0;
+        s.sim_traffic_ms = 30.0;   // traffic is the culprit
+        s.sim_police_ms = 3.0;
+        s.sim_character_ms = 1.0;
+        log.record(s);
+    }
+    log.close();
+
+    const FrameLog::Summary sum = log.summary();
+    REQUIRE_NEAR(sum.dip_sim_traffic_ms, 30.0, 1e-9);
+    REQUIRE_NEAR(sum.dip_sim_other_ms, 2.0, 1e-9);
+    REQUIRE(log.buffer().find("traffic") != std::string::npos);
+    REQUIRE(log.buffer().find("character") != std::string::npos);
+    apricot_test::pass("the trailer names which part of the sim ate the step");
+}
+
 }  // namespace
 
 int main() {
@@ -532,5 +721,13 @@ int main() {
     test_closing_an_empty_recorder_says_nothing();
     test_stutter_time_excludes_the_frame_you_would_have_paid_anyway();
     test_a_long_session_stays_bounded();
+    test_accounting_does_not_double_count_nested_costs();
+    test_unaccounted_time_is_reported_not_hidden();
+    test_dip_phases_are_tracked_apart_from_the_average();
+    test_the_trailer_names_where_the_time_went();
+    test_phase_columns_sit_where_the_header_says();
+    test_the_sim_split_is_a_partition_of_the_sim();
+    test_a_rounding_overshoot_cannot_produce_negative_other();
+    test_the_trailer_breaks_the_sim_down();
     return apricot_test::done("frame_log_tests");
 }

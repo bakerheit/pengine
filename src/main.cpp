@@ -30,8 +30,8 @@ void print_usage() {
         "  --save-file FILE use an isolated checkpoint slot\n"
         "  --verbose       log at debug level\n"
         "  --log FILE      also append the log to FILE\n"
-        "  --perf-log FILE choose where this session's frame CSV goes\n"
-        "  --no-perf-log   do not record frame timings this session\n"
+        "  --perf-log FILE record frame timings to FILE from launch\n"
+        "  --perf-record   record frame timings from launch (F1 toggles otherwise)\n"
         "  --perf-spike-ms N call a frame a dip above N ms (default 20)\n"
         "  --frames N      render N frames, print a summary, then exit\n"
         "  --vehicle-entry-check run bounded entry/theft/exit regression\n"
@@ -103,37 +103,13 @@ void print_usage() {
         APRICOT_VERSION);
 }
 
-// Where a session's frame CSV goes when nobody said. Numbered rather than
-// overwritten, because the whole point of the recorder is that the interesting
-// session is the one that ALREADY happened — clobbering it on the next launch
-// would lose the only copy at exactly the moment someone goes looking for it.
-// build/ is git-ignored, so these never reach a commit.
-std::string default_perf_log_path() {
-    namespace fs = std::filesystem;
-    const fs::path dir = "build/perf";
-    std::error_code ec;
-    fs::create_directories(dir, ec);
-    if (ec) return {};
-
-    int highest = -1;
-    for (const fs::directory_entry& e : fs::directory_iterator(dir, ec)) {
-        const std::string name = e.path().filename().string();
-        if (name.rfind("session-", 0) != 0) continue;
-        if (e.path().extension() != ".csv") continue;
-        const int n = std::atoi(name.c_str() + 8);
-        if (n > highest) highest = n;
-    }
-    char name[64];
-    std::snprintf(name, sizeof(name), "session-%03d.csv", highest + 1);
-    return (dir / name).string();
-}
-
 }  // namespace
 
 int main(int argc, char** argv) {
     const char* log_path = nullptr;
     const char* perf_log_path = nullptr;
-    bool perf_logging = true;
+    // Off by default: the F1 menu turns recording on when it is wanted.
+    bool perf_logging = false;
     double perf_spike_ms = 20.0;
     int frame_limit = 0;
     uint64_t session_seed=0;
@@ -322,9 +298,10 @@ int main(int argc, char** argv) {
         }
         if (std::strcmp(a, "--perf-log") == 0 && i + 1 < argc) {
             perf_log_path = argv[++i];
+            perf_logging = true;  // naming a file is asking for a recording
             continue;
         }
-        if (std::strcmp(a, "--no-perf-log") == 0) { perf_logging = false; continue; }
+        if (std::strcmp(a, "--perf-record") == 0) { perf_logging = true; continue; }
         if (std::strcmp(a, "--perf-spike-ms") == 0 && i + 1 < argc) {
             char* end = nullptr;
             perf_spike_ms = std::strtod(argv[++i], &end);
@@ -409,24 +386,11 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    std::string perf_log = perf_log_path ? std::string(perf_log_path)
-                                        : default_perf_log_path();
-    const bool perf_default_failed = !perf_log_path && perf_logging && perf_log.empty();
-    if (!perf_logging) perf_log.clear();
 
     if (log_path && !apricot::log::open_log_file(log_path)) {
         // Not fatal: console logging still works, and refusing to start over a
         // log file would be a poor trade.
         AP_WARN("could not open log file '%s'; console only", log_path);
-    }
-
-    if (perf_default_failed) {
-        // Silence here reads as "the recorder is broken". It is not: the
-        // default path is relative to the working directory, and this is what
-        // running from somewhere unwritable looks like. Placed after the log
-        // file opens so it lands in --log too.
-        AP_WARN("could not create build/perf in the working directory; "
-                "no frame log this session (use --perf-log FILE)");
     }
 
     apricot::App app;
@@ -608,7 +572,8 @@ int main(int argc, char** argv) {
     app.set_snowplow_check(snowplow_check);
     app.set_snowplow_refill_preview(snowplow_refill_preview_seconds);
     app.set_vehicle_preview(start_car,start_driving);
-    app.set_perf_log_path(perf_log);
+    if (perf_log_path) app.set_perf_log_path(perf_log_path);
+    app.set_perf_logging(perf_logging);
     app.set_perf_spike_ms(perf_spike_ms);
     if (screenshot_path) app.set_screenshot_path(screenshot_path);
     if (!app.init()) {

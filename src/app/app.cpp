@@ -191,6 +191,47 @@ constexpr float kNearPlane = 0.5f;
 // a frame, and comfortably above the steady-state cost so it stays quiet.
 constexpr double kStreamSpikeMs = 4.0;
 
+// Where a session's frame CSV goes when nobody said.
+//
+// This used to resolve "build/perf" against the WORKING DIRECTORY, which is
+// correct exactly once: when someone types ./build/bin/apricot from the repo
+// root. Launch the app bundle instead — the normal way anyone starts a game on
+// this platform — and the working directory is "/", so the recorder wrote
+// nothing, said nothing a player could see, and the run was gone. A diagnostic
+// that only survives one launch method is worse than none, because it is
+// trusted right up until the session you needed it for.
+//
+// So it goes where the SAVE GAME already goes. That folder is per-user, always
+// writable, and the same whether the app was launched from a shell, from
+// Finder or from a bundle. src/app/app_save.cpp picked it first; this just
+// follows it rather than inventing a second answer.
+std::string default_perf_log_path() {
+    namespace fs = std::filesystem;
+    fs::path dir;
+    if (char* folder = SDL_GetPrefPath("Bakerheit", "Probable Cause")) {
+        dir = fs::path(folder) / "perf";
+        SDL_free(folder);
+    } else {
+        dir = fs::path("build") / "perf";  // last resort, better than nothing
+    }
+
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec) return {};
+
+    int highest = -1;
+    for (const fs::directory_entry& e : fs::directory_iterator(dir, ec)) {
+        const std::string name = e.path().filename().string();
+        if (name.rfind("session-", 0) != 0) continue;
+        if (e.path().extension() != ".csv") continue;
+        const int n = std::atoi(name.c_str() + 8);
+        if (n > highest) highest = n;
+    }
+    char name[64];
+    std::snprintf(name, sizeof(name), "session-%03d.csv", highest + 1);
+    return (dir / name).string();
+}
+
 // How many spikes get a line each before the log falls back to counting them.
 constexpr int kMaxSpikeLogs = 3;
 
@@ -896,6 +937,9 @@ void App::shutdown() {
     ocean_.destroy();
     loading_screen_.destroy();
     tiled_lighting_.destroy();
+    // Its queries are GL objects like any other and must die while the context
+    // is still alive.
+    gpu_timer_.destroy();
     renderer_.destroy();
     scene_.clear();
 
@@ -1528,10 +1572,33 @@ void App::process_ui_input(float dt) {
                         SDL_GetError(), text);
             }
         } else if (dev_action.kind == DevMenuActionKind::SetWantedLevel) {
+            // Asking for stars re-arms the system: the menu clears NEVER
+            // WANTED on the same press, so a level set here is a level you
+            // actually keep rather than one add_heat() drops on the floor.
+            wanted_.set_enabled(true);
             wanted_.set_level(dev_action.wanted_level);
             dev_menu_.set_wanted_level(wanted_.level());
             dev_menu_.close();
             AP_INFO("developer wanted level: %d", wanted_.level());
+        } else if (dev_action.kind == DevMenuActionKind::SetFrameLogging) {
+            set_frame_logging(dev_action.frame_logging);
+        } else if (dev_action.kind == DevMenuActionKind::SetGodMode) {
+            god_mode_ = dev_action.god_mode;
+            AP_INFO("developer god mode: %s",
+                    god_mode_ ? "ON (player takes no damage)" : "OFF");
+        } else if (dev_action.kind == DevMenuActionKind::SetVehicleGodMode) {
+            vehicle_god_mode_ = dev_action.vehicle_god_mode;
+            AP_INFO("developer vehicle god mode: %s",
+                    vehicle_god_mode_ ? "ON (no impact damage or dents)" : "OFF");
+        } else if (dev_action.kind == DevMenuActionKind::SetNeverWanted) {
+            // set_enabled(false) both refuses new heat and resets what is
+            // already banked, so switching this on mid-pursuit ends it rather
+            // than freezing it at the current level.
+            wanted_.set_enabled(!dev_action.never_wanted);
+            dev_menu_.set_wanted_level(wanted_.level());
+            AP_INFO("developer never wanted: %s",
+                    dev_action.never_wanted ? "ON (police will not engage)"
+                                            : "OFF");
         } else if (dev_action.kind == DevMenuActionKind::SetWeather) {
             apply_dev_weather(dev_action.weather, controls_);
             update_weather();
@@ -2303,6 +2370,7 @@ SkyEnv App::current_sky_env() const {
 }
 
 void App::render() {
+    const WallClock::time_point render_t0 = WallClock::now();
     glViewport(0, 0, window_.width(), window_.height());
     if (audio_device_.running()) {
         const bool title = ui_.screen() == UiScreen::Title ||
@@ -2333,7 +2401,27 @@ void App::render() {
         return;
     }
 
-    if (opening_cutscene_.active()) { render_opening();return; }
+    if (opening_cutscene_.active()) {
+        render_opening();
+        // This path presents for itself and returns, so it never reaches the
+        // swap timing below. Charge the whole thing to render and claim no
+        // swap rather than leaving the previous frame's numbers standing —
+        // a stale phase reading is worse than an absent one, because it looks
+        // like a measurement.
+        render_ms_ = std::chrono::duration<double>(WallClock::now() - render_t0)
+                         .count() * 1000.0;
+        swap_ms_ = 0.0;
+        return;
+    }
+
+    // Started only AFTER every early return above it. A GL_TIME_ELAPSED query
+    // begun and never ended stays open forever: the next begin() is refused,
+    // no result ever lands, and the timer silently reads zero for the rest of
+    // the session.
+    // Spans everything this frame submits. It measures GPU EXECUTION, which
+    // overlaps the CPU work above it — so it is never added into the frame's
+    // phase budget, only read beside it.
+    gpu_timer_.begin();
 
     const SkyEnv env = current_sky_env();
     // Bounded QA only: age the real driven paths just before the final image.
@@ -2659,7 +2747,15 @@ void App::render() {
             else if (mission_stage_ == MissionStage::DeliveryActive)
                 radar.mission_target = glm::vec2{city::devon_position().x,
                                                  city::devon_position().z};
+            radar.perf_logging = perf_log_.enabled();
+            radar.perf_log_label = perf_log_label_.c_str();
+            radar.perf_marks = perf_marks_;
+            radar.perf_mark_feedback_s = perf_mark_feedback_s_;
             game_ui_.draw_minimap(hud_, ui_, radar, vp);
+            // The driving HUD reaches draw_minimap DIRECTLY rather than
+            // through GameUi::draw, so the badge is drawn here beside it and
+            // not in that switch.
+            game_ui_.draw_perf_recorder(hud_, radar, vp);
             const glm::vec3 focus = player_focus_position();
             const auto snow_contact = collider_.probe_down(
                 focus + glm::vec3{0.0f, 0.5f, 0.0f}, 4.0f,
@@ -3044,6 +3140,10 @@ void App::render() {
                 glm::length(on_foot_ ? player_character_.velocity
                                      : (in_boat_ ? boat_.velocity : (in_aircraft_ ? aircraft_.velocity : car_.velocity))));
             snapshot.vehicle_health = car_.health;
+            snapshot.perf_logging = perf_log_.enabled();
+            snapshot.perf_log_label = perf_log_label_.c_str();
+            snapshot.perf_marks = perf_marks_;
+            snapshot.perf_mark_feedback_s = perf_mark_feedback_s_;
             snapshot.weather = weather_name(conditions_.weather);
             snapshot.daylight = daylight_name(conditions_.daylight);
             snapshot.time_of_day = env.time_of_day;
@@ -3211,7 +3311,20 @@ void App::render() {
         gl_errors_ += drain_gl_errors("during the first frames");
     }
 
+    gpu_timer_.end();
+
+    // The swap is measured SEPARATELY from the rest of render() because the
+    // two mean opposite things. Time above this line is work; time inside
+    // swap is the CPU blocked waiting for the display. A dip made of swap has
+    // already told you the CPU was fast enough, and that every phase above it
+    // is the wrong place to look.
+    const WallClock::time_point swap_t0 = WallClock::now();
+    render_ms_ =
+        std::chrono::duration<double>(swap_t0 - render_t0).count() * 1000.0;
     window_.swap();
+    swap_ms_ =
+        std::chrono::duration<double>(WallClock::now() - swap_t0).count() *
+        1000.0;
     ++frames_rendered_;
 }
 
@@ -3266,6 +3379,74 @@ void App::tire_track_check_camera() {
         look.y, glm::length(glm::vec2{look.x, look.z}));
 }
 
+void App::set_frame_logging(bool on) {
+    if (on == perf_log_.enabled()) return;
+
+    if (on) {
+        // A fresh file per switch-on. Appending to the previous one would put
+        // two unrelated stretches of play under a single summary, and the
+        // percentiles of a blend are nobody's percentiles.
+        std::string path = perf_log_path_;
+        if (path.empty()) path = default_perf_log_path();
+        if (path.empty()) {
+            AP_WARN("could not create a folder for the frame log; not recording");
+            return;
+        }
+        FrameLog::Config cfg;
+        cfg.spike_ms = perf_spike_ms_;
+        perf_log_.configure(cfg);
+        if (!perf_log_.open(path.c_str())) {
+            AP_WARN("could not open performance log '%s'; not recording",
+                    path.c_str());
+            return;
+        }
+        // Only the CHOSEN path is remembered when it came from --perf-log; a
+        // default path is re-derived each time so the session number advances.
+        perf_spikes_logged_ = 0;
+        perf_marks_ = 0;
+        perf_mark_feedback_s_ = 0.0f;
+        perf_clock_reset_ = true;  // the frame that spans the switch is not a frame
+
+        const std::size_t slash = path.find_last_of("/\\");
+        std::string name = (slash == std::string::npos) ? path
+                                                        : path.substr(slash + 1);
+        const std::size_t dot = name.find_last_of('.');
+        if (dot != std::string::npos) name.resize(dot);
+        const std::size_t dash = name.find_last_of('-');
+        perf_log_label_ =
+            (name.compare(0, 8, "session-") == 0 && dash != std::string::npos)
+                ? name.substr(dash + 1)
+                : name.substr(0, 12);
+
+        std::error_code abs_ec;
+        const std::string shown = std::filesystem::absolute(path, abs_ec).string();
+        AP_INFO("frame logging ON: %s (dips over %.1f ms; F4 marks a moment)",
+                abs_ec ? path.c_str() : shown.c_str(), perf_spike_ms_);
+        return;
+    }
+
+    const FrameLog::Summary perf = perf_log_.summary();
+    AP_INFO("performance: %d frames, p50 %.2f ms (%.0f fps), p99 %.2f ms, "
+            "worst %.2f ms; %d dips (%.2f%%), %.0f ms of stutter",
+            perf.frames, perf.p50_ms,
+            perf.p50_ms > 0.0 ? 1000.0 / perf.p50_ms : 0.0, perf.p99_ms,
+            perf.worst_ms, perf.spikes,
+            perf.frames > 0 ? 100.0 * perf.spikes / perf.frames : 0.0,
+            perf.stutter_ms);
+    for (const FrameLog::Hotspot& h : perf_log_.hotspots()) {
+        AP_INFO("  dips at (%.0f, %.0f) %s: %u of %u frames slow, worst %.1f ms",
+                static_cast<double>(h.x), static_cast<double>(h.z), h.place,
+                h.slow, h.frames, h.worst_ms);
+    }
+    std::error_code abs_ec;
+    const std::string written =
+        std::filesystem::absolute(perf_log_.path(), abs_ec).string();
+    const std::string fallback = perf_log_.path();
+    perf_log_.close();
+    AP_INFO("frame logging OFF; written: %s",
+            abs_ec ? fallback.c_str() : written.c_str());
+}
+
 void App::record_frame_sample(double ms) {
     if (!perf_log_.enabled()) return;
 
@@ -3301,6 +3482,18 @@ void App::record_frame_sample(double ms) {
 
     s.sim_steps = last_steps_;
     s.step_clamped = last_clamped_;
+    s.sim_ms = sim_ms_;
+    s.sim_traffic_ms = sim_traffic_ms_;
+    s.sim_police_ms = sim_police_ms_;
+    s.sim_character_ms = sim_character_ms_;
+    // world_.update() is what mesh_ms_ has always measured; the phase column
+    // is the same number under the name that says what it actually covers.
+    s.world_ms = mesh_ms_;
+    s.visual_ms = visual_ms_;
+    s.scene_ms = scene_ms_;
+    s.render_ms = render_ms_;
+    s.swap_ms = swap_ms_;
+    s.gpu_ms = gpu_timer_.last_ms();
     s.cull_ms = cull_ms_;
     s.mesh_ms = mesh_ms_;
     s.light_ms = tiled_lighting_.build_ms() + tiled_lighting_.upload_ms();
@@ -3337,6 +3530,7 @@ void App::record_frame_sample(double ms) {
         perf_mark_pending_ = false;
         ++perf_marks_;
         perf_log_.mark("player-marked", s);
+        perf_mark_feedback_s_ = 1.6f;
         AP_INFO("perf mark %d at t=%.1f s, (%.0f, %.0f) in %s", perf_marks_,
                 s.t_s, static_cast<double>(s.x), static_cast<double>(s.z),
                 s.place);
@@ -3371,18 +3565,9 @@ void App::record_frame_sample(double ms) {
 int App::run() {
     if (!running_) return 1;
 
-    if (!perf_log_path_.empty()) {
-        FrameLog::Config cfg;
-        cfg.spike_ms = perf_spike_ms_;
-        perf_log_.configure(cfg);
-        if (perf_log_.open(perf_log_path_.c_str())) {
-            AP_INFO("performance log: %s (dips over %.1f ms; F4 marks a moment)",
-                    perf_log_path_.c_str(), perf_spike_ms_);
-        } else {
-            AP_WARN("could not open performance log '%s'; not recording",
-                    perf_log_path_.c_str());
-        }
-    }
+    // Off unless the command line asked for it. The F1 menu is the normal way
+    // in now, so a plain launch records nothing until someone says so.
+    if (perf_logging_) set_frame_logging(true);
 
     WallClock::time_point last = WallClock::now();
 
@@ -3542,6 +3727,7 @@ int App::run() {
         }
 
         camera_frame_dt_ = static_cast<float>(std::clamp(dt, 0.0, 0.1));
+        perf_mark_feedback_s_=std::max(0.f,perf_mark_feedback_s_-camera_frame_dt_);
         repair_shop_feedback_s_=std::max(0.f,repair_shop_feedback_s_-camera_frame_dt_);
         mission_success_feedback_s_=std::max(
             0.f,mission_success_feedback_s_-camera_frame_dt_);
@@ -3586,6 +3772,14 @@ int App::run() {
                     kMaxStepsPerFrame);
         }
 
+        const WallClock::time_point sim_t0 = WallClock::now();
+        sim_traffic_ms_ = sim_police_ms_ = sim_character_ms_ = 0.0;
+        // Accumulate rather than assign: a frame can owe a dozen steps, and
+        // the question is what the FRAME spent, not what its last step did.
+        const auto add_ms = [](double& into, WallClock::time_point from) {
+            into += std::chrono::duration<double>(WallClock::now() - from)
+                        .count() * 1000.0;
+        };
         for (int i = 0; i < tick.steps; ++i) {
             const InputFrame live_input = tire_track_check_
                 ? tire_track_check_input()
@@ -3659,6 +3853,15 @@ int App::run() {
             const Conditions road_conditions = conditions_with_local_snow(conditions_,
                 snow_contact.hit ? snow_contact.snow_depth_m : conditions_.snow_depth_m);
             auto step_tuning = conditioned_tuning(tuning_, road_conditions);
+            if (vehicle_god_mode_) {
+                // Both knobs, not one. impact_damage_per_mps is what removes
+                // health; body_damage_gain is what deforms the shell and what
+                // the mechanical systems read to decide a leak has started.
+                // Zeroing only the first leaves an undentable car that still
+                // bleeds oil, which reads as the toggle being broken.
+                step_tuning.impact_damage_per_mps = 0.0f;
+                step_tuning.body_damage_gain = 0.0f;
+            }
             // Loaded rig accelerates/brakes more slowly without changing the
             // tractor suspension mass or letting it sag through its wheels.
             if (trailer_.attached) {
@@ -3694,6 +3897,7 @@ int App::run() {
                 step_vehicle_mechanical(parked.state.mechanical,parked.state.body_damage,
                     static_cast<float>(kSimDt),parked.state.mechanical_key);
             if (transitioning) step_vehicle_transition();
+            const WallClock::time_point character_t0 = WallClock::now();
             if (on_foot_ && !transitioning && !boat_was_transitioning) {
                 InputFrame character_input = apply_drunk_input(raw_input, drunk_);
                 character_input.look_dx = i == 0
@@ -3746,9 +3950,11 @@ int App::run() {
             }
             step_weapon_use(weapon_available && on_foot_ && !vehicle_transition_.active() &&
                 !boat_transition_.active(),static_cast<float>(kSimDt));
+            add_ms(sim_character_ms_, character_t0);
             if (on_foot_ && (weapon_use_.aim_blend>.01f || weapon_use_.recoil>0.f)) {
                 player_character_.facing_yaw=player_character_.view_yaw;
             }
+            const WallClock::time_point police_t0 = WallClock::now();
             const bool player_armed = player_has_drawn_weapon();
             const glm::vec3 police_target = player_focus_position();
             const int wanted_level_before_offenses = wanted_.level();
@@ -3768,19 +3974,31 @@ int App::run() {
                 player_model_tuning(driving_mechanics_style_,
                                     PlayerCarId::MunicipalCruiser91C),
                 road_conditions));
+            add_ms(sim_police_ms_, police_t0);
+
+            const WallClock::time_point traffic_t0 = WallClock::now();
             world_.step_traffic(static_cast<int64_t>(step_index_), car_,
                                 foot_hazard_ptr);
+            add_ms(sim_traffic_ms_, traffic_t0);
+
+            const WallClock::time_point police_t1 = WallClock::now();
             check_police_shots();
             check_pedestrian_casualties();
             check_on_foot_traffic_hits();
+            add_ms(sim_police_ms_, police_t1);
             snowplow_service_.step(world_.traffic().vehicles(), snow_clearance_,
                                     conditions_.snow_depth_m);
             traffic_horn_audio_.update(step_index_,world_.traffic().vehicles(),
                 world_.lanes(),world_.traffic_tuning(),camera_.position);
+            const WallClock::time_point traffic_t1 = WallClock::now();
             world_.resolve_traffic_collision(
                 car_, tuning_.car_collision_half_width,
-                tuning_.car_collision_half_length, tuning_.mass_kg, tuning_.body_damage_gain);
+                tuning_.car_collision_half_length, tuning_.mass_kg,
+                vehicle_god_mode_ ? 0.0f : tuning_.body_damage_gain);
+            add_ms(sim_traffic_ms_, traffic_t1);
+            const WallClock::time_point police_t2 = WallClock::now();
             check_police_collision_offenses();
+            add_ms(sim_police_ms_, police_t2);
             // Traffic may displace the tractor after its vehicle step. Keep
             // the final published hitch pose exact, including while on foot.
             if (trailer_.attached && glm::distance(tractor_hitch(car_,tuning_),
@@ -3799,12 +4017,14 @@ int App::run() {
                                   world_.traffic());
             tire_tracks_.step(car_, vehicle_input.handbrake,
                               road_conditions.snow_cover, step_index_);
+            const WallClock::time_point police_t3 = WallClock::now();
             const auto current_police_visible=visible_police(player_focus_position());
             check_police_arrest(current_police_visible);
             wanted_.update(
                 static_cast<float>(kSimDt),
                 !current_police_visible.empty(),
                 world_.traffic().police_tuning());
+            add_ms(sim_police_ms_, police_t3);
             // The stars flash from the crime until the dispatch radio goes
             // out (PENG-46); the crowd owns that step, so the latch clears
             // on exactly the frame the callout would play.
@@ -3833,6 +4053,8 @@ int App::run() {
             if (boat_check_ && !boat_check_ran_) run_boat_check();
             if (trailer_check_ && !trailer_check_ran_) run_trailer_check();
         }
+        sim_ms_ = std::chrono::duration<double>(WallClock::now() - sim_t0)
+                      .count() * 1000.0;
 
         // Consume latched edges ONLY when a step actually ran. On a zero-step
         // frame the edges stay latched for the next one. Moving this out of
@@ -4034,6 +4256,7 @@ int App::run() {
         car_visual_.sync_driver_door(scene_,vehicle_transition_.active()
             ? vehicle_transition_door_open(sample_vehicle_transition(vehicle_transition_,
                 transition_waiting_ ? 1.f : static_cast<float>(clock_.alpha()))) : 0.f);
+        const WallClock::time_point visual_t0 = WallClock::now();
         character_visual_.set_player_weapon_pose(weapon_wheel_.equipped,
             weapon_use_.equip_blend,weapon_use_.aim_blend,weapon_use_.recoil,
             weapon_use_.reload_progress(),weapon_use_.reloading,player_character_.view_pitch);
@@ -4074,7 +4297,12 @@ int App::run() {
             presentation_focus,traffic_presentation_radius);
         police_weapon_visual_.sync(
             scene_, character_visual_.police_weapon_sockets());
+        const WallClock::time_point scene_t0 = WallClock::now();
+        visual_ms_ = std::chrono::duration<double>(scene_t0 - visual_t0)
+                         .count() * 1000.0;
         scene_.update();
+        scene_ms_ = std::chrono::duration<double>(WallClock::now() - scene_t0)
+                        .count() * 1000.0;
 
         PrecipitationType precipitation_type = PrecipitationType::Rain;
         float precipitation_intensity = controls_.rain;
@@ -4178,24 +4406,7 @@ int App::run() {
     // Closed HERE rather than at the end of run(), because the paths below
     // return early on a failed check and a performance log without its trailer
     // is the half of the file nobody can read.
-    if (perf_log_.enabled()) {
-        const FrameLog::Summary perf = perf_log_.summary();
-        AP_INFO("performance: %d frames, p50 %.2f ms (%.0f fps), p99 %.2f ms, "
-                "worst %.2f ms; %d dips (%.2f%%), %.0f ms of stutter",
-                perf.frames, perf.p50_ms,
-                perf.p50_ms > 0.0 ? 1000.0 / perf.p50_ms : 0.0, perf.p99_ms,
-                perf.worst_ms, perf.spikes,
-                perf.frames > 0 ? 100.0 * perf.spikes / perf.frames : 0.0,
-                perf.stutter_ms);
-        for (const FrameLog::Hotspot& h : perf_log_.hotspots()) {
-            AP_INFO("  dips at (%.0f, %.0f) %s: %u of %u frames slow, worst %.1f ms",
-                    static_cast<double>(h.x), static_cast<double>(h.z), h.place,
-                    h.slow, h.frames, h.worst_ms);
-        }
-        const std::string perf_path = perf_log_.path();
-        perf_log_.close();
-        AP_INFO("performance log written: %s", perf_path.c_str());
-    }
+    set_frame_logging(false);
 
     gl_errors_ += drain_gl_errors("at shutdown");
     const auto& light_grid=tiled_lighting_.grid();

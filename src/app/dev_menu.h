@@ -196,6 +196,10 @@ enum class DevMenuActionKind : uint8_t {
     RepairVehicle,
     CopyPlayerPosition,
     SetWantedLevel,
+    SetNeverWanted,
+    SetFrameLogging,
+    SetGodMode,
+    SetVehicleGodMode,
     SetWeather,
     SetTime,
     SetSnowDepth,
@@ -212,6 +216,10 @@ struct DevMenuAction {
     PlayerCarId player_car = PlayerCarId::LegacyCar5;
     CarSoundUse car_sound_use = CarSoundUse::Accelerate;
     int sound_variant = 0;
+    bool never_wanted = false;
+    bool frame_logging = false;
+    bool god_mode = false;
+    bool vehicle_god_mode = false;
     DevWeatherPreset weather = DevWeatherPreset::Dynamic;
     DevTimePreset time = DevTimePreset::Live;
     // Negative restores automatic accumulation; otherwise this is a fixed
@@ -256,6 +264,10 @@ public:
     int camera_mode() const { return camera_mode_; }
     bool camera_auto_recenter() const { return camera_auto_recenter_; }
     int wanted_level() const { return wanted_level_; }
+    bool never_wanted() const { return never_wanted_; }
+    bool frame_logging() const { return frame_logging_; }
+    bool god_mode() const { return god_mode_; }
+    bool vehicle_god_mode() const { return vehicle_god_mode_; }
 
     void set_waypoint_available(bool available) {
         waypoint_available_ = available;
@@ -264,6 +276,11 @@ public:
     void set_wanted_level(int level) {
         wanted_level_ = std::clamp(level, 0, 5);
     }
+
+    void set_never_wanted(bool never) { never_wanted_ = never; }
+    void set_frame_logging(bool on) { frame_logging_ = on; }
+    void set_god_mode(bool on) { god_mode_ = on; }
+    void set_vehicle_god_mode(bool on) { vehicle_god_mode_ = on; }
 
     void set_driving_mechanics(DrivingMechanicsStyle style) {
         driving_mechanics_ = style;
@@ -299,7 +316,7 @@ public:
     }
 
     int item_count() const {
-        if (page_ == DevMenuPage::Root) return 7;
+        if (page_ == DevMenuPage::Root) return 8;
         if (page_ == DevMenuPage::Teleport) {
             return static_cast<int>(kDevTeleportLocations.size()) +
                    (waypoint_available_ ? 1 : 0);
@@ -307,7 +324,7 @@ public:
         if (page_ == DevMenuPage::DrivingMechanics) {
             return static_cast<int>(kDrivingMechanicsStyleCount);
         }
-        if (page_ == DevMenuPage::Vehicle) return 4;
+        if (page_ == DevMenuPage::Vehicle) return 6;
         if (page_ == DevMenuPage::WeatherTime) return 3;
         if (page_ == DevMenuPage::Weather) {
             return static_cast<int>(DevWeatherPreset::kCount);
@@ -320,7 +337,8 @@ public:
         }
         if (page_ == DevMenuPage::Camera) return 2;
         if (page_ == DevMenuPage::Wanted) {
-            return static_cast<int>(kDevWantedLevelLabels.size());
+            // The five levels, plus the NEVER WANTED toggle beneath them.
+            return static_cast<int>(kDevWantedLevelLabels.size()) + 1;
         }
         if (page_ == DevMenuPage::VehicleBrands) {
             return static_cast<int>(kPlayerCarBrands.size());
@@ -379,7 +397,8 @@ public:
             if (index == 3) return "WEATHER & TIME  >";
             if (index == 4) return "CAMERA  >";
             if (index == 5) return "SOUND TESTING  >";
-            if (index == 6) return "REPORT BUG  [F2]";
+            if (index == 6) return "FRAME LOGGING";
+            if (index == 7) return "REPORT BUG  [F2]";
             return "";
         }
         if (index < 0 || index >= item_count()) return "";
@@ -397,7 +416,9 @@ public:
             if (index == 0) return "CHOOSE CAR  >";
             if (index == 1) return "REPAIR";
             if (index == 2) return "COPY POSITION";
-            return "WANTED LEVEL  >";
+            if (index == 3) return "WANTED LEVEL  >";
+            if (index == 4) return "GOD MODE";
+            return "VEHICLE GOD MODE";
         }
         if (page_ == DevMenuPage::WeatherTime) {
             if (index == 0) return "WEATHER  >";
@@ -417,6 +438,9 @@ public:
             return index == 0 ? "VIEW MODE" : "AUTO RECENTER";
         }
         if (page_ == DevMenuPage::Wanted) {
+            if (index == static_cast<int>(kDevWantedLevelLabels.size())) {
+                return "NEVER WANTED";
+            }
             return kDevWantedLevelLabels[static_cast<std::size_t>(index)];
         }
         if (page_ == DevMenuPage::VehicleBrands) {
@@ -449,6 +473,15 @@ public:
         }
         if (page_ == DevMenuPage::Root && index == 2) {
             return player_car_definition(player_car_).model;
+        }
+        if (page_ == DevMenuPage::Root && index == 6) {
+            return frame_logging_ ? "ON" : "OFF";
+        }
+        if (page_ == DevMenuPage::Vehicle && index == 4) {
+            return god_mode_ ? "ON" : "OFF";
+        }
+        if (page_ == DevMenuPage::Vehicle && index == 5) {
+            return vehicle_god_mode_ ? "ON" : "OFF";
         }
         if (page_ == DevMenuPage::Vehicle && index == 0) {
             return player_car_definition(player_car_).model;
@@ -497,7 +530,15 @@ public:
         if (page_ == DevMenuPage::Camera && index == 1) {
             return camera_auto_recenter_ ? "ON" : "OFF";
         }
-        if (page_ == DevMenuPage::Wanted && index == wanted_level_) {
+        if (page_ == DevMenuPage::Wanted &&
+            index == static_cast<int>(kDevWantedLevelLabels.size())) {
+            return never_wanted_ ? "ON" : "OFF";
+        }
+        // No ACTIVE marker while the toggle is suppressing heat: a menu that
+        // says "3 STARS  ACTIVE" next to "NEVER WANTED  ON" is lying about one
+        // of the two.
+        if (page_ == DevMenuPage::Wanted && !never_wanted_ &&
+            index == wanted_level_) {
             return "ACTIVE";
         }
         return "";
@@ -582,6 +623,12 @@ public:
                 page_ = DevMenuPage::Camera;
             } else if (selection_ == 5) {
                 page_ = DevMenuPage::SoundTesting;
+            } else if (selection_ == 6) {
+                frame_logging_ = !frame_logging_;
+                DevMenuAction action;
+                action.kind = DevMenuActionKind::SetFrameLogging;
+                action.frame_logging = frame_logging_;
+                return action;
             } else {
                 DevMenuAction action;
                 action.kind = DevMenuActionKind::ReportBug;
@@ -615,6 +662,20 @@ public:
                 page_ = DevMenuPage::VehicleBrands;
                 selection_ = player_car_brand_index(player_car_);
                 return {};
+            }
+            if (selection_ == 4) {
+                god_mode_ = !god_mode_;
+                DevMenuAction toggled;
+                toggled.kind = DevMenuActionKind::SetGodMode;
+                toggled.god_mode = god_mode_;
+                return toggled;
+            }
+            if (selection_ == 5) {
+                vehicle_god_mode_ = !vehicle_god_mode_;
+                DevMenuAction toggled;
+                toggled.kind = DevMenuActionKind::SetVehicleGodMode;
+                toggled.vehicle_god_mode = vehicle_god_mode_;
+                return toggled;
             }
             DevMenuAction action;
             if (selection_ == 1) {
@@ -706,8 +767,20 @@ public:
             return action;
         }
         if (page_ == DevMenuPage::Wanted) {
-            wanted_level_ = selection_;
             DevMenuAction action;
+            if (selection_ ==
+                static_cast<int>(kDevWantedLevelLabels.size())) {
+                never_wanted_ = !never_wanted_;
+                if (never_wanted_) wanted_level_ = 0;
+                action.kind = DevMenuActionKind::SetNeverWanted;
+                action.never_wanted = never_wanted_;
+                return action;
+            }
+            // Asking for stars means you want heat. Clearing the suppression
+            // here rather than ignoring the press keeps the row from becoming
+            // a control that silently does nothing.
+            never_wanted_ = false;
+            wanted_level_ = selection_;
             action.kind = DevMenuActionKind::SetWantedLevel;
             action.wanted_level = wanted_level_;
             return action;
@@ -748,6 +821,16 @@ private:
     bool camera_auto_recenter_ = true;
     bool waypoint_available_ = false;
     int wanted_level_ = 0;
+    // Suppresses heat entirely rather than clearing it once. Session-only,
+    // like every other developer toggle here: it is a debugging aid, not a
+    // difficulty setting, and it must not survive into a save.
+    bool never_wanted_ = false;
+    // Recording is OFF until asked for. It writes a file and costs a little
+    // every frame, so a session that nobody asked to profile should not be
+    // paying for one.
+    bool frame_logging_ = false;
+    bool god_mode_ = false;
+    bool vehicle_god_mode_ = false;
     int brand_index_ = 0;
     CarSoundUse car_sound_use_ = CarSoundUse::Accelerate;
 };

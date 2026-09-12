@@ -39,6 +39,7 @@
 #include "audio/police_siren.h"
 #include "core/fixed_step.h"
 #include "core/frame_log.h"
+#include "gfx/gpu_timer.h"
 #include "game/conditions.h"
 #include "game/snowpack.h"
 #include "app/snowplow_service.h"
@@ -189,6 +190,9 @@ public:
     // Where this session's per-frame performance CSV goes. Empty disables the
     // recorder entirely, and a disabled recorder does no per-frame work.
     void set_perf_log_path(std::string path) { perf_log_path_ = std::move(path); }
+    // False disables recording outright. When true and no path was given, the
+    // app picks one next to the save game — see default_perf_log_path().
+    void set_perf_logging(bool on) { perf_logging_ = on; }
     void set_perf_spike_ms(double ms) { perf_spike_ms_ = ms; }
 
     void set_screenshot_path(std::string path) {
@@ -626,6 +630,20 @@ private:
     // ever reaches the sim, which sees a constant dt and nothing else.
     double cull_ms_ = 0.0;
     double mesh_ms_ = 0.0;
+
+    // The phase breakdown, measured in App because App owns the program's only
+    // clock. Display and log only; none of it ever reaches the sim.
+    double sim_ms_ = 0.0;
+    // Inside the sim step. Accumulated ACROSS the steps a frame owes, so they
+    // are comparable with sim_ms_ directly rather than per-step.
+    double sim_traffic_ms_ = 0.0;
+    double sim_police_ms_ = 0.0;
+    double sim_character_ms_ = 0.0;
+    double visual_ms_ = 0.0;
+    double scene_ms_ = 0.0;
+    double render_ms_ = 0.0;
+    double swap_ms_ = 0.0;
+    GpuTimer gpu_timer_;
     double peak_cull_ms_ = 0.0;
     double peak_mesh_ms_ = 0.0;
     int stream_spikes_ = 0;
@@ -660,8 +678,18 @@ private:
     FrameLog perf_log_;
     std::string perf_log_path_;
     double perf_spike_ms_ = 20.0;
+    // Recording is opt-in now: the F1 menu opens the log mid-session rather
+    // than every launch paying for one. --perf-log still forces it on.
+    bool perf_logging_ = false;
+    bool god_mode_ = false;
+    bool vehicle_god_mode_ = false;
+    void set_frame_logging(bool on);
     bool perf_mark_pending_ = false;
     bool perf_clock_reset_ = false;
+    // Seconds left on the on-screen confirmation after an F4 press.
+    float perf_mark_feedback_s_ = 0.0f;
+    // Just the session number out of the path, for the HUD badge.
+    std::string perf_log_label_;
     int perf_marks_ = 0;
     int perf_spikes_logged_ = 0;
 

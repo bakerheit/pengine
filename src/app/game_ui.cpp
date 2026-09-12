@@ -1819,13 +1819,57 @@ void GameUi::draw_map(Hud& hud, const UiFlow& flow, const GameUiSnapshot& snapsh
                       vp.x * 0.57f, vp.y - 34, 18, muted);
 }
 
+void GameUi::draw_perf_recorder(Hud& hud, const GameUiSnapshot& snapshot,
+                                glm::vec2 vp) const {
+    if (!snapshot.perf_logging || vp.x <= 0.0f || vp.y <= 0.0f) return;
+
+    // Directly under the clock, sharing its right edge and width so the two
+    // read as one stack rather than two things that happen to be near a
+    // corner.
+    constexpr float width = 142.0f;
+    constexpr float height = 30.0f;
+    const float right = vp.x - 28.0f;
+    const float top = 28.0f + 54.0f + 8.0f;
+    const float left = right - width;
+
+    hud.rect({left, top}, {right, top + height}, {0.01f, 0.015f, 0.02f, 0.72f});
+
+    // A slow pulse, keyed on the SIM STEP rather than a wall clock. Every
+    // other animated element in this HUD is keyed the same way, and a replay
+    // that pulses differently from the run it recorded is a distraction in
+    // exactly the footage someone is studying frame by frame.
+    const float phase =
+        static_cast<float>(snapshot.step % 240) / 240.0f;
+    // Never fades far enough to stop reading as RED. A recording dot that
+    // dims to grey looks like a disabled control at the bottom of its cycle,
+    // which is the opposite of what it is there to say.
+    const float pulse = 0.78f + 0.22f * std::cos(phase * 6.2831853f);
+    const bool marked = snapshot.perf_mark_feedback_s > 0.0f;
+
+    const glm::vec4 dot = marked ? glm::vec4{0.35f, 0.95f, 0.45f, 1.0f}
+                                 : glm::vec4{0.92f, 0.22f, 0.20f, pulse};
+    hud.circle({left + 17.0f, top + height * 0.5f}, 6.0f, dot);
+
+    char label[32];
+    if (marked) {
+        std::snprintf(label, sizeof(label), "MARK %d", snapshot.perf_marks);
+    } else {
+        std::snprintf(label, sizeof(label), "REC %s", snapshot.perf_log_label);
+    }
+    hud.text(label, {left + 30.0f, top + 6.0f}, 19.0f,
+             marked ? glm::vec4{0.35f, 0.95f, 0.45f, 1.0f} : kMuted);
+}
+
 void GameUi::draw(Hud& hud, const UiFlow& flow,
                   const GameUiSnapshot& snapshot, glm::vec2 viewport_px) const {
     switch (flow.screen()) {
         case UiScreen::Title: draw_title(hud, flow, viewport_px, snapshot.title_opacity); break;
         case UiScreen::Pause: draw_pause(hud, flow, snapshot, viewport_px); break;
         case UiScreen::Map:   draw_map(hud, flow, snapshot, viewport_px); break;
-        case UiScreen::Driving: draw_minimap(hud, flow, snapshot, viewport_px); break;
+        case UiScreen::Driving:
+            draw_minimap(hud, flow, snapshot, viewport_px);
+            draw_perf_recorder(hud, snapshot, viewport_px);
+            break;
         case UiScreen::Settings: draw_settings(hud, flow, viewport_px); break;
     }
     if (snapshot.save_notice && snapshot.save_notice[0] &&

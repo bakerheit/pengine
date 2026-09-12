@@ -63,6 +63,27 @@ struct FrameSample {
     // --- what it cost -----------------------------------------------------
     int sim_steps = 0;
     bool step_clamped = false;
+
+    // The PHASE breakdown: where the frame actually went. These are the
+    // columns that turn "it was slow at that junction" into a cause. They are
+    // deliberately coarse and deliberately complete — an earlier version of
+    // this recorder logged only the four costs below, which on a 31 ms dip
+    // frame summed to 1.35 ms and left 96% of the frame unexplained. Detail
+    // that does not add up to the whole is not detail, it is a decoy.
+    double sim_ms = 0.0;     // the fixed-step loop: traffic, police, peds, car
+    // Inside sim_ms. Not exhaustive on purpose — the three biggest suspects,
+    // with sim_other carrying the rest, so the split can never silently fail
+    // to add up the way a set of hand-picked costs did before it.
+    double sim_traffic_ms = 0.0;
+    double sim_police_ms = 0.0;
+    double sim_character_ms = 0.0;
+    double world_ms = 0.0;   // terrain streaming and chunk meshing
+    double visual_ms = 0.0;  // building scene nodes from sim state
+    double scene_ms = 0.0;   // Scene::update()
+    double render_ms = 0.0;  // render(), CPU side, swap excluded
+    double swap_ms = 0.0;    // blocked in the buffer swap — vsync lives here
+    double gpu_ms = 0.0;     // GL_TIME_ELAPSED; lags a frame or two, may be 0
+
     double cull_ms = 0.0;
     double mesh_ms = 0.0;
     double light_ms = 0.0;
@@ -90,6 +111,27 @@ struct FrameSample {
     int hud_quads = 0;
     int gl_errors = 0;
 };
+
+// What the phases add up to. Deliberately NOT a sum of every ms field in the
+// sample: world_ms already contains mesh_ms, and render_ms already contains
+// cull_ms and light_ms, so adding those again would double-count the very
+// frames under investigation and produce an "accounted" figure over 100%.
+// gpu_ms is excluded for a different reason — it runs CONCURRENTLY with CPU
+// work, so it is not a slice of the frame, it is a second view of it.
+// Whatever in the sim step is not one of the three named sub-phases. Clamped
+// at zero: the sub-timers are sampled inside the step loop and sim_ms outside
+// it, so a pathological frame can round to a hair below zero, and a negative
+// "other" reads as a measurement bug rather than as rounding.
+inline double sim_other_ms(const FrameSample& s) {
+    const double named =
+        s.sim_traffic_ms + s.sim_police_ms + s.sim_character_ms;
+    return (s.sim_ms > named) ? s.sim_ms - named : 0.0;
+}
+
+inline double accounted_ms(const FrameSample& s) {
+    return s.sim_ms + s.world_ms + s.visual_ms + s.scene_ms + s.render_ms +
+           s.swap_ms;
+}
 
 class FrameLog {
 public:
@@ -162,6 +204,19 @@ public:
         double p999_ms = 0.0;
         int spikes = 0;
         double spike_ms_total = 0.0;
+
+        // Mean phase cost across every frame, and across dip frames only. The
+        // second is the one worth reading: it says where a BAD frame goes,
+        // which is rarely the same shape as where an average one goes.
+        double sim_ms = 0.0, world_ms = 0.0, visual_ms = 0.0, scene_ms = 0.0;
+        double sim_traffic_ms = 0.0, sim_police_ms = 0.0, sim_character_ms = 0.0;
+        double sim_other_ms = 0.0;
+        double dip_sim_traffic_ms = 0.0, dip_sim_police_ms = 0.0;
+        double dip_sim_character_ms = 0.0, dip_sim_other_ms = 0.0;
+        double render_ms = 0.0, swap_ms = 0.0, gpu_ms = 0.0, unaccounted_ms = 0.0;
+        double dip_sim_ms = 0.0, dip_world_ms = 0.0, dip_visual_ms = 0.0;
+        double dip_scene_ms = 0.0, dip_render_ms = 0.0, dip_swap_ms = 0.0;
+        double dip_gpu_ms = 0.0, dip_unaccounted_ms = 0.0;
         // Wall time the session spent ABOVE the median, on spike frames only:
         // the honest size of the stutter budget, rather than the raw total,
         // which counts the frame you would have paid for anyway.
@@ -228,9 +283,11 @@ public:
         recent_head_ = (recent_head_ + 1u) % kRecentFrames;
         if (recent_count_ < kRecentFrames) ++recent_count_;
 
+        add_phases(phase_, s);
         if (spike) {
             ++spikes_;
             spike_ms_total_ += s.ms;
+            add_phases(dip_phase_, s);
             remember_worst(s);
         }
         tally_cell(s, spike);
@@ -269,6 +326,33 @@ public:
         out.spike_ms_total = spike_ms_total_;
         out.stutter_ms =
             std::max(0.0, spike_ms_total_ - out.p50_ms * spikes_);
+
+        const double n = (frames_ > 0) ? frames_ : 1.0;
+        const double d = (spikes_ > 0) ? spikes_ : 1.0;
+        out.sim_ms = phase_.sim / n;
+        out.world_ms = phase_.world / n;
+        out.visual_ms = phase_.visual / n;
+        out.scene_ms = phase_.scene / n;
+        out.render_ms = phase_.render / n;
+        out.swap_ms = phase_.swap / n;
+        out.gpu_ms = phase_.gpu / n;
+        out.unaccounted_ms = phase_.unaccounted / n;
+        out.sim_traffic_ms = phase_.traffic / n;
+        out.sim_police_ms = phase_.police / n;
+        out.sim_character_ms = phase_.character / n;
+        out.sim_other_ms = phase_.sim_other / n;
+        out.dip_sim_traffic_ms = phase_dip(dip_phase_.traffic, d);
+        out.dip_sim_police_ms = phase_dip(dip_phase_.police, d);
+        out.dip_sim_character_ms = phase_dip(dip_phase_.character, d);
+        out.dip_sim_other_ms = phase_dip(dip_phase_.sim_other, d);
+        out.dip_sim_ms = phase_dip(dip_phase_.sim, d);
+        out.dip_world_ms = phase_dip(dip_phase_.world, d);
+        out.dip_visual_ms = phase_dip(dip_phase_.visual, d);
+        out.dip_scene_ms = phase_dip(dip_phase_.scene, d);
+        out.dip_render_ms = phase_dip(dip_phase_.render, d);
+        out.dip_swap_ms = phase_dip(dip_phase_.swap, d);
+        out.dip_gpu_ms = phase_dip(dip_phase_.gpu, d);
+        out.dip_unaccounted_ms = phase_dip(dip_phase_.unaccounted, d);
         return out;
     }
 
@@ -322,8 +406,16 @@ public:
     }
 
     static const char* header_line() {
+        // Read this by NAME, never by position — tools/perf_report.sh does,
+        // and that is what lets a column be inserted here without silently
+        // reinterpreting every older log on disk.
         return "frame,t_s,ms,fps,spike,mark,x,y,z,place,mode,speed_mph,"
-               "sim_steps,clamped,cull_ms,mesh_ms,light_ms,fill_ms,"
+               "sim_steps,clamped,"
+               "sim_ms,sim_traffic_ms,sim_police_ms,sim_character_ms,"
+               "sim_other_ms,"
+               "world_ms,visual_ms,scene_ms,render_ms,swap_ms,gpu_ms,"
+               "accounted_ms,unaccounted_ms,"
+               "cull_ms,mesh_ms,light_ms,fill_ms,"
                "draw_calls,instances,visible_nodes,scene_nodes,batches,"
                "skipped_binds,chunks_built,chunks_evicted,resident_chunks,"
                "terrain_mb,budget_hit,cars,parked,npcs,char_draws,lights,"
@@ -347,6 +439,29 @@ private:
         double t_s = 0.0;
         double ms = 0.0;
     };
+
+    struct Phases {
+        double sim = 0.0, world = 0.0, visual = 0.0, scene = 0.0;
+        double render = 0.0, swap = 0.0, gpu = 0.0, unaccounted = 0.0;
+        double traffic = 0.0, police = 0.0, character = 0.0, sim_other = 0.0;
+    };
+
+    static void add_phases(Phases& p, const FrameSample& s) {
+        p.sim += s.sim_ms;
+        p.world += s.world_ms;
+        p.visual += s.visual_ms;
+        p.scene += s.scene_ms;
+        p.render += s.render_ms;
+        p.swap += s.swap_ms;
+        p.gpu += s.gpu_ms;
+        p.unaccounted += s.ms - accounted_ms(s);
+        p.traffic += s.sim_traffic_ms;
+        p.police += s.sim_police_ms;
+        p.character += s.sim_character_ms;
+        p.sim_other += sim_other_ms(s);
+    }
+
+    static double phase_dip(double total, double count) { return total / count; }
 
     static std::size_t bucket_of(double ms) {
         if (!(ms > 0.0)) return 0;
@@ -441,11 +556,15 @@ private:
         scrub(s.weather, weather, sizeof(weather));
         scrub(mark_label, label, sizeof(label));
 
-        char row[640];
+        char row[896];
         const int n = std::snprintf(
             row, sizeof(row),
             "%d,%.3f,%.3f,%.1f,%d,%s,%.1f,%.1f,%.1f,%s,%s,%.1f,"
-            "%d,%d,%.3f,%.3f,%.3f,%.1f,"
+            "%d,%d,"
+            "%.3f,%.3f,%.3f,%.3f,%.3f,"
+            "%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,"
+            "%.3f,%.3f,"
+            "%.3f,%.3f,%.3f,%.1f,"
             "%d,%d,%d,%d,%d,"
             "%u,%d,%d,%zu,"
             "%.2f,%d,%d,%d,%d,%d,%zu,"
@@ -454,7 +573,12 @@ private:
             spike ? 1 : 0, label, static_cast<double>(s.x),
             static_cast<double>(s.y), static_cast<double>(s.z), place, mode,
             static_cast<double>(s.speed_mph), s.sim_steps,
-            s.step_clamped ? 1 : 0, s.cull_ms, s.mesh_ms, s.light_ms, s.fill_ms,
+            s.step_clamped ? 1 : 0,
+            s.sim_ms, s.sim_traffic_ms, s.sim_police_ms, s.sim_character_ms,
+            sim_other_ms(s),
+            s.world_ms, s.visual_ms, s.scene_ms, s.render_ms,
+            s.swap_ms, s.gpu_ms, accounted_ms(s), s.ms - accounted_ms(s),
+            s.cull_ms, s.mesh_ms, s.light_ms, s.fill_ms,
             s.draw_calls, s.instances, s.visible_nodes, s.scene_nodes,
             s.batches, s.skipped_binds, s.chunks_built, s.chunks_evicted,
             s.resident_chunks, s.terrain_mb, s.budget_hit ? 1 : 0, s.cars,
@@ -493,6 +617,39 @@ private:
             config_.spike_ms, config_.spike_ratio, sum.spikes, sum.frames,
             sum.frames > 0 ? 100.0 * sum.spikes / sum.frames : 0.0,
             sum.stutter_ms);
+
+        // Where the time went. Printed for every frame AND for dip frames
+        // alone, because the two answers usually differ and the second is the
+        // one that names the bug.
+        pending_ += "#\n# ---- where the time goes (mean ms per frame) ----\n";
+        say("# %-12s %9s %9s\n", "phase", "all", "dips");
+        const auto phase_row = [&](const char* name, double all, double dip) {
+            say("# %-12s %9.2f %9.2f\n", name, all, dip);
+        };
+        phase_row("sim", sum.sim_ms, sum.dip_sim_ms);
+        phase_row("  traffic", sum.sim_traffic_ms, sum.dip_sim_traffic_ms);
+        phase_row("  police", sum.sim_police_ms, sum.dip_sim_police_ms);
+        phase_row("  character", sum.sim_character_ms, sum.dip_sim_character_ms);
+        phase_row("  other", sum.sim_other_ms, sum.dip_sim_other_ms);
+        phase_row("world", sum.world_ms, sum.dip_world_ms);
+        phase_row("visual", sum.visual_ms, sum.dip_visual_ms);
+        phase_row("scene", sum.scene_ms, sum.dip_scene_ms);
+        phase_row("render", sum.render_ms, sum.dip_render_ms);
+        phase_row("swap", sum.swap_ms, sum.dip_swap_ms);
+        phase_row("unaccounted", sum.unaccounted_ms, sum.dip_unaccounted_ms);
+        say("# %-12s %9.2f %9.2f  (concurrent with the CPU, not a slice of it)\n",
+            "gpu", sum.gpu_ms, sum.dip_gpu_ms);
+        say("# %-12s %9.2f %9.2f\n", "TOTAL", sum.mean_ms,
+            sum.spikes > 0 ? sum.spike_ms_total / sum.spikes : 0.0);
+        // Time in swap is time blocked on the display, not work. When it
+        // dominates, the frame missed a vsync deadline and everything above it
+        // is already fast enough — look at gpu, not at the CPU phases.
+        if (sum.dip_swap_ms > 0.5 * (sum.spikes > 0
+                                         ? sum.spike_ms_total / sum.spikes
+                                         : 1.0)) {
+            pending_ += "# NOTE: most of a dip is spent blocked in swap — "
+                        "these frames missed a display deadline.\n";
+        }
 
         const std::vector<Mark> marks = marks_;
         if (!marks.empty()) {
@@ -559,6 +716,8 @@ private:
     bool have_ema_ = false;
     int spikes_ = 0;
     double spike_ms_total_ = 0.0;
+    Phases phase_;
+    Phases dip_phase_;
 
     std::uint64_t histogram_[kBuckets] = {};
     FrameSample worst_[kMaxWorst];

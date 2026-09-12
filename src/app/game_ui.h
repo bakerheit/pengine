@@ -34,6 +34,16 @@ struct GameUiSnapshot {
     const char* save_notice = "";
     const char* weather = "CLEAR";
     const char* daylight = "DAY";
+
+    // The frame recorder. Shown because a recorder you cannot see is one you
+    // cannot trust: the question "did that run get logged?" is otherwise only
+    // answerable after quitting, which is exactly too late.
+    bool perf_logging = false;
+    const char* perf_log_label = "";   // the session number, e.g. "004"
+    int perf_marks = 0;
+    // Counts down after F4 so the press has visible confirmation. Without it a
+    // mark is a keystroke into a void and people press it twice.
+    float perf_mark_feedback_s = 0.0f;
 };
 
 // Draws the shipped game UI through Hud's single screen-space batch. It owns
@@ -43,6 +53,12 @@ class GameUi {
 public:
     static constexpr float kArrestedDisplaySeconds = 4.0f;
     void draw_arrested(Hud& hud, float remaining_s, glm::vec2 vp) const;
+
+    // The "we are recording" dot, under the clock. Public so the pause screen
+    // can show it too — checking whether a session is being logged is exactly
+    // the kind of thing you do while paused.
+    void draw_perf_recorder(Hud& hud, const GameUiSnapshot& snapshot,
+                            glm::vec2 vp) const;
     void build_map();
     void draw_minimap(Hud& hud, const UiFlow& flow,
                       const GameUiSnapshot& snapshot, glm::vec2 vp) const;

@@ -632,7 +632,10 @@ void developer_menu_navigates_and_returns_a_teleport() {
     menu.toggle();
     REQUIRE(menu.open());
     REQUIRE(menu.page() == DevMenuPage::Root);
-    REQUIRE(menu.item_count() == 7);
+    // Six submenus, the FRAME LOGGING toggle, then REPORT BUG. This count is
+    // pinned because the rows below it are navigated by index elsewhere; a new
+    // row inserted rather than appended silently reroutes those tests.
+    REQUIRE(menu.item_count() == 8);
 
     REQUIRE(menu.update(kBtnAccept).kind == DevMenuActionKind::None);
     REQUIRE(menu.page() == DevMenuPage::Teleport);
@@ -679,11 +682,15 @@ void developer_menu_navigates_and_returns_a_teleport() {
     REQUIRE(menu.selection() == 2);
     menu.update(kBtnAccept);
     REQUIRE(menu.page() == DevMenuPage::Vehicle);
-    REQUIRE(menu.item_count() == 4);
+    // The two god-mode toggles are APPENDED below WANTED LEVEL rather than
+    // inserted, so rows 0-3 keep the indices this test and others navigate by.
+    REQUIRE(menu.item_count() == 6);
     REQUIRE(std::strcmp(menu.item_label(0), "CHOOSE CAR  >") == 0);
     REQUIRE(std::strcmp(menu.item_label(1), "REPAIR") == 0);
     REQUIRE(std::strcmp(menu.item_label(2), "COPY POSITION") == 0);
     REQUIRE(std::strcmp(menu.item_label(3), "WANTED LEVEL  >") == 0);
+    REQUIRE(std::strcmp(menu.item_label(4), "GOD MODE") == 0);
+    REQUIRE(std::strcmp(menu.item_label(5), "VEHICLE GOD MODE") == 0);
     REQUIRE(std::strcmp(menu.item_value(0), "CAR 5") == 0);
 
     for (std::size_t brand = 1; brand < kPlayerCarBrands.size(); ++brand) {
@@ -954,8 +961,9 @@ void developer_menu_navigates_and_returns_a_teleport() {
 void developer_bug_report_keeps_message_and_capture_metadata() {
     DevMenu menu;
     menu.toggle();
-    menu.set_selection(6);
-    REQUIRE(std::strcmp(menu.item_label(6), "REPORT BUG  [F2]") == 0);
+    // REPORT BUG moved down one when FRAME LOGGING was added above it.
+    menu.set_selection(7);
+    REQUIRE(std::strcmp(menu.item_label(7), "REPORT BUG  [F2]") == 0);
     REQUIRE(menu.update(kBtnAccept).kind == DevMenuActionKind::ReportBug);
 
     BugReportUi report;

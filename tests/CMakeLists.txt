@@ -305,3 +305,9 @@ apricot_add_suite(ped_impact_pose_tests)
 # The per-frame performance recorder behind --perf-log: dip detection,
 # percentiles, the worst-frame list and the hot-spot map.
 apricot_add_suite(frame_log_tests)
+
+# The NEVER WANTED developer toggle and the WantedSystem contract behind it.
+apricot_add_suite(dev_never_wanted_tests)
+
+# FRAME LOGGING, GOD MODE and VEHICLE GOD MODE on the developer menu.
+apricot_add_suite(dev_toggles_tests)

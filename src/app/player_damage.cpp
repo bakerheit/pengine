@@ -19,6 +19,11 @@ namespace apricot {
 // dead MEANS is written once, in kill_player() and step_player_vitals().
 
 bool App::damage_player(float amount, const char* cause) {
+    // God mode sits HERE and nowhere else, for the same reason this function
+    // exists at all: every source of harm already comes through this door, so
+    // one early return covers bullets, falls, cars and fists. A flag tested at
+    // each call site instead is the version that misses the one added next.
+    if (god_mode_) return false;
     if (!player_vitals_.take_damage(amount)) {
         if (player_vitals_.alive() && std::isfinite(amount) && amount > 0.0f) {
             player_hit_feedback_s_ = 0.45f;
