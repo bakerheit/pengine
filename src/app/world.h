@@ -21,6 +21,7 @@
 namespace apricot {
 
 struct AircraftState;
+struct HelicopterState;
 
 // Render-only handle for one authored window pane. The address is stable city
 // data; NodeId is only its current scene slot. lod keeps the last near pattern
@@ -125,6 +126,12 @@ public:
     // Temporarily exclude all aircraft boxes from flight/camera queries, then
     // restore them. Crashed aircraft remain solid unless explicitly disabled.
     void enable_aircraft_collision(TerrainCollider& collider, bool enabled);
+    // The Halberd gunship shares the aircraft's +Z-nose frame, but its rotor
+    // is its own node: the disc is cooked recentred on its hub so this can
+    // spin it about Y without the airframe following it round.
+    void sync_helicopter(Scene& scene, TerrainCollider& collider,
+                         const struct HelicopterState& state);
+    void enable_helicopter_collision(TerrainCollider& collider, bool enabled);
     void sync_boat(Scene& scene, TerrainCollider& collider, const struct BoatState& state);
     void enable_boat_collision(TerrainCollider& collider, bool enabled);
     const Transform* rendered_boat_transform(const Scene& scene) const {
@@ -268,6 +275,11 @@ private:
     std::vector<NodeId> airport_aircraft_nodes_;
     std::vector<std::size_t> airport_aircraft_colliders_;
     bool airport_aircraft_collision_enabled_ = true;
+    std::vector<MeshId> halberd_helicopter_meshes_;
+    std::vector<NodeId> halberd_helicopter_nodes_;   // airframe only
+    NodeId halberd_helicopter_rotor_node_ = kInvalidId;
+    std::vector<std::size_t> halberd_helicopter_colliders_;
+    bool halberd_helicopter_collision_enabled_ = true;
     std::vector<NodeId> start_nodes_;
     std::vector<SkyscraperWindowRuntime> skyscraper_windows_;
     SkyscraperWindowStats skyscraper_window_stats_;

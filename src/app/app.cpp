@@ -53,6 +53,7 @@ extern char** environ;
 #include "city/marina.h"
 #include "city/airport.h"
 #include "city/airport_aircraft.h"
+#include "city/halberd_helicopter.h"
 #include "city/bank_vault_layout.h"
 #include "city/spines.h"
 #include "core/log.h"
@@ -775,6 +776,7 @@ bool App::init() {
     }
 
     reset_aircraft();
+    reset_helicopter();
     reset_boat();
     if (!trailer_visual_.init(renderer_,scene_)) return false;
     reset_freight_yard(true);
@@ -1030,7 +1032,8 @@ void App::capture_and_submit_bug_report() {
     const fs::path screenshot_path = directory / "screenshot.png";
     const fs::path log_path = directory / "codex.log";
     const char* mode = on_foot_ ? "on foot" :
-        (in_aircraft_ ? "aircraft" : (in_boat_ ? "boat" : "vehicle"));
+        (in_aircraft_ ? "aircraft" :
+         (in_helicopter_ ? "helicopter" : (in_boat_ ? "boat" : "vehicle")));
     const std::string report_text = bug_report_markdown(
         bug_report_, static_cast<unsigned long long>(frames_rendered_),
         static_cast<unsigned long long>(step_index_), mode, APRICOT_VERSION);
@@ -1304,7 +1307,7 @@ void App::poll_events() {
         const bool road_vehicle_controls=weapon_focus_ && ui_.screen()==UiScreen::Driving &&
             !dev_menu_.open() && !bug_report_.open && !bank_interaction_.modal() &&
             !bank_input_consumed_ && !opening_cutscene_.active() && !weapon_wheel_.open &&
-            !weapon_input_consumed_ && !on_foot_ && !in_aircraft_ && !in_boat_ &&
+            !weapon_input_consumed_ && !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ &&
             !vehicle_transition_.active() && !boat_transition_.active();
         if (road_vehicle_controls && e.type==SDL_KEYDOWN && e.key.repeat==0 &&
             e.key.keysym.sym==SDLK_h) player_horn_pending_=true;
@@ -1819,12 +1822,14 @@ glm::vec3 App::player_focus_position() const {
     if (in_boat_) return boat_.position;
     if (vehicle_transition_.active()) return car_.position;
     if (in_aircraft_) return aircraft_.position;
+    if (in_helicopter_) return helicopter_.position;
     return on_foot_ ? player_character_.position : car_.position;
 }
 
 glm::vec3 App::player_focus_forward() const {
     if (in_boat_) return boat_forward(boat_);
     if (in_aircraft_) return aircraft_forward(aircraft_);
+    if (in_helicopter_) return helicopter_forward(helicopter_);
     return on_foot_
         ? character_forward(player_character_.facing_yaw)
         : car_.orientation * glm::vec3{0.0f, 0.0f, -1.0f};
@@ -1954,8 +1959,33 @@ bool App::nearby_aircraft() const {
     return !hit.hit || hit.distance >= distance-.08f;
 }
 
+void App::reset_helicopter() {
+    helicopter_ = {};
+    helicopter_.position = {city::kHalberdHelicopterWorldX,
+                            city::kHalberdHelicopterWorldY,
+                            city::kHalberdHelicopterWorldZ};
+    helicopter_.yaw = city::kHalberdHelicopterYaw;
+    prev_helicopter_ = helicopter_;
+    world_.sync_helicopter(scene_, collider_, helicopter_);
+    camera_obstruction_distance_ = -1;
+}
+
+bool App::nearby_helicopter() const {
+    if (!on_foot_ || !helicopter_in_boarding_range(helicopter_,
+        player_character_.position, helicopter_.position.y)) return false;
+    const auto door = helicopter_point(helicopter_,
+        {city::kHalberdHelicopterEntry.x, city::kHalberdHelicopterEntry.y,
+         city::kHalberdHelicopterEntry.z});
+    const auto from = player_character_.position + glm::vec3{0,.85f,0};
+    const auto delta = door-from;
+    const float distance = glm::length(delta);
+    if (distance < .05f) return true;
+    const auto hit = collider_.raycast(from,delta/distance,distance);
+    return !hit.hit || hit.distance >= distance-.08f;
+}
+
 bool App::nearby_bent_elbow() const {
-    if (!on_foot_ || in_aircraft_ || in_boat_) return false;
+    if (!on_foot_ || in_aircraft_ || in_helicopter_ || in_boat_) return false;
     const auto local = city::access_local(city::kNeighborhoodBarSite,
                                           {player_character_.position.x,
                                            player_character_.position.z});
@@ -1977,7 +2007,7 @@ void App::run_aircraft_check() {
     if (aircraft_check_ran_ || step_index_<20) return;
     aircraft_check_ran_=true;
     const auto fail=[&](const char* reason) { AP_ERROR("aircraft check: %s",reason); };
-    reset_aircraft(); on_foot_=true; in_aircraft_=false;
+    reset_aircraft(); on_foot_=true; in_aircraft_=false; in_helicopter_=false;
     const auto door=aircraft_point(aircraft_,{-2.7f,0,10.3f});
     player_character_=spawn_character(collider_,door.x,door.z,0);
     prev_player_character_=player_character_;
@@ -2009,6 +2039,64 @@ void App::run_aircraft_check() {
     world_.fill(scene_,renderer_,aircraft_.position);
     aircraft_check_passed_=true;
     AP_INFO("aircraft check passed: board, exit, re-enter, runway takeoff, airborne exit denied");
+}
+
+void App::run_helicopter_check() {
+    if (helicopter_check_ran_ || step_index_<20) return;
+    helicopter_check_ran_=true;
+    const auto fail=[&](const char* reason) { AP_ERROR("helicopter check: %s",reason); };
+    reset_helicopter(); on_foot_=true; in_aircraft_=false; in_helicopter_=false;
+    // Walk up to the real door on the real apron. The point of doing this in
+    // the app rather than in helicopter_tests is that here the stand, the
+    // paving and the station's own collision are the ones the player gets.
+    const auto door=helicopter_point(helicopter_,
+        {city::kHalberdHelicopterEntry.x,0,city::kHalberdHelicopterEntry.z});
+    player_character_=spawn_character(collider_,door.x,door.z,0);
+    prev_player_character_=player_character_;
+    if (!nearby_helicopter()) { fail("apron door unreachable"); return; }
+    toggle_player_mode();
+    if (!in_helicopter_ || on_foot_) { fail("boarding failed"); return; }
+    toggle_player_mode();
+    if (in_helicopter_ || !on_foot_) { fail("apron exit failed"); return; }
+    toggle_player_mode();
+    if (!in_helicopter_) { fail("re-entry failed"); return; }
+    // Straight up off its own stand, against the station's real obstacles --
+    // the blast walls, the light masts and the tower are all within a rotor
+    // disc or two of here, so this is the query that matters.
+    InputFrame lift; lift.held=kBtnShiftUp;
+    world_.enable_helicopter_collision(collider_,false);
+    for (int i=0;i<1800;++i) helicopter_=step_helicopter(helicopter_,lift,collider_,1.f/120);
+    world_.sync_helicopter(scene_,collider_,helicopter_);
+    world_.enable_helicopter_collision(collider_,true);
+    const float climbed=helicopter_.position.y-city::kHalberdHelicopterWorldY;
+    if (helicopter_.grounded || helicopter_.crashed || climbed<40.f) {
+        AP_ERROR("helicopter check state: grounded=%d crashed=%d xyz=%.2f %.2f %.2f climbed=%.2f",
+            helicopter_.grounded,helicopter_.crashed,helicopter_.position.x,
+            helicopter_.position.y,helicopter_.position.z,
+            static_cast<double>(climbed)>0?climbed:0.f);
+        fail("vertical takeoff failed"); return;
+    }
+    toggle_player_mode();
+    if (!in_helicopter_) { fail("unsafe airborne exit allowed"); return; }
+    // ...and back down onto the apron it came off, under its own collective.
+    InputFrame settle; settle.held=kBtnShiftDown;
+    world_.enable_helicopter_collision(collider_,false);
+    for (int i=0;i<4000 && !helicopter_.grounded;++i)
+        helicopter_=step_helicopter(helicopter_,settle,collider_,1.f/120);
+    world_.sync_helicopter(scene_,collider_,helicopter_);
+    world_.enable_helicopter_collision(collider_,true);
+    if (!helicopter_.grounded || helicopter_.crashed) {
+        AP_ERROR("helicopter check state: grounded=%d crashed=%d y=%.2f",
+            helicopter_.grounded,helicopter_.crashed,helicopter_.position.y);
+        fail("landing failed"); return;
+    }
+    toggle_player_mode();
+    if (in_helicopter_ || !on_foot_) { fail("exit after landing failed"); return; }
+    prev_helicopter_=helicopter_;
+    world_.fill(scene_,renderer_,helicopter_.position);
+    helicopter_check_passed_=true;
+    AP_INFO("helicopter check passed: board, exit, re-enter, vertical takeoff off "
+            "the apron, airborne exit denied, landing, exit");
 }
 
 void App::toggle_player_mode() {
@@ -2052,6 +2140,49 @@ void App::toggle_player_mode() {
         character_look_dx_pending_=character_look_dy_pending_=0;
         camera_obstruction_distance_=-1;
         AP_INFO("player exited aircraft");
+        return;
+    }
+    if (in_helicopter_) {
+        if (!helicopter_can_exit(helicopter_)) {
+            vehicle_interaction_notice_="Land and stop before getting out";
+            vehicle_notice_until_=step_index_+240;
+            return;
+        }
+        bool placed=false;
+        const auto door=helicopter_point(helicopter_,
+            {city::kHalberdHelicopterEntry.x,city::kHalberdHelicopterEntry.y,
+             city::kHalberdHelicopterEntry.z});
+        for (float x : {-2.3f,-3.1f,-3.9f}) {
+            const auto p=helicopter_point(helicopter_,
+                {x,0,city::kHalberdHelicopterEntry.z});
+            const auto trial=spawn_character(collider_,p.x,p.z,-helicopter_.yaw);
+            const auto path=trial.position+glm::vec3{0,.85f,0}-door;
+            const float length=glm::length(path);
+            const auto hit=length>.05f ? collider_.raycast(door,path/length,length)
+                                      : TerrainCollider::GroundHit{};
+            if (std::fabs(trial.position.y-helicopter_.position.y)>.65f ||
+                (hit.hit && hit.distance<length-.08f) ||
+                !character_position_clear(collider_,trial.position,character_tuning_)) continue;
+            player_character_=trial; prev_player_character_=trial; placed=true; break;
+        }
+        if (!placed) {
+            vehicle_interaction_notice_="No room at the helicopter door";
+            vehicle_notice_until_=step_index_+240;
+            return;
+        }
+        in_helicopter_=false; on_foot_=true;
+        character_look_dx_pending_=character_look_dy_pending_=0;
+        camera_obstruction_distance_=-1;
+        AP_INFO("player exited %s",city::kHalberdHelicopterName);
+        return;
+    }
+    if (nearby_helicopter()) {
+        in_helicopter_=true; on_foot_=false;
+        vehicle_audio_.exit_vehicle();
+        sync_current_vehicle_obstacle();
+        character_look_dx_pending_=character_look_dy_pending_=0;
+        camera_obstruction_distance_=-1;
+        AP_INFO("player boarded %s",city::kHalberdHelicopterName);
         return;
     }
     if (nearby_aircraft()) {
@@ -2125,6 +2256,7 @@ void App::teleport(glm::vec3 to, float heading_radians) {
     transition_camera_release_=0;
     police_emergency_enabled_=false;
     if (in_aircraft_) { in_aircraft_=false; on_foot_=true; }
+    if (in_helicopter_) { in_helicopter_=false; on_foot_=true; }
     if (in_boat_) {
         in_boat_=false;on_foot_=true;boat_.speed=0;boat_.velocity={};boat_.throttle=0;
         vehicle_audio_.exit_vehicle();
@@ -2247,6 +2379,20 @@ void App::update_camera(float dt) {
         pose.collision_pivot=pos+glm::vec3{0,10,0};
         pose.desired_eye=pos-forward*42.0f+glm::vec3{0,16,0};
         pose.fov_y=glm::radians(65.0f);
+    } else if (in_helicopter_) {
+        // Closer and lower than the airliner's chase: this machine is 15 m
+        // long against the Aster's 28 and it gets flown BETWEEN things, so the
+        // shot has to show what the rotor is about to touch rather than a nice
+        // wide view of the island. The eye rides the yaw only -- following the
+        // full attitude puts the horizon on its ear every time the player
+        // banks, which on a helicopter is constantly.
+        const auto pos=glm::mix(prev_helicopter_.position,helicopter_.position,a);
+        const float yaw=interpolate_camera_yaw(prev_helicopter_.yaw,helicopter_.yaw,a);
+        const glm::vec3 forward=glm::angleAxis(yaw,glm::vec3{0,1,0})*glm::vec3{0,0,1};
+        pose.target=pos+glm::vec3{0,3,0};
+        pose.collision_pivot=pos+glm::vec3{0,5,0};
+        pose.desired_eye=pos-forward*17.0f+glm::vec3{0,7.5f,0};
+        pose.fov_y=glm::radians(65.0f);
     } else if (on_foot_) {
         const glm::vec3 pos = glm::mix(prev_player_character_.position,
                                        player_character_.position, a);
@@ -2293,10 +2439,11 @@ void App::update_camera(float dt) {
         transition_camera_release_=std::max(0.f,transition_camera_release_-std::max(dt,0.f)/.45f);
     }
     glm::vec3 eye = pose.desired_eye;
-    const bool ignore_current_vehicle=vehicle_transition_.active() || (!on_foot_ && !in_boat_ && !in_aircraft_);
+    const bool ignore_current_vehicle=vehicle_transition_.active() || (!on_foot_ && !in_boat_ && !in_helicopter_ && !in_aircraft_);
     if (ignore_current_vehicle) collider_.set_kinematic_enabled(current_vehicle_collider_,false);
     if (ignore_current_vehicle && trailer_.attached) enable_trailer_collision(false);
     if (in_aircraft_) world_.enable_aircraft_collision(collider_,false);
+    if (in_helicopter_) world_.enable_helicopter_collision(collider_,false);
     if (in_boat_ || boat_transition_.active()) world_.enable_boat_collision(collider_,false);
     const glm::vec3 eye_ray = pose.desired_eye - pose.collision_pivot;
     const float desired_distance = glm::length(eye_ray);
@@ -2327,6 +2474,7 @@ void App::update_camera(float dt) {
     }
 
     if (in_aircraft_) world_.enable_aircraft_collision(collider_,true);
+    if (in_helicopter_) world_.enable_helicopter_collision(collider_,true);
     if (in_boat_ || boat_transition_.active()) world_.enable_boat_collision(collider_,true);
     if (ignore_current_vehicle && trailer_.attached) enable_trailer_collision(true);
     if (ignore_current_vehicle) sync_current_vehicle_obstacle();
@@ -2717,7 +2865,7 @@ void App::render() {
     }
     if (const auto* body=car_visual_.rendered_body_transform(scene_)) {
         append_police_lights(emergency_light_sources_,*body,step_index_,
-            police_emergency_enabled_ && !on_foot_ && !in_aircraft_ && !in_boat_ &&
+            police_emergency_enabled_ && !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ &&
             has_police_lightbar(car_visual_.active_car()),car_visual_.active_car());
     }
     const auto& traffic_lights=emergency_light_sources_;
@@ -2788,7 +2936,8 @@ void App::render() {
                 {radar.player_position.x, radar.player_position.z});
             radar.speed_mph = metres_per_second_to_miles_per_hour(glm::length(
                 on_foot_ ? player_character_.velocity : in_boat_ ? boat_.velocity :
-                in_aircraft_ ? aircraft_.velocity : car_.velocity));
+                in_aircraft_ ? aircraft_.velocity :
+                in_helicopter_ ? helicopter_.velocity : car_.velocity));
             radar.wanted_level = wanted_.level();
             radar.wanted_searching = world_.traffic().police_searching();
             radar.wanted_report_pending = wanted_report_blink_;
@@ -2913,6 +3062,34 @@ void App::render() {
                 hud_.text_centered(aircraft_.crashed ? "AIRCRAFT DAMAGED - R TO RESET" :
                     "W/S THROTTLE   A/D BANK / TAXI   SHIFT/CTRL PITCH   SPACE BRAKE",
                     vp.x*.5f,vp.y-130,18,{1,1,1,1});
+            } else if (in_helicopter_) {
+                char flight[256];
+                // Exclude the machine's own boxes before probing. The origin
+                // is the bottom of its gear and the skid box starts there, so
+                // a probe straight down from it hits ITSELF on the first
+                // metre and every altitude in the air reads zero.
+                world_.enable_helicopter_collision(collider_,false);
+                const auto support=collider_.probe_down(
+                    helicopter_.position+glm::vec3{0,.05f,0},10000);
+                world_.enable_helicopter_collision(collider_,true);
+                const float altitude=std::max(0.0f,helicopter_.position.y-
+                    (support.hit?support.point.y:collider_.height(
+                        helicopter_.position.x,helicopter_.position.z)));
+                const float knots=glm::length(glm::vec2{helicopter_.velocity.x,
+                    helicopter_.velocity.z})*1.943844f;
+                std::snprintf(flight,sizeof(flight),
+                    "HALBERD GUNSHIP   %.0f KTS   %.0f FT   ROTOR %.0f%%",
+                    static_cast<double>(knots),static_cast<double>(altitude*3.28084f),
+                    static_cast<double>(helicopter_.rotor*100));
+                hud_.text_centered(flight,vp.x*.5f,vp.y-160,22,{.8f,.95f,1,1});
+                // Named by what they DO, not by what they are. A player who
+                // reads "cyclic" learns nothing; a player who reads CLIMB
+                // first learns the one control that is not where a car keeps
+                // it, which is the whole difficulty of the machine.
+                hud_.text_centered(helicopter_.crashed ? "HELICOPTER WRECKED - R TO RESET" :
+                    (helicopter_.rotor<kHeliLiftoffRotor ? "ROTOR SPOOLING UP..." :
+                    "SHIFT/CTRL CLIMB / DESCEND   W/S FORWARD / BACK   A/D TURN   R RESET"),
+                    vp.x*.5f,vp.y-130,18,{1,1,1,1});
             } else if (!on_foot_) {
                 const float speed_mph = metres_per_second_to_miles_per_hour(
                     glm::length(car_.velocity));
@@ -3033,6 +3210,8 @@ void App::render() {
                 else if (in_boat_) prompt="E / A  -  Exit beside dock or shore";
                 else if (in_aircraft_) prompt=aircraft_can_exit(aircraft_) ?
                     "E / A  -  Exit aircraft" : "LAND AND STOP TO EXIT";
+                else if (in_helicopter_) prompt=helicopter_can_exit(helicopter_) ?
+                    "E / A  -  Exit helicopter" : "LAND AND STOP TO EXIT";
                 else if (!on_foot_) prompt=is_convertible(car_visual_.active_car())
                     ? (soft_top_.target>.5f ? "E / A  -  Exit vehicle   H - HORN   J - TOP UP"
                                             : "E / A  -  Exit vehicle   H - HORN   J - TOP DOWN")
@@ -3045,6 +3224,7 @@ void App::render() {
                         ? "G  -  Have another drink at The Bent Elbow"
                         : "G  -  Have a drink at The Bent Elbow";
                 else if (nearby_aircraft()) prompt="E / A  -  Board Aster A-80";
+                else if (nearby_helicopter()) prompt="E / A  -  Board Halberd Gunship";
                 else if (nearby_boat()) prompt="E / A  -  Board Marlin Sprint 22";
                 else {
                     const auto target=nearby_vehicle();
@@ -3057,11 +3237,11 @@ void App::render() {
                         }
                     }
                 }
-                if (!on_foot_ && !in_aircraft_ && !in_boat_ && car_visual_.active_car()==PlayerCarId::HarrowHauler)
+                if (!on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ && car_visual_.active_car()==PlayerCarId::HarrowHauler)
                     prompt += trailer_.attached ? "   T / DPAD RIGHT - DROP TRAILER" : "   T / DPAD RIGHT - COUPLE TRAILER";
-                if (!on_foot_ && !in_aircraft_ && !in_boat_ && has_police_lightbar(car_visual_.active_car()))
+                if (!on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ && has_police_lightbar(car_visual_.active_car()))
                     prompt += "   J / L3 - SIREN + LIGHTS";
-                if (!on_foot_ && !in_aircraft_ && !in_boat_ && repair_shop_ready(car_,tuning_))
+                if (!on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ && repair_shop_ready(car_,tuning_))
                     prompt += repair_shop_visit_.serviced ? "   SERVICE COMPLETE" : "   HOLD STILL - REPAIRING";
                 if (!prompt.empty()) hud_.text_centered(prompt.c_str(),vp.x*.5f,vp.y-90,20,{1,.95f,.75f,1});
             }
@@ -3190,7 +3370,10 @@ void App::render() {
                                                     city::devon_position().z};
             snapshot.speed_mph = metres_per_second_to_miles_per_hour(
                 glm::length(on_foot_ ? player_character_.velocity
-                                     : (in_boat_ ? boat_.velocity : (in_aircraft_ ? aircraft_.velocity : car_.velocity))));
+                                     : (in_boat_ ? boat_.velocity
+                                        : (in_aircraft_ ? aircraft_.velocity
+                                           : (in_helicopter_ ? helicopter_.velocity
+                                              : car_.velocity)))));
             snapshot.vehicle_health = car_.health;
             snapshot.perf_logging = perf_log_.enabled();
             snapshot.perf_log_label = perf_log_label_.c_str();
@@ -3516,6 +3699,7 @@ void App::record_frame_sample(double ms) {
     s.place = city::district_name(city::district_at(focus.x, focus.z));
     s.mode = interior_presentation_lod_ ? "indoor"
              : in_aircraft_             ? "air"
+             : in_helicopter_           ? "heli"
              : in_boat_                 ? "boat"
              : on_foot_                 ? "foot"
                                         : "drive";
@@ -3529,7 +3713,8 @@ void App::record_frame_sample(double ms) {
         on_foot_ ? player_character_.velocity
                  : (in_boat_ ? boat_.velocity
                              : (in_aircraft_ ? aircraft_.velocity
-                                             : car_.velocity))));
+                                : (in_helicopter_ ? helicopter_.velocity
+                                                  : car_.velocity)))));
     s.time_of_day = conditions_.time_of_day;
 
     s.sim_steps = last_steps_;
@@ -3858,6 +4043,7 @@ int App::run() {
             prev_car_ = car_;
             prev_trailer_=trailer_;
             prev_aircraft_ = aircraft_;
+            prev_helicopter_ = helicopter_;
             prev_boat_ = boat_;
             prev_player_character_ = player_character_;
 
@@ -3883,6 +4069,7 @@ int App::run() {
                 place_character_next_to_car();
             }
             if (i == 0 && in_aircraft_ && was_pressed(input_.frame(), kBtnRespawn)) reset_aircraft();
+            if (i == 0 && in_helicopter_ && was_pressed(input_.frame(), kBtnRespawn)) reset_helicopter();
             if (i == 0 && in_boat_ && !boat_transition_.active() && was_pressed(input_.frame(), kBtnRespawn)) reset_boat();
             const bool boat_was_transitioning=boat_transition_.active();
             if (boat_was_transitioning) step_boat_transition();
@@ -3897,6 +4084,24 @@ int App::run() {
                 aircraft_=step_aircraft(aircraft_,input_.frame(),collider_,static_cast<float>(kSimDt));
                 world_.sync_aircraft(scene_,collider_,aircraft_);
                 world_.enable_aircraft_collision(collider_,true);
+            }
+            // The rotor keeps turning whether or not anyone is aboard, so this
+            // steps while parked too -- but only the flown one excludes its own
+            // collision, because a parked machine has to stay solid to the
+            // world it is parked in.
+            if (in_helicopter_) {
+                world_.enable_helicopter_collision(collider_,false);
+                helicopter_=step_helicopter(helicopter_,input_.frame(),collider_,
+                                            static_cast<float>(kSimDt));
+                world_.sync_helicopter(scene_,collider_,helicopter_);
+                world_.enable_helicopter_collision(collider_,true);
+            } else if (helicopter_.rotor > 0) {
+                helicopter_.rotor=std::max(0.0f,
+                    helicopter_.rotor-kHeliSpoolRate*static_cast<float>(kSimDt));
+                helicopter_.rotor_angle=std::remainder(helicopter_.rotor_angle+
+                    helicopter_.rotor*kHeliRotorSpeed*static_cast<float>(kSimDt),
+                    glm::two_pi<float>());
+                world_.sync_helicopter(scene_,collider_,helicopter_);
             }
 
             // Conditions are a pure function of (seed, ABSOLUTE step), never an
@@ -3928,7 +4133,7 @@ int App::run() {
             }
             const bool transitioning=vehicle_transition_.active();
             const InputFrame vehicle_input = apply_drunk_input(raw_input, drunk_);
-            car_ = (on_foot_ || in_aircraft_ || in_boat_ || transitioning)
+            car_ = (on_foot_ || in_aircraft_ || in_helicopter_ || in_boat_ || transitioning)
                 ? step_unoccupied_vehicle(car_, step_tuning, collider_,
                                           static_cast<float>(kSimDt))
                 : step_vehicle(car_, step_tuning, vehicle_input, collider_,
@@ -3945,7 +4150,7 @@ int App::run() {
             if (car_.breakaway_id != UINT32_MAX)
                 vehicle_audio_.play_car_collision(glm::length(car_.breakaway_velocity), car_.position);
             if(step_repair_shop(repair_shop_visit_,car_,tuning_,static_cast<float>(kSimDt),
-                !on_foot_ && !in_aircraft_ && !in_boat_ && !transitioning)) {
+                !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ && !transitioning)) {
                 prev_car_=car_;repair_shop_feedback_s_=3.f;
                 AP_INFO("Rook's Auto Repair: body and mechanical condition restored");
             }
@@ -4116,6 +4321,7 @@ int App::run() {
             if (vehicle_entry_check_ && !vehicle_entry_check_passed_) run_vehicle_entry_check();
             if (driver_transition_check_ && driver_check_stage_<6) run_driver_transition_check();
             if (aircraft_check_ && !aircraft_check_ran_) run_aircraft_check();
+            if (helicopter_check_ && !helicopter_check_ran_) run_helicopter_check();
             if (boat_check_ && !boat_check_ran_) run_boat_check();
             if (trailer_check_ && !trailer_check_ran_) run_trailer_check();
         }
@@ -4126,7 +4332,7 @@ int App::run() {
         // frame the edges stay latched for the next one. Moving this out of
         // the guard silently drops presses at high frame rates.
         if (tick.steps > 0) {
-            if (!on_foot_ && !in_aircraft_ && !in_boat_ && !vehicle_transition_.active() && was_pressed(input_.frame(), kBtnCamCycle)) {
+            if (!on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ && !vehicle_transition_.active() && was_pressed(input_.frame(), kBtnCamCycle)) {
                 chase_camera_.cycle();
                 dev_menu_.set_camera_mode(chase_camera_.mode());
                 camera_obstruction_distance_ = -1.0f;
@@ -4204,19 +4410,19 @@ int App::run() {
             !bank_interaction_.modal() && !weapon_wheel_.open;
         audio_frame.dt_seconds = camera_frame_dt_;
         audio_frame.horn_available=weapon_focus_ && !bug_report_.open &&
-            !on_foot_ && !in_aircraft_ && !in_boat_ &&
+            !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ &&
             !vehicle_transition_.active() && !boat_transition_.active();
         audio_frame.horn_pressed=player_horn_pending_;
         traffic_horn_audio_.set_active(audio_frame.active);
-        audio_frame.engine_running = !on_foot_ && !in_aircraft_ && !in_boat_ &&
+        audio_frame.engine_running = !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ &&
             !vehicle_engine_failed(car_.mechanical);
         audio_frame.engine_rpm = car_.engine_rpm;
         const float drive_pedal = car_.gear == kGearReverse
                                       ? input_.frame().brake
                                       : input_.frame().throttle;
-        audio_frame.accelerating = !on_foot_ && !in_aircraft_ && !in_boat_ &&
+        audio_frame.accelerating = !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ &&
             !vehicle_transition_.active() && !vehicle_engine_failed(car_.mechanical) && drive_pedal > 0.20f;
-        audio_frame.handbrake = on_foot_ || in_aircraft_ || in_boat_
+        audio_frame.handbrake = on_foot_ || in_aircraft_ || in_helicopter_ || in_boat_
                                     ? 0.0f
                                     : input_.frame().handbrake;
         audio_frame.drift_slip = std::max(
@@ -4244,14 +4450,14 @@ int App::run() {
         }
         vehicle_audio_.update(audio_frame);
         if(vehicle_leak_warning_.update(audio_device_.mixer(),audio_frame.active,
-            !on_foot_ && !in_aircraft_ && !in_boat_ && !vehicle_transition_.active(),
+            !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ && !vehicle_transition_.active(),
             car_.mechanical_key,vehicle_leak_mask(car_.body_damage),
             static_cast<double>(tick.steps)*kSimDt))
             AP_INFO("vehicle fluid leak warning chime");
-        if (on_foot_ || in_aircraft_ || in_boat_ || !has_police_lightbar(car_visual_.active_car()))
+        if (on_foot_ || in_aircraft_ || in_helicopter_ || in_boat_ || !has_police_lightbar(car_visual_.active_car()))
             police_emergency_enabled_=false;
         const bool player_police_siren = police_emergency_enabled_ && !on_foot_ &&
-            !in_aircraft_ && !in_boat_ &&
+            !in_aircraft_ && !in_helicopter_ && !in_boat_ &&
             has_police_lightbar(car_visual_.active_car());
         const VehicleAgent* ai_pursuer =
             world_.traffic().nearest_police_pursuer();
@@ -4290,7 +4496,7 @@ int App::run() {
         const SkyEnv visual_env = current_sky_env();
         const float visible_headlight_level = automatic_headlight_level(
             visual_env.sun_dir.y, conditions_.atmosphere);
-        const float brake_level = (on_foot_ || in_aircraft_ || in_boat_ || vehicle_transition_.active())
+        const float brake_level = (on_foot_ || in_aircraft_ || in_helicopter_ || in_boat_ || vehicle_transition_.active())
             ? 0.0f
             : (car_.gear == kGearReverse
                    ? input_.frame().throttle
@@ -4317,7 +4523,7 @@ int App::run() {
                          static_cast<float>(clock_.alpha()),
                          visible_headlight_level, brake_level);
         car_visual_.sync_emergency(scene_,step_index_,police_emergency_enabled_ &&
-            !on_foot_ && !in_aircraft_ && !in_boat_);
+            !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_);
         car_visual_.sync_soft_top(scene_,soft_top_.stowed);
         car_visual_.sync_driver_door(scene_,vehicle_transition_.active()
             ? vehicle_transition_door_open(sample_vehicle_transition(vehicle_transition_,
@@ -4341,7 +4547,7 @@ int App::run() {
             character_visual_.sync_transition(car_visual_.active_car(), car_visual_.rendered_body_transform(scene_),
                 vehicle_transition_,transition_waiting_ ? 1.f : static_cast<float>(clock_.alpha()));
         else character_visual_.sync_driver(car_visual_.active_car(),
-            !on_foot_ && !in_aircraft_ && !in_boat_,car_visual_.rendered_body_transform(scene_));
+            !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_,car_visual_.rendered_body_transform(scene_));
         // The fist LANDS. The animator opens a one-shot contact window in the
         // middle of the jab (city/character_punch.h owns that clock), and this
         // is the one place it is consumed.

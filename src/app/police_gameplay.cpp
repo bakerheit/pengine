@@ -7,14 +7,14 @@
 namespace apricot {
 
 bool App::player_has_drawn_weapon() const {
-    return on_foot_ && !in_aircraft_ && !in_boat_ &&
+    return on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ &&
         !vehicle_transition_.active() && !boat_transition_.active() &&
         weapon_use_.equipped == WeaponId::Pistol &&
         weapon_use_.equip_blend >= 0.80f;
 }
 
 float App::current_speed_limit_mps() const {
-    if (on_foot_ || in_aircraft_ || in_boat_) return 0.0f;
+    if (on_foot_ || in_aircraft_ || in_helicopter_ || in_boat_) return 0.0f;
     const glm::vec3 forward3 = car_.orientation * glm::vec3{0.0f, 0.0f, -1.0f};
     const auto lane = world_.lanes().nearest_lane_along(
         {car_.position.x, car_.position.z}, {forward3.x, forward3.z}, 8.0f);
@@ -29,7 +29,7 @@ void App::check_police_driving_offenses() {
     sample.velocity=car_.velocity;
     sample.half_length_m=tuning_.car_collision_half_length;
     sample.step=static_cast<int64_t>(step_index_+1u);
-    sample.driving=!on_foot_ && !in_aircraft_ && !in_boat_ &&
+    sample.driving=!on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ &&
         !vehicle_transition_.active() && !boat_transition_.active();
     std::vector<PoliceOffenseWitness> witnesses;
     if (sample.driving) {
@@ -86,7 +86,7 @@ void App::check_police_armed_offense(bool player_armed) {
 }
 
 void App::check_police_collision_offenses() {
-    if (on_foot_ || in_aircraft_ || in_boat_ || vehicle_transition_.active()) return;
+    if (on_foot_ || in_aircraft_ || in_helicopter_ || in_boat_ || vehicle_transition_.active()) return;
     for (const auto& contact:world_.traffic().police_player_contacts()) {
         const auto report=police_offenses_.observe_police_contact({
             {contact.lane_key,contact.slot},contact.player_velocity,
@@ -103,7 +103,7 @@ void App::check_police_collision_offenses() {
 }
 
 void App::check_police_arrest(const std::vector<VisiblePoliceIdentity>& visible) {
-    const bool arrestable=on_foot_ && !in_aircraft_ && !in_boat_ &&
+    const bool arrestable=on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ &&
         !vehicle_transition_.active() && !boat_transition_.active() &&
         !player_has_drawn_weapon();
     const auto event=police_arrest_.observe(step_index_,arrestable,wanted_.level(),

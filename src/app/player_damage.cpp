@@ -128,7 +128,7 @@ void App::check_player_fall_damage(bool was_grounded) {
 // a different one from the pedestrian's: the driver is inside a car, and the
 // car is already losing its own health to the same impact.
 void App::check_player_crash_damage(float impact_speed_mps) {
-    if (on_foot_ || in_aircraft_ || in_boat_) return;
+    if (on_foot_ || in_aircraft_ || in_helicopter_ || in_boat_) return;
     const float damage = crash_driver_damage(impact_speed_mps);
     if (damage <= 0.0f) return;
     damage_player(damage, "a crash");

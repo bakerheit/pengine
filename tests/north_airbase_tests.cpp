@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "city/map.h"
+#include "city/halberd_helicopter.h"
 #include "city/north_airbase.h"
 #include "city/roads.h"
 #include "city/spines.h"
@@ -375,6 +376,59 @@ void drive_the_runway(Fixture& f) {
     apricot_test::pass("a real car drives the full length of runway 09/27");
 }
 
+// The gunship's stand. A parked helicopter is placed by three numbers in a
+// header and nothing about the field stops those numbers being wrong, so this
+// checks them against the station as actually baked: standing on apron, with
+// the whole 14 m disc over that apron, and nothing solid inside the circle the
+// blades sweep. Getting this wrong does not look like a bug -- it looks like a
+// helicopter that explodes on its own stand the moment the rotor comes up.
+void helicopter_stand() {
+    const auto parts = city::bake_halberd_field();
+    const float x = city::kHalberdHelicopterStand.x;
+    const float z = city::kHalberdHelicopterStand.z;
+    const float radius = city::kHalberdHelicopterRotorSpan * .5f;
+
+    // The world constants are derived through the site basis; confirm they
+    // still land where the local pair says, rather than drifting apart.
+    const auto w = world_of(x, z);
+    REQUIRE_NEAR(city::kHalberdHelicopterWorldX, w.x, 1e-3);
+    REQUIRE_NEAR(city::kHalberdHelicopterWorldZ, w.y, 1e-3);
+
+    // Standing on a surface a vehicle is allowed on, with the full disc over
+    // it. A stand half off the concrete puts one skid on graded grass.
+    bool on_apron = false;
+    for (const auto& part : parts) {
+        if (!city::halberd_ground_piece(part)) continue;
+        const auto f = footprint_of(part);
+        if (x - radius >= f.x0 && x + radius <= f.x1 &&
+            z - radius >= f.z0 && z + radius <= f.z1) { on_apron = true; break; }
+    }
+    REQUIRE_MSG(on_apron, "the whole rotor disc stands over one paved surface",
+                city::kHalberdHelicopterId);
+
+    // Nothing solid within the disc, and nothing solid within the disc plus a
+    // rotor's width of it either -- the blades have to be able to turn before
+    // the machine has moved at all.
+    for (const auto& part : parts) {
+        if (!part.solid) continue;
+        const auto f = footprint_of(part);
+        const float dx = std::max({f.x0 - x, 0.f, x - f.x1});
+        const float dz = std::max({f.z0 - z, 0.f, z - f.z1});
+        REQUIRE_MSG(std::sqrt(dx * dx + dz * dz) > radius + 2.f,
+                    "nothing solid stands inside the rotor disc", part.name);
+    }
+
+    // It sits on the paving, not in it and not hovering over it.
+    REQUIRE_NEAR(city::kHalberdHelicopterWorldY,
+                 city::kHalberdFieldSite.ground_m + city::kHalberdPaveTop, 1e-4);
+
+    // The door is on the port side, and the walk to it is over the same apron
+    // rather than out past the disc into whatever is beyond.
+    REQUIRE(city::kHalberdHelicopterEntry.x < 0.f);
+    REQUIRE(std::fabs(city::kHalberdHelicopterEntry.x) < radius);
+    apricot_test::pass("the gunship stands on clear apron with room to turn its rotor");
+}
+
 }  // namespace
 
 int main() {
@@ -387,5 +441,6 @@ int main() {
     no_ribbon_under_the_paving(f.ribbon);
     drive_in_through_the_gate(f);
     drive_the_runway(f);
+    helicopter_stand();
     return apricot_test::done("north_airbase_tests");
 }

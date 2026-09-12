@@ -95,7 +95,7 @@ void App::run_boat_check() {
     const auto finish_animation=[&](){
         for(uint32_t i=0;i<kBoatTransitionTicks && boat_transition_.active();++i) step_boat_transition();
     };
-    reset_boat();on_foot_=true;in_aircraft_=false;in_boat_=false;
+    reset_boat();on_foot_=true;in_aircraft_=false;in_helicopter_=false;in_boat_=false;
     player_character_={};player_character_.position=boat_point(boat_,{2.6f,city::kMarinaDeckTop,-1.55f});
     prev_player_character_=player_character_;
     if(!nearby_boat()) {fail("dock boarding unreachable");return;}
