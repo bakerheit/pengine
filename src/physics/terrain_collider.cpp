@@ -22,6 +22,12 @@ namespace {
 // that a 500 m trace is still cheap. The suspension does not use this path —
 // probe_down() is exact — so this only has to be right, not fast.
 constexpr float kMarchStep = 0.25f;
+
+// The step for line_of_sight_blocked(), and the reason it differs is written
+// on that function. kVertexSpacingMetres is the spacing of the drawn
+// lattice; sampling finer than the geometry only re-measures a triangle whose
+// shape its corners already fixed.
+constexpr float kSightMarchStep = kVertexSpacingMetres;
 constexpr int kBisectIterations = 24;
 
 float with_ground_snow(float base_height, float snow_depth) {
@@ -511,6 +517,45 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
     out.road = road;
     out.snow_depth_m = snow_depth;
     return out;
+}
+
+bool TerrainCollider::line_of_sight_blocked(glm::vec3 from, glm::vec3 to,
+                                            float slack_metres) const {
+    const glm::vec3 delta = to - from;
+    const float distance = glm::length(delta);
+    if (!(distance > 1e-6f)) return false;
+    const glm::vec3 d = delta / distance;
+
+    // Anything nearer than this does not count as blocking: the far end of the
+    // segment is the target itself, and without the slack the ground under the
+    // target's feet blocks every view of it.
+    const float limit = distance - std::max(slack_metres, 0.0f);
+    if (!(limit > 0.0f)) return false;
+
+    // Boxes first. A building is the usual answer in a city and settles the
+    // question without touching the height field.
+    for (const StaticBox& b : boxes_) {
+        if (!b.enabled) continue;
+        float t = 0.0f;
+        glm::vec3 n{0.0f};
+        if (ray_vs_box(b.collision_bounds(), b.local_point(from),
+                       b.local_direction(d), limit, t, n) && t < limit) {
+            return true;
+        }
+    }
+
+    // Then the terrain, at the lattice spacing rather than a quarter of it.
+    // Starting at the first step rather than zero for the same reason raycast()
+    // does: both ends of a sight line sit just above the ground they stand on.
+    const auto above = [&](float t) {
+        const glm::vec3 p = from + d * t;
+        return p.y - height(p.x, p.z);
+    };
+    if (above(0.0f) <= 0.0f) return true;
+    for (float t = kSightMarchStep; t < limit; t += kSightMarchStep) {
+        if (above(t) <= 0.0f) return true;
+    }
+    return above(limit) <= 0.0f;
 }
 
 TerrainCollider::GroundHit TerrainCollider::raycast(glm::vec3 origin,

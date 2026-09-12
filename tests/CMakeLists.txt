@@ -322,3 +322,7 @@ apricot_add_suite(dev_never_wanted_tests)
 
 # FRAME LOGGING, GOD MODE and VEHICLE GOD MODE on the developer menu.
 apricot_add_suite(dev_toggles_tests)
+
+# The visibility query that replaced a contact raycast in police line of
+# sight, checked against the predicate it replaced.
+apricot_add_suite(line_of_sight_tests)

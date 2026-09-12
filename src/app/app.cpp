@@ -1872,14 +1872,17 @@ std::vector<VisiblePoliceIdentity> App::visible_police(
 
         const glm::vec3 from = eye;
         const glm::vec3 to = target + glm::vec3{0.0f, 1.05f, 0.0f};
-        const glm::vec3 delta = to - from;
-        const float distance = glm::length(delta);
+        const float distance = glm::length(to - from);
         if (distance <= 0.05f) {
             visible.push_back({agent.lane_key, agent.slot});
             continue;
         }
-        const auto hit = collider_.raycast(from, delta / distance, distance);
-        if ((!hit.hit || hit.distance >= distance - 0.08f) &&
+        // A VISIBILITY query, not a contact one. This used to call
+        // collider_.raycast(), which marches the height field at a quarter of
+        // the terrain's lattice spacing because a wheel depends on it —
+        // measured at 0.208 ms a call here, five calls a sim step, and the
+        // single largest cost in a bad frame by a wide margin.
+        if (!collider_.line_of_sight_blocked(from, to) &&
             !police_traffic_blocks_view(from,to,traffic_bodies,
                 {agent.lane_key,agent.slot}))
             visible.push_back({agent.lane_key, agent.slot});
