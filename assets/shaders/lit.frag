@@ -139,6 +139,12 @@ void main() {
             lightbar = lightbar || (v_headlight_profile == 27 &&
                 x>=.05 && x<=.76 && p.y>=1.56 && p.y<=1.70 &&
                 p.z>=-.28 && p.z<=.02);
+            // Car 5-NEXT PATROL. Its source units are NOT metres: the catalog
+            // squashes this imported body, so the bar sits much higher up the
+            // Y axis than any cruiser's. See tools/car5_next_police_spec.py.
+            lightbar = lightbar || (v_headlight_profile == 29 &&
+                x>=0.045 && x<=0.60 && p.y>=2.109 && p.y<=2.35 &&
+                p.z>=-0.085 && p.z<=0.265);
             if (!lightbar) discard;
         } else if (front) {
             if (v_lamp_source_position.x * side <= 0.0 || v_damage_normal.z < 0.15 ||

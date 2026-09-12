@@ -37,7 +37,8 @@ int main() {
                            PlayerCarId::MunicipalCruiser91B,
                            PlayerCarId::MunicipalCruiser91C,
                            PlayerCarId::MunicipalCruiser91D,
-                           PlayerCarId::MunicipalCruiser91E}) {
+                           PlayerCarId::MunicipalCruiser91E,
+                           PlayerCarId::LegacyCar5NextPolice}) {
         lights.clear();
         append_police_lights(lights,body,0,true,model);
         REQUIRE(lights.size()==4);

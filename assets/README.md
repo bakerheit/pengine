@@ -104,6 +104,42 @@ to right, and rasterises 90 directions at 3 door angles with back-face culling
 to prove every hole the cut makes is filled by a pane or a rim, with no crack
 left over. It writes a QA sheet next to its report; look at it.
 
+`models/vehicles/car5_next_police/` is that same cut in police livery, made by
+`tools/make_car5_next_police_assets.py`, which adds the two things a patrol car
+needs and nothing else.
+
+The livery is painted through the UVs rather than by hand. Car 5's atlas has no
+labelled charts, so every texel is mapped back to the position and normal of
+the triangle that owns it and the panels are recognised by where they are on
+the car: the doors go white, everything else black, and a gold star lands on
+whatever texels the front door turns out to occupy. That survives a re-cook of
+the body, which hand-painting would not. Car 5's own red mask is reused so the
+amber indicators and red tail lenses come through untouched, and the source's
+baked panel shading is carried over as a relative value so the creases survive.
+
+One constraint decides the whole design: Car 5's flanks, bonnet, roof and boot
+each map BOTH halves of the car onto one chart. Every texel is painted onto a
+left-hand panel and its right-hand mirror at once, so anything asymmetric --
+lettering above all -- comes out reversed on one side. Hence a two-tone split
+and a five-pointed star, both of which mirror cleanly. The atlas is written at
+256 rather than Car 5's 128 because the star needs the texels; the upscale is
+NEAREST, so nothing of the original is blended and the extra resolution only
+carries what the script draws.
+
+The lightbar is the Municipal Cruiser 91-C's, converted into this body's source
+units and re-fitted to a narrower roof (the 91-C's bar is 1.52 m across a body
+half a metre wider than this one, so its width does not scale over). It is
+welded onto the body rather than loaded as a part, because the emergency glow
+pass redraws the body mesh and lets the lit shader keep only what falls inside
+a lens box -- which is also why the patrol car needs its own headlight profile
+id, 29, even though it shares Car 5's actual lenses: the id is what
+`lit.frag` matches to find a lightbar, and Car 5 has none. The box, the plinth
+and the lamp centres all come from `tools/car5_next_police_spec.py`; changing
+one there means changing the shader box beside it.
+
+`tools/validate_car5_next_door.py car5_next_police` holds it to the same four
+properties as the plain car.
+
 `models/vehicles/common/wheel.emesh` is the shared wheel model. The player-car
 visual drives its four instances from real suspension, steering, and sim-owned
 spin. Each traffic car gets the same four-node setup; those wheels spin from

@@ -85,6 +85,7 @@ void articulated_live_shells_keep_painted_windshields_tagged() {
         geometry_is_unchanged(source,tagged);
         const bool separate_glass=car.id==PlayerCarId::HarrowWorkman ||
             car.id==PlayerCarId::AlderPip || car.id==PlayerCarId::LegacyCar5Next ||
+            car.id==PlayerCarId::LegacyCar5NextPolice ||
             is_municipal_cruiser_91(car.id);
         if(separate_glass) {
             ++glass_shells;
@@ -98,11 +99,11 @@ void articulated_live_shells_keep_painted_windshields_tagged() {
     // Mistral, Scythe and Sovereign paint their screens on the shell instead
     // of loading a named pane.
     REQUIRE(opaque_panes==3u);
-    REQUIRE(glass_shells==8u);
+    REQUIRE(glass_shells==9u);
 }
 
 void named_glass_uses_exact_pane_bounds_and_unknowns_fail_closed() {
-    for(const auto* name:{"alder_pip","car5_next","harrow_workman","municipal_cruiser_91a",
+    for(const auto* name:{"alder_pip","car5_next","car5_next_police","harrow_workman","municipal_cruiser_91a",
             "municipal_cruiser_91b","municipal_cruiser_91c","municipal_cruiser_91d",
             "municipal_cruiser_91e"}) {
         StaticEmesh pane;

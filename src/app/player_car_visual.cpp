@@ -107,6 +107,7 @@ bool PlayerCarVisual::load_model(
     if (definition.id == PlayerCarId::HarrowWorkman ||
         definition.id == PlayerCarId::AlderPip ||
         definition.id == PlayerCarId::LegacyCar5Next ||
+        definition.id == PlayerCarId::LegacyCar5NextPolice ||
         is_municipal_cruiser_91(definition.id) ||
         is_motorbike(definition.id)) {
         constexpr const char* names[]{"windshield", "rear_glass", "passenger_glass", "driver_glass",

@@ -380,7 +380,17 @@ def darkest_uv(texture_path, patch=6):
 # build
 
 
-def build(report_only=False):
+def build(report_only=False, target=None, extra_body=None, texture=None):
+    """Cook the variant into `target` (default car5_next).
+
+    `extra_body` is bodywork Car 5 does not have -- a police lightbar -- welded
+    onto both the closed shell and the articulated one, so the emergency glow
+    pass (which redraws the rendered body) can find its lenses. `texture` picks
+    the atlas the interior swatch is sampled from.
+    """
+    target = TARGET if target is None else target
+    texture = TEXTURE / "body.png" if texture is None else texture
+    extra_body = list(extra_body or [])
     vertices, indices, material = read_emesh(SOURCE / "body.emesh")
     normals = smooth_normals(vertices, indices)
     planes = door_planes(spec.DOOR)
@@ -440,7 +450,7 @@ def build(report_only=False):
     # straight down the length of the car through once the door is off.
     liner += rim(boundary_edges(banded, band), normals, lining)
 
-    uv = darkest_uv(TEXTURE / "body.png")
+    uv = darkest_uv(texture)
     furniture = block(-cabin["floor_half_x"], cabin["floor_half_x"],
                       cabin["floor_bottom_y"], cabin["floor_top_y"],
                       cabin["z_rear"] + .05, cabin["z_front"] - .05, uv)
@@ -448,7 +458,7 @@ def build(report_only=False):
         furniture += block(x0, x1, y0, y1, z0, z1, uv)
 
     body_open = body_outer + liner + rim(
-        boundary_edges(body_outer), normals, lining) + furniture
+        boundary_edges(body_outer), normals, lining) + furniture + extra_body
 
     report = {
         "door_cut": spec.DOOR,
@@ -462,6 +472,7 @@ def build(report_only=False):
             "door_outer_skin": len(door_outer),
             "cabin_liner": len(liner),
             "furniture": len(furniture),
+            "added_bodywork": len(extra_body),
             **{name: len(pane) for name, pane in sorted(panes.items())},
         },
         "glass": spec.GLASS,
@@ -469,12 +480,18 @@ def build(report_only=False):
     if report_only:
         return report
 
-    TARGET.mkdir(parents=True, exist_ok=True)
-    (TARGET / "body.emesh").write_bytes((SOURCE / "body.emesh").read_bytes())
-    write_emesh(TARGET / "body_open.emesh", body_open, material)
-    write_emesh(TARGET / "driver_door.emesh", door, material)
+    target.mkdir(parents=True, exist_ok=True)
+    if extra_body:
+        # The closed shell has to carry the same bodywork or the catalog fits,
+        # lamp origins and snow tagging all disagree with what is drawn.
+        closed = [np.array([vertices[i] for i in tri]) for tri in indices]
+        write_emesh(target / "body.emesh", closed + extra_body, material)
+    else:
+        (target / "body.emesh").write_bytes((SOURCE / "body.emesh").read_bytes())
+    write_emesh(target / "body_open.emesh", body_open, material)
+    write_emesh(target / "driver_door.emesh", door, material)
     for name, pane in panes.items():
-        write_emesh(TARGET / (name + ".emesh"), pane, material)
+        write_emesh(target / (name + ".emesh"), pane, material)
     return report
 
 

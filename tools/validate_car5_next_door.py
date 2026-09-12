@@ -17,10 +17,15 @@ Four properties, each one a way this cut can be wrong:
 4. The door turns on its hinge and only ever swings outward, which is what the
    runtime transform assumes.
 
-Writes build/car5-next-door-report.json and a back-face-culled QA sheet.
+Writes build/<slug>-door-report.json and a back-face-culled QA sheet.
+
+Takes an optional model slug so the patrol car, which is the same cut under a
+different livery plus a lightbar, is held to the same four properties:
+  python3 tools/validate_car5_next_door.py car5_next_police
 """
 import json
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -30,8 +35,10 @@ from render_firetruck_preview import read_part
 import car5_next_spec as spec
 
 ROOT = Path(__file__).resolve().parents[1]
-MODEL = ROOT / "assets/models/vehicles/car5_next"
-TEXTURE = ROOT / "assets/textures/vehicles/car5/body.png"
+SLUG = sys.argv[1] if len(sys.argv) > 1 else "car5_next"
+MODEL = ROOT / "assets/models/vehicles" / SLUG
+TEXTURE = (ROOT / "assets/textures/vehicles" / SLUG / "body.png"
+           if SLUG != "car5_next" else ROOT / "assets/textures/vehicles/car5/body.png")
 BACKGROUND = (255, 0, 255)
 PAINT = (150, 62, 44)
 
@@ -248,7 +255,8 @@ def main():
         sheet.paste(Image.fromarray(image), (x, y))
         draw.text((x + 12, y + 402), label, fill=(235, 235, 220))
     (ROOT / "build").mkdir(exist_ok=True)
-    sheet.save(ROOT / "build/car5-next-door-culled.png")
+    sheet.save(ROOT / ("build/%s-door-culled.png" % SLUG.replace("_", "-")))
+    # (path built from the slug so the two variants do not overwrite each other)
     report["checks"] = [
         "shut split rebuilds the imported skin and adds only lining",
         "swung door leaves a doorway no stationary panel blocks",
@@ -256,7 +264,8 @@ def main():
         "the glazing mirrors left to right",
         "handle turns on a fixed hinge and only ever moves outboard",
     ]
-    (ROOT / "build/car5-next-door-report.json").write_text(json.dumps(report, indent=2) + "\n")
+    (ROOT / ("build/%s-door-report.json" % SLUG.replace("_", "-"))).write_text(
+        json.dumps(report, indent=2) + "\n")
     print(json.dumps({k: v for k, v in report.items() if k != "driver"}, indent=2))
 
 

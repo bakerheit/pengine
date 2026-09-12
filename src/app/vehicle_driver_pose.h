@@ -29,7 +29,9 @@ inline bool has_animated_driver(PlayerCarId car) {
     return car == PlayerCarId::VesperMistral || car == PlayerCarId::HarrowWorkman ||
         car==PlayerCarId::AlderPip || car==PlayerCarId::VesperScythe ||
         car==PlayerCarId::FangVenom ||
-        car==PlayerCarId::HalcyonSovereign || car==PlayerCarId::LegacyCar5Next ||
+        car==PlayerCarId::HalcyonSovereign ||
+        car==PlayerCarId::LegacyCar5Next ||
+        car==PlayerCarId::LegacyCar5NextPolice ||
         is_municipal_cruiser_91(car);
 }
 
@@ -141,7 +143,8 @@ inline const VehicleDriverLayout& vehicle_driver_layout(PlayerCarId car) {
     if(car==PlayerCarId::MunicipalCruiser91D) return cruiser91d;
     if(car==PlayerCarId::MunicipalCruiser91E) return cruiser91e;
     if(car==PlayerCarId::FangVenom) return fangVenom;
-    if(car==PlayerCarId::LegacyCar5Next) return car5Next;
+    if(car==PlayerCarId::LegacyCar5Next ||
+       car==PlayerCarId::LegacyCar5NextPolice) return car5Next;
     return car == PlayerCarId::HarrowWorkman ? workman : mistral;
 }
 
@@ -300,7 +303,8 @@ inline bool make_vehicle_driver_pose(PlayerCarId car,const Skeleton& skeleton,
     // Scythe's low canopy needs the measured rearward sports-car posture.
     return make_seated_driver_pose(vehicle_driver_layout(car),skeleton,bounds,body,out,
         car==PlayerCarId::VesperScythe?20.f:
-        car==PlayerCarId::LegacyCar5Next?kCar5NextRecline:
+        car==PlayerCarId::LegacyCar5Next ||
+            car==PlayerCarId::LegacyCar5NextPolice?kCar5NextRecline:
         car==PlayerCarId::FangVenom?-18.f:-12.f);
 }
 

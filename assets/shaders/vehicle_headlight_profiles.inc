@@ -12,6 +12,13 @@ HEADLIGHT_MODEL(car5_next, 0)
 HEADLIGHT_RECT(0.61, 0.93, 0.79, 1.08, 3.30, 3.80)
 HEADLIGHT_RECT(0.845, 0.93, 1.01, 1.08, 3.30, 3.80)
 HEADLIGHT_END
+// The patrol car shares Car 5's nose, so it shares Car 5's lenses -- but NOT
+// Car 5's profile id, because the id is also what lit.glsl matches to find a
+// lightbar, and Car 5 has none.
+HEADLIGHT_MODEL(car5_next_police, 29)
+HEADLIGHT_RECT(0.61, 0.93, 0.79, 1.08, 3.30, 3.80)
+HEADLIGHT_RECT(0.845, 0.93, 1.01, 1.08, 3.30, 3.80)
+HEADLIGHT_END
 HEADLIGHT_MODEL(car8, 1)
 HEADLIGHT_ROUND(0.865, 0.94, 1.085, 1.14, 2.80, 3.20)
 HEADLIGHT_END

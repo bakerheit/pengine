@@ -39,6 +39,7 @@ enum class PlayerCarId : uint8_t {
     FangVenom,  // appended: checkpoint ids above remain stable
     LegacyCar5Next,
     LegacyCar8Ambulance,
+    LegacyCar5NextPolice,
     kCount,
 };
 
@@ -144,6 +145,14 @@ inline constexpr std::array<PlayerCarDefinition, kSelectablePlayerCarCount>
          "models/vehicles/car5_next/body.emesh",
          "textures/vehicles/car5/body.png",
          0.45f, 1.038f, 2.254f, 1.813f},
+        // Car 5-NEXT again, in black-and-white with a roof lightbar. It needs
+        // its own shell rather than a repaint like CAR 8 AMBULANCE, because the
+        // lightbar is real bodywork: the emergency glow pass redraws the body
+        // mesh and the lit shader keeps only what falls inside the lens box.
+        {PlayerCarId::LegacyCar5NextPolice, "LEGACY", "CAR 5-NEXT PATROL",
+         "models/vehicles/car5_next_police/body.emesh",
+         "textures/vehicles/car5_next_police/body.png",
+         0.45f, 1.038f, 2.254f, 1.813f},
         {PlayerCarId::LegacyCar8, "LEGACY", "CAR 8",
          "models/vehicles/car8/body.emesh",
          "textures/vehicles/car8/body.png",
@@ -227,12 +236,12 @@ inline constexpr std::array<PlayerCarBrand, 11> kPlayerCarBrands{{
     {"GLR", "GLR  >", 4u, 2u},
     {"HALCYON", "HALCYON  >", 6u, 2u},
     {"HARROW", "HARROW  >", 8u, 4u},
-    {"LEGACY", "LEGACY  >", 12u, 4u},
-    {"MONTROSE", "MONTROSE  >", 16u, 1u},
-    {"MUNICIPAL", "MUNICIPAL  >", 17u, 7u},
-    {"ORISON", "ORISON  >", 24u, 1u},
-    {"SPAGATTI", "SPAGATTI  >", 25u, 1u},
-    {"VESPER", "VESPER  >", 26u, 3u},
+    {"LEGACY", "LEGACY  >", 12u, 5u},
+    {"MONTROSE", "MONTROSE  >", 17u, 1u},
+    {"MUNICIPAL", "MUNICIPAL  >", 18u, 7u},
+    {"ORISON", "ORISON  >", 25u, 1u},
+    {"SPAGATTI", "SPAGATTI  >", 26u, 1u},
+    {"VESPER", "VESPER  >", 27u, 3u},
 }};
 
 inline constexpr const PlayerCarDefinition& player_car_definition(

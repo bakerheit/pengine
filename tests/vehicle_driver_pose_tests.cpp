@@ -446,6 +446,7 @@ int main() {
     hinged_door(PlayerCarId::MunicipalCruiser91D);
     hinged_door(PlayerCarId::MunicipalCruiser91E);
     hinged_door(PlayerCarId::LegacyCar5Next);
+    hinged_door(PlayerCarId::LegacyCar5NextPolice);
     for (std::size_t i = 0; i < kPlayerCarCount; ++i) {
         const auto car = static_cast<PlayerCarId>(i);
         REQUIRE(!shows_vehicle_driver(car,false));
@@ -474,6 +475,7 @@ int main() {
     transition_motion(PlayerCarId::MunicipalCruiser91D,mesh,skeleton);
     transition_motion(PlayerCarId::MunicipalCruiser91E,mesh,skeleton);
     transition_motion(PlayerCarId::LegacyCar5Next,mesh,skeleton);
+    transition_motion(PlayerCarId::LegacyCar5NextPolice,mesh,skeleton);
     exit_motion(PlayerCarId::VesperMistral,mesh,skeleton);
     exit_motion(PlayerCarId::HarrowWorkman,mesh,skeleton);
     exit_motion(PlayerCarId::AlderPip,mesh,skeleton);
@@ -485,6 +487,7 @@ int main() {
     exit_motion(PlayerCarId::MunicipalCruiser91D,mesh,skeleton);
     exit_motion(PlayerCarId::MunicipalCruiser91E,mesh,skeleton);
     exit_motion(PlayerCarId::LegacyCar5Next,mesh,skeleton);
+    exit_motion(PlayerCarId::LegacyCar5NextPolice,mesh,skeleton);
     Transform bad;
     bad.rotation={0.f,0.f,0.f,0.f};
     REQUIRE(!make_mistral_driver_pose(skeleton,mesh.bounds,bad,rejected));

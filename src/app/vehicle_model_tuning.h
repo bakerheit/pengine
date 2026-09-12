@@ -81,6 +81,9 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::LegacyCar5Next: // refreshed all-rounder, same shell
             return {1185.f,1.04f,1.02f,1.02f,1.01f,1.03f,.98f,1.02f,1.02f,
                     1.03f,1.01f,-.004f,.98f,.99f,-.02f,.98f,1.f};
+        case PlayerCarId::LegacyCar5NextPolice: // patrol tune of the same shell
+            return {1310.f,1.16f,1.06f,1.08f,1.00f,1.05f,.95f,1.06f,1.06f,
+                    1.08f,1.06f,-.006f,.96f,.97f,-.03f,1.04f,1.f};
         case PlayerCarId::LegacyCar8: // larger old sedan
             return {1480.f,1.10f,.84f,.95f,.96f,.90f,1.06f,.95f,.92f,
                     .88f,1.02f,.035f,1.12f,1.12f,-.07f,1.16f,1.f};

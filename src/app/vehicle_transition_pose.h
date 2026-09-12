@@ -273,7 +273,8 @@ inline bool make_vehicle_transition_pose(
     // a fleet cruiser's does, and pulling that inside the short reach window
     // moves the hand faster than the rest of the body can follow.
     const bool long_door = is_municipal_cruiser_91(car) ||
-        car == PlayerCarId::LegacyCar5Next;
+        car == PlayerCarId::LegacyCar5Next ||
+        car == PlayerCarId::LegacyCar5NextPolice;
     // Release long truck/fleet-sedan doors before they reach the stop, keeping
     // the pulling arm in front of the shoulder instead of reaching behind it.
     const auto opened = handle_pose(car == PlayerCarId::HarrowWorkman ? .70f :

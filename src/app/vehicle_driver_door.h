@@ -36,7 +36,8 @@ inline VehicleDriverDoor vehicle_driver_door(PlayerCarId car) {
     if(car==PlayerCarId::MunicipalCruiser91E)
         return {{1.045f,.47f,.78f},{1.065f,.98f,-.05f},-.24f,.78f,.47f,1.00f,
                 -1.2217304764f};
-    if (car == PlayerCarId::LegacyCar5Next)
+    if (car == PlayerCarId::LegacyCar5Next ||
+        car == PlayerCarId::LegacyCar5NextPolice)
         return {kCar5NextDoorHinge, kCar5NextDoorHandle, kCar5NextDoorRearZ,
                 kCar5NextDoorFrontZ, kCar5NextDoorSillY,
                 kCar5NextDoorTopY - kCar5NextDoorSillY, kCar5NextDoorOpenRadians};
