@@ -83,7 +83,8 @@ PlayerCharacterState step_character(const PlayerCharacterState& current,
                                     const CharacterTuning& tuning,
                                     const InputFrame& input,
                                     const TerrainCollider& collider,
-                                    float dt) {
+                                    float dt,
+                                    const ClimbTuning& climb) {
     PlayerCharacterState next = current;
     const float safe_dt = std::clamp(dt, 0.0f, 0.1f);
     next.view_yaw = wrap_angle(current.view_yaw + input.look_dx);
@@ -91,6 +92,41 @@ PlayerCharacterState step_character(const PlayerCharacterState& current,
                                  -kPitchLimit, kPitchLimit);
 
     if (!(safe_dt > 0.0f)) return next;
+
+    // A CLIMB OWNS THE BODY, AND IT IS HANDLED BEFORE INTENT IS EVEN READ.
+    // Locomotion, gravity and the jump are all suspended for its duration and
+    // the feet follow the plan that was committed to at the start. Letting the
+    // stick keep steering mid-traverse is how a player walks sideways out of a
+    // vault and ends up standing inside the wall they were crossing: the plan
+    // proved the LANDING was clear, and it cannot vouch for anywhere else.
+    if (current.climb.running()) {
+        next.climb.elapsed_s = current.climb.elapsed_s + safe_dt;
+        const float progress = next.climb.duration_s > 0.0f
+            ? next.climb.elapsed_s / next.climb.duration_s
+            : 1.0f;
+        next.position = climb_position(next.climb, progress);
+        next.velocity = glm::vec3{0.0f};
+        next.grounded = false;
+        if (!next.climb.running()) {
+            // Land exactly where plan_climb() proved the character fits, not
+            // wherever the last partial step happened to put them.
+            next.position = next.climb.finish;
+            next.climb = ClimbPlan{};
+            next.grounded = true;
+        }
+        return next;
+    }
+
+    const bool jump_pressed = current.grounded && was_pressed(input, kBtnJump);
+    if (jump_pressed) {
+        const ClimbPlan plan = plan_climb(collider, current, tuning, climb);
+        if (plan.possible) {
+            next.climb = plan;
+            next.velocity = glm::vec3{0.0f};
+            next.grounded = false;
+            return next;
+        }
+    }
 
     glm::vec2 intent{input.steer, input.throttle - input.brake};
     const float intent_length = glm::length(intent);
@@ -109,7 +145,9 @@ PlayerCharacterState step_character(const PlayerCharacterState& current,
                                            : tuning.walk_speed_mps;
     next.velocity = direction * top_speed * std::min(intent_length, 1.0f);
 
-    const bool taking_off = current.grounded && was_pressed(input, kBtnJump);
+    // Same press the climb was offered first refusal on: nothing here is
+    // climbable, so it is an ordinary jump.
+    const bool taking_off = jump_pressed;
     next.grounded = current.grounded && !taking_off;
     next.velocity.y = taking_off ? tuning.jump_speed_mps
         : (current.grounded ? 0.0f : current.velocity.y);

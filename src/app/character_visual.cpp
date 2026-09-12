@@ -471,6 +471,12 @@ void CharacterVisual::sync(const Crowd& crowd,
         : glm::length(glm::vec2{player.velocity.x, player.velocity.z});
     input.sprinting = !player_dead && player.sprinting;
     input.grounded = player_dead || player.grounded;
+    // The climb reads straight off the sim state that is moving the body, so
+    // the clip cannot disagree with the traverse about where it has got to.
+    input.climbing = !player_dead && player.climb.running();
+    input.climb_progress = player.climb.duration_s > 0.0f
+        ? player.climb.elapsed_s / player.climb.duration_s
+        : 0.0f;
     // A corpse throws no punches, and a jab latched on the frame the player
     // died would otherwise fire out of the body on the way down.
     const bool swing = player_punch_.consume();

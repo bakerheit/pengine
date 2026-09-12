@@ -24,7 +24,9 @@ population that consumes `city/traffic_ai.h`; `game/wanted_system.h` consumes
 `game/delivery_mission.h` is wired into the app; and a growing set of authored
 buildings are enterable — the bar, pawn shop, gun store, gas store, quickbite,
 repair shop, bank vault and a furnished house among them, each with its own
-suite.
+suite. `game/climb.h` vaults the player over a wall or fence up to 1.30 m when
+it has standing room on top and somewhere to land, and the Sycamore Loop back
+gardens are fenced for it.
 
 **What is still NOT there is worth naming precisely, because that is the part
 that keeps expiring.** There is no mission *campaign* — one delivery mission and

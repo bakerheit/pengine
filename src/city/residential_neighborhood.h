@@ -161,9 +161,16 @@ inline std::vector<StartPart> bake_residential_house(std::size_t index,GroundSam
         const float y=residential_height(site,ground,x,-16.5f);
         add("house garden fence post",x,-16.5f,y,.12f,1.05f,.12f,StartFinish::WarmWall,true);
     }
+    // The rails are SOLID, and that is the whole boundary. Posts alone left a
+    // 2.9 m gap between each pair that a character walked straight through, so
+    // the yards read as fenced and were not. Collision here also gives
+    // game/climb.cpp something to find: the upper rail tops out at 0.93 m,
+    // inside the climb band, so the back fence is climbed rather than walked
+    // around. `solid` is collision only -- the part is drawn either way -- so
+    // the open rail-and-post look above is unchanged.
     for(float x=-13.5f;x<=13.5f;x+=3) {
         const float y=residential_height(site,ground,x,-16.5f);
-        for(float lift:{.40f,.85f})add("house garden fence rail",x,-16.5f,y+lift,3,.08f,.07f,StartFinish::WarmWall);
+        for(float lift:{.40f,.85f})add("house garden fence rail",x,-16.5f,y+lift,3,.08f,.07f,StartFinish::WarmWall,true);
     }
     const float mail=residential_height(site,ground,-3,16.5f);
     add("house mailbox post",-3,16.5f,mail,.10f,1.1f,.10f,StartFinish::Steel,true);

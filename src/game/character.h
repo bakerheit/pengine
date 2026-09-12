@@ -4,6 +4,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "core/input_frame.h"
+#include "game/climb.h"
 #include "physics/terrain_collider.h"
 
 namespace apricot {
@@ -20,6 +21,10 @@ struct PlayerCharacterState {
     float distance_walked_m = 0.0f;
     bool sprinting = false;
     bool grounded = true;
+    // A climb in progress owns the body outright: while this is running, normal
+    // locomotion, gravity and the jump are all suspended and the feet follow
+    // climb_position(). Default-constructed means "not climbing".
+    ClimbPlan climb{};
 };
 
 struct CharacterTuning {
@@ -42,7 +47,8 @@ PlayerCharacterState step_character(const PlayerCharacterState& current,
                                     const CharacterTuning& tuning,
                                     const InputFrame& input,
                                     const TerrainCollider& collider,
-                                    float dt);
+                                    float dt,
+                                    const ClimbTuning& climb = {});
 
 // Used by the exit-car placement path before it commits to one side. Low
 // slabs within step height are walkable; walls and props through the body are

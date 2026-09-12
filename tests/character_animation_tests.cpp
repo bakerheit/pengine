@@ -378,6 +378,31 @@ void the_state_machine_reaches_every_state() {
     run_frames(animator, rig.clips, input, 90);
     REQUIRE(animator.state() == CharacterAnimState::Idle);
 
+    // A climb is AIRBORNE but is not a jump. It has to win over the air check,
+    // or a character crossing a fence plays a star-jump up the side of it.
+    input.grounded = false;
+    input.climbing = true;
+    input.climb_progress = 0.0f;
+    animator.advance(rig.clips, input, kDt);
+    REQUIRE(animator.state() == CharacterAnimState::Climb);
+    REQUIRE(animator.sample().clip == CharacterClip::Climb);
+    REQUIRE_NEAR(animator.sample().time, 0.0f, 1e-6f);
+    // And its clock is the TRAVERSE, not dt. Thirty frames with the climb
+    // standing still must leave the clip standing still too — game/climb.cpp
+    // owns when the body reaches the ledge, and a second clock here would
+    // arrive somewhere else and slide the hands off the wall.
+    run_frames(animator, rig.clips, input, 30);
+    REQUIRE_NEAR(animator.sample().time, 0.0f, 1e-6f);
+    input.climb_progress = 0.5f;
+    animator.advance(rig.clips, input, kDt);
+    REQUIRE_NEAR(animator.sample().time,
+                 rig.clips.duration(CharacterClip::Climb) * 0.5f, 1e-4f);
+    input.climbing = false;
+    input.climb_progress = 0.0f;
+    input.grounded = true;
+    run_frames(animator, rig.clips, input, 90);
+    REQUIRE(animator.state() == CharacterAnimState::Idle);
+
     // A flinch is a stagger, not a knockdown: it recovers on its own and it
     // never reaches the ground.
     input.flinch = true;

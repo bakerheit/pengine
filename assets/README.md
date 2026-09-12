@@ -281,6 +281,30 @@ tree. Cooked meshes, skeletons, animation tracks, and textures stay under the
 ignored `models/characters/psx_pack/` private-asset boundary. The renderer
 samples the bone tracks continuously; no per-frame mesh swapping is involved.
 
+### The climb clip is retargeted, not lifted
+
+`models/characters/psx_pack/animations/climb.eanim` is the one clip that does
+not come from the Probable Cause set `tools/lift_character_animations.py`
+copies. It is a stock Mixamo "Climbing Up Wall" export, and Mixamo rigs its
+clips against a **T-posed** skeleton while the staged PSX rigs are bound
+**arms-down** — measured off the bind matrices, legs and spine agree to within
+11 degrees and the upper arms are 113–122 degrees apart. A copy therefore
+produces a character whose legs climb correctly and whose arms never reach
+above the shoulder. Run:
+
+```sh
+python3 tools/cook_climb_animation.py --source "path/to/Climbing Up Wall.fbx"
+```
+
+It needs Probable Cause's `meshconv` to read the FBX (pass `--meshconv`, or set
+`MESHCONV`), and it writes one clip that serves all 26 staged rigs. That
+script's header carries the full reasoning, including the two ways the naive
+version fails silently. `--check` verifies without publishing.
+
+**`CharacterClipSet::load()` fails if any registered clip is missing**, so
+until this cook has been run once, no character animates at all — the same
+bargain the lifted clips already strike.
+
 `models/vehicles/vesper_vx91/body.emesh` is the original fictional 1991 Vesper
 VX-91 sports coupe. `tools/make_vesper_vx91_assets.py` builds its single
 676-triangle wheel-less body with four open arches, a low wedge nose, long
@@ -376,3 +400,37 @@ wall with pale aluminum mullions and off-white cladding. Both prompts required
 orthographic, evenly lit, tileable diffuse art with no text, logos, people,
 vehicles, perspective, shadows, or watermark. Runway markings stay modeled in
 `src/city/airport.h` so their spacing is exact.
+
+## Chain-link fence kit
+
+`models/props/chain_link_fence/` is DanglingBat's PSX modular chain-link fence
+kit: six modules (straight panel x2, left/right end, internal/external corner),
+126–416 triangles each, 2.0 m panels on 2.064 m posts. Cook it with:
+
+```sh
+Blender -b --python tools/cook_chain_link_fence.py -- path/to/psx-modular-chain-link-fence
+```
+
+**Its licence permits use in a game and forbids redistributing the assets "on
+their own (even if modified or edited)", so nothing it produces is tracked —
+the textures included.** That is the exception to this tree's usual split,
+where art lives in the tracked `textures/`. Do not move them there. The pack
+also carries a "no AI digital creation" clause; it reads as a restriction on
+generating content *from* the assets rather than on tooling, but it has not
+been cleared with the author, so treat a public build as needing that check
+first.
+
+The cook writes one `.emesh` per module per material plus `manifest.json`,
+which carries each module's bounds and a single thin collision box spanning its
+posts. Two details are load-bearing. The `chain_link` material's 128×128
+diffuse has **real alpha** and has to be drawn alpha-cut — uploaded opaque, a
+panel renders as a solid grey slab rather than wire. And Blender imports the
+glTF Z-up while this engine is Y-up with −Z forward, so the cook swaps
+`(x, y, z) -> (x, z, -y)` and **reverses triangle winding to match**, because
+that swap mirrors handedness and an unreversed panel is invisible under
+back-face culling.
+
+**These modules are not placed in the world yet.** The cook and the meshes are
+verified through `apricot_asset_lab`; nothing loads them at runtime. At 2.0 m
+they are deliberately above `ClimbTuning::max_height_m`, so they are a barrier
+rather than something to climb — see `src/game/climb.h`.

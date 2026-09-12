@@ -50,10 +50,20 @@ namespace apricot {
 //  The clip registry
 // ---------------------------------------------------------------------------
 //
-// Every clip below is a cooked .eanim staged by tools/lift_character_animations.py
-// under the gitignored assets/models/. Add a clip by adding a row here and a
-// row to that script's CLIPS table; nothing else in this header hard-codes a
-// filename.
+// Every clip below is a cooked .eanim under the gitignored assets/models/.
+// Most are staged by tools/lift_character_animations.py; add one of those by
+// adding a row here and a row to that script's CLIPS table. Nothing else in
+// this header hard-codes a filename.
+//
+// `climb` is the exception and has its own cook,
+// tools/cook_climb_animation.py, because it is not in the Probable Cause set
+// that script copies from -- it is a stock Mixamo export against Mixamo's own
+// T-posed rig, and it has to be RETARGETED onto these arms-down skeletons
+// rather than copied. That script's header is where the reasoning lives.
+//
+// CharacterClipSet::load() fails if any registered clip is missing, so adding
+// a row here makes running that cook a precondition for ANY character
+// animating at all. That is the same bargain the lifted clips already strike.
 
 enum class CharacterClip : uint8_t {
     Idle,
@@ -69,6 +79,7 @@ enum class CharacterClip : uint8_t {
     DieBackward,
     StandUp,
     Jump,
+    Climb,
     Count,
 };
 
@@ -112,6 +123,9 @@ inline constexpr std::array<CharacterClipInfo, kCharacterClipCount>
         {CharacterClip::DieBackward, "die_backward", false, false, ClipRoot::AnchorStart},
         {CharacterClip::StandUp,     "stand_up",     false, false, ClipRoot::AnchorEnd},
         {CharacterClip::Jump,        "jump",         false, false, ClipRoot::Strip},
+        // Strip, and the cook already left the root still -- game/climb.cpp
+        // owns the trajectory, so the clip must not move the body as well.
+        {CharacterClip::Climb,       "climb",        false, false, ClipRoot::Strip},
     }};
 
 inline const CharacterClipInfo& character_clip_info(CharacterClip clip) {
@@ -211,6 +225,18 @@ struct CharacterAnimInput {
     float speed_mps = 0.0f;      // horizontal ground speed
     bool sprinting = false;      // running rather than walking, at any speed
     bool grounded = true;        // false puts the character in the air
+    // Mid-climb. A LEVEL held for the traverse, not an edge: game/climb.cpp
+    // already owns the duration, so the animator follows it rather than
+    // keeping a second clock that can disagree with the one moving the body.
+    // Checked before `grounded`, because a climb is airborne and must not fall
+    // through to the jump clip.
+    bool climbing = false;
+    // How far through that traverse, 0..1. The clip is driven from this rather
+    // than from its own clock, for the same reason the walk cycle is driven by
+    // distance: game/climb.cpp decides when the body reaches the ledge, and a
+    // second clock here would arrive at a different time and slide the hands
+    // off the wall.
+    float climb_progress = 0.0f;
     bool armed = false;          // selects the pistol locomotion set
     bool alarmed = false;        // panicked: runs sooner, idles more restlessly
 
@@ -376,6 +402,7 @@ enum class CharacterAnimState : uint8_t {
     Walk,
     Run,
     Jump,
+    Climb,
     Punch,
     Flinch,
     Knockdown,   // going down, still moving
@@ -391,6 +418,7 @@ inline const char* character_anim_state_name(CharacterAnimState state) {
         case CharacterAnimState::Walk:      return "walk";
         case CharacterAnimState::Run:       return "run";
         case CharacterAnimState::Jump:      return "jump";
+        case CharacterAnimState::Climb:     return "climb";
         case CharacterAnimState::Punch:     return "punch";
         case CharacterAnimState::Flinch:    return "flinch";
         case CharacterAnimState::Knockdown: return "knockdown";
@@ -516,6 +544,15 @@ private:
         }
         if (state_ == CharacterAnimState::Flinch) return;
 
+        // Before the air check: a climb IS airborne, and falling through to the
+        // jump clip would play a star-jump up the side of a wall.
+        if (in.climbing) {
+            if (state_ != CharacterAnimState::Climb) {
+                enter(CharacterAnimState::Climb, CharacterClip::Climb,
+                      tuning.fade_action_s);
+            }
+            return;
+        }
         if (!in.grounded) {
             if (state_ != CharacterAnimState::Jump) {
                 enter(CharacterAnimState::Jump, CharacterClip::Jump,
@@ -660,6 +697,11 @@ private:
                 // Hold the descending pose until collision says we landed.
                 sample_.time = std::min(elapsed_ * tuning.jump_rate,
                                          duration * 0.75f);
+                break;
+            case CharacterAnimState::Climb:
+                // Driven by the traverse, never by dt. See climb_progress.
+                sample_.time =
+                    std::clamp(in.climb_progress, 0.0f, 1.0f) * duration;
                 break;
             case CharacterAnimState::Downed:
                 sample_.time = hold_time_;
