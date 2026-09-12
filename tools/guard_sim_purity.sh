@@ -47,6 +47,7 @@ SIM_FILES=(
     src/audio/vehicle_audio.cpp
     src/audio/traffic_idle_audio.h
     src/audio/traffic_horn_audio.h
+    src/audio/footstep_audio.h
 )
 
 BANNED='glad|SDL|<GL/|miniaudio|imgui'

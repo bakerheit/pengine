@@ -5,6 +5,10 @@ normal player-car playback is recorded-only. Procedural engine, road, tyre and
 impact placeholders are not connected to the live vehicle mix. A missing
 recording means silence, not a generated substitute.
 
+`FootstepAudio` owns the player's footfalls: five recorded families selected
+from the ground the collider already probed, paced by DISTANCE rather than by a
+timer. See "Footsteps" below.
+
 `CityAudio` owns one non-spatial `Category::World` loop made from the recorded
 Pinatty city ambience. It runs at 22% emitter gain beneath the engine and keeps
 playing behind title/pause overlays. The checked-in WAV rotates the source and
@@ -24,6 +28,7 @@ than around it.
 | `mixer.h` | `apricot_sim` | glm. Nothing else, ever. |
 | `synth.h` / `synth.cpp` | `apricot_sim` | glm, `core/`. Nothing else, ever. |
 | `vehicle_audio.h` / `.cpp` | `apricot_sim` | long-lived player voice control |
+| `footstep_audio.h` | `apricot_sim` | footfall cadence, family choice, take rotation |
 | `device.h` / `device.cpp` | `apricot_host` | the playback backend |
 | `miniaudio_impl.c` | `apricot_host` | it *is* the backend |
 
@@ -55,7 +60,11 @@ final gain = emitter_gain x category[c] x master
 
 One category trim times one master. Deliberately shallow: deeper graphs are
 where "why is this one sound quiet" stops being answerable. **Add a category
-before you add a layer.**
+before you add a layer.** `Footsteps` is the most recent one and is a worked
+example of the rule: footfalls are neither engine, nor tyres, nor impacts, nor
+ambience, and routing them through `World` alongside the city bed would have
+meant the city's 22% trim and a footstep's level could never be moved
+independently.
 
 `VoiceMixer` renders every voice into one interleaved stereo block: 32 one-shot
 voices, 32 loop voices, a linear-interpolating resampler, a per-voice one-pole
@@ -235,6 +244,59 @@ it, but `VehicleAudio` does not open those clips.
   from the app layer, which nothing calls yet. See the TODO in `device.cpp`.
 - **Full traffic rev recordings.** Nearby cars have spatial idle emitters, but
   their acceleration/gear transitions do not yet use the player's throttle set.
+
+### Footsteps
+
+`FootstepAudio` (`footstep_audio.h`, sim side, header-only) plays the player's
+own footfalls on `Category::Footsteps`. Five families ship — concrete, stone,
+gravel, dirt and grass — cooked from a supplied pack by
+`tools/prepare_footsteps.py`; provenance, the per-family take counts and why
+three folders in that pack are deliberately NOT cooked are in
+`assets/audio/character/SOURCES.md`.
+
+**The cadence comes from distance covered, not from a clock, and this is the
+part to not undo.** `PlayerCharacterState::distance_walked_m` accumulates over
+ground contact only, so one footfall per stride of ground is automatically
+correct in four cases a timer gets wrong: it needs no separate walk and sprint
+rate, it does not drift when the character is slowed (aiming, drunk, a tornado
+pushing back), it cannot depend on the frame rate, and a player held against a
+wall does not march on the spot. It also means there is no `dt` anywhere in the
+file — nothing here can desync.
+
+Both strides are set from real gait rather than picked: 0.92 m at the
+character's 2.35 m/s walk is 2.55 footfalls a second, 1.62 m at its 6.25 m/s
+sprint is 3.9. Those rates were measured out of the real mixer and are pinned in
+`audio_footstep_tests`, because shortening a stride by a tenth of a metre passes
+every other test in the suite and sounds wrong immediately.
+
+Touching down after a jump plays one louder footfall on the frame it happens.
+Standing still arms the next footfall a short distance ahead rather than a full
+stride, so the first step after setting off lands under the foot. A distance
+counter that goes BACKWARDS — a respawn, a car exit, the dev teleport — re-arms
+instead of owing a burst of steps.
+
+Surface choice is `footstep_surface()`, a pure function of the material, the
+road flag and the prop flag `GroundHit` already carries. The road bake wins over
+the material underneath it, because a sidewalk over a grass basin reports Grass
+and paved ground must not sound like a lawn. Snow under the boot both quietens
+the step and drops its low-pass corner, bottoming out at full depth rather than
+fading to nothing.
+
+`footstep_take()` rotates over the takes that actually LOADED rather than over
+the six slots, and never repeats the take it played last. A family the pack
+supplies four of therefore has a four-deep rotation, not a one-in-three chance
+of silence. There is no synthesised footstep and there should not be one: a
+generated footfall is a click with a noise tail, and a placeholder that obvious
+reads as a bug report rather than as an unfinished asset. A family with nothing
+loaded is silent.
+
+`footstep_walk()` assembles the update input and the app calls it, so a headless
+test drives the same assembly the game does rather than a hand-built copy of it
+— `audio_footstep_tests` steps a real `PlayerCharacterState` over a real
+`TerrainCollider` through it.
+
+**Not wired yet:** nothing but the player has footsteps. Pedestrians, the
+officers who chase you and the traffic occupants are all silent on foot.
 
 ### Recorded rain
 

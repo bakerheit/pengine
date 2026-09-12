@@ -30,6 +30,7 @@
 #include "city/start_area.h"
 #include "audio/city_audio.h"
 #include "audio/intro_audio.h"
+#include "audio/footstep_audio.h"
 #include "audio/rain_audio.h"
 #include "audio/device.h"
 #include "audio/vehicle_audio.h"
@@ -536,6 +537,10 @@ private:
     void check_player_crash_damage(float impact_speed_mps);
     void check_pedestrian_casualties();
     void check_on_foot_traffic_hits();
+    // One footfall's worth of ground, probed after the character has been
+    // stepped. Its own function because it owes one collider probe and only
+    // wants to spend it when the character is actually walking.
+    void update_footstep_audio();
     void throw_player_punch();
     bool police_officer_check_=false;
     bool police_pursuit_check_=false;
@@ -585,6 +590,8 @@ private:
     CityAudio city_audio_;
     IntroAudio intro_audio_;
     RainAudio rain_audio_;
+    FootstepAudio footstep_audio_;
+    FootstepTuning footstep_tuning_;
     VehicleAudio vehicle_audio_;
     TrafficIdleAudio traffic_idle_audio_;
     TrafficHornAudio traffic_horn_audio_;

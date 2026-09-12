@@ -277,7 +277,8 @@ void the_player_car_opens_a_bounded_voice_set() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kTrafficHornClipCount + kCarSoundUseCount *
+            11u + shipped_footstep_take_count() + kTrafficHornClipCount +
+            kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
 
@@ -394,7 +395,8 @@ void pause_stops_the_recording_without_retriggering_held_throttle() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kTrafficHornClipCount + kCarSoundUseCount *
+            11u + shipped_footstep_take_count() + kTrafficHornClipCount +
+            kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
     REQUIRE(audio.start(mixer, bank));
@@ -430,7 +432,8 @@ void every_f1_car_sound_choice_is_real_and_audible() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kTrafficHornClipCount + kCarSoundUseCount *
+            11u + shipped_footstep_take_count() + kTrafficHornClipCount +
+            kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
     REQUIRE(audio.start(mixer, bank));
@@ -459,7 +462,8 @@ void acceleration_recording_plays_once_per_throttle_press() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kTrafficHornClipCount + kCarSoundUseCount *
+            11u + shipped_footstep_take_count() + kTrafficHornClipCount +
+            kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
     REQUIRE(audio.start(mixer, bank));
@@ -525,7 +529,8 @@ void sustained_throttle_never_reaches_a_quiet_source_tail() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kTrafficHornClipCount + kCarSoundUseCount *
+            11u + shipped_footstep_take_count() + kTrafficHornClipCount +
+            kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
     REQUIRE(audio.start(mixer, bank));
@@ -558,7 +563,8 @@ void car_to_car_collision_uses_the_dedicated_recording() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kTrafficHornClipCount + kCarSoundUseCount *
+            11u + shipped_footstep_take_count() + kTrafficHornClipCount +
+            kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
     REQUIRE(audio.start(mixer, bank));
@@ -669,7 +675,8 @@ void shutdown_stops_the_active_recording() {
     mixer.prepare(kDefaultSampleRate);
     SfxBank bank = synth_bank(kDefaultSampleRate);
     REQUIRE(override_bank_from_wavs(bank, player_car_audio_overrides()) ==
-            11u + kTrafficHornClipCount + kCarSoundUseCount *
+            11u + shipped_footstep_take_count() + kTrafficHornClipCount +
+            kCarSoundUseCount *
                      static_cast<std::size_t>(kCarSoundVariantCount));
     VehicleAudio audio;
     REQUIRE(audio.start(mixer, bank));

@@ -1713,8 +1713,9 @@ void App::apply_ui_settings() {
         audio_device_.mixer().set_category(Category::Music, settings.music_volume);
     if (!ui_settings_applied_ || settings.sfx_volume != applied_ui_settings_.sfx_volume) {
         for (Category category : {Category::Engine, Category::Tyres,
-                                  Category::Impacts, Category::World,
-                                  Category::Weather, Category::Ui})
+                                  Category::Impacts, Category::Footsteps,
+                                  Category::World, Category::Weather,
+                                  Category::Ui})
             audio_device_.mixer().set_category(category, settings.sfx_volume);
     }
     if (!ui_settings_applied_ ||
@@ -2371,6 +2372,53 @@ SkyEnv App::current_sky_env() const {
     haze.weather_fog = controls_.fog;
     apply_distance_haze(env, haze);
     return env;
+}
+
+namespace {
+
+// terrain's Surface and audio's AudioSurface deliberately mirror each other's
+// order and both are append-only. The static_assert is what makes relying on
+// that safe rather than lucky: append to one and this stops compiling instead
+// of quietly renaming a material.
+constexpr AudioSurface audio_surface_of(Surface s) {
+    static_assert(kSurfaceCount == kAudioSurfaceCount);
+    switch (s) {
+        case Surface::Rock:   return AudioSurface::Rock;
+        case Surface::Gravel: return AudioSurface::Gravel;
+        case Surface::Grass:  return AudioSurface::Grass;
+        case Surface::Sand:   return AudioSurface::Sand;
+    }
+    return AudioSurface::Rock;
+}
+
+}  // namespace
+
+void App::update_footstep_audio() {
+    const PlayerCharacterState& person = player_character_;
+
+    // One probe per sim step while on foot. It is paid unconditionally rather
+    // than only on the steps that owe a footfall, because the alternative is
+    // caching the ground between steps and a stale surface is exactly the bug
+    // that only shows on the frame you cross a kerb. The character step already
+    // sweeps the static boxes several times over; this is a small addition to a
+    // block the phase breakdown measures at 0.11 ms.
+    const TerrainCollider::GroundHit ground = collider_.probe_down(
+        {person.position.x, person.position.y + 0.25f, person.position.z}, 0.60f);
+    // Off the end of the probe, classify the ground anyway rather than
+    // defaulting, so a footfall on a frame where the feet sit a hair high is
+    // still the right material.
+    const Surface material = ground.hit
+        ? ground.material
+        : collider_.material(person.position.x, person.position.z);
+
+    footstep_audio_.update(
+        audio_device_.mixer(), audio_device_.bank(),
+        footstep_walk(person.position, person.velocity, person.distance_walked_m,
+                      person.grounded, person.sprinting,
+                      audio_surface_of(material), ground.hit && ground.road,
+                      ground.hit && ground.prop,
+                      ground.hit ? ground.snow_depth_m : 0.0f),
+        footstep_tuning_);
 }
 
 void App::render() {
@@ -3939,6 +3987,12 @@ int App::run() {
                         static_cast<float>(kSimDt);
                 }
                 if (house_check_) update_house_check();
+                // After the tornado push, so the speed the footfall gain is
+                // taken from is the speed the character actually moved at.
+                // Nothing resets this when the player gets into a car: the
+                // character that comes back out is spawned with a fresh
+                // distance counter, which FootstepAudio reads as a re-arm.
+                update_footstep_audio();
                 if (i == 0) {
                     character_look_dx_pending_ = 0.0f;
                     character_look_dy_pending_ = 0.0f;

@@ -1270,6 +1270,16 @@ std::size_t override_bank_from_wavs(SfxBank& bank,
             }
         }
     }
+    for (std::size_t surface = 0; surface < kFootstepSurfaceCount; ++surface) {
+        for (std::size_t variant = 0; variant < kFootstepVariantCount;
+             ++variant) {
+            const std::string& path = paths.footsteps[surface][variant];
+            if (!path.empty() &&
+                override_clip_from_wav(bank.footsteps[surface][variant], path)) {
+                ++loaded;
+            }
+        }
+    }
     if (!paths.player_throttle_attack.empty() &&
         override_clip_from_wav(bank.player_throttle_attack,
                                paths.player_throttle_attack)) {

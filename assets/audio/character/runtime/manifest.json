@@ -1,0 +1,402 @@
+[
+  {
+    "file": "footstep_concrete_0.wav",
+    "family": "concrete",
+    "variant": 0,
+    "source": "Concrete/Footstep Concrete 1.ogg",
+    "source_sha256": "1dfe5dc5b12ab574191547788b29a5f9e64b7dd0c662ff730a13a63b13836431",
+    "runtime_sha256": "c4bb7468a6ecf80614a216b74c34a6ed273536ea3317a89008e06978ec09647a",
+    "family_gain": 0.9204017112848352,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0053,
+      0.1276
+    ],
+    "duration_s": 0.1223
+  },
+  {
+    "file": "footstep_concrete_1.wav",
+    "family": "concrete",
+    "variant": 1,
+    "source": "Concrete/Footstep Concrete 2.ogg",
+    "source_sha256": "20c1e2adbdd78b693be40b5069291e6ed114cbbb23164c071bc15389136ad0c9",
+    "runtime_sha256": "ca405a056079c4817127b45e82a32ca044bbae5af2cf6caee77e6b218202e1d6",
+    "family_gain": 0.9204017112848352,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0031,
+      0.1276
+    ],
+    "duration_s": 0.1245
+  },
+  {
+    "file": "footstep_concrete_2.wav",
+    "family": "concrete",
+    "variant": 2,
+    "source": "Concrete/Footstep Concrete 3.ogg",
+    "source_sha256": "5bb840fb27c0922d8145d2e8f799b1788c28cc407b95582d43f9465a086a9688",
+    "runtime_sha256": "feaf5366c6484816f3d92333a407e7c8748f8a59b0b74bcf2adbc01c14ceb505",
+    "family_gain": 0.9204017112848352,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0,
+      0.1276
+    ],
+    "duration_s": 0.1276
+  },
+  {
+    "file": "footstep_concrete_3.wav",
+    "family": "concrete",
+    "variant": 3,
+    "source": "Concrete/Footstep Concrete 4.ogg",
+    "source_sha256": "33e8219caa42e3cb3a0f1a5de09ca91dc3090c51d8dc388a274617950338eb5c",
+    "runtime_sha256": "f00567ada0adddaa18f7fe4cdf1035dfb8b947bbd5e335f1e8948a3bb7e13e89",
+    "family_gain": 0.9204017112848352,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0013,
+      0.1276
+    ],
+    "duration_s": 0.1264
+  },
+  {
+    "file": "footstep_concrete_4.wav",
+    "family": "concrete",
+    "variant": 4,
+    "source": "Concrete/Footstep Concrete 5.ogg",
+    "source_sha256": "53849aa2441d7de8cd517076930d79fbeb6a348173ebe367b565c311d4c356f1",
+    "runtime_sha256": "ee1da7b0bdba6064117bbb458a96663f1adc67fd879af1d51ddb83a168e19b61",
+    "family_gain": 0.9204017112848352,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0149,
+      0.1276
+    ],
+    "duration_s": 0.1128
+  },
+  {
+    "file": "footstep_stone_0.wav",
+    "family": "stone",
+    "variant": 0,
+    "source": "Stone/Footstep Stone 1.ogg",
+    "source_sha256": "2efccebf9bf57d96a35f31f29fd715f802b8d2aa105eded273ae40841df9f3ae",
+    "runtime_sha256": "034d3699764690e4d28d130446e5257d984a88088dc5d78dff732901bc27a491",
+    "family_gain": 1.235512093424946,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0,
+      0.2116
+    ],
+    "duration_s": 0.2116
+  },
+  {
+    "file": "footstep_stone_1.wav",
+    "family": "stone",
+    "variant": 1,
+    "source": "Stone/Footstep Stone 2.ogg",
+    "source_sha256": "7872958bad346b3f8571d028560c5d9100d8c965b88dcb3c505c16f6850e23da",
+    "runtime_sha256": "68a467d3f82e8b46c72de1ce6e9403196c49d6aa3fed9813ce43e7f86e481ee3",
+    "family_gain": 1.235512093424946,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0,
+      0.2723
+    ],
+    "duration_s": 0.2723
+  },
+  {
+    "file": "footstep_stone_2.wav",
+    "family": "stone",
+    "variant": 2,
+    "source": "Stone/Footstep Stone 3.ogg",
+    "source_sha256": "6f5a76b4f1ab1f59fa362b2e325d2989a2178d5fd51b6d762e29e5960c5d3810",
+    "runtime_sha256": "bdb73250225a9f3d12aa1e2395d670e30319c3d84bf60ff087e2cac56156701c",
+    "family_gain": 1.235512093424946,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0,
+      0.2181
+    ],
+    "duration_s": 0.2181
+  },
+  {
+    "file": "footstep_stone_3.wav",
+    "family": "stone",
+    "variant": 3,
+    "source": "Stone/Footstep Stone 4.ogg",
+    "source_sha256": "ce9be0ad9fa002eaca5b30d834505d457be0d5974b36dc7f618174a2284b1fcd",
+    "runtime_sha256": "4111eb2b48cf2056d5873ac0608b09be00d838c77e280a870f941c789459ce33",
+    "family_gain": 1.235512093424946,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0,
+      0.2367
+    ],
+    "duration_s": 0.2367
+  },
+  {
+    "file": "footstep_gravel_0.wav",
+    "family": "gravel",
+    "variant": 0,
+    "source": "Gravel/Footstep Gravel 1.ogg",
+    "source_sha256": "37df052a7a9c4d10b534534f27bc3275225afebf9aae49ba323ba09adcb218b5",
+    "runtime_sha256": "ed2e0c58fcfb17c0343e33eb0654f6a49741f6b3fe3a299d9bb8cb50f6b96845",
+    "family_gain": 1.5591158827450304,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0076,
+      0.1749
+    ],
+    "duration_s": 0.1672
+  },
+  {
+    "file": "footstep_gravel_1.wav",
+    "family": "gravel",
+    "variant": 1,
+    "source": "Gravel/Footstep Gravel 2.ogg",
+    "source_sha256": "1763de3f7dcf7d0f2b7e1ce113080897696825f304cec381b46b3265f2da5161",
+    "runtime_sha256": "b8aca027f127c46b82cfd879583cbad42d86fb12f47f29edb9f51ca7c8894b93",
+    "family_gain": 1.5591158827450304,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0098,
+      0.1627
+    ],
+    "duration_s": 0.1529
+  },
+  {
+    "file": "footstep_gravel_2.wav",
+    "family": "gravel",
+    "variant": 2,
+    "source": "Gravel/Footstep Gravel 3.ogg",
+    "source_sha256": "2afb70fb6d4b3edaa9433e674f2bdfff8a687cd7513fe79f78fb3f016819c974",
+    "runtime_sha256": "c55a5253e8c51bd09ea05bb427fafde559a56b44ed1022ea9f948bd972a18b52",
+    "family_gain": 1.5591158827450304,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.01,
+      0.2186
+    ],
+    "duration_s": 0.2085
+  },
+  {
+    "file": "footstep_gravel_3.wav",
+    "family": "gravel",
+    "variant": 3,
+    "source": "Gravel/Footstep Gravel 4.ogg",
+    "source_sha256": "1b714e188a6dda3188456a994b4d2337f9dc38e30bea6043865d657a55d0ae88",
+    "runtime_sha256": "4066b38fc80fc4815489c2279b3b6fe16d26e884c887a38a5fab95f32266e786",
+    "family_gain": 1.5591158827450304,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0118,
+      0.1901
+    ],
+    "duration_s": 0.1783
+  },
+  {
+    "file": "footstep_gravel_4.wav",
+    "family": "gravel",
+    "variant": 4,
+    "source": "Gravel/Footstep Gravel 5.ogg",
+    "source_sha256": "8ddac42c4940a153a7bbe7f39bc1722b51226961bbf2ac777418d65107c56422",
+    "runtime_sha256": "f5e0d04cac82cbd7b945c0fca4acf1d11810748cf4842ed84140603b974677d8",
+    "family_gain": 1.5591158827450304,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0088,
+      0.1901
+    ],
+    "duration_s": 0.1813
+  },
+  {
+    "file": "footstep_dirt_0.wav",
+    "family": "dirt",
+    "variant": 0,
+    "source": "Dirt/Footstep Dirt 1.ogg",
+    "source_sha256": "7ab52623a6295f8278b9345033eb317907f5857a43f0a879ee833618d319046e",
+    "runtime_sha256": "e9a88ed34f7d66531b44456e5befcebdd9f083ec9a0b73f9c7f9295c8e41b5e8",
+    "family_gain": 1.2797100896189304,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0,
+      0.1909
+    ],
+    "duration_s": 0.1909
+  },
+  {
+    "file": "footstep_dirt_1.wav",
+    "family": "dirt",
+    "variant": 1,
+    "source": "Dirt/Footstep Dirt 2.ogg",
+    "source_sha256": "1dbddb3b44036ba47bb3b3197eaa6f5fd1483720cb71d9e3343dd0722cf4df6a",
+    "runtime_sha256": "f81d0dc7129b638f82629c50b8da929e599adb5e0844ae49b9450ce6c0249fc1",
+    "family_gain": 1.2797100896189304,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0,
+      0.1909
+    ],
+    "duration_s": 0.1909
+  },
+  {
+    "file": "footstep_dirt_2.wav",
+    "family": "dirt",
+    "variant": 2,
+    "source": "Dirt/Footstep Dirt 3.ogg",
+    "source_sha256": "a936c4f770aeba62b9229736417b6a6531fa35540c8ef6b0bebebf275d0099ab",
+    "runtime_sha256": "0a655f1bc3e15e27d0765fdef240621f4876a2d60b12934f0fd9d718c53f7118",
+    "family_gain": 1.2797100896189304,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0,
+      0.1909
+    ],
+    "duration_s": 0.1909
+  },
+  {
+    "file": "footstep_dirt_3.wav",
+    "family": "dirt",
+    "variant": 3,
+    "source": "Dirt/Footstep Dirt 4.ogg",
+    "source_sha256": "c4c21ad19c602091d7b0b8c10f96b15912342b9a0d24ed29a77a265dd83d6402",
+    "runtime_sha256": "9125c4d102e9447db882d80eb5c0baf936d4111d38451040f1938e55c5c42c40",
+    "family_gain": 1.2797100896189304,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0097,
+      0.1909
+    ],
+    "duration_s": 0.1812
+  },
+  {
+    "file": "footstep_dirt_4.wav",
+    "family": "dirt",
+    "variant": 4,
+    "source": "Dirt/Footstep Dirt 5.ogg",
+    "source_sha256": "3a370985df2ba0d507dd0e7f2c3268c712675b82634d1a6e6f7a6b63b3c3efa9",
+    "runtime_sha256": "ad77190af06ddc00d224dee06e2ebeea1f6f468864cd78dacd0ee7709809ad0f",
+    "family_gain": 1.2797100896189304,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0,
+      0.1909
+    ],
+    "duration_s": 0.1909
+  },
+  {
+    "file": "footstep_grass_0.wav",
+    "family": "grass",
+    "variant": 0,
+    "source": "Grass/Footstep Grass 1.ogg",
+    "source_sha256": "361adb65da58cdb32a34b9161f2b3f0c49338b37239e6326aa0ae0228483e466",
+    "runtime_sha256": "4715a48dd4243ced405110cdd51c11625fa8081cf9bcc56eb51b05a3235048cd",
+    "family_gain": 0.6135298068094966,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0,
+      0.2628
+    ],
+    "duration_s": 0.2628
+  },
+  {
+    "file": "footstep_grass_1.wav",
+    "family": "grass",
+    "variant": 1,
+    "source": "Grass/Footstep Grass 2.ogg",
+    "source_sha256": "49e037b7353400f9cbaa37e6abfe0ae97e93a4910e4d34bbdfe22cbe843c8511",
+    "runtime_sha256": "1c07362ce30c2ea39f6e4d8a09457344534e7bd1ba2bbc0858bc04d93a9fc396",
+    "family_gain": 0.6135298068094966,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.004,
+      0.2161
+    ],
+    "duration_s": 0.2121
+  },
+  {
+    "file": "footstep_grass_2.wav",
+    "family": "grass",
+    "variant": 2,
+    "source": "Grass/Footstep Grass 3.ogg",
+    "source_sha256": "e10aa77b543950e531b628120badd9676ac73142a0e99d37d65e94df8303ef09",
+    "runtime_sha256": "69fc2355684125e4202939706a7bc1c9ec268a614b2d757124588a317f23a05a",
+    "family_gain": 0.6135298068094966,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0171,
+      0.2009
+    ],
+    "duration_s": 0.1838
+  },
+  {
+    "file": "footstep_grass_3.wav",
+    "family": "grass",
+    "variant": 3,
+    "source": "Grass/Footstep Grass 4.ogg",
+    "source_sha256": "89a3686c59483d729f4e4386805d62594325f842f11d3a43558e5edb4785cb24",
+    "runtime_sha256": "4adce69e16f3ad2cea8b3e9c9fa16b001eb4f8add6fd9377814f4813415477dc",
+    "family_gain": 0.6135298068094966,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0,
+      0.2248
+    ],
+    "duration_s": 0.2248
+  },
+  {
+    "file": "footstep_grass_4.wav",
+    "family": "grass",
+    "variant": 4,
+    "source": "Grass/Footstep Grass 5.ogg",
+    "source_sha256": "0cd7924bd8c3b814760da7347bcb55cb1929abed70cffb9d3ffee97866a7017e",
+    "runtime_sha256": "4b559feaa2b8dab09eddc3fb9dc8158f2bd512700bcf673797adc2c2fd7d2363",
+    "family_gain": 0.6135298068094966,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0029,
+      0.3388
+    ],
+    "duration_s": 0.3358
+  },
+  {
+    "file": "footstep_grass_5.wav",
+    "family": "grass",
+    "variant": 5,
+    "source": "Grass/Footstep Grass 6.ogg",
+    "source_sha256": "c3cb68d50bb40cf89ae0964dbdefa5426e30ce80c2f63f89116f4f03d0280fb1",
+    "runtime_sha256": "d107c42c02b94eddc059fbbd3544f025fe9fbf81f41423b8f21a530ab49b2e9e",
+    "family_gain": 0.6135298068094966,
+    "channels": 1,
+    "sample_rate": 48000,
+    "source_cut_s": [
+      0.0,
+      0.3355
+    ],
+    "duration_s": 0.3355
+  }
+]

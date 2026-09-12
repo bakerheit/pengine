@@ -128,6 +128,80 @@ constexpr const char* audio_surface_name(AudioSurface s) {
     return "?";
 }
 
+// Which recorded footstep family a footfall plays from.
+//
+// NOT AudioSurface, and the difference is the whole reason this enum exists.
+// AudioSurface mirrors terrain's four ground materials because that is what a
+// tyre rolls on, and a tyre never rolls on a paved road as a distinct material
+// — the road bake reports Rock and grips like rock. A foot does: a kerb-to-
+// asphalt step is the most common surface change in Pinatty and is the one the
+// player hears constantly. So Concrete is a family here and is not a terrain
+// material anywhere, and appending to AudioSurface to get it would resize
+// SfxBank::surface_roll and re-tune the car for a sound the car does not make.
+//
+// ORDER IS THE ROW ORDER of SfxBank::footsteps and SfxOverridePaths::footsteps.
+// Append only.
+enum class FootstepSurface : int {
+    Concrete = 0,  // the paved road bake: carriageway, kerbs, sidewalk slabs
+    Stone,         // exposed rock, and authored prop tops the player stands on
+    Gravel,        // scree, loose alpine ground, and unpaved roads
+    Dirt,          // the sand classifier's ground, which reads as dry dirt
+    Grass,         // the default drivable ground
+    kCount,
+};
+
+inline constexpr std::size_t kFootstepSurfaceCount =
+    static_cast<std::size_t>(FootstepSurface::kCount);
+
+// How many takes one family may hold. Six because the Grass family supplies
+// six; the shorter families leave the tail empty, and the runtime rotates over
+// the takes that LOADED rather than over all six. A missing take shortens the
+// rotation; it must never produce a silent footfall.
+inline constexpr std::size_t kFootstepVariantCount = 6;
+
+constexpr const char* footstep_surface_name(FootstepSurface s) {
+    switch (s) {
+        case FootstepSurface::Concrete: return "concrete";
+        case FootstepSurface::Stone:    return "stone";
+        case FootstepSurface::Gravel:   return "gravel";
+        case FootstepSurface::Dirt:     return "dirt";
+        case FootstepSurface::Grass:    return "grass";
+        case FootstepSurface::kCount:   break;
+    }
+    return "?";
+}
+
+// The footstep family for a patch of ground, from what the collider already
+// reported about the surface under the foot. Plain data in, plain data out: the
+// physics module keeps its GroundHit and audio keeps its families.
+//
+// `road` beats the terrain material because the bake sits ON that terrain — a
+// sidewalk over a grass basin reports Grass, and walking a paved street must not
+// sound like a lawn. It does NOT beat the bake's own material: build_road_
+// collision gives an unpaved road Surface::Gravel and everything else
+// Surface::Rock, so a dirt track keeps its gravel underfoot instead of turning
+// into concrete the moment it is a road.
+constexpr FootstepSurface footstep_surface(AudioSurface material, bool road,
+                                           bool prop) {
+    if (road) {
+        return material == AudioSurface::Gravel ? FootstepSurface::Gravel
+                                                : FootstepSurface::Concrete;
+    }
+    // An authored prop top is a built slab, a roof or a crate rather than
+    // ground. Stone is the honest choice for all of them until props carry a
+    // material of their own: every static box in the tree is registered with
+    // the default today, so there is nothing yet that could pick out timber.
+    if (prop) return FootstepSurface::Stone;
+    switch (material) {
+        case AudioSurface::Rock:   return FootstepSurface::Stone;
+        case AudioSurface::Gravel: return FootstepSurface::Gravel;
+        case AudioSurface::Grass:  return FootstepSurface::Grass;
+        case AudioSurface::Sand:   return FootstepSurface::Dirt;
+        case AudioSurface::kCount: break;
+    }
+    return FootstepSurface::Concrete;
+}
+
 // Broadband scrub for a sliding tyre. Bright, resonant, and deliberately
 // generated at ONE brightness — the runtime tracks slip with a low-pass on the
 // voice rather than with a bank of variants, because slip is continuous and
@@ -253,6 +327,15 @@ struct SfxBank {
     // Recorded short car horn, double honk, and truck horn. Missing takes stay silent.
     std::array<PcmClip, kTrafficHornClipCount> traffic_horns{};
 
+    // Recorded per-surface footfalls, one row per FootstepSurface. Recorded
+    // only: there is no synthesised footstep and there should not be one. A
+    // generated footstep is a click with a noise tail, and the ear knows the
+    // difference well enough that a placeholder here would read as a bug
+    // report rather than as an unfinished asset.
+    std::array<std::array<PcmClip, kFootstepVariantCount>,
+               kFootstepSurfaceCount>
+        footsteps{};
+
     // Recorded non-spatial background bed. No generated fallback: if the file
     // is missing, the city is quiet instead of reverting to synthetic noise.
     PcmClip city_ambience;
@@ -372,6 +455,11 @@ struct SfxOverridePaths {
     std::string engine_start;
     std::string engine_idle;
     std::array<std::string, kTrafficHornClipCount> traffic_horns{};
+    // Per-surface footfalls. An empty entry is a family with fewer takes, not
+    // an error; override_bank_from_wavs() counts only the ones that loaded.
+    std::array<std::array<std::string, kFootstepVariantCount>,
+               kFootstepSurfaceCount>
+        footsteps{};
     std::string city_ambience;
     // Prepared seamless loop; no additional runtime seam folding.
     std::string rain;

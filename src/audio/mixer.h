@@ -31,6 +31,7 @@ enum class Category : int {
     Engine = 0,
     Tyres,
     Impacts,
+    Footsteps,
     World,
     Weather,
     Ui,
@@ -46,6 +47,7 @@ inline constexpr const char* category_name(Category c) {
         case Category::Engine:  return "engine";
         case Category::Tyres:   return "tyres";
         case Category::Impacts: return "impacts";
+        case Category::Footsteps: return "footsteps";
         case Category::World:   return "world";
         case Category::Weather: return "weather";
         case Category::Ui:      return "ui";
