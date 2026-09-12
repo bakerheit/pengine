@@ -192,6 +192,28 @@ into this mesh. Normal sedan traffic deterministically splits between the
 original sedan, Halcyon Six, and Montrose without changing truck or emergency
 vehicle weights.
 
+## The one converted vehicle
+
+Every vehicle under `models/vehicles/` is authored by a script in `tools/`
+except `psx_helicopter`, which arrived finished as a low-poly OBJ with its own
+atlas. `tools/cook_psx_helicopter.py` converts it rather than modelling it: the
+source is Y-up with the nose on +Z, which is already the frame
+`game/helicopter.h` flies in, so there is no axis swap and therefore no winding
+flip either -- the Blender exporters beside it reverse their triangles only
+because they swap Y and Z, which mirrors handedness.
+
+It cooks to two meshes. `body.emesh` is the airframe. `rotor.emesh` is the main
+rotor disc: one alpha-cut quad, emitted double-sided and RECENTRED ON ITS OWN
+HUB so the host can spin it about its node's Y axis. The hub's offset in body
+space is printed by the cook and pinned in `src/city/halberd_helicopter.h`; the
+disc needs an alpha-blended material, because an opaque one draws a 14 m black
+square over the apron.
+
+`textures/vehicles/psx_helicopter/SOURCES.md` records the supplied archive, its
+hash, what ships, and an unfilled licence gap. These two PNGs are tracked in
+git while the cooked meshes are not, so that gap matters more here than it does
+for the ignored model tree.
+
 ## Vehicle surface details and collision damage
 
 ### Aster A-80 airport aircraft

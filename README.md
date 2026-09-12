@@ -107,6 +107,40 @@ The editable Blender source and cooked body stay under ignored
 `assets/models/vehicles/marlin_sprint/`; the UV guide, four-view preview and
 structural fit report are written to `build/marlin-sprint-*`.
 
+The **Halberd Gunship** is a low-poly attack helicopter parked on the east
+apron at Halberd Field, the north-shore military air station, world
+`(-360, 9.1, -2084)`. Use F1 -> Teleport -> Halberd Field, or drive in through
+the main gate off the Yard Road. Walk to the port side of the cockpit and press
+E (controller A) to board; the rotor spools for about two seconds before it
+will lift. SHIFT/CTRL are the collective (climb/descend), W/S the cyclic (nose
+down to fly forward, nose up to slow), A/D the pedals (yaw on the spot). R
+resets it to its stand. Land and come to a stop to get out.
+
+It is not car physics and not `game/aircraft.h` either. Thrust points along the
+machine's OWN up axis, so tilting is how it translates and there is no stall
+speed to fall out of; neutral collective auto-trims to hold the altitude it has
+at whatever attitude it is in, which is the forgiving part. Holding descend
+lands it, because the descent rate is deliberately kept inside the gear's
+limit. What ends badly is arriving with the speed still on, putting it in the
+sea, or letting the 14 m rotor disc find something the fuselage would have
+cleared -- the disc reaches 7 m out, where there is no airframe at all, and it
+is swept for collision separately.
+
+The airframe and its rotor are two meshes, two materials and two scene nodes:
+the disc is a single alpha-cut quad cooked recentred on its hub, so the host
+spins it about its own Y axis without the helicopter following it round.
+Unlike every other vehicle here it is converted rather than authored --
+`python3 tools/cook_psx_helicopter.py --source <zip>` turns the supplied OBJ
+into `.emesh`. Provenance, hashes and an unfilled licence gap are recorded in
+`assets/textures/vehicles/psx_helicopter/SOURCES.md`. The stand, entry point
+and compound collision are constants in `src/city/halberd_helicopter.h`.
+`--helicopter-check --frames 120` exercises real boarding, apron exit,
+re-entry, a vertical takeoff against the station's own blast walls and masts,
+a rejected airborne exit, and a landing. `helicopter_tests` covers the hover
+trim, the spool gate, the pedal turn, the touchdown limits and the rotor-rim
+sweep headlessly; `north_airbase_tests` checks the stand is on paving with a
+clear disc.
+
 The **Ostend Boatworks dock** is authored in `src/city/marina.cpp`: a 32 m
 timber main pier, two berthing fingers, and a connected service deck with an
 open-front shed. Its 511 pieces include 133 deck boards, piled supports,
@@ -588,6 +622,8 @@ assets/                  GLSL plus cooked legacy vehicle bodies and paint.
 tools/
   ci.sh                  the gate: guard, configure, -Werror build, ctest
   guard_sim_purity.sh    the architecture, enforced. Runs first.
+  guard_lightbar_profiles.py  police lightbars: mesh, shader, profile
+                         table and lamp origins held to each other.
 tests/                   headless suites; each links apricot_sim only
 docs/architecture.md     the design rules, each with what it cost to learn
 docs/design/pinatty.md   the pilot game's map. Its section 3 road hierarchy is

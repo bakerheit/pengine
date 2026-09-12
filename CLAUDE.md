@@ -57,18 +57,27 @@ another module owns, and never document a feature you have not run.
 ```sh
 cmake -S . -B build            # configure (first run clones dependencies)
 cmake --build build -j         # build (-Werror is on for our targets)
-tools/ci.sh                    # THE GATE: guard + configure + build + ctest
+tools/ci.sh                    # THE GATE: guards + configure + build + ctest
 ```
 
-**Run `tools/ci.sh` before every push. Never push red.** It runs four steps in
+**Run `tools/ci.sh` before every push. Never push red.** It runs five steps in
 this order, and the order is deliberate:
 
 1. `tools/guard_sim_purity.sh` — the architecture guard. First, because it is
    instant, and a compile error you hit in thirty seconds is cheap.
-2. configure
-3. build under `-Werror` (`-Wall -Wextra -Wpedantic -Wshadow -Wconversion
+2. `tools/guard_lightbar_profiles.py` — the police lightbars, which are spread
+   across a mesh, `lit.frag`, a `*_profiles.inc` and `emergency_lighting.h`
+   with nothing forcing the four to agree. Text only, like the purity guard, so
+   it needs no build and no cooked assets.
+3. configure
+4. build under `-Werror` (`-Wall -Wextra -Wpedantic -Wshadow -Wconversion
    -Wsign-conversion` on our targets; fetched dependencies are exempt)
-4. `ctest` — every suite headless: no window, no GL context, no audio device
+5. `ctest` — every suite headless: no window, no GL context, no audio device
+
+**Steps 1 and 2 are guards, not a dumping ground.** They earn their place
+before `configure` only because they check things no compiler and no headless
+suite can see: a banned word in a comment, and four files that must agree
+across the CPU/GPU boundary. Anything a test can prove belongs in `ctest`.
 
 There is no `EXCLUDE` list and there must never be one. If a suite cannot run
 headless, the logic under test is in the wrong library.
@@ -183,7 +192,7 @@ reasoning in [`docs/architecture.md`](docs/architecture.md).
 
 The expensive failure mode is **"ships green but broken in-game."**
 
-1. **Build clean, test green.** `tools/ci.sh`, all four steps. Never push red.
+1. **Build clean, test green.** `tools/ci.sh`, all five steps. Never push red.
 2. **Test the real producer, not just consumers.** A consumer test with
    hand-built inputs passes happily while the real producer feeds garbage. The
    sim/host split exists so you *can* instantiate the real system in a headless
