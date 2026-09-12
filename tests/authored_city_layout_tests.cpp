@@ -24,6 +24,7 @@
 #include "city/roads.h"
 #include "city/loom_cultural.h"
 #include "city/burgerpiz.h"
+#include "city/church_of_waffles.h"
 #include "city/tacomaco.h"
 #include "city/north_pinatty_gas_station.h"
 #include "city/north_airbase.h"
@@ -113,6 +114,7 @@ std::vector<AuthoredLot> active_lots() {
         lot(city::kHalberdFieldSite),
         lot(city::kFreakyFranksSite),
         lot(city::kBurgerPizSite),
+        lot(city::kChurchOfWafflesSite),
         lot(city::kLoomMuseumSite),
         lot(city::kLoomParkSite),
         lot(city::kCarWashSite),

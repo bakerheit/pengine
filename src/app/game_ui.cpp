@@ -42,6 +42,7 @@
 #include "city/neighborhood_bar.h"
 #include "city/loom_cultural.h"
 #include "city/burgerpiz.h"
+#include "city/church_of_waffles.h"
 #include "city/north_pinatty_gas_station.h"
 #include "city/luxury_neighborhood.h"
 #include "city/residential_neighborhood.h"
@@ -444,6 +445,8 @@ void GameUi::build_map() {
     add_rect(city::kFreakyFranksSite.name,city::kFreakyFranksSite,{-1,-5},33,22,false);
     add_rect("BurgerPiz lot",city::kBurgerPizSite,{0,0},60,38,true);
     add_rect(city::kBurgerPizSite.name,city::kBurgerPizSite,{-1,-5},33,22,false);
+    add_rect("Church of Waffles lot",city::kChurchOfWafflesSite,{0,0},60,38,true);
+    add_rect(city::kChurchOfWafflesSite.name,city::kChurchOfWafflesSite,{0,-2},32,12.1f,false);
     add_site(city::kLoomMuseumSite,city::kLoomMuseumPlan);
     add_rect(city::kLoomParkSite.name,city::kLoomParkSite,{0,0},city::kLoomParkSite.lot_width_m,city::kLoomParkSite.lot_depth_m,true);
     add_rect("Sable Garden gazebo",city::kLoomParkSite,{0,1},9.2f,8.2f,false);
@@ -1117,6 +1120,7 @@ const MapSiteMarker kMapSiteMarkers[] = {
     {&city::kMiandiGasStationSite,{.94f,.72f,.31f,1},0},
     {&city::kFreakyFranksSite,{.96f,.30f,.58f,1},4},
     {&city::kBurgerPizSite,{1.f,.45f,.16f,1},4},
+    {&city::kChurchOfWafflesSite,{.62f,.35f,.92f,1},4},
     {&city::kLoomMuseumSite,{.86f,.72f,.49f,1},-1,UiSymbol::Count,"M"},
     {&city::kLoomParkSite,{.43f,.78f,.39f,1},-1,UiSymbol::Count,"P"},
     {&city::kGasStationSite, {0.94f, 0.72f, 0.31f, 1}, 0},

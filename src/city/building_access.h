@@ -17,6 +17,7 @@
 #include "city/neighborhood_bar.h"
 #include "city/loom_cultural.h"
 #include "city/burgerpiz.h"
+#include "city/church_of_waffles.h"
 #include "city/luxury_neighborhood.h"
 #include "city/north_pinatty_gas_station.h"
 #include "city/miandi_bayfront.h"
@@ -138,6 +139,11 @@ inline std::vector<BuildingAccessLot> authored_building_access_lots(GroundSample
     out.back().driveway_width_m=6.0f;
     out.back().parking_tracks_frontage=false;
     add(kBurgerPizSite,bake_burgerpiz_lot(),"imported restaurant parking lot",{0,1},-24,{39});
+    out.back().driveway_width_m=6.0f;
+    out.back().parking_tracks_frontage=false;
+    // The Quequis shell's glazed front opens north onto Eighth, and its curb
+    // cut goes east of the building so the frontage stays a clear window wall.
+    add(kChurchOfWafflesSite,bake_church_of_waffles_lot(),"church of waffles parking lot",{0,1},-24,{38});
     out.back().driveway_width_m=6.0f;
     out.back().parking_tracks_frontage=false;
     add(kLoomMuseumSite,bake_loom_museum(),"museum lot",{0,1},0,{209},BuildingAccessUse::PedestrianPath);

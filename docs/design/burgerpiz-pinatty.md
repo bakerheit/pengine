@@ -92,3 +92,8 @@ To visit the restaurant with an isolated save:
 Parking-lamp update (2026-09-09): both heads now glow and cast real night light,
 using the same dusk fade, range and distance cutoff as street lamps. See
 [asset and validation notes](../assets/burgerpiz-parking-lamps.md).
+
+A second imported shell now shares the Wren/Cinder column: the
+[Church of Waffles](church-of-waffles-pinatty.md) on Eighth Street, cooked from
+a different supplied GLB by its own cooker. It writes the same cooked file set,
+so the loader, the collision path and the parking-lamp sync stay shared.

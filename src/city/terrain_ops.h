@@ -444,6 +444,11 @@ inline constexpr TerrainOp kFreakyFranksTerrainOp{
     .centre={399.957197f,-98.832371f},.half_m={34,24},.feather_m=4,.target_m=12,
 };
 
+inline constexpr TerrainOp kChurchOfWafflesTerrainOp{
+    .kind=OpKind::Flatten,.shape=OpShape::Rect,.note="Church of Waffles developed parcel",
+    .centre={412.9187f,-222.1531f},.half_m={34,24},.feather_m=4,.target_m=12,
+};
+
 inline constexpr TerrainOp kTacomacoTerrainOp{
     .kind=OpKind::Flatten,.shape=OpShape::Rect,.note="TacoMaco developed parcel",
     .centre={189.0528f,128.3664f},.half_m={34,24},.feather_m=4,.target_m=12,
@@ -476,6 +481,7 @@ inline float authored_site_clearance_weight(float x, float z) {
         op_weight(kTacomacoTerrainOp,x,z,unused_profile),
         op_weight(kFreakyFranksTerrainOp,x,z,unused_profile),
         op_weight(kBurgerPizTerrainOp,x,z,unused_profile),
+        op_weight(kChurchOfWafflesTerrainOp,x,z,unused_profile),
         op_weight(kEastArmGalleriaTerrainOp,x,z,unused_profile),
         op_weight(kLoomMuseumTerrainOp,x,z,unused_profile),
         op_weight(kLoomParkTerrainOp,x,z,unused_profile),
@@ -574,6 +580,7 @@ inline constexpr TerrainOp kBaseOps[] = {
     kTacomacoTerrainOp,
     kNorthPinattyGasStationTerrainOp,
     kBurgerPizTerrainOp,
+    kChurchOfWafflesTerrainOp,
     kLoomMuseumTerrainOp,
     kLoomParkTerrainOp,
     kHalberdFieldTerrainOp,

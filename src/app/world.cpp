@@ -50,6 +50,7 @@
 #include "city/loom_cultural.h"
 #include "city/north_airbase.h"
 #include "city/burgerpiz_asset.h"
+#include "city/imported_restaurants.h"
 #include "gfx/street_lamp_light.h"
 #include "city/miandi_gas_station_asset.h"
 #include "city/luxury_neighborhood.h"
@@ -3050,14 +3051,9 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
     burgerpiz_lights_.clear();
     burgerpiz_parking_lights_.clear();
     burgerpiz_parking_lens_nodes_.clear();
-    const std::pair<const city::StartSite*,const char*> imported_restaurants[]={
-        {&city::kBurgerPizSite,city::kBurgerPizAssetRoot},
-        {&city::kFreakyFranksSite,city::kFreakyFranksAssetRoot},
-        {&city::kTacomacoSite,city::kTacomacoAssetRoot},
-    };
-    for(const auto& [where,root]:imported_restaurants) {
+    for(const auto& [where,root,plan]:city::kImportedRestaurants) {
         const auto& site=*where;
-        auto burger_parts=city::bake_burgerpiz_lot();
+        auto burger_parts=city::bake_building(*plan);
         register_interior(site,burger_parts);
         city::apply_building_access_layout(site,burger_parts,access_layout_);
         append_start_site(scene,collider,precipitation_cover_,site,burger_parts.data(),burger_parts.size(),
