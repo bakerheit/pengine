@@ -162,15 +162,20 @@ void traversal(const city::BurgerPizAsset& asset) {
     collider.add_static_ground_rect({site().origin.x, site().origin.z}, 12.1f, {30, 19}, yaw,
                                     Surface::Rock);
     city::add_burgerpiz_collision(collider, asset, site());
-    // Forecourt -> the single glazed door -> the dining aisle -> the counter
-    // -> the east booths -> back out. The door centre is local x -0.35; the
-    // aisle runs between the counter front (z -2.50) and the window seating
-    // (z +0.78), so the first move inside is south, clear of the armchairs.
+    // Forecourt -> the single glazed door -> the dining aisle -> the east
+    // booths -> around the counter's east end into the service area behind it
+    // -> back out. The door centre is local x -0.35; the aisle runs between
+    // the stools (z -2.4) and the window seating (z +0.78), so the first move
+    // inside is south, clear of the armchairs. The counter is an L whose end
+    // cap stops at x -1.64, leaving a 2.5 m gap to the back-of-house wall at
+    // x 1.55 — that gap is how staff get behind it, and this route uses it.
     auto start = world({-.35f, 0, 14});
     auto state = spawn_character(collider, start.x, start.z);
     for (const auto p : std::vector<glm::vec2>{{-.35f, 4}, {-.35f, 1.6f}, {-.35f, 0},
                                                {-6, -1.5f}, {-11, -1.5f}, {-13.9f, 0},
-                                               {-6, -1.5f}, {-.35f, 0}, {-.35f, 1.6f},
+                                               {-6, -1.5f}, {-.5f, -1}, {-.5f, -4.5f},
+                                               {-4, -4.7f}, {-8, -4.7f}, {-4, -4.7f},
+                                               {-.5f, -4.5f}, {-.5f, -1}, {-.35f, 1.6f},
                                                {-.35f, 4}, {-.35f, 14}}) {
         const auto goal = world({p.x, 0, p.y});
         state = walk(state, collider, goal);
@@ -183,10 +188,18 @@ void traversal(const city::BurgerPizAsset& asset) {
         REQUIRE(state.position.y >= 12.f && state.position.y < 12.5f);
     }
     apricot_test::pass(
-        "real character walks in through the propped entrance, down the dining aisle and back out");
+        "real character walks in the door, down the dining aisle, and around the "
+        "counter's east end into the service area behind it");
 
     // Negative controls, so the walk above is collision-backed and not a
-    // character sliding through absent geometry.
+    // character sliding through absent geometry. Opening the service area up
+    // must not open the counter itself: from behind it, the 9.3 m run is still
+    // a wall, so a straight push north cannot reach the aisle.
+    start = world({-6, 0, -4.7f});
+    state = spawn_character(collider, start.x, start.z);
+    state = walk(state, collider, world({-6, 0, -1}));
+    REQUIRE(city::access_local(site(), {state.position.x, state.position.z}).y < -3.4f);
+    // And the same from the customer side, where the stools stand in front.
     start = world({-6, 0, -1.5f});
     state = spawn_character(collider, start.x, start.z);
     state = walk(state, collider, world({-6, 0, -5}));
@@ -197,7 +210,8 @@ void traversal(const city::BurgerPizAsset& asset) {
     state = spawn_character(collider, start.x, start.z);
     state = walk(state, collider, world({-.35f, 0, 1.6f}));
     REQUIRE(city::access_local(site(), {state.position.x, state.position.z}).y > 2.8f);
-    apricot_test::pass("the service counter and a sealed doorway both stop the same character");
+    apricot_test::pass(
+        "the counter run still blocks from both sides, and a sealed doorway stops entry");
 }
 
 }  // namespace

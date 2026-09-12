@@ -106,14 +106,23 @@ support plan is the 60 × 38 m asphalt parcel, an interior floor slab matching
 the imported `Floor` mesh's own footprint, and eight nose-in bays painted four
 either side of the door approach.
 
-The cooker generates 441 compound box colliders from architectural wall faces
-and furniture bounds. The joined shell, the storefront glazing and its mullions
-use wall-sized pieces to preserve the doorway; everything else uses furniture
-bounds. Flat floor patches have matching heights registered as 10 support
-rectangles. These are box/rectangle approximations of the detailed mesh, not
+The cooker generates 447 compound box colliders from architectural wall faces
+and furniture bounds. The joined shell, the storefront glazing, its mullions
+**and the service counter** use face-sized pieces; everything else uses
+furniture bounds. Flat floor patches have matching heights registered as 10
+support rectangles. These are box/rectangle approximations of the detailed mesh, not
 triangle collision. The original floor sits 14 cm above the new asphalt.
 Its interior streaming volume keeps the surrounding neighborhood resident
 during entry and exit.
+
+**The counter is face-cooked so you can walk behind it.** It is an L — a 9.3 m
+service run along z -2.75 plus a short return leg closing the west end — and
+its bounding box is 9.3 x 4.5 m, so whole-bounds collision filled the service
+area and sealed the staff side of the restaurant off entirely. Its faces are
+what should stop you. The run's east end cap stops at local x -1.64, leaving a
+2.5 m gap to the back-of-house wall at x 1.55, and that gap is the way in: the
+kitchen line, the griddle, the waffle irons and the coffee urn are all
+reachable. The counter itself still blocks from both sides.
 
 **The single glazed entrance leaf is propped open at 150 degrees,** folded back
 against the storefront rather than square to it. The opening is 1.06 m wide and
@@ -128,11 +137,12 @@ Passed on the main development checkout:
 - `church_of_waffles_tests --require-assets`: cooked mesh bounds, textures,
   glazing, the purple rebrand, the lit sign, ground support, public-road
   clearance, connection to Eighth, and actual character traversal from the
-  forecourt through the propped door, down the dining aisle past the counter to
-  the east booths and back out to the street. Negative controls confirm the
-  service counter and a sealed doorway both stop the same character. This flag
-  requires the private assets; ordinary clean-checkout runs skip only the
-  geometry checks when assets are absent.
+  forecourt through the propped door, down the dining aisle to the east booths,
+  then around the counter's east end into the service area behind it and back
+  out to the street. Negative controls confirm the counter run still blocks
+  from both sides and that a sealed doorway stops entry. This flag requires the
+  private assets; ordinary clean-checkout runs skip only the geometry checks
+  when assets are absent.
 - `authored_city_layout_tests`: 84 active lots, 3,486 pairs, no overlaps.
 - `building_access_tests`: all 54 access lots connected.
 - `burgerpiz_tests`, `tacomaco_tests`: the three older brands are untouched.
@@ -144,6 +154,8 @@ Evidence in the ignored build directory:
 - `waffles-corner.png`: both signs, the awning and the frontage.
 - `waffles-front.png`: the entrance and parking from Eighth Street.
 - `waffles-counter.png`: counter, stools and the kitchen line.
+- `waffles-behind-counter.png`: standing on the staff side, looking out.
+- `waffles-counter-gap.png`: the griddle and waffle irons, reachable.
 - `waffles-interior2.png`: booths and the dining room looking out.
 - `waffles-night.png`: lit sign, interior lights and the parking lamps.
 - `waffles-map.png`: the location and named marker between BurgerPiz and

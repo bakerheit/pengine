@@ -182,7 +182,13 @@ for obj in sorted(bpy.data.objects, key=lambda o: o.name):
     # their whole bounds would fill the dining room and erase every doorway.
     # `Cube` is the storefront glazing and `Frame` its mullions; both are one
     # joined mesh wrapping three sides of the dining room.
-    architecture = obj.name in ('Quequis_House', 'Cube', 'Frame')
+    #
+    # `Counter` is here for the same reason at furniture scale. It is an L —
+    # a 9.3 m service run plus a short return leg at its west end — and its
+    # bounding box is 9.3 x 4.5 m, so whole-bounds collision fills the service
+    # area and seals the staff side of the restaurant off. Its faces are what
+    # should stop you, and they leave the east end open to walk around.
+    architecture = obj.name in ('Quequis_House', 'Cube', 'Frame', 'Counter')
     for triangle in mesh.loop_triangles:
         mat = obj.material_slots[triangle.material_index].material
         loops = list(triangle.loops)

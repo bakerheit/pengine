@@ -16,6 +16,10 @@ Four properties, each one a way this cut can be wrong:
    over. A pixel that still shows daylight has to be one the door covered.
 4. The door turns on its hinge and only ever swings outward, which is what the
    runtime transform assumes.
+5. On the patrol car only: the lightbar the cook built and the glow boxes the
+   lit shader tests still agree. Those live in two files that nothing forces to
+   match -- car5_next_police_spec.py and lit.frag -- so every lens cell has to
+   fall inside a box the shader actually contains, and no chrome rib may.
 
 Writes build/<slug>-door-report.json and a back-face-culled QA sheet.
 
@@ -25,6 +29,7 @@ different livery plus a lightbar, is held to the same four properties:
 """
 import json
 import math
+import re
 import sys
 from pathlib import Path
 
@@ -117,6 +122,57 @@ def raster(groups, yaw, pitch, width, height, centre, scale, colours=None,
                     0.35 + 0.65 * max(0.0, float(normal / length @ light)))
                 image[y0:y1 + 1, x0:x1 + 1][covered] = np.clip(tone, 0, 255).astype(np.uint8)
     return mask, image
+
+
+def shader_lens_boxes():
+    """The profile-29 glow boxes as lit.frag actually spells them.
+
+    Parsed out of the shader rather than imported from the spec: the point is
+    to catch the two drifting apart, and reading the spec twice cannot.
+    """
+    source = (ROOT / "assets/shaders/lit.frag").read_text()
+    pattern = re.compile(
+        r"v_headlight_profile == 29 &&\s*"
+        r"x>=([-\d.]+) && x<=([-\d.]+) && p\.y>=([-\d.]+) && p\.y<=([-\d.]+) &&\s*"
+        r"p\.z>=([-\d.]+) && p\.z<=([-\d.]+)\)")
+    boxes = [tuple(float(value) for value in match)
+             for match in pattern.findall(source)]
+    assert boxes, "lit.frag declares no lightbar box for profile 29"
+    return boxes
+
+
+def check_lightbar(closed_tris):
+    """Every lens cell inside a shader box; every chrome rib outside all of them."""
+    import car5_next_police_spec as police
+    boxes = shader_lens_boxes()
+    declared = [(c["x"][0], c["x"][1], c["y"][0], c["y"][1], c["z"][0], c["z"][1])
+                for c in police.lens_boxes()]
+    assert len(boxes) == len(declared), \
+        f"lit.frag has {len(boxes)} glow boxes, the spec builds {len(declared)} lens cells"
+    for shader, spec_box in zip(sorted(boxes), sorted(declared)):
+        assert all(abs(a - b) < 5e-4 for a, b in zip(shader, spec_box)), \
+            f"lit.frag box {shader} does not match the cooked cell {spec_box}"
+
+    def glows(point):
+        x = abs(point[0])  # the shader negates X for the red bank
+        return any(x0 - 1e-4 <= x <= x1 + 1e-4 and y0 - 1e-4 <= point[1] <= y1 + 1e-4
+                   and z0 - 1e-4 <= point[2] <= z1 + 1e-4
+                   for x0, x1, y0, y1, z0, z1 in boxes)
+
+    lit = dark = 0
+    for name, x0, x1, y0, y1, z0, z1, _ in police.lightbar_boxes():
+        centre = np.array([(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2])
+        if "Lens" in name:
+            assert glows(centre), f"{name} sits outside every glow box"
+            lit += 1
+        else:
+            assert not glows(centre), f"{name} would light up with the bank"
+            dark += 1
+    # And the bar is really in the cooked shell, not just in the spec.
+    above_roof = closed_tris.reshape(-1, 3)[:, 1] > police.ROOF_Y + 1e-3
+    assert above_roof.sum() > 0, "the cooked body carries no lightbar"
+    return {"glow_boxes": len(boxes), "lit_parts": lit, "dark_parts": dark,
+            "vertices_above_the_roof": int(above_roof.sum())}
 
 
 def contains_2d(point, tri):
@@ -257,13 +313,17 @@ def main():
     (ROOT / "build").mkdir(exist_ok=True)
     sheet.save(ROOT / ("build/%s-door-culled.png" % SLUG.replace("_", "-")))
     # (path built from the slug so the two variants do not overwrite each other)
+    if SLUG == "car5_next_police":
+        report["lightbar"] = check_lightbar(closed_tris)
+
     report["checks"] = [
         "shut split rebuilds the imported skin and adds only lining",
         "swung door leaves a doorway no stationary panel blocks",
         "every hole the cut makes is filled by a pane or a rim, 90 views x 3 angles",
         "the glazing mirrors left to right",
         "handle turns on a fixed hinge and only ever moves outboard",
-    ]
+    ] + (["lens cells glow and chrome ribs do not, per the shader's own boxes"]
+         if SLUG == "car5_next_police" else [])
     (ROOT / ("build/%s-door-report.json" % SLUG.replace("_", "-"))).write_text(
         json.dumps(report, indent=2) + "\n")
     print(json.dumps({k: v for k, v in report.items() if k != "driver"}, indent=2))

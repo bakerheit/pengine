@@ -35,8 +35,8 @@ inline std::array<glm::vec3,2> police_lightbar_centres(PlayerCarId model) {
     // Car 5-NEXT PATROL's bar rides an imported body the catalog squashes to
     // .664 of its authored height, so these sit far above every cruiser's.
     if (model==PlayerCarId::LegacyCar5NextPolice)
-        return {{{-0.3225f,2.2295f,0.0900f},
-                 {0.3225f,2.2295f,0.0900f}}};
+        return {{{-0.3225f,2.2245f,0.0900f},
+                 {0.3225f,2.2245f,0.0900f}}};
     return {{{-.46f,1.7625f,-.13f},{.46f,1.7625f,-.13f}}};
 }
 inline void append_police_lights(std::vector<TrafficSpotLight>& lights,

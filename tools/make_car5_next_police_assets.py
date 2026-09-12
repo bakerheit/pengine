@@ -203,7 +203,7 @@ def main():
         report.update(cook.build(target=MODEL, extra_body=bar, texture=PAINT))
         report["lightbar"] = {"triangles": len(bar),
                               "boxes": [row[0] for row in police.lightbar_boxes()],
-                              "lens_box": police.lens_box(),
+                              "lens_boxes": police.lens_boxes(),
                               "centres": police.lamp_centres()}
     (ROOT / "build").mkdir(exist_ok=True)
     (ROOT / "build/car5-next-police-cook.json").write_text(json.dumps(report, indent=2) + "\n")
