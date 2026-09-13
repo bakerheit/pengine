@@ -207,3 +207,42 @@ What it costs:
 
 Nothing calls these yet. The respray pool at Rook's Auto Repair is the first
 consumer, and it has not landed.
+
+## HUD gradients cost vertices, never a draw call
+
+`Hud::gradient_triangle()` and `Hud::gradient_rect()` put a colour on each
+corner and ride the same path as every other HUD primitive: the solid atlas
+block, the CPU clip rect, the single draw in `end()`. A colour picker is a few
+hundred vertices in the batch, not a second pass and not a texture.
+
+**A four-corner blend is not something a triangle can draw.** The GPU
+interpolates each triangle linearly, and a bilinear blend has a `u·v` term no
+pair of triangles reproduces. A colour picker's saturation/value plane — white,
+the hue, black, black — drawn as one quad is wrong through its middle by a
+quarter of full scale. So `gradient_rect()` cuts the rect into `cols` × `rows`
+cells, each exact at its own corners, and the worst error falls with the square
+of the cell count. Measured on that plane against a true bilinear blend, using
+the triangulation `hud.cpp` actually submits:
+
+| cells | worst error, in 8-bit levels |
+|---|---|
+| 1×1 | 63.75 |
+| 2×2 | 15.94 |
+| 4×4 | 3.98 |
+| 8×8 | 1.00 |
+| 16×16 | 0.25 |
+| 32×32 | 0.06 |
+
+A GL readback of a real `Hud` pass agreed to within 8-bit rounding (8×8 read
+1.47 levels worst, 32×32 read 0.56), with no crack pixels at any grid size.
+8×8 is the knee: one level at worst, 384 vertices. Counts clamp to 1..32 (6144
+vertices, about 190 KiB of that frame's upload), and a zero-area rect queues
+nothing.
+
+Every grid line is computed from its own index as `i / n` through `glm::mix`,
+never by accumulating a step, so neighbouring cells share bit-identical edges
+and the last cell lands exactly on `max`. An accumulated step leaves hairline
+cracks the backdrop shows through.
+
+Nothing calls these yet either; the respray colour picker is the first
+consumer.
