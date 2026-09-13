@@ -22,8 +22,8 @@ constexpr GLuint kAtlasUnit = 0;
 constexpr float kUiTextScale = 1.21f;
 
 // Upper bound on gradient_rect()'s cells per axis. 32x32 is 6144 vertices,
-// about 200 KB of the per-frame upload for one rect; well past the grid where
-// the bilinear error stops being visible (see src/gfx/README.md).
+// about 190 KiB of that frame's upload for one rect, and far past 8x8, where
+// the worst bilinear error is already one 8-bit level (see src/gfx/README.md).
 constexpr int kMaxGradientCells = 32;
 
 const void* attrib_offset(std::size_t bytes) {
