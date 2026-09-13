@@ -62,9 +62,9 @@ bool PlayerCarVisual::load_model(
 
     out.plate_mounts=vehicle_plate_mounts(body,definition.mesh_path);
     Texture body_texture;
-    // The catalog's atlas, except Workman's semantic body.png. The paint
-    // profile lookup keys on the same function, so a respray repaints the
-    // atlas this loads.
+    // The catalog's atlas, except Workman's semantic body.png. The respray
+    // booth is not wired yet. When it is, it will look the paint profile up
+    // by this same function, so a respray repaints the atlas this loads.
     const char* texture_path = player_car_body_texture_path(definition.id);
     if (!body_texture.load_file(asset_path(texture_path))) {
         AP_ERROR("player car: paint '%s %s' failed to load",
