@@ -64,7 +64,11 @@ and the other markdown files are not scanned, which is why they can name the
 libraries freely.
 
 The guard checks two things, because the grep alone is not enough. First, no
-banned identifier in any sim source. Second, no sim module's `CMakeLists.txt`
+banned identifier in any sim source, and a generated `.inc` table counts as
+one: `src/game/vehicle_paint_profiles.inc` is 949 lines `#include`d into
+`apricot_sim`, and while the guard only matched `.h`, `.hpp`, `.cpp` and `.c`,
+a banned word appended to it passed with exit 0, guarded only by a check inside
+the generator that `tools/ci.sh` never runs. Second, no sim module's `CMakeLists.txt`
 mentions `apricot_host` — a module can quietly attach its sources to the host
 target and slip past a text search entirely. It also **fails when an expected
 sim-side file is missing**, so renaming a file cannot silently drop it out of

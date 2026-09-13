@@ -55,6 +55,9 @@ BANNED='glad|SDL|<GL/|miniaudio|imgui'
 fail=0
 
 # --- 1. no hardware-layer identifiers in sim sources -------------------------
+# .inc counts: generated tables such as src/game/vehicle_paint_profiles.inc and
+# license_plate_catalog.inc are #included into sim sources, so they compile
+# into apricot_sim like any header.
 files=()
 for d in "${SIM_DIRS[@]}"; do
     if [[ ! -d "$d" ]]; then
@@ -64,7 +67,7 @@ for d in "${SIM_DIRS[@]}"; do
     fi
     while IFS= read -r f; do
         files+=("$f")
-    done < <(find "$d" -type f \( -name '*.h' -o -name '*.hpp' -o -name '*.cpp' -o -name '*.c' \))
+    done < <(find "$d" -type f \( -name '*.h' -o -name '*.hpp' -o -name '*.cpp' -o -name '*.c' -o -name '*.inc' \))
 done
 
 for f in "${SIM_FILES[@]}"; do

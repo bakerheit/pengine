@@ -53,10 +53,10 @@ Emitter rules. Each one is a -Werror failure somebody already paid for:
     -Wzero-length-array
   - counts are static_cast<uint16_t>(std::size(kName))
   - identifiers, numbers, validated atlas paths and the case names in
-    GOLDEN_CASES, nothing else: the sim purity guard does not scan .inc files,
-    so the generator is the only thing keeping them clean. A slug or path is
-    lower-case letters, digits and _ only, and never names a host-layer
-    library.
+    GOLDEN_CASES, nothing else. tools/guard_sim_purity.sh scans the table, but
+    only once it is written; refusing here names the JSON that did it. A slug
+    or path is lower-case letters, digits and _ only, and never names a
+    host-layer library.
 The lab runs on the float32 value of each printed literal, so the numbers in
 the files are exactly the numbers that were tested.
 """
@@ -486,7 +486,7 @@ def clean_name(value, pattern, what, where):
     if not isinstance(value, str) or not pattern.match(value):
         fail('%s: %s %r must be lower-case letters, digits and _ only' % (where, what, value))
     if any(b in value for b in BANNED):
-        fail('%s: %s %r names a host-layer library, and no guard scans the .inc' % (where, what, value))
+        fail('%s: %s %r names a host-layer library, which the sim purity guard refuses' % (where, what, value))
     return value
 
 
