@@ -329,6 +329,56 @@ def steel_atlas():
     return img, params
 
 
+def edge_bleed_atlas():
+    """Paint to every border, with dark off-hue texels on a corner and in
+    pairs along the edges, darker than the grow window, so only the clean
+    pass fills them. It holds rule (ii): median3 pads by repeating the edge.
+    Pad with zeros instead and the corner's median sees six zeros and stays
+    unpainted. Every other case keeps its border unpainted, so none of them
+    could tell the two apart."""
+    img = np.zeros((16, 16, 4), np.uint8)
+    img[..., 3] = 255
+    paint = np.array([170, 90, 40], float)
+    for y in range(16):
+        for x in range(16):
+            f = 0.80 + 0.05 * ((x + 3 * y) % 5)
+            img[y, x, :3] = np.clip(np.round(paint * f), 0, 255)
+    dark = (20, 24, 70)
+    img[0, 0, :3] = dark                         # a corner
+    img[0, 6:8, :3] = dark                       # pairs on an edge row and column
+    img[9:11, 0, :3] = dark
+    img[4, 14:16, :3] = dark
+    for x in range(16):                          # hue drift along the bottom edge
+        img[15, x, :3] = (170, 90 + 5 * x, 40)
+    img[5:7, 9:11, 3] = 150                      # glass
+    params = {
+        'refs': [{'rgb': [170, 90, 40]}],
+        'tol': {'c': 0.05, 'fc': 0.04, 'dark': 0.20, 'light': 0.15, 'fl': 0.05},
+        'clean': 1,
+        'grow': [1, 0.04, 0.20],
+    }
+    return img, params
+
+
+def half_split_atlas():
+    """Two shades of one paint, 16 texels each, both at mask weight exactly 1.
+    The cumulative weight lands exactly on half at the darker shade's bin, so
+    it holds rule (iv): the base is the first bin whose cumulative weight is
+    >= half. With > half the base jumps to the lighter shade. Soft weights
+    never land exactly on half, which is why no other case can see this."""
+    img = np.zeros((16, 16, 4), np.uint8)
+    img[..., :3] = (50, 50, 54)
+    img[..., 3] = 255
+    img[4:8, 3:7, :3] = (100, 40, 30)
+    img[4:8, 7:11, :3] = (150, 60, 45)
+    img[13, 1:4, 3] = 150                        # glass
+    params = {
+        'refs': [{'rgb': [125, 50, 38]}],
+        'tol': {'c': 0.06, 'fc': 0.04, 'dark': 0.25, 'light': 0.25, 'fl': 0.05},
+    }
+    return img, params
+
+
 # (ident, name, make, region). A case with a region is an alternate atlas: it is
 # gated with its own pixels and bounded by the named earlier case's lab mask,
 # exactly as paint_lab.derive bounds an alternate by its stock atlas.
@@ -338,6 +388,8 @@ GOLDEN_CASES = [
     ('Cream', 'cream', cream_atlas, None),
     ('Faint', 'faint', faint_atlas, None),
     ('Steel', 'steel', steel_atlas, None),
+    ('EdgeBleed', 'edge_bleed', edge_bleed_atlas, None),
+    ('HalfSplit', 'half_split', half_split_atlas, None),
 ]
 
 
