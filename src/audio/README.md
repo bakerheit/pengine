@@ -311,3 +311,37 @@ weather changes from the dev menu. It fades gain toward `weather_mix()` and
 closes its voice once clear weather reaches silence. Title/map-from-title
 screens fade gameplay rain away while the title stem plays. Both rain voices
 use the Weather category; the existing title score stays in Music.
+
+### Respray booth clips
+
+`app/respray_audio.h` (host side, header-only, device-free) builds the four
+sounds for Rook's respray: a one-second spray hiss and three stingers, one per
+outcome. `synth_respray_done(false)` is a plain respray, `synth_respray_done(true)`
+is a respray that took the stars with it, and `synth_respray_kept()` is a car
+painted under a cop's eyes, stars kept. All four ride `Category::Ui`
+unpositioned, and each can be replaced by a recording at
+`audio/ui/respray_{hiss,painted,cleared,kept}.wav`. None ships.
+
+**The three stingers open on the same clack, and differ only in the notes
+after it.** Painted is one bright G5, cleared rises E5 to B5, kept is one low
+G3 that sags as it dies. The outcome has to read before the banner does, and
+a shared opening keeps the ear on the one thing that changes. The cost is that
+the first 70 ms of every stinger says nothing, so a stinger fired a beat late
+feels late twice. `respray_audio_tests` pins the notes by Goertzel magnitude and
+autocorrelation, and pins the shared opening by correlation.
+
+**A cancelled spray fades the hiss through its emitter gain; it never calls
+`stop_oneshot()`.** A stop silences the voice between two samples, and a
+cancel lands at a random point in loud noise, so it clicks. Setting the gain
+to zero rides the mixer's per-sample gain smoothing down instead. The cost is
+a silent voice that holds its one-shot slot until the clip runs out, under a
+second. The suite checks that the block straight after a cancel still carries
+level (a cut would be exact silence) and that it is gone a few blocks later.
+
+**Missing recordings are probed before the loader sees them.**
+`override_clip_from_wav()` warns once per missing path, and with nothing
+shipped that would be four warnings on every launch. A file that exists but
+does not parse still reaches the loader, and still warns.
+
+**Not wired yet:** nothing in `App` builds or plays these clips. The booth's
+own flow lands separately.
