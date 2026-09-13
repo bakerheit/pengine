@@ -73,7 +73,9 @@ public:
     // oversight. Nothing streams materials: every terrain chunk in the world
     // shares one, and the road layers share six, all created at startup. A free
     // path for a table that never grows would be untested code guarding a case
-    // that does not occur.
+    // that does not occur. Append-only means an entry, once added, is never
+    // freed and never changes. Paintable materials (below) are the one
+    // exception to the second half, and only the second.
     MeshId add_mesh(const MeshData& data);
 
     // Validated cooked static mesh, read by core/emesh_reader before it reaches
@@ -109,6 +111,39 @@ public:
                             DepthBias depth_bias = DepthBias(),
                             bool receives_snow = true, bool early_opaque = false);
     MaterialId add_glass_material();
+
+    // PAINTABLE MATERIALS: THE ONE EXCEPTION TO APPEND-ONLY.
+    //
+    // Their texels may be rewritten after they are added. They are still never
+    // freed. Every other material must stay fixed, because materials are
+    // shared by handle: all traffic cars of one paint variant draw through a
+    // single MaterialId (TrafficVisual picks it from the model's paint table by
+    // hash), so rewriting the texture behind that id would repaint every car of
+    // the variant across the city in the same frame, and it would be reported
+    // as a traffic bug. update_paintable_material() therefore accepts ONLY ids
+    // minted by add_paintable_material(), and refuses the rest with an error
+    // and no change.
+    //
+    // The converse is the caller's half of the bargain: a paintable id must
+    // never go into a table that traffic, or any other shared owner, draws
+    // from. One car, one paintable id.
+    //
+    // It starts as `width` x `height` opaque white, so one not yet written
+    // draws its tint rather than black, with add_material()'s defaults (which
+    // are what vehicle body paint already uses). Because the table never frees,
+    // a pool that wants N of these allocates N up front and holds their RGBA
+    // storage and mips from then on. kInvalidId for a non-positive size.
+    MaterialId add_paintable_material(int width, int height);
+
+    // Replace the texels: RGBA8, rows bottom-up, as decode_rgba_file() gives.
+    // Same GL object and same handle, so no scene node needs re-pointing; a
+    // size change reallocates the storage behind that same object.
+    bool update_paintable_material(MaterialId id, int width, int height,
+                                   const std::vector<uint8_t>& rgba);
+
+    // False for kInvalidId, out-of-range ids and every add_material() id.
+    bool material_paintable(MaterialId id) const;
+
     // Draw after opaque characters, so glass also covers occupants correctly.
     void render_glass(const Scene& scene, const std::vector<NodeId>& visible,
                       const Camera& camera, const SkyEnv& env,
@@ -173,6 +208,8 @@ private:
         bool glass = false;
         bool receives_snow = true;
         bool early_opaque = false;
+        // Set only by add_paintable_material(). See the comment there.
+        bool paintable = false;
         float specular_scale = 1.0f;
         DepthBias depth_bias;
     };

@@ -581,6 +581,23 @@ differ per node has to be added to the per-instance payload, **not** to the
 key. Adding it to the key instead silently degrades batching to one draw per
 object while still "working".
 
+**A material's texels change only if it was minted paintable.** Materials are
+shared by handle: every traffic car of one paint variant draws through one
+`MaterialId`. A respray that rewrote the texture behind that id would repaint
+every car of the variant across the city in the same frame, and the report
+would come in as a traffic bug. So `Renderer::update_paintable_material()`
+refuses any id `add_paintable_material()` did not mint and leaves it untouched,
+and the converse binds the caller: a paintable id must never go into a table
+traffic draws from. Paintable materials are the one exception to the material
+table being append-only; they are still never freed, and a rewrite keeps the
+GL object, so no delete opens the recycled-id window described above. The
+cost: a paintable material holds its full RGBA storage and mip chain from
+creation whether or not anything is painted, so a pool is sized at startup;
+every rewrite regenerates the whole mip chain; and because an uploaded texture
+keeps no CPU copy, the recolour works from its own decode, which has to be
+`decode_rgba_file()` — the one `load_file()` uses — or the paint lands mirrored
+across the atlas. See `src/gfx/README.md`.
+
 **A per-node draw distance only ever shortens visibility.** Letting an authored
 value extend past the global limit means one node can defeat the streaming
 budget from the far side of the world.
