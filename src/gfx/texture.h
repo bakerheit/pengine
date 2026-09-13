@@ -10,6 +10,18 @@
 
 namespace apricot {
 
+// Decode an image file to 8-bit RGBA, rows BOTTOM-UP: the vertical flip
+// load_file() applies, because load_file() is exactly this plus upload_rgba().
+// A CPU recolour that composites these texels and pushes them back through
+// upload_rgba() therefore lands texel for texel on the paint the stock material
+// loaded. Decode the same PNG any other way and every paint rect comes back
+// mirrored across the atlas, onto the wrong panels.
+//
+// `rgba` holds width*height*4 bytes on success and is empty on failure.
+// `source_channels`, when given, reports what the file itself stored.
+bool decode_rgba_file(const std::string& path, int& width, int& height,
+                      std::vector<uint8_t>& rgba, int* source_channels = nullptr);
+
 // A GL texture object. World surfaces and debug art stay procedural; authored
 // models may load their matching PNG paint through load_file().
 //
@@ -29,6 +41,15 @@ public:
     // Authored model paint. The image is flipped into the UV convention used
     // by the original vehicle sources and uploaded as RGBA with mipmaps.
     bool load_file(const std::string& path);
+
+    // Push 8-bit RGBA (4 bytes per texel, rows bottom-up, as decode_rgba_file
+    // gives) with the sampling load_file() gives authored paint: REPEAT,
+    // trilinear, full mip chain. Keeps this object's GL id and never deletes
+    // it. When the storage is already RGBA8 at this size the texels are
+    // replaced in place (glTexSubImage2D) instead of reallocated; either way
+    // the whole mip chain is regenerated, so a minified car never shows the
+    // previous paint at a distance.
+    bool upload_rgba(int width, int height, const std::vector<uint8_t>& rgba);
 
     // --- procedural generators ----------------------------------------------
     // `size` is the side length in texels and must be a power of two so the
@@ -79,6 +100,11 @@ private:
     GLuint tex_ = 0;
     int width_ = 0;
     int height_ = 0;
+    // The level-0 storage was allocated as RGBA8 by upload_rgba(). Size alone
+    // is not enough to write in place: an R8 glyph atlas or an RGB8 generator
+    // at the same size has storage of the wrong format, and a sub-image write
+    // into it converts silently instead of failing.
+    bool rgba8_ = false;
 };
 
 }  // namespace apricot
