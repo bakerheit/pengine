@@ -532,10 +532,13 @@ void Crowd::prepare_emergency_maneuvers(int64_t step, const VehicleState* player
                 move.destination = v.lane;
                 move.end_station_m = recover;
                 move.end_offset_m = 0.0f;
-                // Carry the closing speed into the hit. A ram planned at the
-                // 4 m/s the other police arcs use is a nudge, not a threat.
-                move.speed_limit_mps = std::max(v.speed_mps,
-                    police_target_speed_mps_ + 4.0f);
+                // Carry a closing speed into the hit — a ram planned at the
+                // 4 m/s the other police arcs use is a nudge, not a threat —
+                // but only as much as a pursuer may arrive with. This used to
+                // keep the cruiser's own speed as well, so a unit already doing
+                // 38 m/s rammed a suspect doing 10 at 28.
+                move.speed_limit_mps = police_target_speed_mps_ +
+                    tuning_.police.contact_closing_mps;
                 const auto hit = graph_->pose(v.lane, contact, offset);
                 append(move, start, hit);
                 append(move, hit, graph_->pose(v.lane, recover));
@@ -639,6 +642,17 @@ bool Crowd::step_emergency_maneuver(uint32_t index, float dt) {
             (move.length_m - move.progress_m))));
     const float braking = v.speed_mps*v.speed_mps / (2.f*std::max(1.f, v.profile.brake));
     const bool ram = move.kind == TrafficManeuverKind::PoliceRam;
+    // The arc's limit is one flat number and the car only brakes toward it, so
+    // a ram planned fast could still land fast. Plan the last stretch on the
+    // same contact cap the lane path uses.
+    if (ram && !police_searching_) {
+        const glm::vec2 to_suspect = police_target_xz_ - xz(v.pos);
+        const float suspect_ahead = glm::dot(to_suspect, xz(v.fwd));
+        if (suspect_ahead > 0.0f)
+            target = std::min(target, police_contact_speed_mps(
+                glm::dot(police_target_velocity_, xz(v.fwd)),
+                suspect_ahead - tuning_.car_length_m, tuning_.police));
+    }
     if (!emergency_path_clear(index, move, move.progress_m,
             std::max(2.0f, braking + 1.0f), false, ram)) target = 0;
     if (vehicle_engine_failed(v.mechanical) ||

@@ -85,7 +85,7 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
             return {1185.f,1.04f,1.02f,1.02f,1.01f,1.03f,.98f,1.02f,1.02f,
                     1.03f,1.01f,-.004f,.98f,.99f,-.02f,.98f,1.f};
         case PlayerCarId::LegacyCar5NextPolice: // patrol tune of the same shell
-            return {1310.f,1.16f,1.06f,1.08f,1.00f,1.05f,.95f,1.06f,1.06f,
+            return {1310.f,1.00f,1.06f,1.08f,1.00f,1.05f,.95f,1.06f,1.06f,
                     1.08f,1.06f,-.006f,.96f,.97f,-.03f,1.04f,1.f};
         case PlayerCarId::LegacyCar8: // larger old sedan
             return {1480.f,1.10f,.84f,.95f,.96f,.90f,1.06f,.95f,.92f,
@@ -106,20 +106,31 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::MunicipalFiretruck: // heavy fire apparatus
             return {7500.f,3.80f,.40f,1.02f,.70f,.58f,1.24f,.84f,.94f,
                     .86f,1.42f,.105f,1.50f,1.52f,.14f,3.40f,1.f};
+        // THE 1991 CRUISERS ARE BIG SEDANS, NOT SPORTS CARS. Before
+        // 2026-09-13 every one of them out-ran all but a handful of the
+        // roster (91-E topped out at 94 m/s, second only to the Ember GT), and
+        // the free-driving pursuit steps 91-C. They sit now where a V8 police
+        // sedan of the period sat: a top speed that beats most traffic but
+        // stays at or under the fastest 30% of civilian cars, and a launch no
+        // harder than the Car 5 all-rounder. Top speed is the redline in top
+        // gear, so it is set by top_speed_scale and the wheel radius; torque
+        // then puts the launch back where each variant's character wants it.
+        // police_performance_tests measures both against the whole roster in
+        // every driving style that can launch flat out (MUSCLE cannot yet).
         case PlayerCarId::MunicipalCruiser91A: // square, heavy fleet sedan
-            return {1825.f,1.34f,.98f,1.13f,.99f,1.04f,.93f,1.08f,1.08f,
+            return {1825.f,1.15f,.73f,1.13f,.99f,1.04f,.93f,1.08f,1.08f,
                     1.12f,1.18f,.002f,1.02f,1.04f,-.05f,1.10f,1.f};
         case PlayerCarId::MunicipalCruiser91B: // cleaner transitional aero shell
-            return {1745.f,1.38f,1.04f,1.15f,1.02f,1.09f,.90f,1.12f,1.10f,
+            return {1745.f,1.29f,.97f,1.15f,1.02f,1.09f,.90f,1.12f,1.10f,
                     1.16f,1.16f,-.006f,.95f,.99f,-.04f,1.05f,1.f};
-        case PlayerCarId::MunicipalCruiser91C: // high-speed state pursuit tune
-            return {1885.f,1.47f,1.07f,1.18f,.98f,1.06f,.88f,1.14f,1.12f,
+        case PlayerCarId::MunicipalCruiser91C: // state pursuit tune
+            return {1885.f,1.40f,.96f,1.18f,.98f,1.06f,.88f,1.14f,1.12f,
                     1.18f,1.22f,-.008f,.94f,.98f,-.06f,1.08f,1.f};
         case PlayerCarId::MunicipalCruiser91D: // shorter urban response tune
-            return {1665.f,1.31f,.99f,1.17f,1.05f,1.13f,.92f,1.13f,1.08f,
+            return {1665.f,1.20f,.80f,1.17f,1.05f,1.13f,.92f,1.13f,1.08f,
                     1.15f,1.12f,-.004f,1.f,1.f,-.02f,1.02f,1.f};
         case PlayerCarId::MunicipalCruiser91E: // planted highway interceptor
-            return {1855.f,1.50f,1.10f,1.20f,.97f,1.05f,.86f,1.16f,1.13f,
+            return {1855.f,1.31f,.83f,1.20f,.97f,1.05f,.86f,1.16f,1.13f,
                     1.20f,1.24f,-.010f,.92f,.97f,-.07f,1.07f,1.f};
         case PlayerCarId::OrisonCinderGt: // compact 1990s front-engine GT
             return {1340.f,1.25f,1.10f,1.10f,1.02f,1.10f,.93f,1.10f,1.12f,

@@ -64,6 +64,28 @@ bool police_should_ram(bool engaged, bool target_on_foot, int wanted_level,
     return speed_mps >= 6.0f;
 }
 
+float police_contact_speed_mps(float suspect_speed_along_mps, float gap_m,
+                               const PoliceTuning& t) {
+    const float closing = std::max(0.0f, t.contact_closing_mps);
+    const float suspect = std::isfinite(suspect_speed_along_mps)
+        ? std::max(0.0f, suspect_speed_along_mps) : 0.0f;
+    const float gap = std::isfinite(gap_m) ? std::max(0.0f, gap_m) : 0.0f;
+    return suspect + std::sqrt(closing * closing +
+        2.0f * std::max(0.0f, t.contact_brake_mps2) * gap);
+}
+
+PursuitCmd police_limit_contact_closing(PursuitCmd cmd, float ahead,
+                                        float forward_speed_mps, float limit_mps) {
+    // Behind the car is a turn-around, not a ram; leave it to the command.
+    if (!(ahead > 0.0f) || !std::isfinite(forward_speed_mps) ||
+        !std::isfinite(limit_mps)) return cmd;
+    const float surplus = forward_speed_mps - limit_mps;
+    if (surplus <= 0.0f) return cmd;
+    cmd.throttle = 0.0f;
+    cmd.brake = std::max(cmd.brake, std::clamp(surplus, 0.2f, 1.0f));
+    return cmd;
+}
+
 int police_spawn_fallback_count(bool crime_active, int target_units,
                                 int engaged_units) {
     if (!crime_active) return 0;

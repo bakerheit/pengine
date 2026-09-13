@@ -138,6 +138,24 @@ scenarios, 91 m → 69 m and 43% → 51% within 60 m. The suite asserts that
 pursuers spend real time OFF the lane graph, because no gap or speed figure
 catches "they never left the road" — and it fails with that hand-off disabled.
 
+**And then they hit too hard.** On 2026-09-13 the complaint came back the other
+way round: cruisers slamming in at speeds no car in the game could match. Two
+causes, fixed separately. The cars: every Municipal 91 cruiser out-ran all but a
+handful of the 26 civilian cars (91-E topped out at 94 m/s in Classic GTA,
+second only to the Ember GT), and the free-driving pursuit steps 91-C. They are
+retuned to sit at or under the fastest 30% of civilian cars on top speed and no
+quicker to 100 km/h than Car 5, in every driving style that can launch flat out
+— `police_performance_tests` measures the whole roster to hold that, and says
+why MUSCLE is skipped. The contact: nothing bounded how fast a pursuer was
+closing when it arrived. `PoliceTuning::contact_closing_mps` (5 m/s) caps it on
+all three paths — the lane-follower's approach, the ram arc and the free-drive
+command — planned on a 6 m/s² braking curve, so a unit far back loses nothing.
+With a unit doing 30 behind a suspect doing 12, the hit went from 24.9 m/s to
+5.0 on the lane and ram paths and from 21.4 to 5.4 free-driving. The chase got
+closer, not further: mean gap 66.7 m → 50.5 m, within 60 m 55% → 71%. The
+likely reason is that a cruiser which no longer bounces off the suspect stays on
+them, but that is a reading of the numbers, not a separate measurement.
+
 The suite's world is filled with coarse block proxies (every patch of ground
 more than 13 m from a lane) for one reason: measuring free driving over bare
 terrain lets a cruiser cut across city blocks that hold buildings in the real
@@ -152,7 +170,7 @@ whether the police code was good or not.
 | File | What it decides |
 |---|---|
 | `traffic_ai.{h,cpp}` | Follow gaps, yellow lights, jam passing, the recovery ladder, permissive-left yield, overtake gap acceptance, player hazards, panic, emergency yield, go-around kinematics |
-| `police_ai.{h,cpp}` | Witness and contact gates, the free-drive pursuit command (`police_terminal_pursuit_cmd`) and its hand-off range, the engaged-unit control override and ram gate, wanted heat decay, graceful stand-down, response delay, ram attribution, roadblock composition |
+| `police_ai.{h,cpp}` | Witness and contact gates, the free-drive pursuit command (`police_terminal_pursuit_cmd`) and its hand-off range, the engaged-unit control override and ram gate, how fast a pursuer may be closing when it hits you (`police_contact_speed_mps`, `police_limit_contact_closing`), wanted heat decay, graceful stand-down, response delay, ram attribution, roadblock composition |
 | `pedestrian_separation.h` | One pedestrian's per-frame sidestep |
 | `police_officer.h` | The officer occupancy phase machine, and his death: three pistol rounds kill an on-foot officer, which freezes his phase permanently, disarms him and abandons his cruiser where it stopped. He does not come back; this used to be a twelve-second knockdown that restored him to full health |
 | `body_damage.h` | The ONE damage scale for every person in Pinatty — the player, the crowd and the officers. A hundred points, what a round, a punch, a car, a fall and a crash each cost, and the killing-blow edge every consumer charges heat on |

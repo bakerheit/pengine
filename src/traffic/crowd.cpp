@@ -3057,8 +3057,20 @@ bool Crowd::step_police_free_chase(VehicleAgent& v, float dt) {
     // Trying the forward arc and noticing it went nowhere is both cheaper and
     // right, and it is what a driver does.
     const bool forward_blocked = v.chase_reverse_s > 0.0f;
-    const PursuitCmd cmd = police_terminal_pursuit_cmd(
-        distance, ahead_dot, side_dot, forward_speed, forward_blocked);
+    // THE CONTACT CAP, free-driving (PoliceTuning::contact_closing_mps). The
+    // terminal command floors it at anything lined up inside 8 m — that is the
+    // ram — and with a real engine behind it from 22 m out, nothing held the
+    // hit under what the engine could reach. Measured bumper to bumper along
+    // this car's own nose. While searching the centre is a point, not a car.
+    const float suspect_along = police_searching_
+        ? 0.0f : glm::dot(police_target_velocity_, forward);
+    const PursuitCmd cmd = police_limit_contact_closing(
+        police_terminal_pursuit_cmd(distance, ahead_dot, side_dot,
+                                    forward_speed, forward_blocked),
+        ahead_dot, forward_speed,
+        police_contact_speed_mps(suspect_along,
+                                 distance * ahead_dot - tuning_.car_length_m,
+                                 tuning_.police));
 
     InputFrame intent;
     intent.steer = cmd.steer;
@@ -3565,6 +3577,30 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                     traffic_follow_speed_for_gap(hazard.gap, prof);
                 target = std::min(target, hazard_speed);
                 ++stats_.player_hazards;
+            }
+        }
+        // THE CONTACT CAP (PoliceTuning::contact_closing_mps). From three stars
+        // a pursuer skips the block above on purpose — a cruiser that brakes
+        // for the suspect as a hazard never reaches them — and nothing else
+        // bounded the speed it arrived at. Capping the approach instead keeps
+        // the contact and loses only the slam.
+        if (engaged_pursuit && player && !police_target_on_foot_ &&
+            std::fabs(player->position.y - v.pos.y) < 2.5f) {
+            const glm::vec2 heading{v.fwd.x, v.fwd.z};
+            const float heading_length = glm::length(heading);
+            if (heading_length > 1e-4f) {
+                const glm::vec2 cap_fwd = heading / heading_length;
+                const glm::vec2 to_suspect{player->position.x - v.pos.x,
+                                           player->position.z - v.pos.z};
+                const float suspect_ahead = glm::dot(to_suspect, cap_fwd);
+                const float suspect_lateral = std::fabs(
+                    cap_fwd.x * to_suspect.y - cap_fwd.y * to_suspect.x);
+                if (suspect_ahead > 0.0f &&
+                    suspect_lateral < tuning_.player_hazard.half_width)
+                    target = std::min(target, police_contact_speed_mps(
+                        glm::dot(glm::vec2{player->velocity.x, player->velocity.z},
+                                 cap_fwd),
+                        suspect_ahead - tuning_.car_length_m, tuning_.police));
             }
         }
         for (const auto position:parked_vehicle_positions_) {

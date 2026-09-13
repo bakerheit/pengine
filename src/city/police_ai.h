@@ -194,6 +194,27 @@ struct PoliceTuning {
     float ram_range       = 34.0f;
     float ram_min_ahead   = 5.0f;
 
+    // HOW HARD A PURSUER MAY HIT YOU. Nothing bounded it, and what was asked
+    // for on 2026-09-13 was exactly that: cruisers slamming in at speeds no
+    // car in the game could match. Three paths drove at the suspect with no
+    // ceiling on the closing speed. A lane-following unit at three stars and
+    // up skips the player-hazard brake on purpose, so it rear-ended at its
+    // whole catch-up target (suspect x 1.3 + 6 m/s). The ram arc kept its own
+    // speed, so a unit doing 38 m/s rammed a suspect doing 10 at 28. And the
+    // free-driving cruiser floors it from 22 m out. police_performance_tests
+    // put a unit doing 30 behind a suspect doing 12 and measured the hit with
+    // this switched off: 24.9 m/s on the lane and ram paths, 21.4 free-driving.
+    //   contact_closing_mps — the most any of them may be closing at the
+    //                         moment of contact. 5 m/s still dents and shoves
+    //                         (car damage starts at 2.5): a PIT, not a missile.
+    //   contact_brake_mps2  — what the approach is planned on. A unit far back
+    //                         closes as fast as it ever did and sheds only the
+    //                         surplus over the last stretch. Every driver
+    //                         profile brakes harder than this, so the plan is
+    //                         always one the car can actually follow.
+    float contact_closing_mps = 5.0f;
+    float contact_brake_mps2  = 6.0f;
+
     // ON-DEMAND CRUISERS (PENG-45). When the dispatcher finds no resident
     // patrol to convert, one is instantiated on a lane in this annulus around
     // the wanted centre — outside the activation radius so it is never seen
@@ -308,6 +329,17 @@ bool police_should_ram(bool engaged, bool target_on_foot, int wanted_level,
                        float ahead_m, float range_m, float speed_mps,
                        const PoliceTuning& t);
 
+// The fastest a pursuer may be going, along its own heading, with `gap_m` of
+// bumper-to-bumper road between it and the suspect (pure):
+//   suspect_along + sqrt(contact_closing^2 + 2 * contact_brake * gap)
+// At contact that is the suspect plus contact_closing_mps. Further back it is
+// the speed from which braking at contact_brake_mps2 still arrives at exactly
+// that, so the cap costs a unit nothing until it is close. A suspect coming
+// TOWARD the unit counts as stopped (the cap never asks a car to reverse), and
+// non-finite input fails to the tightest answer, not to no cap at all.
+float police_contact_speed_mps(float suspect_speed_along_mps, float gap_m,
+                               const PoliceTuning& t);
+
 // PCG-011 witness gate (pure). True when a cruising patrol should convert to a
 // pursuer: a crime is active, the offender is in sight range, inside the forward
 // view cone, and the line of sight is clear. The LOS raycast needs world
@@ -384,6 +416,16 @@ struct PursuitCmd {
 // reversing into whatever was behind it for the rest of the chase.
 PursuitCmd police_terminal_pursuit_cmd(float dist, float ahead, float side,
                                        float speed, bool forward_blocked = false);
+
+// The free-driving cruiser's half of police_contact_speed_mps (pure). `cmd`
+// comes back untouched unless the suspect is ahead (`ahead` > 0) and the car
+// is going faster than `limit_mps`; then the throttle lifts and the brake goes
+// on in proportion to the surplus, full at 1 m/s over. A softer gain (full at
+// 4 m/s) was tried first and let a real 91-C ride above the braking curve and
+// land at 7 m/s against a 5 m/s allowance. Steering is kept, so a car shedding
+// speed still tracks the target.
+PursuitCmd police_limit_contact_closing(PursuitCmd cmd, float ahead,
+                                        float forward_speed_mps, float limit_mps);
 
 // PCG-033 — pursuit replan trigger (pure). True when a pursuer should re-plan its
 // lane route THIS frame: the existing route is invalid (empty / fully consumed),
