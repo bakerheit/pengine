@@ -190,6 +190,9 @@ void a_wobble_cancels_the_spray_but_keeps_the_latch(const Shop& shop) {
         const auto r = d.step(wobble, false);
         REQUIRE(r.event == ResprayEvent::Cancelled && r.order == kRed);
         REQUIRE(!d.visit.spraying() && d.visit.arrived && d.visit.seen);
+        // Arrived, but rolling: an order does not start until the car stops.
+        REQUIRE(d.step(wobble, false, &kRed).event == ResprayEvent::Rejected);
+        REQUIRE(!d.visit.spraying() && d.visit.arrived);
         REQUIRE(d.step(d.stopped(), false, &kRed).event == ResprayEvent::Started);
         int steps = 0;
         REQUIRE(d.spray_to_end(false, steps).seen);
