@@ -6,6 +6,7 @@
 #include "physics/vehicle.h"
 #include "game/tractor_trailer.h"
 #include "game/license_plate.h"
+#include "game/vehicle_paint.h"
 
 namespace apricot {
 
@@ -38,6 +39,12 @@ struct GameSave {
     VehicleRegistration car_registration{};
     bool has_trailer = false;
     TrailerState trailer{};
+    // Version 4. The base is an index into the model's stock paint list, which
+    // the app owns, so the save range-checks it without knowing the car. A
+    // respray is the picked colour laid over that base; unpainted stores 0,0,0.
+    uint8_t car_paint_base = 0;
+    bool car_has_paint = false;
+    PaintColor car_paint{};
 };
 
 bool validate_game_save(const GameSave& data, std::string& error);

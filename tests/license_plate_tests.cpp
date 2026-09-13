@@ -13,6 +13,11 @@ std::string rewrap(const std::string& body,int version) {
     for (const char c:body) { hash^=static_cast<unsigned char>(c);hash*=1099511628211ull; }
     return "APRICOT_SAVE "+std::to_string(version)+"\n"+std::to_string(hash)+"\n"+body;
 }
+// Cuts the body's last row and returns it, so a test can say which row it cut.
+std::string strip_row(std::string& body) {
+    const auto cut=body.rfind('\n',body.size()-2)+1;
+    std::string row=body.substr(cut);body.erase(cut);return row;
+}
 void catalog_and_identity() {
     for (std::size_t i=0;i<kPlateDesigns.size();++i) {
         const auto& d=kPlateDesigns[i];
@@ -98,24 +103,50 @@ void checkpoints() {
     GameSave saved; saved.car_model=int(PlayerCarId::RodeoGrazer);saved.car_key=9381;
     saved.car_position={7500,5,8400};
     saved.car_registration={city::StateId::OHaven,PlateSeries::Heritage,99991234};
+    saved.car_paint_base=2;saved.car_has_paint=true;saved.car_paint={40,90,200};
     std::string bytes,error;REQUIRE(encode_game_save(saved,bytes,error));
     GameSave loaded;REQUIRE(decode_game_save(bytes,loaded,error));
     REQUIRE(loaded.car_registration==saved.car_registration); // Home plate stays across the border.
-    const auto start=bytes.find('\n',bytes.find('\n')+1)+1;
-    std::string body=bytes.substr(start);
-    body.erase(body.rfind('\n',body.size()-2)+1); // Strip v3 registration row.
+    const std::string v4=bytes.substr(bytes.find('\n',bytes.find('\n')+1)+1);
+    REQUIRE(rewrap(v4,4)==bytes); // Control: rewrap is the encoder's own framing.
+    const std::string paint_row="2 1 40 90 200\n";
+    const std::string plate_row=std::to_string(int(saved.car_registration.state))+" "+
+        std::to_string(int(saved.car_registration.series))+" 99991234\n";
+    // Each strip names the row it cut, and each older header is shown to refuse
+    // the body before the cut, so no migration below passes by reading the
+    // wrong row.
+    std::string body=v4;
+    REQUIRE(strip_row(body)==paint_row);
+    REQUIRE(!decode_game_save(rewrap(v4,3),loaded,error));
+    REQUIRE(!decode_game_save(rewrap(body,4),loaded,error));
+    REQUIRE(decode_game_save(rewrap(body,3),loaded,error));
+    REQUIRE(loaded.car_registration==saved.car_registration);
+    REQUIRE(loaded.car_paint_base==0 && !loaded.car_has_paint && loaded.car_paint==PaintColor{});
+    const std::string v3=body;
+    REQUIRE(strip_row(body)==plate_row);
+    REQUIRE(!decode_game_save(rewrap(v3,2),loaded,error));
+    REQUIRE(!decode_game_save(rewrap(body,3),loaded,error));
     REQUIRE(decode_game_save(rewrap(body,2),loaded,error));
     REQUIRE(loaded.car_registration==player_registration(PlayerCarId::RodeoGrazer,9381,7500,8400));
-    body.erase(body.rfind('\n',body.size()-2)+1); // Strip v2 trailer row.
+    REQUIRE(loaded.car_registration!=saved.car_registration); // Derived, not the stored plate.
+    const std::string v2=body;
+    REQUIRE(strip_row(body)=="0 0 0 0 0 0 0\n"); // v2 trailer row: none.
+    REQUIRE(!decode_game_save(rewrap(v2,1),loaded,error));
+    REQUIRE(!decode_game_save(rewrap(body,2),loaded,error));
     REQUIRE(decode_game_save(rewrap(body,1),loaded,error));
     REQUIRE(loaded.car_registration.state==city::StateId::Florangia);
+    REQUIRE(loaded.car_paint_base==0 && !loaded.car_has_paint);
+    // Corrupt plate rows, in both versions that carry one. The good row is
+    // spliced the same way first, so a refusal is about the values.
+    body=v3;strip_row(body);
+    REQUIRE(decode_game_save(rewrap(body+plate_row,3),loaded,error));
+    REQUIRE(decode_game_save(rewrap(body+plate_row+paint_row,4),loaded,error));
     const auto before=loaded.car_registration;
-    body=bytes.substr(start);body.erase(body.rfind('\n',body.size()-2)+1);
-    REQUIRE(!decode_game_save(rewrap(body+"256 0 0\n",3),loaded,error));
-    REQUIRE(!decode_game_save(rewrap(body+"0 256 0\n",3),loaded,error));
-    REQUIRE(!decode_game_save(rewrap(body+"0 0 -1\n",3),loaded,error));
-    REQUIRE(!decode_game_save(rewrap(body+"0 0 -18446744073709551615\n",3),loaded,error));
-    REQUIRE(!decode_game_save(rewrap(body+"0 0 18446744073709551615\n",3),loaded,error));
+    for (const char* row:{"256 0 0\n","0 256 0\n","0 0 -1\n","0 0 -18446744073709551615\n",
+                          "0 0 18446744073709551615\n"}) {
+        REQUIRE_MSG(!decode_game_save(rewrap(body+row,3),loaded,error),"bad v3 plate row decoded",row);
+        REQUIRE_MSG(!decode_game_save(rewrap(body+row+paint_row,4),loaded,error),"bad v4 plate row decoded",row);
+    }
     REQUIRE(loaded.car_registration==before);
     saved.car_registration.number=std::numeric_limits<uint64_t>::max();
     REQUIRE(!encode_game_save(saved,bytes,error));
@@ -123,5 +154,5 @@ void checkpoints() {
 }
 int main() {
     catalog_and_identity();cooked_mounts_and_meshes();checkpoints();
-    apricot_test::pass("state plate formats, departure identity, catalog vehicle mounts, winding/UVs and v1-v3 saves");
+    apricot_test::pass("state plate formats, departure identity, catalog vehicle mounts, winding/UVs and v1-v4 saves");
 }
