@@ -255,6 +255,9 @@ apricot_add_suite(pawn_shop_tests)
 apricot_add_suite(gun_store_tests)
 
 apricot_add_suite(repair_shop_tests)
+# The respray visit at Rook's (game/respray_shop.h): the pull-in latch that
+# decides whether a respray loses the cops, the spray, and the prompt line.
+apricot_add_suite(respray_shop_tests)
 
 # Nearby skyline landmarks preserve authored streets and foot access.
 apricot_add_suite(neighborhood_towers_tests)
