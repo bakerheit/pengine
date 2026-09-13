@@ -26,13 +26,13 @@ EXTRA_SKINS={
     'firetruck': [5,6,8,9,*range(10,24)],
     'montrose_regent_eight': [20,22,34,35],
 }
-BAKED_MODELS=('vesper_vx91','glr_lunge','glr_zip','harrow_workman',
+BAKED_MODELS=('vesper_vx91','glm_lunge','glm_zip','harrow_workman',
               'halcyon_six','montrose_regent_eight','firetruck')
-KEEP_PLANAR={'glr_zip': [6,20,59]}  # separate rocker blades and exhaust mouth
+KEEP_PLANAR={'glm_zip': [6,20,59]}  # separate rocker blades and exhaust mouth
 # Real protruding lamp housings retain their own atlas cells. Body stripes
 # behind them must not get projected over the lens faces during the bake.
 PROTECTED_RECEIVERS={'firetruck': [24,25]}
-EXPECTED_COMPONENTS={'vesper_vx91':48,'glr_lunge':51,'glr_zip':60,
+EXPECTED_COMPONENTS={'vesper_vx91':48,'glm_lunge':51,'glm_zip':60,
                      'harrow_workman':42,'halcyon_six':30,
                      'montrose_regent_eight':38,'firetruck':43}
 
@@ -145,16 +145,16 @@ def bake_model(name,install=False):
     protected={face for i in PROTECTED_RECEIVERS.get(name,[]) for face in comps[i]}
     low=tris[keep]
     layers=tris[removed]
-    # The GLR lamp cards extended above/outside their actual nose caps.
+    # The GLM lamp cards extended above/outside their actual nose caps.
     # Bring only the end station up to their existing outline so the bake
     # has real metal to land on. No wheel/roof/collision bounds change.
-    if name in ('glr_zip','glr_lunge'):
-        z,width,old_width = (2.5,.98,.82) if name=='glr_zip' else (2.75,1.08,.94)
+    if name in ('glm_zip','glm_lunge'):
+        z,width,old_width = (2.5,.98,.82) if name=='glm_zip' else (2.75,1.08,.94)
         end=np.abs(low[:,:,2]-z)<1e-5
         # Limit the change to the main shell, not the splitter at that station.
         shell=end&(low[:,:,1]>.25)&(np.abs(low[:,:,0])<=old_width+1e-5)
         low[:,:,0][shell]*=width/old_width
-        if name=='glr_zip':
+        if name=='glm_zip':
             for old,new in ((.39,.58),(.43,.40),(.47,.61)):
                 mask=shell&(np.abs(low[:,:,1]-old)<1e-5)
                 low[:,:,1][mask]=new

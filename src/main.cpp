@@ -62,6 +62,8 @@ void print_usage() {
         "  --daylight      hold the sky at noon for visual QA\n"
         "  --road-start    settle --start-at after authored road collision loads\n"
         "  --weapon-check  check aim, fire, reload, NPC blood hits and input guards (900+ frames)\n"
+        "  --molotov-check throw one molotov and watch the fire spread and die back (1300+ frames)\n"
+        "  --attended      drive a --frames run by hand: let the window take focus and the cursor\n"
         "  --damage-check  check that three rounds kill a civilian, the body stays down,\n"
         "                  and the player dies, freezes and respawns (2400+ frames)\n"
         "  --house-check   walk through 102 Sycamore's push doors and both exits\n"
@@ -113,6 +115,7 @@ int main(int argc, char** argv) {
     bool perf_logging = false;
     double perf_spike_ms = 20.0;
     int frame_limit = 0;
+    bool attended = false;
     uint64_t session_seed=0;
     bool explicit_seed=false;
     int warp_every = 0;
@@ -142,6 +145,7 @@ int main(int argc, char** argv) {
     bool convertible_check=false;
     int start_wanted=0;
     bool weapon_check=false;
+    bool molotov_check=false;
     bool damage_check=false;
     bool house_check=false;
     bool signal_check=false;
@@ -174,6 +178,7 @@ int main(int argc, char** argv) {
             save_file=argv[i];continue;
         }
         if (std::strcmp(a,"--weapon-check")==0) { weapon_check=true;continue; }
+        if (std::strcmp(a,"--molotov-check")==0) { molotov_check=true;continue; }
         if (std::strcmp(a,"--damage-check")==0) { damage_check=true;continue; }
         if (std::strcmp(a,"--house-check")==0) { house_check=true;continue; }
         if (std::strcmp(a,"--signal-check")==0) { signal_check=true;continue; }
@@ -295,6 +300,7 @@ int main(int argc, char** argv) {
             std::printf("%s\n", APRICOT_VERSION);
             return 0;
         }
+        if (std::strcmp(a, "--attended") == 0) { attended = true; continue; }
         if (std::strcmp(a, "--verbose") == 0) {
             apricot::log::min_level() = apricot::log::Level::Debug;
             continue;
@@ -544,6 +550,24 @@ int main(int argc, char** argv) {
         if (!screenshot_path) screenshot_path="build/weapon-check";
         app.set_weapon_check(true);
     }
+    if (molotov_check) {
+        if (frame_limit<1300 || weapon_check || damage_check || house_check ||
+            signal_check || police_check || police_officer_check ||
+            traffic_horn_check || lighting_benchmark || warp_every ||
+            opening_preview || delivery_preview || delivery_check) {
+            std::fprintf(stderr,"--molotov-check needs --frames 1300 or more and no other checks/previews/warps\n");
+            return 2;
+        }
+        // Clear daylight by default, because the point of the screenshots is
+        // the FLAME and rain over it is a way to disagree about what you are
+        // looking at. `--night` is honoured rather than overridden: the fire's
+        // own tiled spot light is invisible at noon and obvious after dark, so
+        // running the same check at night is how that half gets looked at.
+        clear_weather=true;
+        if (!lighting_night) daylight_qa=true;
+        if (!screenshot_path) screenshot_path="build/molotov-check";
+        app.set_molotov_check(true);
+    }
     if (damage_check) {
         if (frame_limit<2400 || weapon_check || house_check || signal_check ||
             police_check || police_officer_check || traffic_horn_check ||
@@ -555,6 +579,7 @@ int main(int argc, char** argv) {
         if (!screenshot_path) screenshot_path="build/damage-check";
         app.set_damage_check(true);
     }
+    app.set_attended(attended);
     app.set_instancing(instancing);
     app.set_warp_interval(warp_every);
     app.set_start_position(start_position);
@@ -618,6 +643,9 @@ int main(int argc, char** argv) {
     }
     if (weapon_check && !app.weapon_check_passed()) {
         AP_ERROR("weapon selection regression did not complete");rc=1;
+    }
+    if (molotov_check && !app.molotov_check_passed()) {
+        AP_ERROR("molotov and fire regression did not complete");rc=1;
     }
     if (damage_check && !app.damage_check_passed()) {
         AP_ERROR("damage and death check did not complete");rc=1;

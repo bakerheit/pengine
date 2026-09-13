@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "core/aabb.h"
+#include "app/vehicle_plate_visual.h"
 #include "core/transform.h"
 #include "app/road_sign_mesh.h"
 #include "app/traffic_visual_layout.h"
@@ -24,8 +25,9 @@ class TerrainCollider;
 
 // Host-side presentation for the sim-owned Crowd. It ports the legacy
 // Probable Cause wheel-less bodies + shared moving wheel setup and the old
-// cantilever traffic-head layout. Identity stays (lane key, slot), so changing
-// activation order never changes what model or paint a traffic car receives.
+// cantilever traffic-head layout. Model/paint stay keyed by (lane key, slot).
+// Registration also includes departure generation, so replacements get a new
+// plate without depending on activation order.
 class TrafficVisual {
 public:
     bool init(Renderer& renderer, Scene& scene, const LaneGraph& lanes,
@@ -112,6 +114,8 @@ public:
         return paints[(traffic_vehicle_identity_hash(agent.lane_key,agent.slot)>>8)%paints.size()];
     }
 
+    VehicleRegistration vehicle_registration(const VehicleAgent& agent) const;
+
     std::size_t car_count() const { return rigs_.size(); }
     std::size_t parked_car_count() const { return parked_rigs_.size(); }
     std::size_t signal_head_count() const { return signals_.size(); }
@@ -122,6 +126,7 @@ public:
 
 private:
     struct Model {
+        VehiclePlateMounts plate_mounts;
         MeshId mesh = kInvalidId;
         MeshId driver_door_mesh = kInvalidId;
         AABB driver_door_bounds;
@@ -142,6 +147,8 @@ private:
     };
 
     struct Rig {
+        int64_t generation = 0;
+        VehiclePlateVisual plate;
         uint64_t lane_key = 0;
         uint32_t slot = 0;
         std::size_t model = 0;
@@ -212,7 +219,7 @@ private:
     // parked car is drawn through a stationary shell agent, and its kind comes
     // from the parked recipe (parked_vehicle_kind), not the driving one.
     Rig create_rig(Scene& scene, const VehicleAgent& agent,
-                   TrafficVehicleKind kind) const;
+                   TrafficVehicleKind kind, bool parked=false) const;
     void destroy_rig(Scene& scene, Rig& rig) const;
     // `parked`: no brake lamps. The driving rule lights them whenever the
     // controller asks for less than cruise, which a car with no controller
@@ -228,6 +235,9 @@ private:
     void build_road_controls(Scene& scene, const LaneGraph& lanes,
                              TerrainCollider& collider);
 
+    Renderer* plate_renderer_ = nullptr;
+    MaterialId plate_material_ = kInvalidId;
+    std::map<uint64_t,city::StateId> registration_states_;
     std::array<Model, 9> models_{};
     std::array<MeshId, 3> snowplow_detail_meshes_{};
     std::array<AABB, 3> snowplow_detail_bounds_{};

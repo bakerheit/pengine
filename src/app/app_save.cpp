@@ -37,6 +37,7 @@ bool App::save_game() {
     saved.car_position=car_.position; saved.car_rotation=car_.orientation;
     saved.car_health=car_.health; saved.car_damage=car_.body_damage;
     saved.car_mechanical=car_.mechanical; saved.car_key=car_.mechanical_key;
+    saved.car_registration=car_visual_.registration();
     saved.has_trailer=true;saved.trailer=trailer_;
     if (!store_game_save(save_path_,saved,save_notice_)) { AP_WARN("save: %s",save_notice_.c_str()); return false; }
     save_notice_="Game saved."; ui_.set_save_available(true);
@@ -60,6 +61,7 @@ bool App::load_game() {
     if (!car_visual_.select(scene_,next_tuning,next_car,model)) {
         save_notice_="Saved vehicle is unavailable. Game left unchanged."; return false;
     }
+    car_visual_.set_registration(scene_,saved.car_registration);
     cancel_vehicle_transition(); boat_transition_={}; transition_camera_release_=0;
     vehicle_audio_.exit_vehicle();
     in_aircraft_=false;in_helicopter_=false; in_boat_=false; on_foot_=saved.on_foot;

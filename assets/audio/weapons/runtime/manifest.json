@@ -1,0 +1,62 @@
+[
+  {
+    "file": "molotov_glass.wav",
+    "kind": "one-shot",
+    "source": "dragon-studio-glass-breaking-504033.mp3",
+    "source_sha256": "b5af69b569ce12a5faa77379d2c8ef6a5539ef05b58d0746907f1c52cbca55e2",
+    "runtime_sha256": "507278437a6c1eb37a6d93170fc04316eed08702f77961f46893e27f8db8bad2",
+    "source_duration_s": 3.12,
+    "source_cut_s": [
+      0.09,
+      2.14
+    ],
+    "duration_s": 2.05,
+    "head_gate_db": -40.0,
+    "tail_gate_db": -55.0,
+    "source_peak": 1.4844,
+    "source_rms": 0.19484,
+    "gain": 0.53894,
+    "channels": 1,
+    "sample_rate": 48000
+  },
+  {
+    "file": "molotov_whoosh.wav",
+    "kind": "one-shot",
+    "source": "djartmusic-short-fire-whoosh_1-317280.mp3",
+    "source_sha256": "42de6e27397a942bda71b98b9b564c6a4543ebe88473fac35c10e1335099a1b4",
+    "runtime_sha256": "614aa78ad58f889f0c9cfd511c65a5e3821c2f81baa31b9723fd8102a0411ef4",
+    "source_duration_s": 5.0416,
+    "source_cut_s": [
+      0.98,
+      2.43
+    ],
+    "duration_s": 1.45,
+    "head_gate_db": -30.0,
+    "tail_gate_db": -45.0,
+    "source_peak": 1.3695,
+    "source_rms": 0.20664,
+    "gain": 0.52575,
+    "channels": 1,
+    "sample_rate": 48000
+  },
+  {
+    "file": "fire_loop.wav",
+    "kind": "loop",
+    "source": "maxhammarback-fire-sound-efftect-21991.mp3",
+    "source_sha256": "7e49bcb4f36eaf4ac54e127c5264633d373f3145ff28fce9f2959cd1647deb86",
+    "runtime_sha256": "cffb377d48cbd0dad5a07575928573affb6fc268248d64ecdcd50620b00a0901",
+    "source_duration_s": 15.2033,
+    "source_cut_s": [
+      2.0,
+      8.0
+    ],
+    "duration_s": 6.0,
+    "seam_crossfade_s": 1.0,
+    "seam_curve": "equal power",
+    "source_peak": 0.7454,
+    "source_rms": 0.2129,
+    "gain": 0.8318,
+    "channels": 1,
+    "sample_rate": 48000
+  }
+]

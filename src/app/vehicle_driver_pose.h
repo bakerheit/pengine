@@ -28,7 +28,7 @@ inline bool shows_mistral_driver(PlayerCarId car, bool occupied) {
 inline bool has_animated_driver(PlayerCarId car) {
     return car == PlayerCarId::VesperMistral || car == PlayerCarId::HarrowWorkman ||
         car==PlayerCarId::AlderPip || car==PlayerCarId::VesperScythe ||
-        car==PlayerCarId::FangVenom ||
+        car==PlayerCarId::FangVenom || car==PlayerCarId::EmberGt || car==PlayerCarId::RodeoGrazer ||
         car==PlayerCarId::HalcyonSovereign ||
         car==PlayerCarId::LegacyCar5Next ||
         car==PlayerCarId::LegacyCar5NextPolice ||
@@ -37,7 +37,7 @@ inline bool has_animated_driver(PlayerCarId car) {
 
 inline bool has_contact_driver_entry(PlayerCarId car) {
     return car==PlayerCarId::AlderPip || car==PlayerCarId::VesperScythe ||
-        car==PlayerCarId::HalcyonSovereign;
+        car==PlayerCarId::HalcyonSovereign || car==PlayerCarId::EmberGt;
 }
 
 inline bool shows_vehicle_driver(PlayerCarId car, bool occupied) {
@@ -134,6 +134,18 @@ inline const VehicleDriverLayout& vehicle_driver_layout(PlayerCarId car) {
         {{-.225f,.52f,-.08f},{.225f,.52f,-.08f}},
         {{-.245f,.80f,.17f},{.245f,.80f,.17f}},
         {{-.36f,1.10f,.12f},{.36f,1.10f,.12f}},{.72f,1.17f,.19f},.58f};
+    static const VehicleDriverLayout ember{
+        {.36f,.44f,-.15f},{{.25f,.765f,.43f},{.47f,.765f,.43f}},
+        {{.26f,.365f,.66f},{.46f,.365f,.66f}},
+        {{.26f,.69f,.34f},{.46f,.69f,.34f}},
+        {{.08f,.50f,-.09f},{.69f,.50f,-.09f}},{1.30f,.74f,-.41f},1.08f};
+    static const VehicleDriverLayout grazer{
+        {.40f,.81f,.07f},{{.29f,1.13f,.59f},{.51f,1.13f,.59f}},
+        {{.30f,.55f,.70f},{.50f,.55f,.70f}},
+        {{.30f,1.02f,.38f},{.50f,1.02f,.38f}},
+        {{.09f,.87f,.12f},{.73f,.87f,.12f}},{1.30f,1.00f,-.19f},1.04f};
+    if(car==PlayerCarId::RodeoGrazer) return grazer;
+    if(car==PlayerCarId::EmberGt) return ember;
     if(car==PlayerCarId::AlderPip) return pip;
     if(car==PlayerCarId::VesperScythe) return scythe;
     if(car==PlayerCarId::HalcyonSovereign) return sovereign;
@@ -302,7 +314,7 @@ inline bool make_vehicle_driver_pose(PlayerCarId car,const Skeleton& skeleton,
     // Positive angles recline this supplied rig toward the seat back. The
     // Scythe's low canopy needs the measured rearward sports-car posture.
     return make_seated_driver_pose(vehicle_driver_layout(car),skeleton,bounds,body,out,
-        car==PlayerCarId::VesperScythe?20.f:
+        car==PlayerCarId::EmberGt?26.f:car==PlayerCarId::VesperScythe?20.f:
         car==PlayerCarId::LegacyCar5Next ||
             car==PlayerCarId::LegacyCar5NextPolice?kCar5NextRecline:
         car==PlayerCarId::FangVenom?-18.f:-12.f);

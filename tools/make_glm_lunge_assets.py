@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cook the original neon-green GLR Lunge body and PSX atlas."""
+"""Cook the original neon-green GLM Lunge body and PSX atlas."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from glr_lunge_spec import ATLAS_SIZE, REGIONS
+from glm_lunge_spec import ATLAS_SIZE, REGIONS
 from make_vesper_vx91_assets import fill_clustered, read_emesh
 
 
@@ -119,21 +119,21 @@ def validate(mesh_path: Path, texture_path: Path, report_path: Path) -> dict:
         raise ValueError("body is not centered on XZ")
     if not (math.isclose(maxs[0] - mins[0], 2.5, abs_tol=1e-4) and
             math.isclose(maxs[2] - mins[2], 5.508, abs_tol=1e-4)):
-        raise ValueError(f"unexpected GLR bounds: {mins} to {maxs}")
+        raise ValueError(f"unexpected GLM bounds: {mins} to {maxs}")
     player_scale = 2.70 / (1.58 + 1.62)
     wheel_radius_native = 0.34375 / player_scale
     if 0.52 - wheel_radius_native < 0.07:
-        raise ValueError("shared wheel does not clear the GLR arches")
+        raise ValueError("shared wheel does not clear the GLM arches")
     with Image.open(texture_path) as texture:
         if texture.size != (256, 256) or texture.mode != "RGBA":
             raise ValueError("texture must be a 256x256 RGBA atlas")
         if texture.getchannel("A").getextrema() != (255, 255):
-            raise ValueError("GLR atlas must be fully opaque")
+            raise ValueError("GLM atlas must be fully opaque")
         palette_colours = len(set(texture.getdata()))
     if palette_colours > 96:
         raise ValueError(f"atlas is too smooth for PS1 art: {palette_colours} colours")
     report = {
-        "asset": "GLR Lunge",
+        "asset": "GLM Lunge",
         "vertices": len(vertices), "triangles": triangles,
         "bounds_min": [round(value, 5) for value in mins],
         "bounds_max": [round(value, 5) for value in maxs],
@@ -158,31 +158,31 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--blender", type=Path, default=BLENDER)
     parser.add_argument("--texture", type=Path,
-                        default=ROOT / "assets/textures/vehicles/glr_lunge/body.png")
+                        default=ROOT / "assets/textures/vehicles/glm_lunge/body.png")
     parser.add_argument("--mesh", type=Path,
-                        default=ROOT / "assets/models/vehicles/glr_lunge/body.emesh")
+                        default=ROOT / "assets/models/vehicles/glm_lunge/body.emesh")
     parser.add_argument("--blend", type=Path,
-                        default=ROOT / "assets/models/vehicles/glr_lunge/source.blend")
+                        default=ROOT / "assets/models/vehicles/glm_lunge/source.blend")
     parser.add_argument("--report", type=Path,
-                        default=ROOT / "build/glr-lunge-fit-report.json")
+                        default=ROOT / "build/glm-lunge-fit-report.json")
     parser.add_argument("--uv-guide", type=Path,
-                        default=ROOT / "build/glr-lunge-uv-guide.png")
+                        default=ROOT / "build/glm-lunge-uv-guide.png")
     args = parser.parse_args()
     make_texture(args.texture)
     subprocess.run([
         str(args.blender), "--background", "--factory-startup", "--python",
-        str(ROOT / "tools/glr_lunge_blender.py"), "--",
+        str(ROOT / "tools/glm_lunge_blender.py"), "--",
         "--mesh", str(args.mesh), "--blend", str(args.blend),
     ], cwd=ROOT, check=True)
     make_uv_guide(args.mesh, args.uv_guide)
     report = validate(args.mesh, args.texture, args.report)
-    print(f"GLR_COOK mesh={args.mesh} triangles={report['triangles']} "
+    print(f"GLM_COOK mesh={args.mesh} triangles={report['triangles']} "
           f"vertices={report['vertices']} atlas={args.texture} "
           f"blend={args.blend} report={args.report}")
 
 
     from bake_vehicle_surfaces import bake_if_canonical
-    bake_if_canonical("glr_lunge", args.mesh, args.texture)
+    bake_if_canonical("glm_lunge", args.mesh, args.texture)
 
 
 if __name__ == "__main__":

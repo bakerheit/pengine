@@ -9,8 +9,15 @@ namespace apricot {
 bool App::player_has_drawn_weapon() const {
     return on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ &&
         !vehicle_transition_.active() && !boat_transition_.active() &&
-        weapon_use_.equipped == WeaponId::Pistol &&
-        weapon_use_.equip_blend >= 0.80f;
+        // A LIT BOTTLE COUNTS. The offence the city is reporting is "that
+        // person is holding something they are about to hurt somebody with",
+        // and a molotov out in the open in the street is exactly that. Each
+        // weapon reports its own draw clock, because they are different
+        // lengths and a shared one would have to be wrong for one of them.
+        ((weapon_use_.equipped == WeaponId::Pistol &&
+          weapon_use_.equip_blend >= 0.80f) ||
+         (weapon_wheel_.equipped == WeaponId::Molotov &&
+          molotov_use_.equip_blend >= 0.80f));
 }
 
 float App::current_speed_limit_mps() const {

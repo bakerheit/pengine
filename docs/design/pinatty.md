@@ -1,9 +1,15 @@
 # Pinatty — the original city map
 
 Pinatty is the city for the pilot game on `pengine-apricot`, and it sits in the
-state of Pinatty. Pinatty is a rebuild
+state of O'Haven. Pinatty is a rebuild
 of *Probable Cause*'s world, not a port: the old design and algorithms are
 reference, the old code is not coming across.
+
+**Reading this plan today:** this is the original map-foundation design, with
+historical assumptions and implementation checkpoints retained below. Its
+claims about having no assets or later gameplay systems are not current
+project status. See [Game design](README.md) for game scope and the
+[World guide](../lore/world.md) for current place names.
 
 **The one idea this document exists to defend.** Apricot has no asset pipeline
 and ships no asset files, and Pinatty is a specific authored place you can learn

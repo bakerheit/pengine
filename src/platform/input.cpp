@@ -66,7 +66,20 @@ void InputMapper::set_button(uint32_t bit, bool down) {
 
 // --- mouse capture -----------------------------------------------------------
 
+void InputMapper::set_unattended(bool on) {
+    if (unattended_ == on) return;
+    unattended_ = on;
+    // Going unattended with the cursor already captured has to hand it back,
+    // or the switch that exists to stop taking the pointer is the thing
+    // holding it. Coming back the other way re-captures only if the game
+    // thinks it should have it.
+    apply_relative_mouse(!on && mouse_look_);
+}
+
 void InputMapper::apply_relative_mouse(bool on) {
+    // The one place this process touches the OS cursor, and therefore the one
+    // place that has to answer to set_unattended(). See input.h.
+    if (unattended_ && on) return;
     if (SDL_SetRelativeMouseMode(on ? SDL_TRUE : SDL_FALSE) != 0) {
         // Not fatal. Some environments (a remote session, a locked-down
         // desktop) refuse relative mode; the game is still playable with an
@@ -264,7 +277,9 @@ void InputMapper::handle_event(const SDL_Event& e) {
                 pointer_dx_ += e.motion.xrel;
                 pointer_dy_ += e.motion.yrel;
             }
-            if (mouse_look_ && discard_motion_frames_ == 0) {
+            // A real pointer crossing the window must not steer a scripted
+            // run's camera. The checks inject clicks and keys, never motion.
+            if (mouse_look_ && !unattended_ && discard_motion_frames_ == 0) {
                 frame_.look_dx +=
                     static_cast<float>(e.motion.xrel) * kLookRadiansPerPixel;
                 frame_.look_dy +=

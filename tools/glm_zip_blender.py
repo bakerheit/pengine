@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Blender source builder for the compact, targa-roofed GLR ZIP."""
+"""Blender source builder for the compact, targa-roofed GLM ZIP."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 import bpy
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from glr_zip_spec import ATLAS_SIZE, REGIONS
+from glm_zip_spec import ATLAS_SIZE, REGIONS
 from vesper_vx91_blender import VehicleBuilder, export_emesh
 
 
@@ -412,8 +412,8 @@ def main() -> None:
     bpy.context.view_layer.objects.active = body
     body.select_set(True)
     bpy.ops.wm.save_as_mainfile(filepath=str(args.blend))
-    vertices, triangles = export_emesh(body, args.mesh, "glr_zip")
-    print(f"GLR_ZIP_BLENDER body=BODY vertices={vertices} triangles={triangles} "
+    vertices, triangles = export_emesh(body, args.mesh, "glm_zip")
+    print(f"GLM_ZIP_BLENDER body=BODY vertices={vertices} triangles={triangles} "
           f"blend={args.blend} mesh={args.mesh}")
 
 

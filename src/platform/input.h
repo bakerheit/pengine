@@ -107,6 +107,23 @@ public:
     void set_mouse_look(bool on);
     bool mouse_look() const { return mouse_look_; }
 
+    // Nobody is at this keyboard: a scripted check is driving.
+    //
+    // THE LOGICAL MOUSE-LOOK STATE STAYS EXACTLY AS IT IS. mouse_look() still
+    // flips, the game still reads the same aim and fire rules, and a check
+    // behaves identically — because that state is what gates a left click
+    // counting as a shot rather than as the click that captures the cursor.
+    // What stops is the two things that reach OUT of this process: the OS
+    // cursor is never captured, and real mouse movement never steers the
+    // camera. Both of those belong to whoever is actually using the machine,
+    // and a twenty-second check that swallows their pointer mid-sentence is
+    // the whole reason this switch exists.
+    //
+    // It also makes a check MORE deterministic than it was: a pointer dragged
+    // across the window used to feed real look deltas into a scripted run.
+    void set_unattended(bool on);
+    bool unattended() const { return unattended_; }
+
     // True while a pad is attached and open. Diagnostics only — never branch
     // gameplay on it, or the tape stops being device-agnostic.
     bool gamepad_connected() const { return pad_ != nullptr; }
@@ -125,6 +142,7 @@ private:
     bool weapon_controls_ = false;
     bool quit_ = false;
     bool mouse_look_ = false;
+    bool unattended_ = false;
     bool ui_mode_ = false;
     int pointer_x_ = 0;
     int pointer_y_ = 0;

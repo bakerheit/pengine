@@ -63,6 +63,8 @@ apricot_add_suite(dev_weather_menu_tests)
 apricot_add_suite(weather_hazards_tests)
 apricot_add_suite(character_controller_tests)
 apricot_add_suite(climb_tests)
+apricot_add_suite(molotov_tests)
+apricot_add_suite(fire_tests)
 apricot_add_suite(ui_flow_tests)
 apricot_add_suite(minimap_tests)
 apricot_add_suite(road_name_tests)
@@ -271,6 +273,7 @@ apricot_add_suite(east_arm_plaza_tests)
 apricot_add_suite(drunk_tests)
 apricot_add_suite(alder_pip_tests)
 apricot_add_suite(fang_venom_tests)
+apricot_add_suite(ember_gt_tests)
 
 apricot_add_suite(vehicle_leak_warning_tests)
 
@@ -322,6 +325,9 @@ apricot_add_suite(dev_never_wanted_tests)
 
 # FRAME LOGGING, GOD MODE and VEHICLE GOD MODE on the developer menu.
 apricot_add_suite(dev_toggles_tests)
+
+apricot_add_suite(rodeo_grazer_tests)
+apricot_add_suite(license_plate_tests)
 
 # The visibility query that replaced a contact raycast in police line of
 # sight, checked against the predicate it replaced.

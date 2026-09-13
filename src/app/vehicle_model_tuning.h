@@ -51,10 +51,10 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::AlderWayfarer: // long family wagon
             return {1560.f,.91f,.84f,1.f,.96f,.94f,1.06f,1.f,.96f,
                     .96f,1.08f,.025f,1.10f,1.08f,.12f,1.10f,1.f};
-        case PlayerCarId::GlrLunge: // flagship mid-engine wedge
+        case PlayerCarId::GlmLunge: // flagship mid-engine wedge
             return {1420.f,1.38f,1.15f,1.12f,1.04f,1.10f,.88f,1.16f,1.16f,
                     1.22f,1.18f,-.018f,.90f,.96f,-.14f,.96f,1.f};
-        case PlayerCarId::GlrZip: // compact targa sports car
+        case PlayerCarId::GlmZip: // compact targa sports car
             return {1180.f,1.15f,1.08f,1.08f,1.08f,1.13f,.91f,1.10f,1.10f,
                     1.14f,1.08f,-.012f,.94f,.94f,-.10f,.88f,1.f};
         case PlayerCarId::HalcyonSix: // pre-war family sedan
@@ -72,6 +72,9 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::HarrowParcel: // commercial panel van
             return {2200.f,1.34f,.72f,.98f,.91f,.82f,1.15f,.88f,.94f,
                     .84f,.92f,.075f,1.28f,1.30f,.10f,1.42f,1.f};
+        case PlayerCarId::RodeoGrazer: // compact four-wheel-drive pickup
+            return {1580.f,1.18f,.82f,1.01f,.94f,.91f,1.06f,.95f,.95f,
+                    .94f,1.10f,.025f,1.15f,1.18f,.0f,1.23f,1.f};
         case PlayerCarId::HarrowWorkman: // torquey utility pickup
             return {1980.f,1.28f,.78f,.96f,.96f,.88f,1.08f,.91f,.96f,
                     .90f,.94f,.060f,1.20f,1.24f,-.12f,1.32f,1.f};
@@ -124,6 +127,9 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::SpagattiShu: // low grand-touring exotic
             return {1460.f,1.52f,1.18f,1.16f,1.03f,1.12f,.86f,1.18f,1.16f,
                     1.20f,1.18f,-.020f,.88f,.94f,-.14f,.94f,1.f};
+        case PlayerCarId::EmberGt: // wide, low mid-engine sports coupe
+            return {1490.f,1.56f,1.21f,1.20f,.95f,1.13f,.84f,1.22f,1.21f,
+                    1.27f,1.20f,-.024f,.86f,.94f,-.15f,.95f,1.f};
         case PlayerCarId::VesperMistral: // front-engine sports coupe
             return {1380.f,1.22f,1.08f,1.09f,1.04f,1.08f,.91f,1.10f,1.10f,
                     1.14f,1.12f,-.012f,.94f,.96f,-.10f,.98f,1.f};
@@ -239,6 +245,24 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.chassis_roof=1.245f-definition.arch_centre_y-
                              static_suspension_length(tuning)-
                              tuning.com_height_above_mount;
+    } else if (car == PlayerCarId::RodeoGrazer) {
+        tuning.front_drive_bias=.50f;
+        tuning.suspension_travel=std::max(tuning.suspension_travel,.20f);
+        tuning.max_steer=std::min(tuning.max_steer,.52f);
+        tuning.chassis_half_width=.90f;tuning.chassis_half_length=2.40f;
+        tuning.car_collision_half_width=1.16f;tuning.car_collision_half_length=2.62f;
+        tuning.chassis_floor=.31f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
+        tuning.chassis_roof=1.78f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
+    } else if (car == PlayerCarId::EmberGt) {
+        tuning.max_steer=std::min(tuning.max_steer,.48f);
+        tuning.chassis_half_width=.92f;
+        tuning.chassis_half_length=2.15f;
+        tuning.car_collision_half_width=1.14f;
+        tuning.car_collision_half_length=2.49f;
+        tuning.chassis_floor=.16f-definition.arch_centre_y-
+                             static_suspension_length(tuning)-tuning.com_height_above_mount;
+        tuning.chassis_roof=1.247f-definition.arch_centre_y-
+                            static_suspension_length(tuning)-tuning.com_height_above_mount;
     } else if (car == PlayerCarId::SpagattiShu) {
         tuning.max_steer=std::min(tuning.max_steer,.60f);
         tuning.chassis_half_width=.96f;

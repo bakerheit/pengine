@@ -5,6 +5,7 @@
 #include "city/map.h"
 #include "physics/vehicle.h"
 #include "game/tractor_trailer.h"
+#include "game/license_plate.h"
 
 namespace apricot {
 
@@ -34,6 +35,7 @@ struct GameSave {
     VehicleDamageState car_damage{};
     VehicleMechanicalState car_mechanical{};
     uint64_t car_key = 0;
+    VehicleRegistration car_registration{};
     bool has_trailer = false;
     TrailerState trailer{};
 };

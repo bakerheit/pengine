@@ -4,12 +4,103 @@
 #include <vector>
 
 #include "city/airport.h"
+#include "city/airport_paving.h"
+#include "city/florangia_airport.h"
 #include "city/roads.h"
+#include "app/vehicle_model_tuning.h"
+#include "game/character.h"
 #include "test_assert.h"
 
 using namespace apricot;
 
 namespace {
+
+TerrainCollider supported_airport(const city::StartSite& site,
+                                  const std::vector<city::StartPart>& parts) {
+    TerrainCollider ground{city::kMapSeed};
+    for (const auto& part:parts) {
+        if (!city::airport_ground_piece(part)) continue;
+        const glm::vec2 centre{
+            site.origin.x+site.cos_yaw*part.centre.x+site.sin_yaw*part.centre.z,
+            site.origin.z-site.sin_yaw*part.centre.x+site.cos_yaw*part.centre.z};
+        ground.add_static_ground_rect(centre,site.ground_m+part.bottom_m+part.height_m,
+            {part.width_m*.5f,part.depth_m*.5f},
+            std::atan2(site.sin_yaw,site.cos_yaw)+glm::radians(part.yaw_deg));
+    }
+    return ground;
+}
+
+void paving_supports_tires_and_feet_at_the_visible_top() {
+    const auto parts=city::bake_airport();
+    const auto ground=supported_airport(city::kAirportSite,parts);
+    constexpr float top=city::kAirportSite.ground_m+city::kAirportPavingTopM;
+    const auto hit=ground.probe_down({60,7,2195},2);
+    REQUIRE(hit.hit);REQUIRE_NEAR(hit.point.y,top,1e-5f);
+    // Apron, both taxiways, runway and hangar apron use the slab's top.
+    for (const auto p:{glm::vec2{60,2195},{465,2100},{-150,2100},{150,2046},{465,2199}}) {
+        const auto paved=ground.probe_down({p.x,7,p.y},2);
+        REQUIRE(paved.hit);REQUIRE_NEAR(paved.point.y,top,1e-5f);
+    }
+    for (float z:{2018.f,2074.f}) {
+        const auto shoulder=ground.probe_down({150,7,z},2);
+        REQUIRE(shoulder.hit);REQUIRE_NEAR(shoulder.point.y,6.10f,1e-5f);
+    }
+    // Recover the exact screenshot location, including a player initially
+    // planted on the old terrain level beneath the 13 cm visible slab.
+    auto player=spawn_character(TerrainCollider{city::kMapSeed},57,2195);
+    player=step_character(player,CharacterTuning{},InputFrame{},ground,1.f/120.f);
+    REQUIRE_NEAR(player.position.y,top,1e-4f);
+    const auto tuning=player_model_tuning(DrivingMechanicsStyle::ClassicGta,PlayerCarId::EmberGt);
+    auto car=spawn_vehicle(tuning,ground,60,2195,-glm::half_pi<float>());
+    float worst_sink=0.f;
+    for (int step=0;step<720;++step) {
+        InputFrame input;input.throttle=step<240?0.f:.35f;
+        car=step_vehicle(car,tuning,input,ground,1.f/120.f);
+        if (step<120) continue;
+        for (std::size_t wheel=0;wheel<car.wheels.size();++wheel) {
+            REQUIRE(car.wheels[wheel].grounded);
+            REQUIRE_NEAR(car.wheels[wheel].contact_point.y,top,.0001f);
+            const glm::vec3 local{(wheel%2==0?-1.f:1.f)*tuning.half_track,
+                -tuning.com_height_above_mount-car.wheels[wheel].suspension_length,
+                (wheel<2?-1.f:1.f)*tuning.half_wheelbase};
+            const auto centre=car.position+car.orientation*local;
+            const float bottom=centre.y-tuning.wheel_radius;
+            worst_sink=std::max(worst_sink,top-bottom);
+            REQUIRE(bottom>=top-.015f);
+        }
+    }
+    REQUIRE(car.position.x>65.f);
+    std::printf("airport contact: visible top %.3f m; feet %.3f m; worst tire sink %.4f m\n",
+                top,player.position.y,worst_sink);
+    apricot_test::pass("Ember tires and player feet meet the visible apron while parked and driving");
+}
+
+void airport_paving_roles_exclude_paint_and_leave_real_edges() {
+    const auto pinatty=city::bake_airport();
+    const auto florangia=city::bake_florangia_airport();
+    for (const auto* parts:{&pinatty,&florangia}) {
+        int surfaces=0;
+        for (const auto& part:*parts) {
+            if (city::airport_ground_piece(part)) {
+                ++surfaces;
+                REQUIRE(!part.solid);
+                REQUIRE(part.bottom_m+part.height_m<=.31f);
+            }
+            if (part.finish==city::StartFinish::White || part.finish==city::StartFinish::Yellow)
+                REQUIRE(!city::airport_ground_piece(part));
+        }
+        REQUIRE(surfaces>=10);
+    }
+    const auto ground=supported_airport(city::kAirportSite,pinatty);
+    // The apron ends at local Z=63. No rectangular AABB or blanket lot lift
+    // may leave a floating floor just beyond the real slab.
+    const auto outside=ground.probe_down({60,7,2203.2f},2);
+    REQUIRE(outside.hit);REQUIRE_NEAR(outside.point.y,ground.height(60,2203.2f),1e-5f);
+    const auto regional=supported_airport(city::kFlorangiaAirportSite,florangia);
+    const auto regional_hit=regional.probe_down({4730,8,4408},2);
+    REQUIRE(regional_hit.hit);REQUIRE_NEAR(regional_hit.point.y,6.63f,1e-5f);
+    apricot_test::pass("both airports support paved slabs without lifting paint, roofs or adjacent ground");
+}
 
 bool has(const city::StartPart& part, const char* text) {
     return std::strstr(part.name, text) != nullptr;
@@ -173,6 +264,8 @@ void hotel_walk_and_rental_forecourt_clear_roads_and_buildings() {
 } // namespace
 
 int main() {
+    paving_supports_tires_and_feet_at_the_visible_top();
+    airport_paving_roles_exclude_paint_and_leave_real_edges();
     parking_road_has_no_islands_or_raised_paving();
     each_terminal_door_has_a_continuous_clear_parking_walk();
     parking_markings_respect_walkways_and_paved_rows();

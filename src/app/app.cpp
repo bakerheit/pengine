@@ -513,11 +513,23 @@ bool App::init() {
     // in our own render loop. Measured: stuck in Cocoa_GL_SwapWindow, three
     // minutes, zero frames.
     cfg.vsync = (frame_limit_ <= 0);
+    // ONE definition of "nobody at the keyboard", used for all three things
+    // that follow from it: no vsync above, no focus steal, no cursor capture.
+    // A second rule here would eventually disagree with the first, and the way
+    // that presents is a check that takes the pointer on some machines only.
+    const bool unattended = frame_limit_ > 0 && !attended_;
+    cfg.take_focus = !unattended;
 
     if (!window_.init(cfg)) {
         AP_ERROR("window init failed; cannot continue");
         return false;
     }
+
+    // Before anything can ask for mouse look, so the cursor is never taken
+    // even for the one frame between the window opening and the first check.
+    input_.set_unattended(unattended);
+    if (unattended)
+        AP_INFO("unattended run: the window takes no focus and no cursor");
 
     // The overlay is optional. Losing it must not lose the app.
     if (!overlay::init(window_)) {
@@ -806,6 +818,23 @@ bool App::init() {
     weapon_shot_clip_=synth_pistol_shot();
     override_clip_from_wav(weapon_shot_clip_,asset_path("audio/weapons/Glock17_Shoot_004.wav"));
     weapon_reload_clip_=synth_pistol_reload();
+    if (!fire_sprites_.init(renderer_)) {
+        AP_ERROR("flame atlas failed to load; cannot continue");
+        return false;
+    }
+    if (!molotov_visual_.init(renderer_,scene_,fire_sprites_)) return false;
+    if (!fire_visual_.init(renderer_,scene_,fire_sprites_)) return false;
+    // RECORDED ONLY, with no synthesised fallback, for the same reason
+    // footsteps and the city bed have none: a generated pane of glass is a
+    // burst of noise and a generated fire is a hiss, and the ear knows. A
+    // missing file leaves the clip empty, and the mixer treats an empty clip
+    // as silence rather than as an error. See assets/audio/weapons/SOURCES.md.
+    override_clip_from_wav(molotov_glass_clip_,
+        asset_path("audio/weapons/runtime/molotov_glass.wav"));
+    override_clip_from_wav(molotov_whoosh_clip_,
+        asset_path("audio/weapons/runtime/molotov_whoosh.wav"));
+    override_clip_from_wav(fire_loop_clip_,
+        asset_path("audio/weapons/runtime/fire_loop.wav"));
     if (start_driving_ &&
         (has_animated_driver(car_visual_.active_car()) || road_start_qa_)) {
         on_foot_=false;
@@ -924,6 +953,9 @@ void App::shutdown() {
     traffic_visual_.destroy(scene_);
     police_weapon_visual_.destroy(scene_);
     weapon_visual_.destroy(scene_);
+    molotov_visual_.destroy(scene_);
+    fire_visual_.destroy(scene_);
+    fire_sprites_.destroy();
     character_visual_.destroy();
     vehicle_effects_.destroy(scene_);
     world_.shutdown(scene_, renderer_);
@@ -1202,6 +1234,7 @@ void App::poll_events() {
             weapon_aim_mouse_=weapon_aim_pad_=weapon_aim_toggle_=false;
             weapon_fire_pad_=true; // require trigger release after focus returns
             weapon_fire_pending_=weapon_reload_pending_=false;
+            molotov_throw_pending_=false;
         }
         if (e.type==SDL_WINDOWEVENT && e.window.event==SDL_WINDOWEVENT_FOCUS_GAINED)
             weapon_focus_=true;
@@ -1216,7 +1249,8 @@ void App::poll_events() {
             !bank_interaction_.modal() && !bank_input_consumed_ && !opening_cutscene_.active() &&
             !vehicle_transition_.active() && !boat_transition_.active() &&
             !weapon_wheel_.open && !weapon_input_consumed_ &&
-            weapon_wheel_.equipped==WeaponId::Pistol;
+            (weapon_wheel_.equipped==WeaponId::Pistol ||
+             weapon_wheel_.equipped==WeaponId::Molotov);
         if (weapon_available && e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_q &&
             !(e.key.keysym.mod & (KMOD_CTRL | KMOD_GUI))) {
             if (!e.key.repeat) {
@@ -1230,7 +1264,8 @@ void App::poll_events() {
                 weapon_aim_pad_=weapon_available && e.caxis.value>16000;
             if (e.caxis.axis==SDL_CONTROLLER_AXIS_TRIGGERRIGHT) {
                 const bool down=e.caxis.value>16000;
-                if (weapon_available && down && !weapon_fire_pad_) weapon_fire_pending_=true;
+                if (weapon_available && down && !weapon_fire_pad_)
+                    weapon_fire_pending_=molotov_throw_pending_=true;
                 weapon_fire_pad_=down;
             }
         }
@@ -1239,7 +1274,11 @@ void App::poll_events() {
                 weapon_aim_mouse_=true; input_.set_mouse_look(true);
             }
             // The first left click captures the cursor; it must not also shoot.
-            if (e.button.button==SDL_BUTTON_LEFT && input_.mouse_look()) weapon_fire_pending_=true;
+            // Fire and throw are the same button. The pistol's state machine
+            // is inactive while a molotov is equipped and vice versa, so both
+            // flags are armed here and exactly one of them is ever spent.
+            if (e.button.button==SDL_BUTTON_LEFT && input_.mouse_look())
+                weapon_fire_pending_=molotov_throw_pending_=true;
         }
         const bool weapon_reload=(e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_r) ||
             (e.type==SDL_CONTROLLERBUTTONDOWN && e.cbutton.button==SDL_CONTROLLER_BUTTON_X);
@@ -1299,6 +1338,7 @@ void App::poll_events() {
             }
             if (e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_1) weapon_wheel_.hovered=WeaponId::Unarmed;
             if (e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_2) weapon_wheel_.hovered=WeaponId::Pistol;
+            if (e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_3) weapon_wheel_.hovered=WeaponId::Molotov;
             input_.handle_event(e);
             continue;
         }
@@ -1324,6 +1364,16 @@ void App::poll_events() {
         // fold takes the same 2.4 s however fast the frames arrive.
         if (emergency_toggle && road_vehicle_controls &&
             is_convertible(car_visual_.active_car())) soft_top_toggle_pending_=true;
+        if (emergency_toggle && road_vehicle_controls && has_passenger_door(car_visual_.active_car())) {
+            if (passenger_door_target_) passenger_door_target_=false;
+            else if (glm::length(car_.velocity)<.5f &&
+                vehicle_transition_door_clear(car_visual_.active_car(),car_visual_.fitted_body_transform(car_),true)) {
+                passenger_door_target_=true;
+            } else {
+                vehicle_interaction_notice_="Stop with room on the passenger side";
+                vehicle_notice_until_=step_index_+240;
+            }
+        }
         // The bare-fist jab, on F or controller X while on foot and unarmed.
         // Handled here rather than through InputFrame for the same reason as
         // the siren above: it drives the character animator, which runs on the
@@ -1412,7 +1462,7 @@ void App::poll_events() {
         input_.handle_event(e);
     }
 
-    input_.set_weapon_controls(on_foot_ && weapon_wheel_.equipped==WeaponId::Pistol);
+    input_.set_weapon_controls(on_foot_ && weapon_wheel_.equipped!=WeaponId::Unarmed);
     input_.end_frame();
 }
 
@@ -2866,6 +2916,7 @@ void App::render() {
                 glm::vec4{color, light.outer_cone_cos}});
         }
     }
+    if (!lighting_stress_) append_fire_light(emergency_light_sources_);
     if (const auto* body=car_visual_.rendered_body_transform(scene_)) {
         append_police_lights(emergency_light_sources_,*body,step_index_,
             police_emergency_enabled_ && !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ &&
@@ -3218,7 +3269,9 @@ void App::render() {
                 else if (!on_foot_) prompt=is_convertible(car_visual_.active_car())
                     ? (soft_top_.target>.5f ? "E / A  -  Exit vehicle   H - HORN   J - TOP UP"
                                             : "E / A  -  Exit vehicle   H - HORN   J - TOP DOWN")
-                    : "E / A  -  Exit vehicle   H - HORN";
+                    : has_passenger_door(car_visual_.active_car())
+                        ? "E / A  -  Exit vehicle   H - HORN   J - PASSENGER DOOR"
+                        : "E / A  -  Exit vehicle   H - HORN";
                 else if (mission_stage_==MissionStage::DeliveryActive &&
                          delivery_contact(player_character_.position,on_foot_))
                     prompt="E / A  -  Give Lou's package to Devon";
@@ -3253,7 +3306,9 @@ void App::render() {
                 !weapon_wheel_.open && mission_success_feedback_s_ <= 0.0f)
                 hud_.text_centered(weapon_wheel_.equipped==WeaponId::Pistol
                     ? "RMB / LT - HOLD AIM    Q - TOGGLE AIM    LMB / RT - FIRE    R / X - RELOAD    TAB / LB - WEAPONS"
-                    : "TAB / LB - WEAPONS",vp.x*.5f,vp.y-56,16,{.8f,.82f,.83f,1});
+                    : (weapon_wheel_.equipped==WeaponId::Molotov
+                        ? "RMB / LT - HOLD AIM    Q - TOGGLE AIM    LMB / RT - THROW    TAB / LB - WEAPONS"
+                        : "TAB / LB - WEAPONS"),vp.x*.5f,vp.y-56,16,{.8f,.82f,.83f,1});
             if (on_foot_ && weapon_wheel_.equipped==WeaponId::Pistol &&
                 !dev_menu_.open() && !bank_interaction_.modal() && !weapon_wheel_.open) {
                 char ammo[80];
@@ -3285,6 +3340,35 @@ void App::render() {
                         hud_.line(c+glm::vec2{-9,9},c+glm::vec2{9,-9},3,{1,.15f,.08f,1});
                     }
                 }
+            }
+            // The molotov's readout. No magazine and no reload bar: what the
+            // player needs to know is how many bottles are left and whether
+            // the next one is back in the hand yet, and the second of those is
+            // a state the pistol does not have.
+            if (on_foot_ && weapon_wheel_.equipped==WeaponId::Molotov &&
+                !dev_menu_.open() && !bank_interaction_.modal() && !weapon_wheel_.open) {
+                char bottles[80];
+                std::snprintf(bottles,sizeof(bottles),"MOLOTOV   x%d%s",
+                    molotov_use_.stock,
+                    molotov_use_.stock==0 ? "   OUT" :
+                    (molotov_use_.armed() ? "" : "   READYING"));
+                hud_.text(bottles,{vp.x-320.f,92.f},24,
+                    molotov_use_.stock==0 ? glm::vec4{1,.55f,.45f,1} : glm::vec4{1,.88f,.62f,1});
+                if (!molotov_use_.armed() && molotov_use_.stock>0)
+                    hud_.rect({vp.x-320.f,124.f},
+                        {vp.x-320.f+220.f*molotov_use_.rearm_progress(),128.f},{1,.55f,.18f,1});
+                // The throw reticle is a RING, not the pistol's cross: a
+                // molotov travels on an arc and lands in an area, and lending
+                // it the gun's precise crosshair promises an accuracy the
+                // bottle does not have.
+                const glm::vec2 c=vp*.5f;
+                const bool aiming=molotov_use_.aim_blend>.5f;
+                const glm::vec4 ink=aiming ? glm::vec4{1,.82f,.45f,1} : glm::vec4{1,.85f,.6f,.55f};
+                hud_.circle(c,aiming ? 9.f : 13.f,{0,0,0,.55f});
+                hud_.circle(c,aiming ? 6.f : 9.5f,ink);
+                hud_.circle(c,aiming ? 3.f : 5.f,{0,0,0,.75f});
+                if (aiming) hud_.text_centered(weapon_aim_toggle_ ? "AIM - Q TO RELEASE" : "AIM",
+                    c.x,c.y+38,17,{1,.9f,.6f,.95f});
             }
             if (on_foot_ && !dev_menu_.open() && !bank_interaction_.modal()) {
                 char health[32];
@@ -3499,6 +3583,7 @@ void App::render() {
         capture_weapon_hit_check();
 
     }
+    if (molotov_check_) capture_molotov_check();
 
     if(lighting_benchmark_ && !screenshot_path_.empty() &&
         (frames_rendered_==419 || frames_rendered_==539)) {
@@ -3838,6 +3923,7 @@ int App::run() {
         if(traffic_horn_check_ && (traffic_horn_check_failed_ ||
             (traffic_horn_check_done_ && traffic_horn_check_capture_.empty())))break;
         if (delivery_check_) tick_delivery_check();
+        if (molotov_check_) tick_molotov_check();
         if (damage_check_) { tick_damage_check(); capture_damage_check(); }
         if (weapon_check_) {
             tick_weapon_hit_check();
@@ -3951,6 +4037,7 @@ int App::run() {
         if (opening_cutscene_.active()) {
             weapon_aim_mouse_=weapon_aim_pad_=weapon_aim_toggle_=false;
             step_weapon_use(false,0.f);
+            step_molotov(false,0.f);
             camera_frame_dt_=static_cast<float>(std::clamp(dt,0.0,0.1));
             const float elapsed=frame_limit_>0 ? 1.f/30.f : camera_frame_dt_;
             if (opening_cutscene_.advance(elapsed)) { finish_opening();dt=0;last=WallClock::now();perf_clock_reset_=true; }
@@ -3994,15 +4081,17 @@ int App::run() {
             on_foot_ && !vehicle_transition_.active() && !boat_transition_.active();
         if (!weapon_available) {
             weapon_fire_pending_=weapon_reload_pending_=false;
+            molotov_throw_pending_=false;
             weapon_aim_mouse_=weapon_aim_pad_=weapon_aim_toggle_=false;
             step_weapon_use(false,0.f);
+            step_molotov(false,0.f);
         }
         FixedStep::Tick tick;
         if (ui_.screen() == UiScreen::Driving && !began_or_resumed &&
             !dev_menu_.open() && !bank_interaction_.modal() && !bank_input_consumed_ &&
             !weapon_wheel_.open && !weapon_input_consumed_ &&
             !(lighting_benchmark_ && frames_rendered_>=300)) {
-            tick = clock_.advance((weapon_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_) ? 1.0/60.0 : dt);
+            tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_) ? 1.0/60.0 : dt);
         } else {
             // Title, pause and map are real pauses. Never let wall time from a
             // modal screen turn into a burst of vehicle steps on return.
@@ -4067,6 +4156,11 @@ int App::run() {
             soft_top_=step_mistral_soft_top(soft_top_,
                 i == 0 && soft_top_toggle_pending_, static_cast<float>(kSimDt));
             if (i == 0) soft_top_toggle_pending_=false;
+            if (!has_passenger_door(car_visual_.active_car()) || glm::length(car_.velocity)>.5f)
+                passenger_door_target_=false;
+            const float passenger_step=static_cast<float>(kSimDt)/.85f;
+            passenger_door_open_=std::clamp(passenger_door_open_+
+                (passenger_door_target_?passenger_step:-passenger_step),0.f,1.f);
             if (i == 0 && on_foot_ && !vehicle_transition_.active() && !boat_transition_.active() &&
                 was_pressed(input_.frame(), kBtnRespawn)) {
                 place_character_next_to_car();
@@ -4240,8 +4334,15 @@ int App::run() {
                     player_character_.velocity.x, player_character_.velocity.z};
                 foot_hazard_ptr = &foot_hazard;
             }
-            step_weapon_use(weapon_available && on_foot_ && !vehicle_transition_.active() &&
-                !boat_transition_.active(),static_cast<float>(kSimDt));
+            const bool armed_available=weapon_available && on_foot_ &&
+                !vehicle_transition_.active() && !boat_transition_.active();
+            step_weapon_use(armed_available,static_cast<float>(kSimDt));
+            step_molotov(armed_available,static_cast<float>(kSimDt));
+            // The fire is world state, not weapon state: it goes on burning
+            // while the player drives away, sits in a menu-free cutscene or
+            // dies, so it is stepped unconditionally beside the rest of the
+            // simulation rather than gated on holding a bottle.
+            step_fire(static_cast<float>(kSimDt));
             add_ms(sim_character_ms_, character_t0);
             if (on_foot_ && (weapon_use_.aim_blend>.01f || weapon_use_.recoil>0.f)) {
                 player_character_.facing_yaw=player_character_.view_yaw;
@@ -4551,10 +4652,19 @@ int App::run() {
         car_visual_.sync_driver_door(scene_,vehicle_transition_.active()
             ? vehicle_transition_door_open(sample_vehicle_transition(vehicle_transition_,
                 transition_waiting_ ? 1.f : static_cast<float>(clock_.alpha()))) : 0.f);
+        car_visual_.sync_passenger_door(scene_,vehicle_transition_ease(passenger_door_open_));
         const WallClock::time_point visual_t0 = WallClock::now();
+        // Each weapon reports its OWN draw and aim clocks. Feeding the
+        // pistol's numbers while a molotov is equipped leaves the arm down,
+        // and the bottle is parented to the hand that never came up.
+        const bool holding_molotov=weapon_wheel_.equipped==WeaponId::Molotov;
         character_visual_.set_player_weapon_pose(weapon_wheel_.equipped,
-            weapon_use_.equip_blend,weapon_use_.aim_blend,weapon_use_.recoil,
-            weapon_use_.reload_progress(),weapon_use_.reloading,player_character_.view_pitch);
+            holding_molotov ? molotov_use_.equip_blend : weapon_use_.equip_blend,
+            holding_molotov ? molotov_use_.aim_blend : weapon_use_.aim_blend,
+            holding_molotov ? 0.f : weapon_use_.recoil,
+            holding_molotov ? 0.f : weapon_use_.reload_progress(),
+            holding_molotov ? false : weapon_use_.reloading,
+            player_character_.view_pitch);
         character_visual_.sync(
             world_.traffic(), prev_player_character_,
             player_character_, static_cast<float>(clock_.alpha()),
@@ -4579,6 +4689,10 @@ int App::run() {
         const bool has_weapon_hand=on_foot_ && !vehicle_transition_.active() && !boat_transition_.active() &&
             character_visual_.player_right_hand_transform(weapon_hand);
         weapon_visual_.sync(scene_,weapon_wheel_.equipped,has_weapon_hand ? &weapon_hand:nullptr,weapon_use_);
+        molotov_visual_.sync_held(scene_,weapon_wheel_.equipped,
+            has_weapon_hand ? &weapon_hand:nullptr,molotov_use_,camera_.position);
+        molotov_visual_.sync_projectiles(scene_,molotov_shots_,camera_.position);
+        fire_visual_.sync(scene_,fire_,camera_.position);
         weapon_socket_player_position_=glm::mix(prev_player_character_.position,
             player_character_.position,static_cast<float>(clock_.alpha()));
         weapon_socket_player_yaw_=interpolate_camera_yaw(prev_player_character_.facing_yaw,

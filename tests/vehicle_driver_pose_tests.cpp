@@ -258,6 +258,13 @@ float triangle_footprint_clearance(glm::vec3 a,glm::vec3 b,glm::vec3 c,
 }
 
 float vehicle_triangle_floor_clearance(PlayerCarId model,glm::vec3 a,glm::vec3 b,glm::vec3 c) {
+    if(model==PlayerCarId::EmberGt) {
+        const float floor=triangle_footprint_clearance(a,b,c,{-.79f,.79f,-.63f,.84f},.263f);
+        const float sill=triangle_footprint_clearance(a,b,c,{.79f,.95f,-.39f,.88f},.24f);
+        a.y=-a.y;b.y=-b.y;c.y=-c.y;
+        const float roof=triangle_footprint_clearance(a,b,c,{-.56f,.56f,-.58f,.26f},-1.18f);
+        return std::min({floor,sill,roof});
+    }
     if(!has_contact_driver_entry(model))
         return triangle_footprint_clearance(a,b,c,{-.96f,.96f,-.50f,.99f},.52f);
     const bool scythe=model==PlayerCarId::VesperScythe, limo=model==PlayerCarId::HalcyonSovereign;
@@ -439,6 +446,7 @@ int main() {
     hinged_door(PlayerCarId::HarrowWorkman);
     hinged_door(PlayerCarId::AlderPip);
     hinged_door(PlayerCarId::VesperScythe);
+    hinged_door(PlayerCarId::EmberGt);
     hinged_door(PlayerCarId::HalcyonSovereign);
     hinged_door(PlayerCarId::MunicipalCruiser91A);
     hinged_door(PlayerCarId::MunicipalCruiser91B);
@@ -468,6 +476,7 @@ int main() {
     transition_motion(PlayerCarId::HarrowWorkman,mesh,skeleton);
     transition_motion(PlayerCarId::AlderPip,mesh,skeleton);
     transition_motion(PlayerCarId::VesperScythe,mesh,skeleton);
+    transition_motion(PlayerCarId::EmberGt,mesh,skeleton);
     transition_motion(PlayerCarId::HalcyonSovereign,mesh,skeleton);
     transition_motion(PlayerCarId::MunicipalCruiser91A,mesh,skeleton);
     transition_motion(PlayerCarId::MunicipalCruiser91B,mesh,skeleton);
@@ -480,6 +489,7 @@ int main() {
     exit_motion(PlayerCarId::HarrowWorkman,mesh,skeleton);
     exit_motion(PlayerCarId::AlderPip,mesh,skeleton);
     exit_motion(PlayerCarId::VesperScythe,mesh,skeleton);
+    exit_motion(PlayerCarId::EmberGt,mesh,skeleton);
     exit_motion(PlayerCarId::HalcyonSovereign,mesh,skeleton);
     exit_motion(PlayerCarId::MunicipalCruiser91A,mesh,skeleton);
     exit_motion(PlayerCarId::MunicipalCruiser91B,mesh,skeleton);

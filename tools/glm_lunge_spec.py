@@ -1,4 +1,4 @@
-"""Shared model and atlas contract for the fictional GLR Lunge."""
+"""Shared model and atlas contract for the fictional GLM Lunge."""
 
 ATLAS_SIZE = 256
 

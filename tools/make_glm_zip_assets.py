@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cook the original orange GLR ZIP body and hand-painted PSX atlas."""
+"""Cook the original orange GLM ZIP body and hand-painted PSX atlas."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-from glr_zip_spec import ATLAS_SIZE, REGIONS
+from glm_zip_spec import ATLAS_SIZE, REGIONS
 from make_vesper_vx91_assets import read_emesh
 
 
@@ -163,7 +163,7 @@ def make_uv_guide(mesh_path: Path, output: Path) -> None:
 def validate(mesh_path: Path, texture_path: Path, report_path: Path) -> dict:
     vertices, indices = read_emesh(mesh_path)
     if not vertices or not indices or len(indices) % 3:
-        raise ValueError("GLR ZIP mesh is empty or not triangulated")
+        raise ValueError("GLM ZIP mesh is empty or not triangulated")
     if any(index >= len(vertices) for index in indices):
         raise ValueError("out-of-range mesh index")
     if any(not math.isfinite(value) for vertex in vertices for value in vertex):
@@ -182,13 +182,13 @@ def validate(mesh_path: Path, texture_path: Path, report_path: Path) -> dict:
     if abs(mins[0] + maxs[0]) > 0.04 or abs(mins[2] + maxs[2]) > 0.04:
         raise ValueError(f"body is not centered on XZ: {mins} to {maxs}")
     if not TARGET_WIDTH_RANGE[0] <= sizes[0] <= TARGET_WIDTH_RANGE[1]:
-        raise ValueError(f"GLR ZIP width is outside target range: {sizes[0]:.4f}")
+        raise ValueError(f"GLM ZIP width is outside target range: {sizes[0]:.4f}")
     if not TARGET_HEIGHT_RANGE[0] <= sizes[1] <= TARGET_HEIGHT_RANGE[1]:
-        raise ValueError(f"GLR ZIP height is outside target range: {sizes[1]:.4f}")
+        raise ValueError(f"GLM ZIP height is outside target range: {sizes[1]:.4f}")
     if not TARGET_LENGTH_RANGE[0] <= sizes[2] <= TARGET_LENGTH_RANGE[1]:
-        raise ValueError(f"GLR ZIP length is outside target range: {sizes[2]:.4f}")
+        raise ValueError(f"GLM ZIP length is outside target range: {sizes[2]:.4f}")
     if mins[1] < -0.05:
-        raise ValueError(f"GLR ZIP body drops below its ground datum: {mins[1]:.4f}")
+        raise ValueError(f"GLM ZIP body drops below its ground datum: {mins[1]:.4f}")
 
     def projected_triangle_contains(point, triangle) -> bool:
         def signed(a, b, c):
@@ -251,7 +251,7 @@ def validate(mesh_path: Path, texture_path: Path, report_path: Path) -> dict:
         if texture.size != (ATLAS_SIZE, ATLAS_SIZE) or texture.mode != "RGBA":
             raise ValueError("texture must be a 256x256 RGBA atlas")
         if texture.getchannel("A").getextrema() != (255, 255):
-            raise ValueError("GLR ZIP atlas must be fully opaque")
+            raise ValueError("GLM ZIP atlas must be fully opaque")
         palette_colours = len(set(texture.getdata()))
     if palette_colours > 96:
         raise ValueError(
@@ -259,7 +259,7 @@ def validate(mesh_path: Path, texture_path: Path, report_path: Path) -> dict:
         )
 
     report = {
-        "asset": "GLR ZIP",
+        "asset": "GLM ZIP",
         "mesh": str(mesh_path),
         "texture": str(texture_path),
         "vertices": len(vertices),
@@ -310,31 +310,31 @@ def main() -> None:
     parser.add_argument("--blender", type=Path, default=BLENDER)
     parser.add_argument(
         "--texture", type=Path,
-        default=ROOT / "assets/textures/vehicles/glr_zip/body.png",
+        default=ROOT / "assets/textures/vehicles/glm_zip/body.png",
     )
     parser.add_argument(
         "--mesh", type=Path,
-        default=ROOT / "assets/models/vehicles/glr_zip/body.emesh",
+        default=ROOT / "assets/models/vehicles/glm_zip/body.emesh",
     )
     parser.add_argument(
         "--blend", type=Path,
-        default=ROOT / "assets/models/vehicles/glr_zip/source.blend",
+        default=ROOT / "assets/models/vehicles/glm_zip/source.blend",
     )
     parser.add_argument(
         "--report", type=Path,
-        default=ROOT / "build/glr-zip-fit-report.json",
+        default=ROOT / "build/glm-zip-fit-report.json",
     )
     parser.add_argument(
         "--uv-guide", type=Path,
-        default=ROOT / "build/glr-zip-uv-guide.png",
+        default=ROOT / "build/glm-zip-uv-guide.png",
     )
     args = parser.parse_args()
 
     if not args.blender.is_file():
         raise SystemExit(f"Blender not found: {args.blender}")
-    blender_script = ROOT / "tools/glr_zip_blender.py"
+    blender_script = ROOT / "tools/glm_zip_blender.py"
     if not blender_script.is_file():
-        raise SystemExit(f"GLR ZIP Blender builder not found: {blender_script}")
+        raise SystemExit(f"GLM ZIP Blender builder not found: {blender_script}")
 
     make_texture(args.texture)
     subprocess.run([
@@ -345,14 +345,14 @@ def main() -> None:
     make_uv_guide(args.mesh, args.uv_guide)
     report = validate(args.mesh, args.texture, args.report)
     print(
-        f"GLR_ZIP_COOK mesh={args.mesh} triangles={report['triangles']} "
+        f"GLM_ZIP_COOK mesh={args.mesh} triangles={report['triangles']} "
         f"vertices={report['vertices']} atlas={args.texture} "
         f"blend={args.blend} report={args.report}"
     )
 
 
     from bake_vehicle_surfaces import bake_if_canonical
-    bake_if_canonical("glr_zip", args.mesh, args.texture)
+    bake_if_canonical("glm_zip", args.mesh, args.texture)
 
 
 if __name__ == "__main__":

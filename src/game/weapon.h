@@ -1,13 +1,36 @@
 #pragma once
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 
 namespace apricot {
-enum class WeaponId : uint8_t { Unarmed, Pistol };
+// APPEND ONLY. The order is the wheel's sector order and the save game's
+// stored value; renumbering an existing entry silently re-equips every
+// existing save with the weapon that took its number.
+enum class WeaponId : uint8_t { Unarmed, Pistol, Molotov };
+inline constexpr std::size_t kWeaponSlotCount=3;
 inline const char* weapon_name(WeaponId id) {
-    return id==WeaponId::Pistol ? "PISTOL":"UNARMED";
+    switch (id) {
+        case WeaponId::Pistol: return "PISTOL";
+        case WeaponId::Molotov: return "MOLOTOV";
+        case WeaponId::Unarmed: break;
+    }
+    return "UNARMED";
 }
+
+// Which sector of the wheel an item sits in, measured CLOCKWISE FROM STRAIGHT
+// UP in screen space, where y runs down the screen. Three equal thirds:
+// unarmed at the top, pistol to the lower right, molotov to the lower left.
+//
+// Exported rather than buried in point() because the renderer has to draw the
+// sectors in exactly the same places the pointer tests them. When the two were
+// separately written constants, the wheel highlighted one weapon and equipped
+// another — and that reads as the click being dropped, not as a layout bug.
+inline constexpr float kWeaponWheelSectorTurns=1.f/static_cast<float>(kWeaponSlotCount);
+inline constexpr WeaponId kWeaponWheelOrder[kWeaponSlotCount]={
+    WeaponId::Unarmed,WeaponId::Pistol,WeaponId::Molotov};
+
 // The dead zone keeps a quick tap from changing the equipped item.
 struct WeaponWheel {
     bool open=false;
@@ -16,7 +39,13 @@ struct WeaponWheel {
     void begin() { open=true;hovered=equipped; }
     void point(float x,float y) {
         if (!open || !std::isfinite(x) || !std::isfinite(y) || x*x+y*y<.04f) return;
-        hovered=x>=0 ? WeaponId::Pistol:WeaponId::Unarmed;
+        // atan2(x, -y) is the angle clockwise from straight up with y down the
+        // screen, in (-pi, pi]. Shifted into [0, 1) turns and offset by half a
+        // sector so the FIRST entry straddles up rather than starting there.
+        const float turns=std::atan2(x,-y)/6.28318531f+.5f/static_cast<float>(kWeaponSlotCount);
+        const float wrapped=turns-std::floor(turns);
+        const auto sector=static_cast<std::size_t>(wrapped*static_cast<float>(kWeaponSlotCount));
+        hovered=kWeaponWheelOrder[std::min(sector,kWeaponSlotCount-1)];
     }
     void close(bool confirm) { if(open && confirm) equipped=hovered;open=false; }
 };

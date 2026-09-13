@@ -18,12 +18,14 @@ struct VehicleSoundProfile {
     float pitch = 1.0f;
 };
 
-inline constexpr std::array<VehicleSoundProfile, 29> kVehicleSoundProfiles{{
+inline constexpr std::array<VehicleSoundProfile, 31> kVehicleSoundProfiles{{
+    {"rodeo_grazer", .915f},
+    {"ember_gt", 1.105f},
     {"alder_pip", 1.08f},
     {"alder_wayfarer", 0.98f},
     {"alder_ridge", 0.94f},
-    {"glr_lunge", 1.06f},
-    {"glr_zip", 1.12f},
+    {"glm_lunge", 1.06f},
+    {"glm_zip", 1.12f},
     {"halcyon_six", 0.92f},
     {"halcyon_sovereign", .86f},
     {"harrow_workman", 0.88f},

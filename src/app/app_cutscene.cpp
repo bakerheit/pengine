@@ -27,6 +27,17 @@ void App::begin_new_game() {
     wanted_.reset();
     traffic_visual_.reset_signals(scene_,collider_);
     weapon_wheel_={};dev_menu_={};step_index_=0;seed_=new_game_seed_;
+    // A new game starts in a city that is not on fire. The fire is world
+    // state and deliberately survives a death (see player_damage.cpp), so it
+    // has to be put out HERE, where the world itself is being replaced —
+    // together with the loop voice holding its crackle open, which would
+    // otherwise go on playing at a spot on a map that no longer exists.
+    molotov_use_={};molotov_shots_.clear();fire_.clear();
+    fire_player_damage_timer_=0.f;molotov_throws_=0;molotov_fires_lit_=0;
+    if (fire_voice_.valid()) {
+        audio_device_.mixer().close_loop(fire_voice_);
+        fire_voice_={};
+    }
     for (auto& parked:parked_vehicles_) {
         parked.visual.destroy(scene_);collider_.set_kinematic_enabled(parked.collider,false);
     }

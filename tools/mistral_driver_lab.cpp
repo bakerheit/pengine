@@ -13,6 +13,7 @@
 
 #include "app/character_visual.h"
 #include "app/player_car_visual.h"
+#include "app/vehicle_model_tuning.h"
 #include "core/asset_root.h"
 #include "core/emesh_reader.h"
 #include "gfx/renderer.h"
@@ -40,7 +41,10 @@ int main(int argc,char** argv) {
     std::string output="build/vesper_mistral-driver-front.png", view="front", sequence;
     int frames=120,sequence_step=0; bool occupied=true; bool other=false;
     bool production_car=false;
+    int plate_design=-1;
+    bool plate_check=false;
     float snow_cover=0.0f;
+    float passenger_open=0.0f,driver_open=-1.0f;
     PlayerCarId model=PlayerCarId::VesperMistral;
     VehicleTransitionDirection transition=VehicleTransitionDirection::None;
     for (int i=1;i<argc;++i) {
@@ -48,6 +52,20 @@ int main(int argc,char** argv) {
         if (arg=="--on-foot") occupied=false;
         else if (arg=="--other-car") other=true;
         else if (arg=="--player-car") production_car=true;
+        else if (arg=="--plate-check") plate_check=true;
+        else if (i+1<argc && arg=="--plate-design") {
+            char* end=nullptr;const char* value=argv[++i];
+            const long parsed=std::strtol(value,&end,10);
+            if (end==value || *end!='\0' || parsed<0 || parsed>=long(kPlateDesigns.size())) return 2;
+            plate_design=static_cast<int>(parsed);
+        }
+        else if (i+1<argc && (arg=="--passenger-door" || arg=="--driver-door")) {
+            char* end=nullptr;
+            const char* value=argv[++i];
+            const float amount=std::strtof(value,&end);
+            if (end==value || *end!='\0' || !std::isfinite(amount) || amount<0.f || amount>1.f) return 2;
+            (arg=="--passenger-door"?passenger_open:driver_open)=amount;
+        }
         else if (i+1<argc && arg=="--snow-cover") {
             char* end=nullptr;
             const char* value=argv[++i];
@@ -76,11 +94,11 @@ int main(int argc,char** argv) {
         }
         else if (i+1<argc && arg=="--view") view=argv[++i];
         else if (i+1<argc && arg=="--frames") frames=std::max(1,std::atoi(argv[++i]));
-        else { std::fprintf(stderr,"--car MODEL_FOLDER --player-car --snow-cover 0..1 --view front|windshield|rear|side|passenger|cockpit|inside --screenshot PNG --sequence DIR --sequence-step N --transition enter|exit --frames N --on-foot --other-car\n");return 2; }
+        else { std::fprintf(stderr,"--car MODEL_FOLDER --player-car --snow-cover 0..1 --driver-door 0..1 --passenger-door 0..1 --plate-design 0..7 --plate-check --view front|windshield|rear|side|passenger|cockpit|inside|controls|plate-front|plate-rear --screenshot PNG --sequence DIR --sequence-step N --transition enter|exit --frames N --on-foot --other-car\n");return 2; }
     }
     if (!production_car && !has_animated_driver(model)) return 2;
     if (view!="front" && view!="windshield" && view!="rear" && view!="side" &&
-        view!="passenger" && view!="cockpit" && view!="inside") return 2;
+        view!="passenger" && view!="cockpit" && view!="inside" && view!="controls" && view!="plate-front" && view!="plate-rear") return 2;
     const bool workman=model==PlayerCarId::HarrowWorkman;
     const auto& definition=player_car_definition(model);
     const auto& layout=vehicle_driver_layout(model);
@@ -90,16 +108,18 @@ int main(int argc,char** argv) {
     const auto parent=model_path.find_last_of('/',slash-1);
     const std::string root=model_path.substr(parent+1,slash-parent-1);
     Window window;WindowConfig config;config.title=root+" driver QA";
-    config.width=1100;config.height=800;config.vsync=false;
+    config.width=1100;config.height=800;config.vsync=false;config.take_focus=false;
     if (!window.init(config)) return 1;
     Renderer renderer;if (!renderer.init()) return 1;
     Scene scene;Transform body;
     PlayerCarVisual player_car;
     VehicleTuning vehicle_tuning;
+    if (production_car || model==PlayerCarId::EmberGt || model==PlayerCarId::RodeoGrazer)
+        vehicle_tuning=player_model_tuning(DrivingMechanicsStyle::ClassicGta,model);
     VehicleState vehicle;
     NodeId door_node=kInvalidId,driver_glass=kInvalidId;
     AABB body_bounds;
-    const float length_scale=2.7f/(definition.wheel_front_z+definition.wheel_rear_z);
+    const float length_scale=(2.f*vehicle_tuning.half_wheelbase)/(definition.wheel_front_z+definition.wheel_rear_z);
     body.scale={.78f/definition.wheel_x,length_scale,length_scale};
     if (production_car) {
         // Use the exact game loader, including body glass metadata and glass
@@ -112,6 +132,32 @@ int main(int argc,char** argv) {
         for (auto& wheel_state:vehicle.wheels)
             wheel_state.suspension_length=static_suspension_length(vehicle_tuning);
         if (!player_car.init(renderer,scene,vehicle_tuning,vehicle,model)) return 1;
+        if (plate_check) {
+            const auto original=player_car.registration();
+            const auto meshes=renderer.mesh_count();
+            PlayerCarVisual parked;player_car.clone_parked(scene,parked);
+            if (parked.registration()!=original || renderer.mesh_count()!=meshes) return 1;
+            auto moved=vehicle;moved.position={7500,5,8400};
+            if (!player_car.select(scene,vehicle_tuning,moved,model) || player_car.registration()!=original) return 1;
+            for (uint64_t i=1;i<=256;++i) {
+                const auto& design=kPlateDesigns[i%kPlateDesigns.size()];
+                player_car.set_registration(scene,{design.state,design.series,i});
+                if (parked.registration()!=original || renderer.mesh_count()!=meshes+1u) return 1;
+            }
+            parked.destroy(scene);
+            if (renderer.mesh_count()!=meshes) return 1;
+            player_car.set_registration(scene,original);
+            player_car.sync(scene,vehicle_tuning,vehicle,vehicle,0,0,0);
+            if (renderer.mesh_count()!=meshes) return 1;
+            std::fprintf(stderr,"plate lifecycle: cross-state retention, parked clone, 256 replacements and GPU release passed\n");
+        }
+        if (plate_design>=0) {
+            const auto& design=kPlateDesigns[static_cast<std::size_t>(plate_design)];
+            player_car.set_registration(scene,{design.state,design.series,123456789});
+        }
+        std::fprintf(stderr,"plate: %s / %s / %s\n",city::state_name(player_car.registration().state),
+            kPlateDesigns[plate_design_index(player_car.registration().state,player_car.registration().series)].name,
+            plate_serial(player_car.registration()).c_str());
         body=player_car.fitted_body_transform(vehicle);
         Transform chassis;chassis.position=vehicle.position;chassis.rotation=vehicle.orientation;
         body_bounds=player_car.placed_body_bounds().transformed(chassis.matrix());
@@ -163,6 +209,16 @@ int main(int argc,char** argv) {
     Camera camera;camera.aspect=window.aspect();camera.near_plane=.03f;camera.far_plane=50.f;
     glm::vec3 target{0,.85f,0};camera.position={3.f,2.7f,4.1f};
     if (view=="rear") camera.position={2.8f,2.7f,-4.1f};
+    if (view=="plate-front" || view=="plate-rear") {
+        StaticEmesh source;
+        if (!production_car || !read_static_emesh(asset_path(definition.mesh_path),source)) return 2;
+        const auto mounts=vehicle_plate_mounts(source,definition.mesh_path);
+        if (mounts.empty()) return 2;
+        const auto& mount=view=="plate-front"?mounts.front():mounts.back();
+        const Transform fitted=player_car.fitted_body_transform(vehicle);
+        target=fitted.transform_point(mount.centre);
+        camera.position=target+fitted.rotation*mount.normal*.80f+glm::vec3{.10f,.08f,0};
+    }
     if (view=="side") camera.position={4.2f,1.6f,0};
     if (view=="passenger") camera.position={-4.2f,1.6f,0};
     if (view=="inside") {camera.position={.34f,1.40f,-.18f};target={-.8f,1.3f,-.05f};}
@@ -172,6 +228,11 @@ int main(int argc,char** argv) {
         const glm::vec3 size=body_bounds.size();
         target=body_bounds.center()+glm::vec3{0,size.y*.12f,size.z*.12f};
         camera.position=target+glm::vec3{size.x*.08f,size.y*.70f,size.z*.82f};
+    }
+    if (view=="controls") {
+        camera.position=body.transform_point(layout.hip+glm::vec3{0,.50f,-.04f});
+        target=body.transform_point((layout.wrists[0]+layout.wrists[1]+
+                                    layout.ankles[0]+layout.ankles[1])*.25f);
     }
     const glm::vec3 d=glm::normalize(target-camera.position);
     camera.yaw=std::atan2(d.x,-d.z);camera.pitch=std::asin(d.y);
@@ -199,6 +260,10 @@ int main(int argc,char** argv) {
             characters.sync_driver(PlayerCarId::VesperVx91,true,&body);
         } else {
             characters.sync_driver(other?PlayerCarId::VesperVx91:model,occupied,&body);
+        }
+        if (production_car) {
+            if (driver_open>=0.f) player_car.sync_driver_door(scene,driver_open);
+            player_car.sync_passenger_door(scene,passenger_open);
         }
         if (driver_glass!=kInvalidId) scene.set_transform(driver_glass,scene.get(door_node)->local);
         window.apply_viewport();glClearColor(.065f,.073f,.085f,1);

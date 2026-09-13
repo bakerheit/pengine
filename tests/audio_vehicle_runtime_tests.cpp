@@ -68,7 +68,7 @@ void catalog_models_have_distinct_rendered_engine_notes() {
     bank.engine_idle = pitch_probe();
     bank.player_throttle_hold = pitch_probe();
     VehicleAudio audio;
-    audio.set_model(player_car_definition(PlayerCarId::GlrZip).mesh_path);
+    audio.set_model(player_car_definition(PlayerCarId::GlmZip).mesh_path);
     REQUIRE(audio.start(mixer, bank));
     VehicleAudioFrame frame;
     audio.update(frame);
@@ -145,7 +145,7 @@ void cinder_model_uses_its_rendered_engine_note() {
 }
 
 void model_pitch_preserves_rpm_response_and_attack_timing() {
-    for (const auto key : {"firetruck", "glr_zip"}) {
+    for (const auto key : {"firetruck", "glm_zip"}) {
         const float pitch = vehicle_sound_profile(key).pitch;
         VoiceMixer mixer;
         mixer.prepare(kDefaultSampleRate);
@@ -184,7 +184,7 @@ void model_pitch_preserves_rpm_response_and_attack_timing() {
 }
 
 void model_pitch_applies_to_attack_release_and_ignition() {
-    for (const auto key : {"firetruck", "glr_zip"}) {
+    for (const auto key : {"firetruck", "glm_zip"}) {
         const float pitch = vehicle_sound_profile(key).pitch;
         VoiceMixer mixer;
         mixer.prepare(kDefaultSampleRate);
@@ -236,7 +236,7 @@ void traffic_model_pitch_is_stable_across_reordering() {
     bank.engine_idle = pitch_probe();
     TrafficIdleAudio traffic;
     traffic.start(mixer, bank);
-    for (const auto key : {"firetruck", "glr_zip"}) {
+    for (const auto key : {"firetruck", "glm_zip"}) {
         for (float speed : {0.0f, 10.0f, -10.0f}) {
             traffic.begin_frame({});
             traffic.submit(27, 4, {}, speed, key);
@@ -256,10 +256,10 @@ void traffic_model_pitch_is_stable_across_reordering() {
         traffic.begin_frame({});
         reordered.begin_frame({});
         traffic.submit(1, 2, {}, 3, "firetruck");
-        traffic.submit(2, 3, {}, 6, "glr_zip");
-        if (frame % 2) reordered.submit(2, 3, {}, 6, "glr_zip");
+        traffic.submit(2, 3, {}, 6, "glm_zip");
+        if (frame % 2) reordered.submit(2, 3, {}, 6, "glm_zip");
         reordered.submit(1, 2, {}, 3, "firetruck");
-        if (!(frame % 2)) reordered.submit(2, 3, {}, 6, "glr_zip");
+        if (!(frame % 2)) reordered.submit(2, 3, {}, 6, "glm_zip");
         traffic.end_frame(true);
         reordered.end_frame(true);
         mixer.render(a.data(), 256);
@@ -864,9 +864,9 @@ void player_horn_uses_recordings_and_obeys_context() {
     REQUIRE(rms(pcm)<1e-8); // Uses the same SFX bus as traffic horns.
     audio.stop();
 
-    for (const auto model:{"glr_zip","harrow_hauler"}) {
+    for (const auto model:{"glm_zip","harrow_hauler"}) {
         SfxBank only;
-        const std::size_t clip=std::string(model)=="glr_zip" ? 1u : 2u;
+        const std::size_t clip=std::string(model)=="glm_zip" ? 1u : 2u;
         only.traffic_horns[clip]=bank.traffic_horns[clip];
         VoiceMixer selected;selected.prepare(48000);
         VehicleAudio horn;horn.set_model(model);REQUIRE(horn.start(selected,only));

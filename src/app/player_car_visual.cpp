@@ -9,6 +9,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "app/vehicle_lamp_mesh.h"
+#include "app/vehicle_registration.h"
 #include "app/vehicle_snow_mesh.h"
 #include "app/emergency_lighting.h"
 #include "app/mistral_door.h"
@@ -58,6 +59,7 @@ bool PlayerCarVisual::load_model(
         return false;
     }
 
+    out.plate_mounts=vehicle_plate_mounts(body,definition.mesh_path);
     Texture body_texture;
     // Workman's articulated cab uses the existing semantic atlas, not the
     // repacked exterior-only body_surface UV charts used by its legacy mesh.
@@ -83,6 +85,13 @@ bool PlayerCarVisual::load_model(
         out.driver_door_mesh = renderer.add_mesh(door);
         out.driver_door_bounds = door.bounds;
         if (out.driver_door_mesh == kInvalidId) return false;
+        if (has_passenger_door(definition.id)) {
+            StaticEmesh passenger;
+            if (!read_static_emesh(asset_path(root+"passenger_door.emesh"),passenger)) return false;
+            out.passenger_door_mesh=renderer.add_mesh(passenger);
+            out.passenger_door_bounds=passenger.bounds;
+            if (out.passenger_door_mesh==kInvalidId) return false;
+        }
     } else out.body_mesh = renderer.add_mesh(
         make_vehicle_snow_mesh(body, definition.mesh_path));
     if (is_convertible(definition.id)) {
@@ -105,6 +114,7 @@ bool PlayerCarVisual::load_model(
         }
     }
     if (definition.id == PlayerCarId::HarrowWorkman ||
+        definition.id == PlayerCarId::EmberGt || definition.id == PlayerCarId::RodeoGrazer ||
         definition.id == PlayerCarId::AlderPip ||
         definition.id == PlayerCarId::LegacyCar5Next ||
         definition.id == PlayerCarId::LegacyCar5NextPolice ||
@@ -136,7 +146,7 @@ bool PlayerCarVisual::load_model(
         return false;
     }
 
-    if (is_motorbike(definition.id)) {
+    if (is_motorbike(definition.id) || definition.id==PlayerCarId::EmberGt || definition.id==PlayerCarId::RodeoGrazer) {
         const std::string path=definition.mesh_path;
         const std::string root=path.substr(0,path.find_last_of('/')+1);
         constexpr const char* names[]{"front_wheel.emesh","rear_wheel.emesh"};
@@ -186,6 +196,9 @@ bool PlayerCarVisual::init(Renderer& renderer, Scene& scene,
                            const VehicleTuning& tuning,
                            const VehicleState& state,
                            PlayerCarId initial_car) {
+    plate_renderer_=&renderer;
+    plate_material_=load_vehicle_plate_material(renderer);
+    if (plate_material_==kInvalidId) return false;
     for (const auto& car : kPlayerCars) {
         if (!load_model(renderer, car, models_[static_cast<std::size_t>(car.id)])) {
             return false;
@@ -258,6 +271,8 @@ bool PlayerCarVisual::init(Renderer& renderer, Scene& scene,
     }
     driver_door_node_ = scene.create(body_renderable, Transform{}, initial.body_bounds);
     scene.get(driver_door_node_)->visible = false;
+    passenger_door_node_=scene.create(body_renderable,Transform{},initial.body_bounds);
+    scene.get(passenger_door_node_)->visible=false;
     for (auto& id:soft_top_nodes_) {
         id=scene.create(body_renderable,Transform{},initial.body_bounds);
         scene.get(id)->visible=false;
@@ -332,7 +347,13 @@ bool PlayerCarVisual::select(Scene& scene, const VehicleTuning& tuning,
     lamp_layout_ = make_vehicle_lamp_layout(placed_body_bounds_);
     for (std::size_t i = 0; i < 2; ++i)
         lamp_layout_.lamps[i].position = body_local_.transform_point(model.headlight_origins[i]);
+    const bool issue_plate=!registration_issued_ || registered_car_key_!=state.mechanical_key || active_car_!=car;
     active_car_ = car;
+    if (issue_plate) {
+        registered_car_key_=state.mechanical_key;
+        registration_issued_=true;
+        set_registration(scene,player_registration(car,state.mechanical_key,state.position.x,state.position.z));
+    }
     wheel_scale_ = tuning.wheel_radius /
         (model.custom_wheel_radii[0]>0.f?model.custom_wheel_radii[0]:native_wheel_radius_);
 
@@ -381,6 +402,7 @@ void PlayerCarVisual::sync(Scene& scene, const VehicleTuning& tuning,
         body->renderable.tint = glm::vec4{1.0f};
     }
 
+    plate_.sync(scene,body_node_);
     const float steer = glm::mix(previous.steer_angle, current.steer_angle, a);
     for (int i = 0; i < kWheelCount; ++i) {
         const std::size_t wi = static_cast<std::size_t>(i);
@@ -448,6 +470,7 @@ void PlayerCarVisual::sync(Scene& scene, const VehicleTuning& tuning,
         }
     }
     sync_driver_door(scene, 0.f);
+    sync_passenger_door(scene, 0.f);
     // Stowed by default, for the same reason the door closes here: select()
     // and the parked clones go through sync, and the owner re-applies the real
     // fraction in the same frame.
@@ -502,6 +525,21 @@ void PlayerCarVisual::sync_driver_door(Scene& scene, float open_fraction) const 
     door->local_bounds = model.driver_door_bounds;
     const auto transform = vehicle_driver_door_transform(active_car_,body->local,open_fraction);
     scene.set_transform(driver_door_node_, transform);
+}
+
+void PlayerCarVisual::sync_passenger_door(Scene& scene,float open_fraction) const {
+    const auto* body=scene.get(body_node_);
+    const auto& model=models_[static_cast<std::size_t>(active_car_)];
+    auto* door=scene.get(passenger_door_node_);
+    if (!door) return;
+    door->visible=body && body->visible && model.passenger_door_mesh!=kInvalidId;
+    if (!door->visible) return;
+    const auto transform=vehicle_passenger_door_transform(active_car_,body->local,open_fraction);
+    door->renderable=body->renderable;
+    door->renderable.mesh=model.passenger_door_mesh;
+    door->local_bounds=model.passenger_door_bounds;
+    scene.set_transform(passenger_door_node_,transform);
+    if (model.glass_meshes[2]!=kInvalidId) scene.set_transform(glass_nodes_[2],transform);
 }
 
 HeadlightRig PlayerCarVisual::headlights(const VehicleState& previous,
@@ -567,7 +605,9 @@ void PlayerCarVisual::clone_parked(Scene& scene, PlayerCarVisual& out) const {
         return result;
     };
     out.body_node_=clone(body_node_);
+    out.plate_.node=clone(plate_.node);
     out.driver_door_node_=clone(driver_door_node_);
+    out.passenger_door_node_=clone(passenger_door_node_);
     for (std::size_t i=0;i<soft_top_nodes_.size();++i) out.soft_top_nodes_[i]=clone(soft_top_nodes_[i]);
     for (std::size_t i=0;i<glass_nodes_.size();++i) out.glass_nodes_[i]=clone(glass_nodes_[i]);
     for (std::size_t i=0;i<2;++i) {
@@ -583,6 +623,7 @@ void PlayerCarVisual::clone_parked(Scene& scene, PlayerCarVisual& out) const {
 void PlayerCarVisual::set_paint(Scene& scene, MaterialId paint) {
     if (auto* body=scene.get(body_node_)) body->renderable.material=paint;
     if (auto* door=scene.get(driver_door_node_)) door->renderable.material=paint;
+    if (auto* door=scene.get(passenger_door_node_)) door->renderable.material=paint;
     for (const auto id:soft_top_nodes_)
         if (auto* bow=scene.get(id)) bow->renderable.material=paint;
     for (std::size_t i=0;i<2;++i)
@@ -590,10 +631,14 @@ void PlayerCarVisual::set_paint(Scene& scene, MaterialId paint) {
 }
 
 void PlayerCarVisual::destroy(Scene& scene) {
+    plate_.destroy(scene);
+    registration_issued_=false;
     for (auto& id:glass_nodes_) { scene.remove(id); id=kInvalidId; }
     for (auto& id:soft_top_nodes_) { scene.remove(id); id=kInvalidId; }
     scene.remove(driver_door_node_);
     driver_door_node_=kInvalidId;
+    scene.remove(passenger_door_node_);
+    passenger_door_node_=kInvalidId;
     for (auto& id:emergency_nodes_) { scene.remove(id); id=kInvalidId; }
     scene.remove(body_node_);
     body_node_ = kInvalidId;
@@ -605,6 +650,13 @@ void PlayerCarVisual::destroy(Scene& scene) {
         scene.remove(node);
         node = kInvalidId;
     }
+}
+
+void PlayerCarVisual::set_registration(Scene& scene, const VehicleRegistration& registration) {
+    if (!plate_renderer_ || !valid_registration(registration)) return;
+    plate_.set(*plate_renderer_,scene,plate_material_,
+        models_[static_cast<std::size_t>(active_car_)].plate_mounts,registration);
+    plate_.sync(scene,body_node_);
 }
 
 }  // namespace apricot

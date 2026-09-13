@@ -19,6 +19,8 @@ struct VehicleDriverDoor {
 
 inline VehicleDriverDoor vehicle_driver_door(PlayerCarId car) {
     car=canonical_player_car_id(car);
+    if(car==PlayerCarId::RodeoGrazer) return {{.90f,.43f,.92f},{.916f,1.015f,-.19f},-.28f,.92f,.43f,1.31f};
+    if(car==PlayerCarId::EmberGt) return {{.93f,.32f,.86f},{.953f,.757f,-.41f},-.60f,.86f,.24f,.96f};
     if(car==PlayerCarId::AlderPip) return {{.824f,.32f,.58f},{.824f,.78f,-.43f},-.55f,.58f,.32f,1.16f};
     if(car==PlayerCarId::VesperScythe) return {{.985f,.29f,.78f},{.97f,.68f,-.43f},-.54f,.78f,.29f,.84f};
     if(car==PlayerCarId::HalcyonSovereign) return {{1.014f,.37f,1.60f},{1.012f,.96f,.30f},.18f,1.60f,.37f,1.27f};
@@ -46,6 +48,21 @@ inline VehicleDriverDoor vehicle_driver_door(PlayerCarId car) {
                 kWorkmanDoorFrontZ, kWorkmanDoorSillY, kWorkmanDoorTopY - kWorkmanDoorSillY};
     return {kMistralDoorHinge, kMistralDoorHandle, kMistralDoorRearZ,
             kMistralDoorFrontZ, kMistralDoorSillY, .60f};
+}
+
+inline bool has_passenger_door(PlayerCarId car) {
+    return car==PlayerCarId::EmberGt || car==PlayerCarId::RodeoGrazer;
+}
+
+inline Transform vehicle_passenger_door_transform(PlayerCarId car,const Transform& body,float open) {
+    const float fraction=std::isfinite(open)?std::clamp(open,0.f,1.f):0.f;
+    if (!has_passenger_door(car) || fraction==0.f) return body;
+    auto hinge=vehicle_driver_door(car).hinge;hinge.x=-hinge.x;
+    Transform door=body;
+    door.rotation=body.rotation*glm::angleAxis(
+        -vehicle_driver_door(car).open_radians*fraction,glm::vec3{0,1,0});
+    door.position=body.transform_point(hinge)-door.rotation*(body.scale*hinge);
+    return door;
 }
 
 inline Transform vehicle_driver_door_transform(PlayerCarId car, const Transform& body, float open) {

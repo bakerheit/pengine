@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "build/headlight-fit-qa"
 MODELS = ("car5", "car8", "ambulance", "halcyon_six",
-          "montrose_regent_eight", "firetruck", "glr_lunge", "glr_zip",
+          "montrose_regent_eight", "firetruck", "glm_lunge", "glm_zip",
           "harrow_workman", "alder_wayfarer", "vesper_vx91",
           "spagatti_shu")
 
@@ -91,7 +91,7 @@ def main():
 
     damage_sheet = Image.new("RGB", (1200,840), (10,12,15))
     draw = ImageDraw.Draw(damage_sheet)
-    for row, model in enumerate(("car5", "halcyon_six", "glr_zip")):
+    for row, model in enumerate(("car5", "halcyon_six", "glm_zip")):
         images = [capture(model,lamps[2],yaw,3,True), capture(model,lamps[2],yaw,90,True),
                   capture(model,lamps[2],yaw-45,3,True)]
         assert np.array_equal(images[0],images[1]), (model,"damaged lens flicker")

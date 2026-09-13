@@ -149,6 +149,7 @@ bool App::take_nearby_vehicle(const VehicleEntryTarget& target) {
         car_.health=std::max(5.f,100.f-90.f*damage);
         car_visual_.select(scene_,tuning_,car_,target.model);
         car_visual_.set_paint(scene_,paint);
+        car_visual_.set_registration(scene_,traffic_visual_.vehicle_registration(taken));
         vehicle_interaction_notice_="Vehicle taken";
         vehicle_notice_until_=step_index_+360;
         if (!vehicle_entry_check_ && !driver_transition_check_)
@@ -191,14 +192,17 @@ bool App::vehicle_transition_route_clear(glm::vec3 from, glm::vec3 to, float gro
     return !hit.hit || hit.distance >= distance-.08f;
 }
 
-bool App::vehicle_transition_door_clear(PlayerCarId car, const Transform& body) const {
-    const auto layout=vehicle_driver_door(car);
+bool App::vehicle_transition_door_clear(PlayerCarId car, const Transform& body,bool passenger) const {
+    auto layout=vehicle_driver_door(car);
+    if (passenger) layout.hinge.x=-layout.hinge.x;
     CharacterTuning panel;
     panel.radius_m=.08f;
     panel.height_m=layout.panel_height*body.scale.y;
     panel.max_step_m=0.f;
     for (int angle=0;angle<=12;++angle) {
-        const auto door=vehicle_driver_door_transform(car,body,float(angle)/12.f);
+        const auto door=passenger
+            ? vehicle_passenger_door_transform(car,body,float(angle)/12.f)
+            : vehicle_driver_door_transform(car,body,float(angle)/12.f);
         for (int span=0;span<=12;++span) {
             const auto p=door.transform_point({layout.hinge.x,layout.sill_y,
                 glm::mix(layout.front_z,layout.rear_z,float(span)/12.f)});
@@ -488,7 +492,7 @@ void App::run_driver_transition_check() {
 void App::run_vehicle_entry_check() {
     // Let the actual unattended starter sit for five seconds before touching
     // any controls. The old brake/reverse bug already drove it away by then.
-    if (step_index_<600 || step_index_%30!=0 || !parked_vehicles_.empty()) return;
+    if (step_index_<600 || step_index_%30!=0) return;
     const float parked_drift=glm::length(glm::vec2{car_.position.x,car_.position.z}-start_position_);
     if (!on_foot_ || car_.gear==kGearReverse || parked_drift>.1f) {
         AP_ERROR("vehicle entry regression: unattended starter moved %.3f m (gear %d)",
@@ -497,10 +501,12 @@ void App::run_vehicle_entry_check() {
     }
     if (step_index_==600) AP_INFO("unattended starter PASSED: five seconds parked, %.4f m drift, gear %d",
         static_cast<double>(parked_drift),car_.gear);
+    const auto parked_before=parked_vehicles_.size(); // The freight yard already owns a parked tractor.
     const auto old_model=car_visual_.active_car();
     const auto old_position=car_.position;
     const auto old_damage=pack_vehicle_damage0(car_.body_damage);
     const auto old_paint=car_visual_.paint(scene_);
+    const auto old_plate=car_visual_.registration();
     const auto fail=[&](const char* reason) {
         AP_ERROR("vehicle entry regression: %s",reason);
     };
@@ -518,23 +524,25 @@ void App::run_vehicle_entry_check() {
         const auto target=nearby_vehicle();
         if (target.kind!=VehicleEntryTarget::Kind::Traffic || target.lane_key!=candidate.lane_key || target.slot!=candidate.slot) continue;
         const auto expected_paint=traffic_visual_.vehicle_paint(candidate);
+        const auto expected_plate=traffic_visual_.vehicle_registration(candidate);
         const auto starts_before = vehicle_audio_.startup_count();
         toggle_player_mode();
         if (vehicle_audio_.startup_count() != starts_before) { fail("traffic takeover replayed ignition");return; }
-        if (on_foot_ || parked_vehicles_.size()!=1 || car_visual_.active_car()!=traffic_model(candidate)) { fail("takeover failed");return; }
-        if (!collider_.static_boxes()[parked_vehicles_.front().collider].is_vehicle) {
+        if (on_foot_ || parked_vehicles_.size()!=parked_before+1u || car_visual_.active_car()!=traffic_model(candidate)) { fail("takeover failed");return; }
+        if (!collider_.static_boxes()[parked_vehicles_[parked_before].collider].is_vehicle) {
             fail("parked car lost its vehicle collision/audio tag");return;
         }
         if (pack_vehicle_damage0(car_.body_damage)!=pack_vehicle_damage0(candidate.body_damage)) { fail("damage changed on takeover");return; }
         if (pack_vehicle_damage1(car_.body_damage)!=pack_vehicle_damage1(candidate.body_damage) ||
             car_visual_.paint(scene_)!=expected_paint) { fail("paint or scratches changed on takeover");return; }
-        if (parked_vehicles_[0].state.position!=old_position) { fail("old car teleported");return; }
+        if (car_visual_.registration()!=expected_plate || parked_vehicles_[parked_before].visual.registration()!=old_plate) { fail("plate changed on takeover or parking");return; }
+        if (parked_vehicles_[parked_before].state.position!=old_position) { fail("old car teleported");return; }
         for (const auto& v:world_.traffic().vehicles())
             if (v.lane_key==candidate.lane_key && v.slot==candidate.slot) { fail("AI copy still active");return; }
         car_.velocity=glm::vec3{0};prev_car_=car_;
         toggle_player_mode();
         if (!on_foot_) { fail("safe exit failed");return; }
-        const auto parked=parked_vehicles_[0];
+        const auto parked=parked_vehicles_[parked_before];
         const auto return_door=parked.state.position+parked.state.orientation*
             glm::vec3{-(parked.tuning.car_collision_half_width+.8f),0,-parked.tuning.car_collision_half_length*.22f};
         player_character_=spawn_character(collider_,return_door.x,return_door.z,0);
@@ -542,7 +550,8 @@ void App::run_vehicle_entry_check() {
         toggle_player_mode();
         if (on_foot_ || car_visual_.active_car()!=old_model ||
             pack_vehicle_damage0(car_.body_damage)!=old_damage || car_visual_.paint(scene_)!=old_paint ||
-            parked_vehicles_.size()!=1) { fail("parked re-entry failed");return; }
+            parked_vehicles_.size()!=parked_before+1u) { fail("parked re-entry failed");return; }
+        if (car_visual_.registration()!=old_plate) { fail("parked re-entry lost plate");return; }
         if (vehicle_audio_.started() && !audio_device_.bank().engine_start.empty() &&
             vehicle_audio_.startup_count() != starts_before + 1) { fail("parked entry did not play ignition");return; }
         car_.velocity=glm::vec3{0};prev_car_=car_;
@@ -564,13 +573,16 @@ void App::run_vehicle_entry_check() {
         if (!on_foot_) { fail("exit did not recover after removing blockers");return; }
         // Finish in the taken vehicle, making the bounded screenshot show the
         // transferred model/paint in the normal driving renderer and HUD.
-        const auto& stolen=parked_vehicles_[0];
+        const auto& stolen=parked_vehicles_[parked_before];
         const auto stolen_door=stolen.state.position+stolen.state.orientation*
             glm::vec3{-(stolen.tuning.car_collision_half_width+.8f),0,-stolen.tuning.car_collision_half_length*.22f};
         player_character_=spawn_character(collider_,stolen_door.x,stolen_door.z,0);
         prev_player_character_=player_character_;
         toggle_player_mode();
         if (on_foot_ || car_visual_.paint(scene_)!=expected_paint) { fail("taken car re-entry lost paint");return; }
+        if (car_visual_.registration()!=expected_plate) { fail("taken car re-entry lost plate");return; }
+        AP_INFO("license plate transfer PASSED: %s / %s; original %s preserved",
+            city::state_name(expected_plate.state),plate_serial(expected_plate).c_str(),plate_serial(old_plate).c_str());
         vehicle_entry_check_passed_=true;
         AP_INFO("vehicle entry regression PASSED: real traffic takeover, exact model/damage, AI removal, parked preservation/re-entry, blocked/safe exit, parked-only ignition (%u starts)", vehicle_audio_.startup_count());
         return;

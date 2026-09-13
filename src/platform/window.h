@@ -17,6 +17,18 @@ struct WindowConfig {
     int width = 1280;
     int height = 720;
     bool vsync = true;
+
+    // Whether showing the window may STEAL FOCUS from whatever the person at
+    // this machine is doing.
+    //
+    // It must, for a game somebody launched to play. It must NOT for the
+    // scripted checks, and that is not a nicety: several agents work this repo
+    // at once and every one of them runs --weapon-check, --molotov-check,
+    // --house-check and the rest, each of which opens a window that jumps in
+    // front of whatever is on screen. A window you did not ask for taking the
+    // keyboard mid-sentence is the single most disruptive thing this build
+    // does to the person who owns the desktop.
+    bool take_focus = true;
 };
 
 class Window {

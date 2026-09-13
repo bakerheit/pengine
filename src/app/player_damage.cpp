@@ -49,6 +49,14 @@ void App::begin_player_death(const char* cause) {
     world_.set_police_context(0, player_focus_position());
     weapon_wheel_.equipped = WeaponId::Unarmed;
     weapon_use_ = WeaponUseState{};
+    // The bottles come back with the magazine, on the same argument: the
+    // respawn hands the player a working loadout rather than the wreckage of
+    // the one that got them killed. The FIRE does not reset — it is world
+    // state, it goes on burning where it was lit, and a player who respawns
+    // into their own blaze can walk out of it.
+    molotov_use_ = MolotovUseState{};
+    molotov_shots_.clear();
+    fire_player_damage_timer_ = 0.0f;
     player_hit_feedback_s_ = 0.0f;
     ++player_death_reports_;
     AP_INFO("player killed by %s; wasted", cause);

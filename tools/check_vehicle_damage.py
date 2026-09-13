@@ -50,7 +50,7 @@ def render(name, model, yaw, damaged=False, frames=20, strength=0.75):
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
     atlas = check_atlas()
-    models = ("harrow_workman", "glr_zip", "montrose_regent_eight")
+    models = ("harrow_workman", "glm_zip", "montrose_regent_eight")
     results = []
     for model in models:
         clean = render(model + "-clean", model, 67.22)

@@ -1,5 +1,5 @@
 {
-  "model": "glr_zip",
+  "model": "glm_zip",
   "original_triangles": 1274,
   "triangles": 1202,
   "removed_components": [

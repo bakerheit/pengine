@@ -3,6 +3,7 @@
 #include <array>
 
 #include "app/player_car_catalog.h"
+#include "app/vehicle_plate_visual.h"
 #include "core/transform.h"
 #include "app/traffic_visual_layout.h"
 #include "gfx/lighting.h"
@@ -24,11 +25,14 @@ public:
     bool select(Scene& scene, const VehicleTuning& tuning,
                 const VehicleState& state, PlayerCarId car);
     PlayerCarId active_car() const { return active_car_; }
+    const VehicleRegistration& registration() const { return plate_.registration; }
+    void set_registration(Scene& scene, const VehicleRegistration& registration);
     void sync(Scene& scene, const VehicleTuning& tuning,
               const VehicleState& previous, const VehicleState& current,
               float alpha, float headlight_level, float brake_level) const;
     // Apply after sync; fraction is already eased by the transition owner.
     void sync_driver_door(Scene& scene, float open_fraction) const;
+    void sync_passenger_door(Scene& scene, float open_fraction) const;
     // 0 latches the folding top to the windshield header, 1 stows it. A car
     // with no top ignores this; see app/mistral_soft_top.h.
     void sync_soft_top(Scene& scene, float stowed) const;
@@ -60,11 +64,14 @@ public:
 
 private:
     struct Model {
+        VehiclePlateMounts plate_mounts;
         MeshId body_mesh = kInvalidId;
         MaterialId body_material = kInvalidId;
         AABB body_bounds;
         MeshId driver_door_mesh = kInvalidId;
         AABB driver_door_bounds;
+        MeshId passenger_door_mesh = kInvalidId;
+        AABB passenger_door_bounds;
         std::array<MeshId,2> soft_top_meshes{kInvalidId,kInvalidId};
         std::array<AABB,2> soft_top_bounds{};
         std::array<MeshId,6> glass_meshes{kInvalidId,kInvalidId,kInvalidId,kInvalidId,kInvalidId,kInvalidId};
@@ -85,6 +92,11 @@ private:
                     Model& out);
 
     std::array<Model, kPlayerCarCount> models_{};
+    Renderer* plate_renderer_ = nullptr;
+    MaterialId plate_material_ = kInvalidId;
+    VehiclePlateVisual plate_;
+    uint64_t registered_car_key_ = 0;
+    bool registration_issued_ = false;
     PlayerCarId active_car_ = PlayerCarId::LegacyCar5;
     Transform body_local_;
     AABB placed_body_bounds_;
@@ -96,6 +108,7 @@ private:
     float native_wheel_radius_ = 1.0f;
     NodeId body_node_ = kInvalidId;
     NodeId driver_door_node_ = kInvalidId;
+    NodeId passenger_door_node_ = kInvalidId;
     // [0] rear bow, [1] front bow: the order they hinge in.
     std::array<NodeId,2> soft_top_nodes_{kInvalidId,kInvalidId};
     std::array<NodeId,6> glass_nodes_{kInvalidId,kInvalidId,kInvalidId,kInvalidId,kInvalidId,kInvalidId};

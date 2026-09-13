@@ -240,10 +240,10 @@ void vesper_vx91_is_a_wheelless_traffic_ready_body() {
         "Vesper VX-91 meets the body-only triangle, bounds and axle contract");
 }
 
-void glr_lunge_is_a_wheelless_player_ready_body() {
+void glm_lunge_is_a_wheelless_player_ready_body() {
     StaticEmesh body;
     REQUIRE(read_static_emesh(
-        asset_path("models/vehicles/glr_lunge/body.emesh"), body));
+        asset_path("models/vehicles/glm_lunge/body.emesh"), body));
     REQUIRE(body.vertices.size() == 2544u);
     REQUIRE(body.indices.size() == 2544u);
     REQUIRE(body.indices.size() / 3u == 848u);
@@ -278,13 +278,13 @@ void glr_lunge_is_a_wheelless_player_ready_body() {
         REQUIRE(glow.indices.size() == 6u);
     }
     apricot_test::pass(
-        "GLR Lunge meets the body-only triangle, bounds and axle contract");
+        "GLM Lunge meets the body-only triangle, bounds and axle contract");
 }
 
-void glr_zip_is_a_wheelless_player_ready_body() {
+void glm_zip_is_a_wheelless_player_ready_body() {
     StaticEmesh body;
     REQUIRE(read_static_emesh(
-        asset_path("models/vehicles/glr_zip/body.emesh"), body));
+        asset_path("models/vehicles/glm_zip/body.emesh"), body));
     REQUIRE(body.vertices.size() >= 1950u);
     REQUIRE(body.vertices.size() <= 3900u);
     REQUIRE(body.indices.size() == body.vertices.size());
@@ -388,7 +388,7 @@ void glr_zip_is_a_wheelless_player_ready_body() {
         REQUIRE(glow.indices.size() == 6u);
     }
     apricot_test::pass(
-        "GLR ZIP meets the body-only triangle, bounds and axle contract");
+        "GLM ZIP meets the body-only triangle, bounds and axle contract");
 }
 
 void harrow_workman_has_open_wells_hood_and_cargo_bed() {
@@ -517,7 +517,7 @@ void alder_wayfarer_has_open_wells_and_a_complete_wagon_roof() {
 
 void fleet_uses_body_surface_cooks() {
     constexpr std::array<PlayerCarId, 7> baked{{
-        PlayerCarId::GlrLunge, PlayerCarId::GlrZip, PlayerCarId::HalcyonSix,
+        PlayerCarId::GlmLunge, PlayerCarId::GlmZip, PlayerCarId::HalcyonSix,
         PlayerCarId::HarrowWorkman, PlayerCarId::MontroseRegentEight,
         PlayerCarId::MunicipalFiretruck, PlayerCarId::VesperVx91,
     }};
@@ -698,7 +698,7 @@ void headlights_follow_authored_lens_regions() {
             }
         }
     }
-    const auto split = vehicle_headlight_profile("models/vehicles/glr_zip/body_surface.emesh");
+    const auto split = vehicle_headlight_profile("models/vehicles/glm_zip/body_surface.emesh");
     for (const auto& r : split.regions) REQUIRE(!r.contains({0.61f,0.48f,2.50f}));
     REQUIRE(!vehicle_headlight_profile("models/unknown/body.emesh").exposed());
     apricot_test::pass("headlight profiles preserve lens shape, bulb gaps and model-specific beam origins");
@@ -736,7 +736,7 @@ void brake_lights_follow_rear_red_cells() {
             }
         }
     }
-    const auto zip = vehicle_brakelight_profile("models/vehicles/glr_zip/body_surface.emesh");
+    const auto zip = vehicle_brakelight_profile("models/vehicles/glm_zip/body_surface.emesh");
     for (const auto& r : zip.regions) REQUIRE(!r.contains({.70f,.53f,-2.52f}));
     const auto harrow = vehicle_brakelight_profile("models/vehicles/harrow_workman/body_surface.emesh");
     for (const auto& r : harrow.regions) REQUIRE(!r.contains({.95f,.745f,-2.54f}));
@@ -868,8 +868,8 @@ int main() {
     halcyon_six_is_a_wheelless_traffic_ready_body();
     montrose_regent_eight_is_a_wheelless_traffic_ready_body();
     vesper_vx91_is_a_wheelless_traffic_ready_body();
-    glr_lunge_is_a_wheelless_player_ready_body();
-    glr_zip_is_a_wheelless_player_ready_body();
+    glm_lunge_is_a_wheelless_player_ready_body();
+    glm_zip_is_a_wheelless_player_ready_body();
     harrow_workman_has_open_wells_hood_and_cargo_bed();
     alder_wayfarer_has_open_wells_and_a_complete_wagon_roof();
     fleet_uses_body_surface_cooks();

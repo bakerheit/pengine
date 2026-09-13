@@ -246,7 +246,7 @@ their backing panel after a collision. Keep real lamp housings, mirrors,
 bumpers, and roof hardware as geometry.
 
 Seven older original vehicles use derived `body_surface.emesh` and
-`body_surface.png` assets: Vesper, GLR Lunge, GLR ZIP, Harrow, Halcyon,
+`body_surface.png` assets: Vesper, GLM Lunge, GLM ZIP, Harrow, Halcyon,
 Montrose, and the firetruck. Their canonical generators run
 `tools/bake_vehicle_surfaces.py` automatically. Original `body.emesh` and
 `body.png` authoring cooks remain intact. The matching `body_surface.json`

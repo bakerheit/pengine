@@ -35,6 +35,18 @@ inline constexpr float kCivilianWoundedHeat = 0.75f;
 inline constexpr float kCivilianKilledHeat = 3.0f;
 inline constexpr float kCivilianRunDownHeat = 2.0f;
 
+// Setting a street on fire, priced once per bottle that lands and catches.
+// On the same scale again: one molotov is a two-star response on its own,
+// which is a shade over shooting somebody and short of killing them.
+//
+// A FIRE IS NOT AN ARGUABLE OFFENCE, so this is charged like a killing rather
+// than like a drawn weapon: it does not pass through the witness cone in
+// game/police_offenses.h. A burning street is evidence that stays lit for ten
+// seconds after the player has left, and gating it on whether a cruiser had
+// line of sight at the moment of impact would mean a molotov thrown round a
+// corner was never thrown at all.
+inline constexpr float kArsonHeat = 3.5f;
+
 // THE CITY NOTICES A KILLING WHETHER OR NOT ANYBODY WATCHED IT. That is the
 // call app.cpp already makes for shooting an officer, stated once here so the
 // two cannot drift: the witness cone in game/police_offenses.h gates the

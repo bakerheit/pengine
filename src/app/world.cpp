@@ -11,6 +11,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "city/airport.h"
+#include "city/airport_paving.h"
 #include "city/florangia_airport.h"
 #include "city/airport_parking_garage.h"
 #include "city/halberd_helicopter.h"
@@ -740,45 +741,6 @@ MeshId part_mesh(const city::StartPart& part, SiteMaterialStyle style,
     return box;
 }
 
-bool is_airport_paving(const city::StartPart& part) {
-    const bool runway_surface =
-        part_name_has(part, "runway ") &&
-        (part_name_has(part, "09-27") || part_name_has(part, "08-26") ||
-         part_name_has(part, "shoulder"));
-    return runway_surface ||
-           part_name_has(part, "airport apron") ||
-           part_name_has(part, "passenger apron") ||
-           part_name_has(part, "maintenance apron") ||
-           part_name_has(part, "taxiway alpha") ||
-           part_name_has(part, "taxiway bravo") ||
-           part_name_has(part, "dropoff road") ||
-           part_name_has(part, "public parking") ||
-           part_name_has(part, "airport access road") ||
-           (part_name_has(part,"terminal parking") && part.finish==city::StartFinish::Asphalt) ||
-           part_name_has(part, "hangar apron") ||
-           part_name_is(part, "airport fire response apron") ||
-           part_name_is(part, "airport hotel lot") ||
-           part_name_is(part, "rental car lot") ||
-           part_name_is(part, "air cargo yard");
-}
-
-bool is_airport_landside_paving(const city::StartPart& part) {
-    return part_name_is(part,"airport frontage pedestrian connector") ||
-           part_name_has(part,"terminal parking walk") ||
-           part_name_has(part,"airport taxi pedestrian") ||
-           part_name_has(part,"airport taxi shelter approach") ||
-           (part_name_has(part,"airport hotel ") && (part_name_has(part,"walk") || part_name_has(part,"approach"))) ||
-           part_name_is(part,"rental entrance walk") ||
-           part_name_has(part, "terminal pedestrian plaza") ||
-           part_name_has(part, "terminal splitter island") ||
-           part_name_has(part, "terminal parking island") ||
-           part_name_has(part, "terminal pedestrian connector") ||
-           part_name_is(part, "airport hotel courtyard") ||
-           part_name_is(part, "airport hotel service court") ||
-           part_name_is(part, "rental forecourt") ||
-           part_name_is(part, "airport security lane island");
-}
-
 bool is_airport_facade(const city::StartPart& part) {
     return part_name_has(part, "terminal facade") ||
            part_name_has(part, "concourse ") ||
@@ -1280,9 +1242,9 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
             } else if (style == SiteMaterialStyle::Airport) {
                 if (part_name_is(part,"terminal directory sign face")) r.material=materials.airport_directory;
                 if (part_name_has(part,"terminal furnishing ")) r.material=materials.airport_furnishing;
-                if (is_airport_paving(part)) r.material = materials.airport_paving;
+                if (city::is_airport_paving(part)) r.material = materials.airport_paving;
                 if (is_airport_facade(part)) r.material = materials.airport_facade;
-                if (is_airport_landside_paving(part)) {
+                if (city::is_airport_landside_paving(part)) {
                     r.material = materials.airport_landside_paving;
                 }
             } else if (style == SiteMaterialStyle::Billboard &&
@@ -1298,7 +1260,7 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
                               part_name_is(part, "canopy roof");
             const float texture_v_extent = flat ? part.depth_m : part.height_m;
             const float metres_per_tile =
-                is_airport_landside_paving(part)
+                city::is_airport_landside_paving(part)
                     ? 6.0f
                     : (style == SiteMaterialStyle::Airport ? 16.0f : 2.0f);
             r.uv_scale = {
@@ -1406,9 +1368,9 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
                     part_name_has(part, "farm water tank");
             } else if (style == SiteMaterialStyle::Airport) {
                 owns_colour = part_name_is(part,"terminal directory sign face") ||
-                              part_name_has(part,"terminal furnishing ") || is_airport_paving(part) ||
+                              part_name_has(part,"terminal furnishing ") || city::is_airport_paving(part) ||
                               is_airport_facade(part) ||
-                              is_airport_landside_paving(part);
+                              city::is_airport_landside_paving(part);
             } else if (style == SiteMaterialStyle::Construction) {
                 owns_colour = part_name_has(part, "construction fence mesh") ||
                               part_name_has(part, "construction top safety mesh") ||
@@ -2213,7 +2175,8 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
             collider.add_static_ground_rect({t.position.x,t.position.z},city::kMarinaDeckTop,
                 {part.width_m*.5f,part.depth_m*.5f},0,Surface::Rock);
         }
-        if ((loom_site && city::loom_ground_piece(part)) || city::residential_ground_piece(part) || city::luxury_ground_piece(part) || city::tidewater_farm_ground_piece(part) || city::gun_store_ground_piece(part) || city::pinatty_infill_ground_piece(part) || (&site == &city::kEastArmPlazaSite && (part_name_has(part, "parking lot") || part_name_has(part, " walk") || part_name_has(part, "court") || part_name_has(part, "service lane") || part_name_has(part, "interior floor") || part_name_has(part, "threshold"))) || is_building_plot_pavement(part) ||
+        if ((style==SiteMaterialStyle::Airport && city::airport_ground_piece(part)) ||
+            (loom_site && city::loom_ground_piece(part)) || city::residential_ground_piece(part) || city::luxury_ground_piece(part) || city::tidewater_farm_ground_piece(part) || city::gun_store_ground_piece(part) || city::pinatty_infill_ground_piece(part) || (&site == &city::kEastArmPlazaSite && (part_name_has(part, "parking lot") || part_name_has(part, " walk") || part_name_has(part, "court") || part_name_has(part, "service lane") || part_name_has(part, "interior floor") || part_name_has(part, "threshold"))) || is_building_plot_pavement(part) ||
             part_name_is(part,"marina parking lot") || part_name_has(part,"terminal parking walk") ||
             part_name_has(part,"terminal splitter island") ||
             part_name_has(part,"terminal pedestrian connector") ||

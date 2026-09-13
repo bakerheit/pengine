@@ -15,14 +15,16 @@ you meant to write is worse than no doc.
 city rebuilding `probablecause`; Florangia is its low subtropical neighbor to
 the southeast. Their briefs are [`docs/design/pinatty.md`](design/pinatty.md)
 and [`docs/design/florangia.md`](design/florangia.md).
-**Its MAP and its ROADS are implemented; the rest is not.** `src/city/` holds
+For game scope and fiction, start with [Design & Lore](README.md). This page
+owns the engine rules, not the feature-status inventory. `src/city/` holds
 the ten district polygons, their character parameters, the landmark table, the
 terrain operators that `height_at()` evaluates (PENG-41), and the authored road
 network. The roads and the terrain operators that shape the ground under them
 are ONE table: every `Grade` corridor is derived from `kRoads`, because a spine
 list and a hand-written corridor are two descriptions of one road and the only
-thing two descriptions of one thing ever do is disagree. Traffic, police,
-missions and buildings are still design only.
+thing two descriptions of one thing ever do is disagree. The earlier statement
+that traffic, police, missions and buildings were design-only is superseded
+by the [current game-design reference](design/README.md).
 Apricot Rally, the time trial that used to be the sample, was deleted in
 PENG-23; every rule below that used to be stated in terms of laps, gates or
 ghosts is now stated in terms of the engine, which is where it always belonged.

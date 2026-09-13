@@ -2,6 +2,7 @@
 #include "app/player_car_catalog.h"
 #include "app/driving_mechanics.h"
 #include "app/vehicle_model_tuning.h"
+#include "app/vehicle_registration.h"
 
 #include <cmath>
 #include <cstdio>
@@ -40,6 +41,7 @@ bool validate_game_save(const GameSave& d, std::string& error) {
     else if (!range(d.character_yaw,-10000,10000) || !range(d.view_yaw,-10000,10000) || !range(d.view_pitch,-1.6f,1.6f)) error = "Invalid saved facing.";
     else if (!range(glm::dot(d.car_rotation,d.car_rotation),.999f,1.001f) || !range(d.car_health,0,100)) error = "Invalid saved vehicle.";
     else if (d.sim_step > (uint64_t{1} << 53)) error = "Invalid saved clock.";
+    else if (!valid_registration(d.car_registration)) error = "Invalid saved license plate.";
     for (float zone : d.car_damage.zones) if (!range(zone,0,1)) error = "Invalid saved damage.";
     for (const auto& s : d.car_damage.stamps) {
         if (!range(s.contact_xz.x,-1,1) || !range(s.contact_xz.y,-1,1) || !range(s.severity,0,1) || !range(s.motion_angle,-10000,10000) || !range(s.radius,0,1) || !range(s.height,0,1) || !range(s.glancing,0,1)) error = "Invalid saved dent.";
@@ -78,8 +80,10 @@ bool encode_game_save(const GameSave& d, std::string& bytes, std::string& error)
     b << m.oil_remaining << ' ' << m.fuel_remaining << ' ' << m.oil_lifetime_s << ' ' << m.fuel_lifetime_s << ' ' << m.engine_failed << '\n';
     b << d.has_trailer << ' ' << d.trailer.attached << ' ' << d.trailer.position.x << ' '
       << d.trailer.position.y << ' ' << d.trailer.position.z << ' ' << d.trailer.yaw << ' ' << d.trailer.pitch << '\n';
+    b << int(d.car_registration.state) << ' ' << int(d.car_registration.series) << ' '
+      << d.car_registration.number << '\n';
     const auto body = b.str();
-    bytes = "APRICOT_SAVE 2\n" + std::to_string(checksum(body)) + "\n" + body;
+    bytes = "APRICOT_SAVE 3\n" + std::to_string(checksum(body)) + "\n" + body;
     return true;
 }
 
@@ -89,7 +93,8 @@ bool decode_game_save(const std::string& bytes, GameSave& out, std::string& erro
     const auto first = bytes.find('\n'), second = first == std::string::npos ? first : bytes.find('\n',first+1);
     if (first == std::string::npos || second == std::string::npos) return false;
     const bool version2=bytes.substr(0,first)=="APRICOT_SAVE 2";
-    if (!version2 && bytes.substr(0,first) != "APRICOT_SAVE 1") { error = "Unsupported save version."; return false; }
+    const bool version3=bytes.substr(0,first)=="APRICOT_SAVE 3";
+    if (!version3 && !version2 && bytes.substr(0,first) != "APRICOT_SAVE 1") { error = "Unsupported save version."; return false; }
     uint64_t expected = 0;
     std::istringstream header(bytes.substr(first+1,second-first-1));
     if (!(header >> expected) || !(header >> std::ws).eof()) return false;
@@ -107,13 +112,25 @@ bool decode_game_save(const std::string& bytes, GameSave& out, std::string& erro
     for (auto& s : d.car_damage.stamps) b >> s.contact_xz.x >> s.contact_xz.y >> s.severity >> s.motion_angle >> s.radius >> s.height >> s.glancing;
     auto& m=d.car_mechanical;
     b >> m.oil_remaining >> m.fuel_remaining >> m.oil_lifetime_s >> m.fuel_lifetime_s >> failed;
-    if(version2) {
+    if(version2 || version3) {
         int present=0,attached=0;
         b >> present >> attached >> d.trailer.position.x >> d.trailer.position.y >> d.trailer.position.z >> d.trailer.yaw >> d.trailer.pitch;
         if(present<0 || present>1 || attached<0 || attached>1 || (!present && attached))return false;
         d.has_trailer=present!=0;d.trailer.attached=attached!=0;
     }
+    if (version3) {
+        int state=0,series=0;
+        int64_t number=0;
+        b >> state >> series >> number;
+        if (state<0 || state>=int(city::StateId::Count) || series<0 || series>=int(PlateSeries::Count) || number<0) return false;
+        d.car_registration.state=static_cast<city::StateId>(state);
+        d.car_registration.series=static_cast<PlateSeries>(series);
+        d.car_registration.number=static_cast<uint64_t>(number);
+    }
     if (!b || !(b >> std::ws).eof() || failed < 0 || failed > 1) return false;
+    if (!version3 && d.car_model>=0 && d.car_model<static_cast<int>(kPlayerCarCount))
+        d.car_registration=player_registration(static_cast<PlayerCarId>(d.car_model),d.car_key,
+            d.car_position.x,d.car_position.z);
     m.engine_failed=failed!=0;
     if (!validate_game_save(d,error)) return false;
     out=d;error.clear();return true;

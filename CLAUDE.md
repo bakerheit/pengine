@@ -21,8 +21,9 @@ stopped being true, and it stayed on the page long enough to mislead agents into
 disbelieving working systems.** Today: `src/traffic/` simulates a live ambient
 population that consumes `city/traffic_ai.h`; `game/wanted_system.h` consumes
 `city/police_ai.h`, and officers witness offences, pursue, fire and arrest;
-`game/delivery_mission.h` is wired into the app; and a growing set of authored
-buildings are enterable — the bar, pawn shop, gun store, gas store, quickbite,
+`game/delivery_mission.h` is wired into the app; `game/molotov.h` and
+`game/fire.h` put a second weapon in the wheel and burning ground under it; and
+a growing set of authored buildings are enterable — the bar, pawn shop, gun store, gas store, quickbite,
 repair shop, bank vault and a furnished house among them, each with its own
 suite. `game/climb.h` vaults the player over a wall or fence up to 1.30 m when
 it has standing room on top and somewhere to land, and the Sycamore Loop back
@@ -207,9 +208,20 @@ The expensive failure mode is **"ships green but broken in-game."**
    Determinism tests prove a drive is reproducible; they cannot tell you the
    car is fun to drive, that the engine note sounds like an engine, or that a
    landmark reads from far enough away to navigate by.
-5. **Verify count and usage claims.** Before writing "N call sites" or "X is
+5. **`--frames` runs are UNATTENDED, and must stay that way.** A frame-limited
+   run creates its window hidden, keeps the process out of the desktop's
+   foreground and never captures the OS cursor — see `platform/foreground.h`.
+   That is not tidiness: several of us run `--weapon-check`, `--molotov-check`,
+   `--house-check` and the rest all day on a machine somebody is also using,
+   and a window that jumps in front of them and swallows the pointer for twenty
+   seconds is the most disruptive thing this build does to a human. Screenshots
+   are unaffected — they are read back from the GL drawable, which is real
+   whether or not the window is on screen. If you need to watch a capped run,
+   pass `--attended`; do not reach for it in a scripted check, and do not add a
+   new path that shows a window or calls `SDL_SetRelativeMouseMode` directly.
+6. **Verify count and usage claims.** Before writing "N call sites" or "X is
    unused", read the header and grep with word boundaries.
-6. **Never document a feature as working unless you ran it.** Much of this tree
+7. **Never document a feature as working unless you ran it.** Much of this tree
    is contract-and-stub while modules land in parallel. If it is a stub, either
    leave it out of the docs or name it as not yet implemented, with its ticket.
 

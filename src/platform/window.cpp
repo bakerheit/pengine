@@ -4,16 +4,31 @@
 #include <glad/gl.h>
 
 #include "core/log.h"
+#include "platform/foreground.h"
 
 namespace apricot {
 
 Window::~Window() { shutdown(); }
 
 bool Window::init(const WindowConfig& cfg) {
+    // An unattended run must not take the desktop. SDL's half of that is this
+    // hint: with it set, SDL neither forces a Regular activation policy nor
+    // calls -activateIgnoringOtherApps: on launch. It has to be set BEFORE
+    // SDL_Init, because the video subsystem reads it on the way up and a hint
+    // set afterwards silently does nothing — the same trap the MSAA attributes
+    // below carry. The OTHER half is keep_out_of_foreground(), just after.
+    SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, cfg.take_focus ? "0" : "1");
+
+
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) != 0) {
         AP_ERROR("SDL_Init failed: %s", SDL_GetError());
         return false;
     }
+
+    // Now that SDL has brought the application object into existence, and
+    // before any window does. See platform/foreground.h for why the hint above
+    // is not enough on its own.
+    if (!cfg.take_focus) platform::keep_out_of_foreground();
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
@@ -28,8 +43,15 @@ bool Window::init(const WindowConfig& cfg) {
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
 
-    const Uint32 flags =
+    Uint32 flags =
         SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
+    // HIDDEN, not merely unfocused. A scripted check has nobody watching it,
+    // and a window that appears covers a third of somebody's screen whether or
+    // not it holds the keyboard. Rendering to it still works: the drawable is
+    // real, the frames are real, and --screenshot reads them back exactly as
+    // before — which is measured, not assumed, by every check that captures.
+    // Use --attended when you want to watch one.
+    if (!cfg.take_focus) flags |= SDL_WINDOW_HIDDEN;
     window_ = SDL_CreateWindow(cfg.title.c_str(), SDL_WINDOWPOS_CENTERED,
                                SDL_WINDOWPOS_CENTERED, cfg.width, cfg.height,
                                flags);

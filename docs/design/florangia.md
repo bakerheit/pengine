@@ -2,8 +2,10 @@
 
 Florangia is the second state in Apricot's world. It sits southeast of O'Haven
 across open water. This pass establishes the larger landmass, its first state
-highway, and Florangia Regional Airport. Cities and mission content remain
-future work.
+highway, and Florangia Regional Airport. This is the terrain-foundation
+record; subsequent city work is covered by the [Miandi plan](miandi.md) and
+the [current world guide](../lore/world.md). It does not define a Florangia
+mission campaign.
 
 ## Shape, scale, and placement
 

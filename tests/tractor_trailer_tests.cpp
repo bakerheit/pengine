@@ -103,6 +103,7 @@ void checkpoints_and_catalog() {
     // Genuine v1 payload (same pre-trailer schema/checksum) still loads old ids.
     save.has_trailer=false;save.trailer={};save.car_model=18;REQUIRE(encode_game_save(save,bytes,error));
     auto body=bytes.substr(bytes.find('\n',bytes.find('\n')+1)+1);body.erase(body.rfind('\n',body.size()-2)+1);
+    body.erase(body.rfind('\n',body.size()-2)+1); // v3 registration, then v2 trailer.
     uint64_t hash=14695981039346656037ull;for(char c:body){hash^=static_cast<unsigned char>(c);hash*=1099511628211ull;}
     bytes="APRICOT_SAVE 1\n"+std::to_string(hash)+"\n"+body;
     REQUIRE(decode_game_save(bytes,out,error));REQUIRE(out.car_model==18);REQUIRE(!out.has_trailer);

@@ -1,5 +1,5 @@
 {
-  "model": "glr_lunge",
+  "model": "glm_lunge",
   "original_triangles": 848,
   "triangles": 796,
   "removed_components": [

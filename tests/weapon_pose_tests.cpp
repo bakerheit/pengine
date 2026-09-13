@@ -125,6 +125,54 @@ void sampled_clip_contract(const Skeleton& skeleton, const SkinnedEmesh& mesh,
     }
     apricot_test::pass(clip);
 }
+
+// THE MOLOTOV POSES ONE ARM. It borrows the pistol's solver — same IK, same
+// finger rebuild, same blend — and the whole of the difference is that the
+// support hand is left where the locomotion clip put it. Posing it anyway
+// leaves the left hand gripping air beside the bottle, which is the exact bug
+// this pins; the right hand still has to move, or the bottle is parented to a
+// hand that never came up.
+void molotov_poses_the_throwing_arm_only(const Skeleton& skeleton, float scale,
+                                         const char* clip) {
+    Animation animation;
+    REQUIRE(animation.load(asset_path(std::string{
+        "models/characters/psx_pack/animations/"} + clip + ".eanim"), skeleton));
+    VehicleDriverPose scratch;
+    std::vector<glm::mat4> base;
+    animation.sample(0.31f, skeleton, base);
+    strip_root_motion_xz(skeleton, base);
+
+    auto held = base;
+    REQUIRE(apply_player_weapon_pose(skeleton, scale,
+        {WeaponId::Molotov, 1, 0, 0, 0, false, 0}, held, scratch));
+    const float right_moved = glm::distance(
+        glm::vec3{palm(skeleton, held, "Right")[3]},
+        glm::vec3{palm(skeleton, base, "Right")[3]}) * scale;
+    const float left_moved = glm::distance(
+        glm::vec3{palm(skeleton, held, "Left")[3]},
+        glm::vec3{palm(skeleton, base, "Left")[3]}) * scale;
+    REQUIRE_MSG(right_moved > .10f, "the throwing hand never came up", clip);
+    REQUIRE_MSG(left_moved < .001f, "the support hand was posed too", clip);
+
+    // Taking aim cocks the bottle BACK and UP, which is the wind-up: a
+    // molotov that pushed forward on aim would be sighting down a bottle.
+    auto aimed = base;
+    REQUIRE(apply_player_weapon_pose(skeleton, scale,
+        {WeaponId::Molotov, 1, 1, 0, 0, false, 0}, aimed, scratch));
+    const glm::vec3 rest{palm(skeleton, held, "Right")[3]};
+    const glm::vec3 cocked{palm(skeleton, aimed, "Right")[3]};
+    REQUIRE_MSG(cocked.y > rest.y, "aiming did not raise the bottle", clip);
+    REQUIRE_MSG(cocked.z < rest.z, "aiming did not draw the bottle back", clip);
+    // And the neck stays UP through both: the prop is built along the palm
+    // socket's +Y, so a frame that tipped past horizontal would pour the fuel
+    // out of the bottle the player is about to throw.
+    for (const auto& posed : {held, aimed}) {
+        const glm::mat4 socket = palm(skeleton, posed, "Right");
+        REQUIRE_MSG(glm::normalize(glm::vec3{socket[1]}).y > .55f,
+                    "the bottle tipped over in the hand", clip);
+    }
+    apricot_test::pass("molotov holds one arm");
+}
 } // namespace
 
 int main() {
@@ -146,5 +194,7 @@ int main() {
     sampled_clip_contract(skeleton, mesh, scale, "idle");
     sampled_clip_contract(skeleton, mesh, scale, "walk");
     sampled_clip_contract(skeleton, mesh, scale, "sprint");
+    molotov_poses_the_throwing_arm_only(skeleton, scale, "idle");
+    molotov_poses_the_throwing_arm_only(skeleton, scale, "walk");
     return apricot_test::done("weapon_pose_tests");
 }

@@ -39,11 +39,11 @@ def structural():
             assert len(ids)==len(oi)-len(removed)
             assert len(ids)==report['triangles']
             # Every retained source triangle survives with identical vertices;
-            # only the two reviewed GLR front stations may gain lamp backing.
+            # only the two reviewed GLM front stations may gain lamp backing.
             expected=[]
             for i,t in enumerate(original[oi,:3]):
                 if i in removed:continue
-                if name in ('glr_zip','glr_lunge') and (np.abs(t[:,2]-(2.5 if name=='glr_zip' else 2.75))<1e-5).any():continue
+                if name in ('glm_zip','glm_lunge') and (np.abs(t[:,2]-(2.5 if name=='glm_zip' else 2.75))<1e-5).any():continue
                 expected.append(tuple(sorted(tuple(np.round(p,5)) for p in t)))
             actual={tuple(sorted(tuple(np.round(p,5)) for p in t)) for t in v[ids,:3]}
             assert all(t in actual for t in expected),name+' changed a receiver/arch/hood'

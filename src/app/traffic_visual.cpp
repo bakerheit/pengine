@@ -1,5 +1,6 @@
 #include "app/traffic_visual.h"
 #include "app/snowplow_mesh.h"
+#include "app/vehicle_registration.h"
 
 #include <algorithm>
 #include <cmath>
@@ -137,6 +138,7 @@ bool TrafficVisual::load_model(Renderer& renderer, const char* mesh_path,
                                float wheel_rear_z_native, Model& out) {
     StaticEmesh body;
     if (!read_static_emesh(asset_path(mesh_path), body)) return false;
+    out.plate_mounts=vehicle_plate_mounts(body,mesh_path);
     out.mesh = renderer.add_mesh(make_vehicle_snow_mesh(body, mesh_path));
     out.bounds = body.bounds;
     if (out.mesh == kInvalidId) return false;
@@ -205,6 +207,15 @@ bool TrafficVisual::load_model(Renderer& renderer, const char* mesh_path,
 bool TrafficVisual::init(Renderer& renderer, Scene& scene,
                          const LaneGraph& lanes, const CrowdTuning& tuning,
                          TerrainCollider& collider) {
+    plate_renderer_=&renderer;
+    plate_material_=load_vehicle_plate_material(renderer);
+    if (plate_material_==kInvalidId) return false;
+    registration_states_.clear();
+    for (const auto& lane:lanes.lanes()) {
+        if (lane.centreline.empty()) continue;
+        const auto origin=lane.centreline.front();
+        registration_states_.emplace(lane.key,registration_state_at(origin.x,origin.z));
+    }
     static constexpr const char* kCar5Paints[] = {
         "textures/vehicles/car5/body.png",
         "textures/vehicles/car5/green.png",
@@ -298,6 +309,9 @@ bool TrafficVisual::init(Renderer& renderer, Scene& scene,
         plow.bounds.expand(part.bounds.max);
     }
     plow.layout = make_snowplow_visual_layout(plow.bounds);
+    // This procedural model uses -Z forward. The front blade leaves the cab
+    // plate behind it; the rear plate sits between the tail lamps.
+    plow.plate_mounts={{{0,1.11f,-2.72f},{0,0,-1}},{{0,1.16f,2.90f},{0,0,1}}};
     plow.paints.push_back(flat_material_);
     plow.exposed_headlights = true;
     if (plow.mesh == kInvalidId) return false;
@@ -356,10 +370,11 @@ bool TrafficVisual::init(Renderer& renderer, Scene& scene,
 }
 
 TrafficVisual::Rig TrafficVisual::create_rig(
-    Scene& scene, const VehicleAgent& agent, TrafficVehicleKind kind) const {
+    Scene& scene, const VehicleAgent& agent, TrafficVehicleKind kind, bool parked) const {
     Rig rig;
     rig.lane_key = agent.lane_key;
     rig.slot = agent.slot;
+    rig.generation=agent.generation;
 
     // Stable secondary buckets split ordinary cars between the original sedan,
     // Halcyon, Montrose, and Vesper. Emergency/truck weights stay unchanged.
@@ -375,6 +390,13 @@ TrafficVisual::Rig TrafficVisual::create_rig(
     const bool snowplow = kind == TrafficVehicleKind::Snowplow;
     if (snowplow) body.tint = kSnowplowPartColors[0];
     rig.body = scene.create(body, Transform{}, model.bounds);
+    auto registration=vehicle_registration(agent);
+    if (parked) {
+        const auto state=registration.state;
+        registration=issue_registration(state,traffic_plate_use(kind),agent.lane_key,agent.slot,0,0x5041524Bull);
+    }
+    rig.plate.set(*plate_renderer_,scene,plate_material_,model.plate_mounts,registration);
+    set_draw_distance(scene,rig.plate.node,vehicle_draw_distance_);
     if (snowplow) {
         for (std::size_t i=0; i<rig.snowplow_details.size(); ++i) {
             Renderable detail;
@@ -441,6 +463,7 @@ TrafficVisual::Rig TrafficVisual::create_rig(
 }
 
 void TrafficVisual::destroy_rig(Scene& scene, Rig& rig) const {
+    rig.plate.destroy(scene);
     scene.remove(rig.body);
     rig.body = kInvalidId;
     if (rig.driver_door != kInvalidId) scene.remove(rig.driver_door);
@@ -504,6 +527,7 @@ void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
         body->renderable.body_damage1 = packed_damage1;
         body->renderable.deform_frame = deform_frame;
     }
+    rig.plate.sync(scene,rig.body);
     for (NodeId id : rig.snowplow_details) {
         if (SceneNode* detail = scene.get(id)) {
             detail->renderable.body_damage0 = damage0;
@@ -652,7 +676,7 @@ void TrafficVisual::sync(Scene& scene, const Crowd& crowd,
             ++old;
             const std::size_t wanted_model = static_cast<std::size_t>(
                 traffic_vehicle_kind(agent));
-            if (rig.model != wanted_model) {
+            if (rig.model != wanted_model || rig.generation != agent.generation) {
                 destroy_rig(scene, rig);
                 rig = create_rig(scene, agent, traffic_vehicle_kind(agent));
             }
@@ -731,10 +755,10 @@ void TrafficVisual::sync(Scene& scene, const Crowd& crowd,
             ++old_parked;
             if (rig.model != wanted_model) {
                 destroy_rig(scene, rig);
-                rig = create_rig(scene, shell, car.kind);
+                rig = create_rig(scene, shell, car.kind,true);
             }
         } else {
-            rig = create_rig(scene, shell, car.kind);
+            rig = create_rig(scene, shell, car.kind,true);
         }
         sync_rig(scene, rig, shell, lanes, step, 0.0f, alpha, /*parked=*/true);
         next_parked.push_back(rig);
@@ -1077,6 +1101,13 @@ void TrafficVisual::destroy(Scene& scene) {
     street_lamps_.clear();
     stop_signs_.clear();
     breakaway_fixture_owners_.clear();
+}
+
+VehicleRegistration TrafficVisual::vehicle_registration(const VehicleAgent& agent) const {
+    const auto found=registration_states_.find(agent.lane_key);
+    const auto state=found==registration_states_.end()?city::StateId::OHaven:found->second;
+    return issue_registration(state,traffic_plate_use(traffic_vehicle_kind(agent)),
+        agent.lane_key,agent.slot,agent.generation,0x54524146464943ull);
 }
 
 }  // namespace apricot

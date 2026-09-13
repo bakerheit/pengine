@@ -1,4 +1,4 @@
-"""Shared model and atlas contract for the fictional GLR ZIP."""
+"""Shared model and atlas contract for the fictional GLM ZIP."""
 
 ATLAS_SIZE = 256
 

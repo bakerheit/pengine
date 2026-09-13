@@ -63,7 +63,21 @@ inline bool apply_player_weapon_pose(const Skeleton& skeleton,
                                      VehicleDriverPose& scratch) {
     using namespace weapon_pose_detail;
     const float weight = ease(state.equip_blend);
-    if (state.weapon != WeaponId::Pistol || weight <= 0.0f) return false;
+    const bool pistol = state.weapon == WeaponId::Pistol;
+    // THE MOLOTOV BORROWS THIS POSE, AND ONLY THE RIGHT ARM OF IT.
+    //
+    // It is the same job at the shoulder — bring the hand up in front of the
+    // chest, hold it at a known orientation, curl the fingers round something
+    // — and the palm socket it produces is the frame app/molotov_visual.cpp
+    // builds the bottle in, exactly as the pistol prop is. Writing a second
+    // solver would mean a second copy of the arm IK, the finger rebuild and
+    // the blend weight, three things that took real work to get right once.
+    //
+    // The SUPPORT hand is skipped, which is the whole of the difference: a
+    // pistol is held in two hands and a bottle is held in one, and posing the
+    // left hand anyway leaves it gripping air beside the glass.
+    const int posed_sides = pistol ? 2 : 1;
+    if ((!pistol && state.weapon != WeaponId::Molotov) || weight <= 0.0f) return false;
     if (!std::isfinite(metres_per_unit) || metres_per_unit <= 0.0f ||
         local.size() != static_cast<std::size_t>(skeleton.bone_count())) return false;
     int chains[2][3]{};
@@ -101,8 +115,14 @@ inline bool apply_player_weapon_pose(const Skeleton& skeleton,
     const float pitch = std::isfinite(state.pitch)
         ? std::clamp(state.pitch, -.95f, .95f) : 0.0f;
 
-    glm::vec3 grip = glm::mix(glm::vec3{.105f, -.29f, .27f},
-                            glm::vec3{.025f, -.065f, .48f}, aim);
+    // A bottle is carried a little lower and further out than a pistol is
+    // held, and taking aim cocks it back rather than pushing it forward: the
+    // player is about to throw the thing, not sight down it.
+    glm::vec3 grip = pistol
+        ? glm::mix(glm::vec3{.105f, -.29f, .27f},
+                   glm::vec3{.025f, -.065f, .48f}, aim)
+        : glm::mix(glm::vec3{.125f, -.19f, .34f},
+                   glm::vec3{.175f, .13f, -.01f}, aim);
     // Raise around the shoulder so high/low aim changes reach as well as the
     // muzzle angle. The IK clamps unreachable endpoints without stretching.
     const glm::quat aim_pitch = glm::angleAxis(-pitch * aim, glm::vec3{1, 0, 0});
@@ -110,7 +130,11 @@ inline bool apply_player_weapon_pose(const Skeleton& skeleton,
     grip = glm::mix(grip, glm::vec3{.115f, -.22f, .25f}, reload);
     grip.y += recoil * .018f;
     grip.z -= recoil * .045f;
-    const float muzzle_pitch = glm::mix(-.62f, pitch, aim) + recoil * .15f;
+    // The bottle stands up: the prop is built along the socket's +Y, so
+    // holding the frame level keeps the neck up and the base in the fist.
+    const float muzzle_pitch = pistol
+        ? glm::mix(-.62f, pitch, aim) + recoil * .15f
+        : glm::mix(-.20f, -.55f, aim);
     const glm::vec3 direction = glm::normalize(
         forward * std::cos(muzzle_pitch) + up * std::sin(muzzle_pitch));
     glm::mat4 frame{1.0f};
@@ -132,7 +156,7 @@ inline bool apply_player_weapon_pose(const Skeleton& skeleton,
         support = glm::mix(support, under_grip, phase(progress, .53f, .65f));
         palms[1] = glm::mix(support, palms[1], phase(progress, .76f, .96f));
     }
-    for (int side = 0; side < 2; ++side) {
+    for (int side = 0; side < posed_sides; ++side) {
         const auto& chain = chains[side];
         const glm::quat hand_rotation = glm::normalize(grip_rotation * glm::inverse(
             glm::quat_cast(glm::mat3{sockets[side]})));
@@ -175,8 +199,10 @@ inline bool apply_player_weapon_pose(const Skeleton& skeleton,
         result.rotation = glm::normalize(glm::slerp(original.rotation, posed.rotation, weight));
         local[index] = bone_pose_matrix(result);
     };
-    for (const auto& chain : chains) for (int bone : chain) blend_joint(bone);
-    for (const auto& chain : fingers) for (int bone : chain) blend_joint(bone);
+    for (int side = 0; side < posed_sides; ++side) {
+        for (int bone : chains[side]) blend_joint(bone);
+        for (int bone : fingers[side]) blend_joint(bone);
+    }
     return true;
 }
 

@@ -747,21 +747,21 @@ void developer_menu_navigates_and_returns_a_teleport() {
     menu.set_selection(1);
     REQUIRE(menu.update(kBtnAccept).player_car==PlayerCarId::HalcyonSovereign);
     menu.update(kBtnBack);
-    menu.set_selection(player_car_brand_index(PlayerCarId::GlrLunge));
+    menu.set_selection(player_car_brand_index(PlayerCarId::GlmLunge));
     menu.update(kBtnAccept);
-    REQUIRE(std::strcmp(menu.title(), "GLR") == 0);
+    REQUIRE(std::strcmp(menu.title(), "GLM") == 0);
     REQUIRE(menu.item_count() == 2);
     REQUIRE(std::strcmp(menu.item_label(0), "LUNGE") == 0);
     REQUIRE(std::strcmp(menu.item_label(1), "ZIP") == 0);
-    const DevMenuAction choose_glr = menu.update(kBtnAccept);
-    REQUIRE(choose_glr.kind == DevMenuActionKind::SetPlayerCar);
-    REQUIRE(choose_glr.player_car == PlayerCarId::GlrLunge);
+    const DevMenuAction choose_glm = menu.update(kBtnAccept);
+    REQUIRE(choose_glm.kind == DevMenuActionKind::SetPlayerCar);
+    REQUIRE(choose_glm.player_car == PlayerCarId::GlmLunge);
 
     menu.set_selection(1);
     const DevMenuAction choose_zip = menu.update(kBtnAccept);
     REQUIRE(choose_zip.kind == DevMenuActionKind::SetPlayerCar);
-    REQUIRE(choose_zip.player_car == PlayerCarId::GlrZip);
-    REQUIRE(menu.player_car() == PlayerCarId::GlrZip);
+    REQUIRE(choose_zip.player_car == PlayerCarId::GlmZip);
+    REQUIRE(menu.player_car() == PlayerCarId::GlmZip);
     REQUIRE(std::strcmp(menu.item_value(1), "ACTIVE") == 0);
 
     menu.update(kBtnBack);

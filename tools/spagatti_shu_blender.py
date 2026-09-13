@@ -190,7 +190,7 @@ def build_vehicle() -> bpy.types.Object:
                         (.72, 2.12, .25), "CLADDING")
 
     # Independent Spagatti silhouette: short rounded prow, high centre arch,
-    # and rear-biased haunches. No GLR stations or targa geometry are reused.
+    # and rear-biased haunches. No GLM stations or targa geometry are reused.
     shell = builder.loft("SculptedBody", [
         (-2.40, body_ring(.74, .43, .53, .57)),
         (-2.24, body_ring(.96, .66, .75, .78)),

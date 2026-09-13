@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Blender source builder for the original neon-green GLR Lunge."""
+"""Blender source builder for the original neon-green GLM Lunge."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pathlib import Path
 import bpy
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from glr_lunge_spec import REGIONS
+from glm_lunge_spec import REGIONS
 from vesper_vx91_blender import VehicleBuilder, assign_uvs, export_emesh
 
 
@@ -191,8 +191,8 @@ def main() -> None:
     body = build_vehicle()
     args.blend.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(args.blend))
-    vertices, triangles = export_emesh(body, args.mesh, "glr_lunge")
-    print(f"GLR_BLENDER body=BODY vertices={vertices} triangles={triangles} "
+    vertices, triangles = export_emesh(body, args.mesh, "glm_lunge")
+    print(f"GLM_BLENDER body=BODY vertices={vertices} triangles={triangles} "
           f"blend={args.blend} mesh={args.mesh}")
 
 

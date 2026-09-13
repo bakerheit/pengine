@@ -1,5 +1,10 @@
 # pengine-apricot
 
+**Probable Cause** is the open-world crime game being built on Apricot.
+Start with the [Design & Lore documentation](docs/README.md) for the game's
+direction, world, characters, businesses and vehicle makers. This README
+covers the engine, build and feature-specific development workflows.
+
 A small **C++17 / OpenGL 3.3** game engine built around one idea: **the
 simulation is a pure function, and the hardware is somewhere else entirely.**
 
@@ -13,31 +18,16 @@ southeast of it. Pinatty's city design is in
 [`docs/design/pinatty.md`](docs/design/pinatty.md); Florangia's terrain pass is in
 [`docs/design/florangia.md`](docs/design/florangia.md).
 
-> **O'Haven has roads and its first roadside block; Florangia has its first
-> land and biome pass.** `src/city/`
-> is real: the map — ten
-> district polygons with their character parameters, thirty landmarks, and the
-> terrain operators the height field evaluates (PENG-41) — and the road network,
-> 99 authored spines and 53.6 km of centreline that bake into 310,160 triangles
-> and draw. You can drive from any district to any other; a headless suite does
-> exactly that with the real vehicle, five times, across the island. The spawn
-> now has a solid gas station, a two-storey U-shaped motel, a three-storey
-> apartment block, and a small drive-through restaurant. Nearby traffic now
-> follows the real lane graph, makes deterministic right-of-way decisions,
-> obeys working traffic lights and stop signs, brakes for the player, and is
-> solid to the player. Play now starts on foot beside the car, with a third-person
-> character controller, enter/exit flow, and deterministic pedestrians drawn
-> from eight stable civilian looks. The pack rigs use the original Probable
-> Cause breathing, walking, and sprinting clips with continuous skeletal
-> interpolation.
-> Police, missions, and the wider building pass
-> are still design only, so keep reading that document as a plan for those. There was previously a placeholder sample game,
-> Apricot Rally, a time trial with checkpoints and lap timing; it was deleted in
-> PENG-23 because it was scaffolding that read as design.
+> **Development status, source review 2026-09-12:** the checkout contains an
+> open-world game slice with authored cities and interiors, on-foot and vehicle
+> traversal, traffic, police response, combat, an opening scene, one delivery
+> mission and checkpoint saves. It does not yet contain a mission campaign.
+> See [Game design](docs/design/README.md) for the current scope and open
+> decisions, and the linked feature records for their dated runtime evidence.
+> This overview is not a fresh validation of all those systems.
 
-> **Status: 0.1.0, early.** The architecture is settled and enforced by the
-> build. What runs today is an engine and a streamed procedural world, not a
-> game. This README says which is which, and never the other way round.
+The former Apricot Rally sample was removed in PENG-23. Its time trials,
+checkpoints and ghost car are not the design for Probable Cause.
 
 ## The three ideas
 
@@ -158,7 +148,9 @@ boarding, dock exit, departure, steering, braking and unsafe-exit rejection.
 texture loader, shaders, scene culling, and renderer used by the game. Use it
 for static meshes and textures.
 
-The pistol wheel now feeds a timed weapon-use state and an upper-body pose layer.
+**The weapon wheel has three slots**: unarmed straight up, the pistol down and
+to the right, the molotov down and to the left. Keys `1`, `2` and `3` pick them
+without the mouse. It feeds a timed weapon-use state and an upper-body pose layer.
 Hold Tab/LB, select the pistol, then hold RMB/LT or toggle Q to aim, LMB/RT to fire one shot
 per press, and R/X to reload. The first uncaptured left click captures the
 mouse. While armed, the controller's left stick moves the player; the triggers
@@ -186,9 +178,10 @@ an officer is permanent too, and his cruiser is abandoned where he parked it.
 Dying is a state the player spends three seconds in: control is frozen, the
 body plays the same authored fall a shot pedestrian does, WASTED holds for the
 whole of it, and the respawn puts you beside your car at full health with the
-pursuit cleared and the pistol holstered. **Ammo, vehicle damage and health are
-still not saved**, and a respawn is always beside the current vehicle — there
-is no hospital routing yet. World hits show brief surface sparks.
+pursuit cleared and the pistol holstered. Ammo and player health are not saved;
+the current checkpoint does preserve vehicle damage and mechanical condition
+(see [Saved games](docs/save-games.md)). A respawn is always beside the current
+vehicle — there is no hospital routing yet. World hits show brief surface sparks.
 Pistol shots use the original Probable Cause
 `Glock17_Shoot_004.wav` recording (stereo, 44.1 kHz), with generated PCM as a
 missing-file fallback. Reload feedback remains generated. Sample bounds are
@@ -201,6 +194,14 @@ because the headless suites cannot see a corpse standing back up or a banner
 playing over a world the player is already driving around in, and both of those
 broke at some point while every test passed.
 
+**Every `--frames` run is unattended.** The window is created hidden, the
+process never enters the desktop's foreground and the OS cursor is never
+captured, so a scripted check running on a machine somebody is also using does
+not steal their keyboard or their pointer. Screenshots are unaffected: they come
+off the GL drawable, which is real either way. `platform/foreground.h` records
+why neither SDL hint that looks like it does this actually does it on macOS.
+Pass `--attended` to watch a capped run instead.
+
 `--weapon-check --frames 900 --daylight --clear --screenshot build/weapon-check`
 exercises equip/cancel/unarmed, aim, semi-auto fire, reload, held-R repeats,
 and blocked wheel clicks, then Q aim, a flick-and-click hit on a real spawned
@@ -209,6 +210,42 @@ buffer swap and include aim and body-hit views.
 The focused suites are `weapon_wheel_tests`, `weapon_use_tests`,
 `weapon_pose_tests`, `weapon_visual_pose_tests`, `weapon_aim_tests`,
 `weapon_hit_tests`, `blood_particles_tests`, and `ped_impact_pose_tests`.
+
+**The molotov is the second weapon, and it is a thrown one.** Five bottles, one
+arm, one bottle at a time: aim with RMB/LT or Q, throw with LMB/RT, and the hand
+is visibly empty for half a second before the next one is up. The bottle is the
+contoured glass soda bottle off the Quequis House kitchen shelves, cooked out of
+the supplied GLB by [`tools/cook_molotov_bottle.py`](tools/cook_molotov_bottle.py)
+into a tracked header — a hundred and four triangles, painted bottle green, with a burning rag
+in the neck. A hip throw lands about seven metres out and an aimed one about
+eleven; the arc is lofted on purpose, because a bottle thrown down the exact
+camera ray lands at your feet.
+
+Where it breaks, the street catches. [`src/game/fire.h`](src/game/fire.h) is a
+bounded grid of burning cells — 64 of them at 1.1 m — that spreads outward from
+the bottle for up to five metres, burns for seven to twelve seconds a cell and
+goes out. Whether a patch catches is `hash_coord3()` of that patch's own
+coordinates, so the same bottle in the same place burns the same shape every
+run. Flames will not climb a wall, catch on ground that is not there, or take
+on a parked car, and they refuse ground at or below sea level; lighting one
+costs 3.5 heat the moment it catches, with no witness needed. Standing in it takes a bite of health every 0.85
+seconds; **pedestrians do not burn yet** — that needs an area-damage query on
+`Crowd` that does not exist. The flames are billboards off a 132-frame sprite
+atlas, two cards per cell on different frames, plus one tiled spot light for the
+whole fire. Glass, whoosh and the crackle loop are recorded takes; see
+[`assets/audio/weapons/SOURCES.md`](assets/audio/weapons/SOURCES.md).
+
+`--molotov-check --frames 1300 --screenshot build/molotov-check` equips the
+molotov off the wheel, turns to the open street, throws one, and watches the
+fire light, spread, burn the player who walks into it, and die back. Along the
+way it asserts that the fire landed on the ground the player is standing on
+rather than on the roof behind the wall it broke against — a bug this check
+found — and that all three recorded takes reached the mixer, because a
+recorded-only clip that fails to load is silent and silence is the one bug a
+screenshot cannot show. Add `--night` to see the fire's own light on the road;
+the check honours it instead of forcing daylight. Eight screenshots, because no
+headless suite can see a flame. The focused suites are `molotov_tests`,
+`fire_tests`, `weapon_wheel_tests` and `weapon_pose_tests`.
 
 **The characters have thirteen clips**, not three: `idle` `walk` `sprint`
 `pistol_idle` `pistol_walk` `pistol_run` `punch_left` `punch_right`

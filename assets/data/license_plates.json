@@ -1,0 +1,82 @@
+[
+  {
+    "state": "OHaven",
+    "series": "Standard",
+    "name": "Harbor Light",
+    "pattern": "@@@@-####",
+    "slogan": "THE HARBOR STATE",
+    "paper": "#eee9d5",
+    "ink": "#183446",
+    "accent": "#355c72"
+  },
+  {
+    "state": "OHaven",
+    "series": "Heritage",
+    "name": "Evergreen",
+    "pattern": "####-@@@@",
+    "slogan": "ROOTED IN O'HAVEN",
+    "paper": "#193d35",
+    "ink": "#f2deb0",
+    "accent": "#bc984e"
+  },
+  {
+    "state": "OHaven",
+    "series": "Commercial",
+    "name": "Working Harbor",
+    "pattern": "C@@@-#####",
+    "slogan": "COMMERCIAL • O'HAVEN",
+    "paper": "#f2cd75",
+    "ink": "#28302c",
+    "accent": "#64533b"
+  },
+  {
+    "state": "OHaven",
+    "series": "Government",
+    "name": "Public Service",
+    "pattern": "G@@@-#####",
+    "slogan": "PUBLIC SERVICE",
+    "paper": "#e2e7e7",
+    "ink": "#172b49",
+    "accent": "#355475"
+  },
+  {
+    "state": "Florangia",
+    "series": "Standard",
+    "name": "Sun Coast",
+    "pattern": "##@@-##@@",
+    "slogan": "THE SUN COAST STATE",
+    "paper": "#f6ecd7",
+    "ink": "#125b59",
+    "accent": "#d77943"
+  },
+  {
+    "state": "Florangia",
+    "series": "Heritage",
+    "name": "Coral Sunset",
+    "pattern": "@@##-@@##",
+    "slogan": "ENDLESS SUMMER",
+    "paper": "#f4d5bd",
+    "ink": "#653849",
+    "accent": "#ba6264"
+  },
+  {
+    "state": "Florangia",
+    "series": "Commercial",
+    "name": "Coast Carrier",
+    "pattern": "#####-@@@C",
+    "slogan": "COMMERCIAL • FLORANGIA",
+    "paper": "#d3e6dd",
+    "ink": "#174b49",
+    "accent": "#36766d"
+  },
+  {
+    "state": "Florangia",
+    "series": "Government",
+    "name": "State Service",
+    "pattern": "#####-@@@G",
+    "slogan": "STATE SERVICE",
+    "paper": "#eeeee4",
+    "ink": "#164f61",
+    "accent": "#b07a2f"
+  }
+]

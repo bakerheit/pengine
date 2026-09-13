@@ -18,7 +18,10 @@
 #include "app/traffic_visual.h"
 #include "app/vehicle_effects.h"
 #include "app/weapon_visual.h"
+#include "app/molotov_visual.h"
 #include "game/weapon.h"
+#include "game/molotov.h"
+#include "game/fire.h"
 #include "game/wanted_system.h"
 #include "game/police_offenses.h"
 #include "game/player_vitals.h"
@@ -101,6 +104,11 @@ public:
     void set_opening_preview(bool enabled) { opening_preview_=enabled; }
     void set_save_path(std::string path) { save_path_=std::move(path); }
     void set_frame_limit(int frames) { frame_limit_ = frames; }
+    // Put a human back at the keyboard of a frame-limited run. --frames
+    // otherwise means the window neither takes focus nor captures the cursor,
+    // which is right for every scripted check and wrong for the one case that
+    // caps frames and still wants to be driven: a perf recording of a lap.
+    void set_attended(bool attended) { attended_ = attended; }
     void set_overhead_qa(bool enabled) { overhead_qa_ = enabled; }
     void set_daylight_qa(bool enabled) { daylight_qa_ = enabled; }
     void set_road_start_qa(bool enabled) { road_start_qa_ = enabled; }
@@ -134,6 +142,10 @@ public:
         return police_officer_check_done_ && !police_officer_check_failed_;
     }
     void set_start_wanted(int level) { start_wanted_level_=level; }
+    void set_molotov_check(bool enabled) { molotov_check_=enabled; }
+    bool molotov_check_passed() const {
+        return molotov_check_done_ && !molotov_check_failed_;
+    }
     void set_weapon_check(bool enabled) { weapon_check_=enabled; }
     bool weapon_check_passed() const {
         return weapon_check_captures_==255 && weapon_hit_check_done_ && !weapon_hit_check_failed_;
@@ -299,7 +311,7 @@ private:
     VehicleEntryTarget nearby_vehicle() const;
     bool take_nearby_vehicle(const VehicleEntryTarget& target);
     bool begin_vehicle_transition(const VehicleEntryTarget& target, bool entering);
-    bool vehicle_transition_door_clear(PlayerCarId car, const Transform& body) const;
+    bool vehicle_transition_door_clear(PlayerCarId car, const Transform& body, bool passenger=false) const;
     void step_vehicle_transition();
     bool vehicle_transition_route_clear(glm::vec3 from, glm::vec3 to, float ground) const;
     void cancel_vehicle_transition();
@@ -385,6 +397,8 @@ private:
     bool weapon_aim_mouse_=false, weapon_aim_pad_=false, weapon_aim_toggle_=false;
     bool weapon_fire_pad_=false, weapon_fire_pending_=false, weapon_reload_pending_=false;
     bool weapon_focus_=true;
+    // Set from --attended; see set_attended(). Only consulted once, at init.
+    bool attended_=false;
     unsigned weapon_shots_=0;
     unsigned weapon_body_hits_=0;
     // Bodies, not hits. Counted apart because three rounds into one person and
@@ -397,6 +411,43 @@ private:
     void step_weapon_use(bool available, float dt);
     void tick_weapon_hit_check();
     void capture_weapon_hit_check();
+
+    // The molotov and the fire it leaves. Kept beside the pistol rather than
+    // inside it: a thrown bottle and a hitscan round share the wheel, the palm
+    // socket and the aim camera, and nothing else. See game/molotov.h.
+    MolotovUseState molotov_use_;
+    MolotovProjectiles molotov_shots_;
+    FireField fire_;
+    // The flame atlas, owned once and shared: the fire on the ground and the
+    // lit rag on the bottle are the same 132 frames at very different sizes.
+    FireSprites fire_sprites_;
+    MolotovVisual molotov_visual_;
+    FireVisual fire_visual_;
+    PcmClip molotov_glass_clip_,molotov_whoosh_clip_,fire_loop_clip_;
+    // ONE looping voice for the whole field, moved to the burning centroid and
+    // gained by total burn. A voice per cell would spend sixty of the mixer's
+    // thirty-two loop slots on one bottle and phase sixty copies of the same
+    // crackle against each other.
+    VoiceHandle fire_voice_{};
+    bool molotov_throw_pending_=false,molotov_throw_pad_=false;
+    unsigned molotov_throws_=0,molotov_fires_lit_=0;
+    // Seconds of standing in flames still owed to the player's health. Fire
+    // damage is charged in whole bites on a timer rather than per step, so the
+    // hit reads as a burn and not as a health bar sliding to zero.
+    float fire_player_damage_timer_=0.f;
+    // --molotov-check. See src/app/molotov_check.cpp for what it drives and
+    // why no headless suite can replace it: nothing in ctest can see a flame.
+    bool molotov_check_=false,molotov_check_done_=false,molotov_check_failed_=false;
+    unsigned molotov_check_captures_=0;
+    std::size_t molotov_check_peak_cells_=0;
+    float fire_check_health_=0.f;
+    glm::vec2 fire_check_start_{0.f};
+    void tick_molotov_check();
+    void capture_molotov_check();
+    void step_molotov(bool available, float dt);
+    void break_molotov(glm::vec3 spill, uint64_t throw_id);
+    void step_fire(float dt);
+    void append_fire_light(std::vector<TrafficSpotLight>& lights) const;
     // --damage-check. See src/app/damage_check.cpp for what it drives and why
     // a headless suite cannot replace it.
     bool damage_check_=false;
@@ -616,6 +667,8 @@ private:
     // No car is both, so the two never contend for the key.
     MistralSoftTop soft_top_;
     bool soft_top_toggle_pending_=false;
+    float passenger_door_open_=0.f;
+    bool passenger_door_target_=false;
     bool police_check_=false;
     int start_wanted_level_=0;
     unsigned police_check_captures_=0;

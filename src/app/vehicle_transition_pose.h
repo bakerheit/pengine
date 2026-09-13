@@ -30,6 +30,7 @@ inline void exit_pose(PlayerCarId car, const Skeleton& skeleton, const Transform
     const float u = 1.f - std::clamp(sample.traverse, 0.f, 1.f);
     const auto& layout = vehicle_driver_layout(car);
     const auto door = vehicle_driver_door(car);
+    const bool low_sports_cabin=car==PlayerCarId::VesperScythe || car==PlayerCarId::EmberGt;
     const int hips = skeleton.find_bone("mixamorig:Hips");
     const auto point = [&](const VehicleDriverPose& pose, int bone) {
         return pose.world.transform_point(glm::vec3{pose.joints[static_cast<std::size_t>(bone)][3]});
@@ -60,7 +61,7 @@ inline void exit_pose(PlayerCarId car, const Skeleton& skeleton, const Transform
     hip.y = glm::mix(seat_hip.y, stand_hip.y, rise) - crouch*ramp(u,.18f,.40f)*(1.f-rise);
     // Shift toward the planted foot while still crouched under the door frame.
     hip -= outward * (.06f * ramp(u,.22f,.43f) * (1.f-ramp(u,.60f,.9f)));
-    if(car==PlayerCarId::VesperScythe) {
+    if(low_sports_cabin) {
         // Rise over the exotic's wide sill while folding the torso through
         // the open doorway; its low seat cannot simply swivel at cushion height.
         hip.y+=.12f*ramp(u,.16f,.36f)*(1.f-rise);
@@ -70,7 +71,7 @@ inline void exit_pose(PlayerCarId car, const Skeleton& skeleton, const Transform
         hip+=outward*(.10f*ramp(u,.20f,.40f)*(1.f-ramp(u,.65f,.90f)));
     out.world.position = hip - out.world.rotation *
         (out.world.scale * glm::vec3{out.joints[static_cast<std::size_t>(hips)][3]});
-    if(car==PlayerCarId::VesperScythe) {
+    if(low_sports_cabin) {
         const int spine=skeleton.find_bone("mixamorig:Spine");
         if(spine>=0) {
             const float lean=ramp(u,.08f,.25f)*(1.f-ramp(u,.62f,.90f));
@@ -103,7 +104,7 @@ inline void exit_pose(PlayerCarId car, const Skeleton& skeleton, const Transform
         const float begin = side==1 ? .04f : .43f;
         const float crest = side==1 ? .25f : .62f;
         const float plant = side==1 ? .46f : .84f;
-        const float foot_lift=car==PlayerCarId::VesperScythe?.13f:.11f;
+        const float foot_lift=car==PlayerCarId::EmberGt?.15f:low_sports_cabin?.13f:.11f;
         auto sill = body.transform_point({door.hinge.x+.16f,door.sill_y+foot_lift,
                                           layout.hip.z+(side==1?.16f:-.06f)});
         // Two eased arcs lift the sole above the sill before lowering it.
@@ -137,7 +138,7 @@ inline void exit_pose(PlayerCarId car, const Skeleton& skeleton, const Transform
             ? (is_municipal_cruiser_91(car) && side==0 ? .10f : 1.f)
             : ramp(u,0.f,.15f);
         const float weight = solve_weight*(1.f-ramp(u,.90f,1.f));
-        const float extension_margin=car==PlayerCarId::VesperScythe ||
+        const float extension_margin=car==PlayerCarId::EmberGt ? .026f/out.world.scale.y : low_sports_cabin ||
             car==PlayerCarId::HalcyonSovereign || is_municipal_cruiser_91(car)
             ? .018f/out.world.scale.y : .001f;
         solve(name,"UpLeg","Leg","Foot",target,pole,weight,extension_margin);
@@ -272,7 +273,7 @@ inline bool make_vehicle_transition_pose(
     // A full-size sedan door on a 68-degree hinge sweeps its handle as far as
     // a fleet cruiser's does, and pulling that inside the short reach window
     // moves the hand faster than the rest of the body can follow.
-    const bool long_door = is_municipal_cruiser_91(car) ||
+    const bool long_door = is_municipal_cruiser_91(car) || car==PlayerCarId::EmberGt ||
         car == PlayerCarId::LegacyCar5Next ||
         car == PlayerCarId::LegacyCar5NextPolice;
     // Release long truck/fleet-sedan doors before they reach the stop, keeping

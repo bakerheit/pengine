@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="296" viewBox="0 0 320 148" role="img" aria-labelledby="bwc-title bwc-description">
+  <title id="bwc-title">BWC — Belgium Working Coach</title>
+  <desc id="bwc-description">A silver-edged black roundel with curved BWC lettering and a black, yellow and red quartered center.</desc>
+  <defs>
+    <clipPath id="bwc-center"><circle cx="160" cy="78" r="38"/></clipPath>
+    <path id="bwc-letter-arc" d="M116 73 A44 44 0 0 1 204 73"/>
+  </defs>
+  <rect width="320" height="148" fill="#e4e4df"/>
+  <circle cx="160" cy="74" r="64" fill="#aeb1ae"/>
+  <circle cx="160" cy="74" r="59" fill="#111315"/>
+  <circle cx="160" cy="78" r="43" fill="#d8d9d4"/>
+  <g clip-path="url(#bwc-center)">
+    <rect x="122" y="40" width="38" height="38" fill="#17191b"/>
+    <rect x="160" y="40" width="38" height="38" fill="#f3c51b"/>
+    <rect x="122" y="78" width="38" height="38" fill="#d22831"/>
+    <rect x="160" y="78" width="38" height="38" fill="#f3c51b"/>
+  </g>
+  <path d="M160 40v76M122 78h76" stroke="#e6e7e2" stroke-width="3"/>
+  <circle cx="160" cy="78" r="38" fill="none" stroke="#090a0b" stroke-width="2"/>
+  <text fill="#f1f1ec" font-family="Arial Black,Arial,sans-serif" font-size="15" font-weight="900" letter-spacing="4"><textPath href="#bwc-letter-arc" startOffset="50%" text-anchor="middle">BWC</textPath></text>
+  <circle cx="126" cy="45" r="3" fill="#f3c51b"/>
+  <circle cx="194" cy="45" r="3" fill="#d22831"/>
+</svg>

@@ -34,6 +34,9 @@ target_sources(apricot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/character_identity_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/vehicle_effects.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/vehicle_interaction.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/molotov_check.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/molotov_gameplay.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/molotov_visual.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/weapon_visual.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/weapon_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/world.cpp
