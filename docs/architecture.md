@@ -614,6 +614,33 @@ object, so it *could* live in `core` — it does not, because letting sim code
 hold a camera is how "just cull against the camera" turns into gameplay that
 depends on where the player was looking.
 
+**A composed shot must be scored with the obstruction pass's own tests, or it
+is not the shot that draws.** `App::update_camera` runs every pose through one
+pass: a ray from the collision pivot to the eye pulls the eye in to 0.35 m
+short of the first thing it hits, immediately, and a clamp lifts it to 1.2 m
+above the ground. A pose chosen by eye — "a few metres back and off to the
+side" — gets dragged in the first frame there's a wall or a lift column in
+that ray, and the picture that draws is not the one anyone framed.
+`src/app/respray_camera.h` frames the car at Rook's Auto Repair left of the
+paint picker by scoring an ordered list of candidate directions against the
+real collider — the ray clear to the eye plus the same 0.35 m, the eye above
+the same clamp, all eight corners of the car's body box in line of sight, and
+the sight kept under Rook's roof and out over the office divider's open top,
+neither of which is solid, so no ray sees them — and taking the first that
+clears. Nothing in `App` calls it yet.
+
+What it costs. The 0.35 m and the 1.2 m are restated in the header, and nothing
+ties them to the literals in `update_camera`: change one there and the chooser
+keeps scoring the old one. The caller must disable the driven car's own
+kinematic box first, as `update_camera` does; left enabled, every ray starts
+inside it and nothing clears. And it is a search: measured at 0.23 ms mean and
+2.6 ms worst per call against Rook's boxes alone, and `line_of_sight_blocked`
+scans every static box, so it grows with the world — run it once when the
+picker opens, never per frame. Against all 32 drivable cars in both bays,
+19,664 reachable poses, every sight cleared. Before the ground clamp became part
+of the fit, a Fang Venom wedged into the back of bay -9 fell through to the
+fallback: the bike fit so close that its eye was under the clamp.
+
 **Guard the aspect ratio.** A minimised window reports height 0; an aspect of
 infinity produces an all-NaN projection matrix, which poisons the frustum and
 culls the entire world for the rest of the session.
