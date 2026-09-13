@@ -256,6 +256,10 @@ apricot_add_suite(gun_store_tests)
 
 apricot_add_suite(repair_shop_tests)
 
+# Rook's respray bay camera, scored against the real baked garage with the
+# obstruction pass's own raycast and the police line-of-sight query.
+apricot_add_suite(respray_camera_tests)
+
 # Nearby skyline landmarks preserve authored streets and foot access.
 apricot_add_suite(neighborhood_towers_tests)
 apricot_add_suite(construction_expansion_tests)
