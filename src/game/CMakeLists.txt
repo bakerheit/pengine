@@ -6,4 +6,5 @@ target_sources(apricot_sim PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/save_game.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/conditions.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/wanted_system.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/vehicle_paint.cpp
 )

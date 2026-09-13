@@ -333,3 +333,7 @@ apricot_add_suite(license_plate_tests)
 # The visibility query that replaced a contact raycast in police line of
 # sight, checked against the predicate it replaced.
 apricot_add_suite(line_of_sight_tests)
+
+# The respray recolour core (game/vehicle_paint.h), held to tools/paint_lab.py
+# by tests/vehicle_paint_golden.inc (tools/paint_profiles.py golden).
+apricot_add_suite(vehicle_paint_tests)
