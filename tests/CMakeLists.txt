@@ -180,6 +180,9 @@ apricot_add_suite(audio_engine_tone_tests)
 apricot_add_suite(audio_vehicle_runtime_tests)
 apricot_add_suite(traffic_horn_audio_tests)
 apricot_add_suite(audio_city_runtime_tests)
+# Rook's respray booth: the spray hiss and the three outcome stingers
+# (app/respray_audio.h), measured off the real samples and the real mixer.
+apricot_add_suite(respray_audio_tests)
 
 # city (PENG-29). The Pinatty decision layers lifted out of probablecause, with
 # the tests that were pinning them there. They came across because a lifted
