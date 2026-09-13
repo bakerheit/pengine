@@ -233,6 +233,8 @@ the triangulation `hud.cpp` actually submits:
 | 16×16 | 0.25 |
 | 32×32 | 0.06 |
 
+A GL readback of a real `Hud` pass agreed to within 8-bit rounding (8×8 read
+1.47 levels worst, 32×32 read 0.56), with no crack pixels at any grid size.
 8×8 is the knee: one level at worst, 384 vertices. Counts clamp to 1..32 (6144
 vertices, about 190 KiB of that frame's upload), and a zero-area rect queues
 nothing.
