@@ -42,6 +42,9 @@ bool validate_game_save(const GameSave& d, std::string& error) {
     else if (!range(glm::dot(d.car_rotation,d.car_rotation),.999f,1.001f) || !range(d.car_health,0,100)) error = "Invalid saved vehicle.";
     else if (d.sim_step > (uint64_t{1} << 53)) error = "Invalid saved clock.";
     else if (!valid_registration(d.car_registration)) error = "Invalid saved license plate.";
+    // One encoding per state: an unpainted car carries no colour, so two saves
+    // of the same car never differ in bytes the game ignores.
+    else if (!d.car_has_paint && d.car_paint != PaintColor{}) error = "Invalid saved paint.";
     for (float zone : d.car_damage.zones) if (!range(zone,0,1)) error = "Invalid saved damage.";
     for (const auto& s : d.car_damage.stamps) {
         if (!range(s.contact_xz.x,-1,1) || !range(s.contact_xz.y,-1,1) || !range(s.severity,0,1) || !range(s.motion_angle,-10000,10000) || !range(s.radius,0,1) || !range(s.height,0,1) || !range(s.glancing,0,1)) error = "Invalid saved dent.";
@@ -82,8 +85,10 @@ bool encode_game_save(const GameSave& d, std::string& bytes, std::string& error)
       << d.trailer.position.y << ' ' << d.trailer.position.z << ' ' << d.trailer.yaw << ' ' << d.trailer.pitch << '\n';
     b << int(d.car_registration.state) << ' ' << int(d.car_registration.series) << ' '
       << d.car_registration.number << '\n';
+    b << int(d.car_paint_base) << ' ' << d.car_has_paint << ' ' << int(d.car_paint.r) << ' '
+      << int(d.car_paint.g) << ' ' << int(d.car_paint.b) << '\n';
     const auto body = b.str();
-    bytes = "APRICOT_SAVE 3\n" + std::to_string(checksum(body)) + "\n" + body;
+    bytes = "APRICOT_SAVE 4\n" + std::to_string(checksum(body)) + "\n" + body;
     return true;
 }
 
@@ -92,9 +97,11 @@ bool decode_game_save(const std::string& bytes, GameSave& out, std::string& erro
     if (bytes.size() > 16384) return false;
     const auto first = bytes.find('\n'), second = first == std::string::npos ? first : bytes.find('\n',first+1);
     if (first == std::string::npos || second == std::string::npos) return false;
-    const bool version2=bytes.substr(0,first)=="APRICOT_SAVE 2";
-    const bool version3=bytes.substr(0,first)=="APRICOT_SAVE 3";
-    if (!version3 && !version2 && bytes.substr(0,first) != "APRICOT_SAVE 1") { error = "Unsupported save version."; return false; }
+    // Each version appends one row to the one before: 2 the trailer, 3 the
+    // plate, 4 the paint. Rows are never reordered, so older bodies still parse.
+    int version=0;
+    for (int v=1;v<=4;++v) if (bytes.compare(0,first,"APRICOT_SAVE "+std::to_string(v))==0) version=v;
+    if (version==0) { error = "Unsupported save version."; return false; }
     uint64_t expected = 0;
     std::istringstream header(bytes.substr(first+1,second-first-1));
     if (!(header >> expected) || !(header >> std::ws).eof()) return false;
@@ -112,13 +119,13 @@ bool decode_game_save(const std::string& bytes, GameSave& out, std::string& erro
     for (auto& s : d.car_damage.stamps) b >> s.contact_xz.x >> s.contact_xz.y >> s.severity >> s.motion_angle >> s.radius >> s.height >> s.glancing;
     auto& m=d.car_mechanical;
     b >> m.oil_remaining >> m.fuel_remaining >> m.oil_lifetime_s >> m.fuel_lifetime_s >> failed;
-    if(version2 || version3) {
+    if(version>=2) {
         int present=0,attached=0;
         b >> present >> attached >> d.trailer.position.x >> d.trailer.position.y >> d.trailer.position.z >> d.trailer.yaw >> d.trailer.pitch;
         if(present<0 || present>1 || attached<0 || attached>1 || (!present && attached))return false;
         d.has_trailer=present!=0;d.trailer.attached=attached!=0;
     }
-    if (version3) {
+    if (version>=3) {
         int state=0,series=0;
         int64_t number=0;
         b >> state >> series >> number;
@@ -127,8 +134,18 @@ bool decode_game_save(const std::string& bytes, GameSave& out, std::string& erro
         d.car_registration.series=static_cast<PlateSeries>(series);
         d.car_registration.number=static_cast<uint64_t>(number);
     }
+    // Before version 4 every car wore its stock paint: base 0, no respray.
+    if (version>=4) {
+        int base=0,painted=0,r=0,g=0,bl=0;
+        b >> base >> painted >> r >> g >> bl;
+        if (base<0 || base>255 || painted<0 || painted>1 || r<0 || r>255 || g<0 || g>255 ||
+            bl<0 || bl>255) return false;
+        d.car_paint_base=static_cast<uint8_t>(base);
+        d.car_has_paint=painted!=0;
+        d.car_paint={static_cast<uint8_t>(r),static_cast<uint8_t>(g),static_cast<uint8_t>(bl)};
+    }
     if (!b || !(b >> std::ws).eof() || failed < 0 || failed > 1) return false;
-    if (!version3 && d.car_model>=0 && d.car_model<static_cast<int>(kPlayerCarCount))
+    if (version<3 && d.car_model>=0 && d.car_model<static_cast<int>(kPlayerCarCount))
         d.car_registration=player_registration(static_cast<PlayerCarId>(d.car_model),d.car_key,
             d.car_position.x,d.car_position.z);
     m.engine_failed=failed!=0;
