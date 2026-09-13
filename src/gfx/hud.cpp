@@ -21,6 +21,11 @@ constexpr GLuint kAtlasUnit = 0;
 // logo art or the layout code's authored sizes.
 constexpr float kUiTextScale = 1.21f;
 
+// Upper bound on gradient_rect()'s cells per axis. 32x32 is 6144 vertices,
+// about 200 KB of the per-frame upload for one rect; well past the grid where
+// the bilinear error stops being visible (see src/gfx/README.md).
+constexpr int kMaxGradientCells = 32;
+
 const void* attrib_offset(std::size_t bytes) {
     return reinterpret_cast<const void*>(bytes);
 }
@@ -242,6 +247,47 @@ void Hud::push_triangle(Vertex a, Vertex b, Vertex c) {
 
 void Hud::triangle(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec4 color) {
     colored_triangle(a, b, c, color, color, color);
+}
+
+void Hud::gradient_triangle(glm::vec2 a, glm::vec2 b, glm::vec2 c,
+                            glm::vec4 ca, glm::vec4 cb, glm::vec4 cc) {
+    colored_triangle(a, b, c, ca, cb, cc);
+}
+
+void Hud::gradient_rect(glm::vec2 min_px, glm::vec2 max_px, glm::vec4 top_left,
+                        glm::vec4 top_right, glm::vec4 bottom_right,
+                        glm::vec4 bottom_left, int cols, int rows) {
+    if (!in_pass_) return;
+    // Same early-out as push_quad: a zero-area rect would still queue every
+    // cell of its grid.
+    if (!(max_px.x > min_px.x) || !(max_px.y > min_px.y)) return;
+    cols = std::clamp(cols, 1, kMaxGradientCells);
+    rows = std::clamp(rows, 1, kMaxGradientCells);
+
+    const GlyphUV s = using_ui_font_ ? ui_font_.solid : solid_uv();
+    const glm::vec2 uv{s.u0, s.v0};
+    // Every grid line is computed from its own index as i / n, never by
+    // accumulating a step, so the edge two neighbouring cells share is the
+    // same float in both and the far edge lands exactly on max_px. An
+    // accumulated step leaves hairline cracks the clear colour shows through.
+    const auto corner = [&](int col, int row) {
+        const float u = static_cast<float>(col) / static_cast<float>(cols);
+        const float v = static_cast<float>(row) / static_cast<float>(rows);
+        const glm::vec4 colour = glm::mix(glm::mix(top_left, top_right, u),
+                                          glm::mix(bottom_left, bottom_right, u), v);
+        return Vertex{{glm::mix(min_px.x, max_px.x, u), glm::mix(min_px.y, max_px.y, v)},
+                      uv, colour};
+    };
+    for (int row = 0; row < rows; ++row) {
+        for (int col = 0; col < cols; ++col) {
+            const Vertex a = corner(col, row);
+            const Vertex b = corner(col + 1, row);
+            const Vertex c = corner(col + 1, row + 1);
+            const Vertex d = corner(col, row + 1);
+            push_triangle(a, b, c);
+            push_triangle(a, c, d);
+        }
+    }
 }
 
 void Hud::smooth_line(glm::vec2 a, glm::vec2 b, float thickness, glm::vec4 color) {
