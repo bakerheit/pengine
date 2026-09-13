@@ -1,0 +1,9 @@
+{
+  "slug": "montrose_regent_eight",
+  "grade": "good",
+  "stock": "montrose_regent_eight/body_surface.png",
+  "coverage": [["montrose_regent_eight", ["body_surface"]]],
+  "refs": [{"rgb": [30, 42, 31]}],
+  "tol": {"c": 0.04, "dark": 0.06, "fc": 0.03, "fl": 0.04, "light": 0.17},
+  "clean": 0
+}

@@ -18,6 +18,7 @@
 #include "app/vehicle_headlight_profile.h"
 #include "app/vehicle_driver_pose.h"
 #include "app/vehicle_driver_door.h"
+#include "app/vehicle_paint_catalog.h"
 #include "core/asset_root.h"
 #include "core/emesh_reader.h"
 #include "core/log.h"
@@ -61,10 +62,10 @@ bool PlayerCarVisual::load_model(
 
     out.plate_mounts=vehicle_plate_mounts(body,definition.mesh_path);
     Texture body_texture;
-    // Workman's articulated cab uses the existing semantic atlas, not the
-    // repacked exterior-only body_surface UV charts used by its legacy mesh.
-    const char* texture_path = definition.id == PlayerCarId::HarrowWorkman
-        ? "textures/vehicles/harrow_workman/body.png" : definition.texture_path;
+    // The catalog's atlas, except Workman's semantic body.png. The paint
+    // profile lookup keys on the same function, so a respray repaints the
+    // atlas this loads.
+    const char* texture_path = player_car_body_texture_path(definition.id);
     if (!body_texture.load_file(asset_path(texture_path))) {
         AP_ERROR("player car: paint '%s %s' failed to load",
                  definition.brand, definition.model);

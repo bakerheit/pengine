@@ -1,0 +1,10 @@
+{
+  "slug": "fang_venom_v2",
+  "grade": "good",
+  "stock": "fang_venom_v2/body.png",
+  "coverage": [["fang_venom_v2", []]],
+  "refs": [{"uv": [8, 20, 100, 84]}, {"uv": [120, 20, 186, 84]}, {"uv": [198, 20, 250, 84]}],
+  "tol": {"c": 0.06, "dark": 0.12, "fc": 0.03, "fl": 0.05, "light": 0.25},
+  "include": [[0, 0, 112, 96], [112, 0, 192, 96], [192, 0, 256, 96]],
+  "clean": 0
+}

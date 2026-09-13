@@ -1,0 +1,11 @@
+{
+  "slug": "rodeo_grazer",
+  "grade": "good",
+  "stock": "rodeo_grazer/body.png",
+  "coverage": [["rodeo_grazer", []]],
+  "refs": [{"uv": [10, 4, 120, 50]}, {"uv": [140, 4, 250, 120]}, {"tol": {"dark": 0.02, "fl": 0.012, "light": 0.07}, "uv": [40, 246, 62, 256]}],
+  "tol": {"c": 0.02, "dark": 0.06, "fc": 0.015, "fl": 0.02, "light": 0.05},
+  "exclude_refs": [{"rgb": [150, 165, 173], "tol": {"c": 0.05, "dark": 0.14, "fc": 0.02, "fl": 0.02, "light": 0.2}}],
+  "include": [[0, 0, 128, 128], [128, 0, 256, 128], [0, 224, 64, 256]],
+  "clean": 0
+}

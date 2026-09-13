@@ -1,0 +1,10 @@
+{
+  "slug": "ember_gt",
+  "grade": "exact",
+  "stock": "ember_gt/body.png",
+  "coverage": [["ember_gt", []]],
+  "refs": [{"uv": [4, 4, 60, 60]}, {"uv": [68, 4, 124, 60]}],
+  "tol": {"c": 0.08, "dark": 0.15, "fc": 0.04, "fl": 0.05, "light": 0.15},
+  "include": [[0, 0, 128, 64]],
+  "clean": 0
+}

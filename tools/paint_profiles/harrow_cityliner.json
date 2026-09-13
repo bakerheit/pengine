@@ -1,0 +1,10 @@
+{
+  "slug": "harrow_cityliner",
+  "grade": "exact",
+  "stock": "harrow_cityliner/body.png",
+  "coverage": [["harrow_cityliner", []]],
+  "refs": [{"rgb": [221, 218, 193]}],
+  "tol": {"c": 0.01, "dark": 0.01, "fc": 0.006, "fl": 0.006, "light": 0.01},
+  "include": [[4, 4, 252, 66], [4, 70, 252, 132], [4, 136, 100, 252], [104, 136, 192, 252], [196, 136, 252, 196], [224, 228, 252, 252]],
+  "clean": 0
+}
