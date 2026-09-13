@@ -1,0 +1,11 @@
+{
+  "slug": "car5",
+  "grade": "good",
+  "stock": "car5/body.png",
+  "alternates": ["car5/green.png", "car5/grey.png", {"atlas": "car5/taxi.png", "alias_of": "car5/body.png"}],
+  "coverage": [["car5", ["body"]], ["car5_next", ["body", "body_open", "driver_door"]]],
+  "refs": [{"uv": [40, 40, 56, 56]}],
+  "tol": {"c": 0.15, "dark": 0.3, "fc": 0.06, "fl": 0.06, "light": 0.25},
+  "exclude": [[105, 4, 128, 12], [77, 4, 81, 10], [0, 112, 5, 119], [122, 112, 126, 117]],
+  "clean": 0
+}

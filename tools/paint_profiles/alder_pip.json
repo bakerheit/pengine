@@ -1,0 +1,9 @@
+{
+  "slug": "alder_pip",
+  "grade": "exact",
+  "stock": "alder_pip/body.png",
+  "coverage": [["alder_pip", []]],
+  "refs": [{"rgb": [191, 160, 79]}, {"rgb": [210, 183, 112]}, {"rgb": [111, 95, 51]}, {"rgb": [79, 75, 53]}],
+  "tol": {"c": 0.025, "dark": 0.06, "fc": 0.02, "fl": 0.02, "light": 0.03},
+  "clean": 0
+}

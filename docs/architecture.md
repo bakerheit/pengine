@@ -655,6 +655,34 @@ exactly the kind of optimisation that quietly stops being exact, so the suite
 holds it bit for bit to `recolour_paint_per_texel()`, the definition it replaces.
 The booth that calls any of this is not wired into the app yet.
 
+**Every drivable car has a paint profile or is named as pending, and a test
+enforces it.** "Every car can be painted" is a promise about a list that keeps
+growing. A respray looks a car's paint up by the atlas it wears. That atlas
+comes from `player_car_body_texture_path`, the same function
+`PlayerCarVisual::load_model` loads from, so the texture on the car and the
+profile a respray picks can't name different files. The lookup is a table that
+`tools/paint_profiles.py emit` generates from `tools/paint_profiles/*.json`.
+`vehicle_paint_profiles_tests` walks every `PlayerCarId` and fails for any car
+that has neither a profile nor an entry in `kPaintProfilePending`
+(`src/app/vehicle_paint_catalog.h`), and its message says which of the two to
+do. Without the test, a car nobody profiled would just lose its respray, and the
+first report would be a player at Rook's with no option. An entry that gains a
+profile fails too, so the pending list can't rot. It is empty today.
+
+What it costs is paid by whoever adds the next car. They either author a
+profile or add one line to `kPaintProfilePending`. Authoring means tuning it in
+`tools/paint_lab.py` against the real atlas (numpy and Pillow), looking at its
+contact sheets, then running `emit`, `check` and `lamps`. The pending line
+means that car goes without a respray until someone writes the profile. The
+table is also held to its JSON by digest, so a profile edit without `emit` fails
+ctest instead of shipping stale params, and even a whitespace-only JSON change
+needs a regenerate. What ctest can't hold is the art. Rects are pixel boxes on
+one cook, so `check` re-derives every mask from the real PNGs and `lamps` fails
+if a mask reaches a brake or lightbar lens. Both need numpy and a PNG decoder,
+so they stay manual and out of `tools/ci.sh`. Four atlases really do carry red
+body paint inside a brake box, which glows when braking today, and `lamps` pins
+each of them by count in `KNOWN_RED_BRAKE_PAINT`.
+
 *Status in apricot:* **there is a render pass, and this note used to say there
 was not.** `gl_state`, `Shader`, `Texture` (procedural plus authored PNG paint),
 `Mesh` including cooked static `.emesh` geometry and the instanced attribute

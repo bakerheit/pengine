@@ -1,0 +1,11 @@
+{
+  "slug": "halcyon_six",
+  "grade": "rough",
+  "stock": "halcyon_six/body_surface.png",
+  "coverage": [["halcyon_six", ["body_surface"]]],
+  "refs": [{"rgb": [22, 38, 66]}],
+  "tol": {"c": 0.07, "dark": 0.15, "fc": 0.05, "fl": 0.06, "light": 0.25},
+  "exclude": [[9, 134, 30, 147], [9, 158, 30, 168], [52, 134, 61, 154], [52, 158, 61, 178], [127, 105, 159, 118], [93, 227, 128, 240]],
+  "clean": 1,
+  "grow": [1, 0.04, 0.2]
+}

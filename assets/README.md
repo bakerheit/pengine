@@ -37,6 +37,32 @@ recording, so all three transitions keep the same engine character.
 Do not put source `.blend`, `.fbx`, `.obj` or `.mtl` files in this runtime
 tree. Apricot currently consumes cooked `.emesh` plus PNG paint directly.
 
+## Vehicle paint profiles
+
+Every atlas under `textures/vehicles/` that a drivable car wears has a paint
+profile in `tools/paint_profiles/<slug>.json`, saying which texels are paint for
+the respray recolour (`src/game/vehicle_paint.h`). One file covers a stock atlas
+and the liveries that share its UVs, so `car5.json` also covers `green`, `grey`
+and `taxi`. `python3 tools/paint_profiles.py emit` compiles the set into
+`src/game/vehicle_paint_profiles.inc`. Never edit that file:
+`vehicle_paint_profiles_tests` holds it to the JSON by digest.
+
+A profile is tuned against one cook of one atlas, and its rects are pixel boxes
+on that cook. Re-cooking a vehicle texture can leave a profile painting the
+wrong texels, and nothing in ctest can see it. Rerunning
+`tools/bake_vehicle_surfaces.py` is the likeliest way, because it repacks the
+`body_surface.png` charts that the halcyon_six and firetruck rects depend on.
+After any vehicle texture change, run these:
+
+- `python3 tools/paint_profiles.py check` re-derives every mask with the lab and
+  marks any atlas whose painted-texel count, weight sum or base colour moved.
+- `python3 tools/paint_profiles.py lamps` fails if a mask reaches a brake or
+  lightbar lens.
+- `python3 tools/paint_profiles.py sheet <slug>` renders contact sheets to look
+  at.
+
+All three need numpy and Pillow, and none is part of `tools/ci.sh`.
+
 ## Imported from the Probable Cause alpha
 
 `models/vehicles/car5/body.emesh`, `car8/body.emesh`, and

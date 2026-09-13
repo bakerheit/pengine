@@ -1,0 +1,10 @@
+{
+  "slug": "municipal_cruiser_91a",
+  "grade": "good",
+  "stock": "municipal_cruiser_91a/body.png",
+  "coverage": [["municipal_cruiser_91a", ["body_open", "driver_door"]]],
+  "refs": [{"uv": [6, 20, 38, 60]}, {"uv": [44, 12, 80, 56]}],
+  "tol": {"c": 0.1, "dark": 0.2, "fc": 0.05, "fl": 0.05, "light": 0.1},
+  "include": [[4, 4, 124, 64], [4, 132, 124, 176], [128, 132, 252, 176]],
+  "clean": 0
+}
