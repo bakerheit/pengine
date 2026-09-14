@@ -332,6 +332,76 @@ void aliases_and_regions_resolve() {
     apricot_test::pass("taxi resolves to car5/body.png, and alternates carry their region");
 }
 
+// A stolen traffic car keeps the livery it was driving in, as a paint base,
+// and a respray recolours that atlas. So every traffic livery needs a profile
+// (or its player car is pending), and the base a theft records must name the
+// very atlas traffic drew the car in.
+void traffic_liveries_have_profiles_and_bases() {
+    constexpr TrafficVehicleKind kKinds[] = {
+        TrafficVehicleKind::Sedan, TrafficVehicleKind::BoxTruck, TrafficVehicleKind::Ambulance,
+        TrafficVehicleKind::Firetruck, TrafficVehicleKind::HalcyonSix,
+        TrafficVehicleKind::MontroseRegentEight, TrafficVehicleKind::VesperVx91,
+        TrafficVehicleKind::Police, TrafficVehicleKind::Snowplow,
+    };
+    std::size_t liveries = 0;
+    for (TrafficVehicleKind kind : kKinds) {
+        const TrafficPaintPaths paths = traffic_paint_paths(kind);
+        const PlayerCarId car = traffic_player_car(kind);
+        if (kind == TrafficVehicleKind::Snowplow) {
+            REQUIRE_MSG(paths.paths == nullptr && paths.count == 0,
+                        "the snowplow is procedural flat white and wears no atlas", nullptr);
+            REQUIRE(paint_base_for_traffic(kind, 0) == 0);
+            continue;
+        }
+        REQUIRE_MSG(paths.paths != nullptr && paths.count > 0, "a traffic kind wears an atlas", nullptr);
+        for (std::size_t i = 0; i < paths.count; ++i) {
+            const char* path = paths.paths[i];
+            ++liveries;
+            REQUIRE_MSG(find_paint_atlas_profile(path) != nullptr || player_car_paint_pending(car),
+                        kMissingProfile, path);
+            const char* worn = player_car_paint_base_atlas(car, paint_base_for_traffic(kind, i));
+            REQUIRE_MSG(worn != nullptr && std::string_view(worn) == path,
+                        "a stolen car's paint base names the atlas traffic drew it in", path);
+        }
+    }
+    REQUIRE(liveries == 14u);  // Car 5 and Car 8 four each, six single-livery kinds
+    REQUIRE(paint_base_for_traffic(TrafficVehicleKind::Sedan, 99) == 0);
+    apricot_test::pass("every traffic livery is profiled, and a theft records the base it was drawn in");
+}
+
+// APRICOT_SAVE 4 stores Car 5's and Car 8's livery as an index into these
+// lists, so their order is a saved ID. A reorder must fail here, not in a save.
+void saved_livery_order_is_pinned() {
+    constexpr const char* kCar5[] = {
+        "textures/vehicles/car5/body.png", "textures/vehicles/car5/green.png",
+        "textures/vehicles/car5/grey.png", "textures/vehicles/car5/taxi.png",
+    };
+    constexpr const char* kCar8[] = {
+        "textures/vehicles/car8/body.png", "textures/vehicles/car8/grey.png",
+        "textures/vehicles/car8/purple.png", "textures/vehicles/car8/mail.png",
+    };
+    REQUIRE(player_car_paint_base_count(PlayerCarId::LegacyCar5) >= 4u);
+    REQUIRE(player_car_paint_base_count(PlayerCarId::LegacyCar8) >= 4u);
+    for (uint8_t i = 0; i < 4u; ++i) {
+        REQUIRE_MSG(std::string_view(player_car_paint_base_atlas(PlayerCarId::LegacyCar5, i)) == kCar5[i],
+                    "kCar5Paints is a saved ID: append only, never reorder", kCar5[i]);
+        REQUIRE_MSG(std::string_view(player_car_paint_base_atlas(PlayerCarId::LegacyCar8, i)) == kCar8[i],
+                    "kCar8Paints is a saved ID: append only, never reorder", kCar8[i]);
+    }
+    REQUIRE(paint_base_valid(PlayerCarId::LegacyCar8, 3));
+    REQUIRE(!paint_base_valid(PlayerCarId::AlderPip, 1));
+    REQUIRE(player_car_paint_base_atlas(PlayerCarId::AlderPip, 1) == nullptr);
+    REQUIRE(paint_base_valid(PlayerCarId::LegacyCruiser91CSlot, 0));
+    REQUIRE(!paint_base_valid(PlayerCarId::LegacyCruiser91CSlot, 1));
+    for (std::size_t i = 0; i < kPlayerCarCount; ++i) {
+        const auto id = static_cast<PlayerCarId>(i);
+        const char* base0 = player_car_paint_base_atlas(id, 0);
+        REQUIRE_MSG(base0 != nullptr && std::string_view(base0) == player_car_body_texture_path(id),
+                    "base 0 is the atlas the car's catalog row loads", player_car_definition(id).model);
+    }
+    apricot_test::pass("the saved Car 5 and Car 8 livery order is pinned, and base 0 is the catalog atlas");
+}
+
 }  // namespace
 
 int main() {
@@ -340,5 +410,7 @@ int main() {
     every_profile_is_well_formed();
     generated_table_matches_its_sources();
     aliases_and_regions_resolve();
+    traffic_liveries_have_profiles_and_bases();
+    saved_livery_order_is_pinned();
     return apricot_test::done("vehicle_paint_profiles_tests");
 }

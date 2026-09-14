@@ -1,8 +1,11 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
+#include <optional>
 
 #include "app/player_car_catalog.h"
+#include "game/vehicle_paint.h"
 #include "app/vehicle_plate_visual.h"
 #include "core/transform.h"
 #include "app/traffic_visual_layout.h"
@@ -43,7 +46,23 @@ public:
     void destroy(Scene& scene);
     // Clone only scene instances; immutable mesh/texture handles are shared.
     void clone_parked(Scene& scene, PlayerCarVisual& out) const;
-    void set_paint(Scene& scene, MaterialId paint);
+    // PAINT. A car wears its factory material — the catalog atlas after
+    // select(), or the traffic livery it was taken in — until it is resprayed,
+    // when it wears a paintable material from the App's pool. This class holds
+    // only plain data about that and points nodes at materials. It never names
+    // the pool: the tool labs compile this file without it. select() resets all
+    // of it; clone_parked() carries it to the parked copy.
+    void set_factory_paint(Scene& scene, MaterialId material, uint8_t paint_base);
+    void apply_respray(Scene& scene, MaterialId material, PaintColor colour);
+    void clear_respray(Scene& scene);
+    // Points the paint at a material without changing what the car wears: the
+    // booth preview and the spray reveal. Restore with committed paint after.
+    void preview_body_material(Scene& scene, MaterialId material);
+    const std::optional<PaintColor>& respray() const { return respray_; }
+    uint8_t paint_base() const { return paint_base_; }
+    MaterialId factory_material() const { return factory_material_; }
+    // The atlas the car wears: its paint base's (app/vehicle_paint_catalog.h).
+    const char* worn_atlas() const;
     MaterialId paint(const Scene& scene) const {
         const auto* node=scene.get(body_node_);
         return node?node->renderable.material:kInvalidId;
@@ -90,6 +109,13 @@ private:
 
     bool load_model(Renderer& renderer, const PlayerCarDefinition& definition,
                     Model& out);
+    // Every node that samples the body atlas: body, doors, soft top, the four
+    // lamps and any custom wheels. Emergency nodes and glass copy the body
+    // renderable in sync().
+    void point_paint_nodes(Scene& scene, MaterialId material);
+    std::optional<PaintColor> respray_;
+    uint8_t paint_base_ = 0;
+    MaterialId factory_material_ = kInvalidId;
 
     std::array<Model, kPlayerCarCount> models_{};
     Renderer* plate_renderer_ = nullptr;
