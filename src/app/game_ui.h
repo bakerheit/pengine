@@ -53,6 +53,10 @@ class GameUi {
 public:
     static constexpr float kArrestedDisplaySeconds = 4.0f;
     void draw_arrested(Hud& hud, float remaining_s, glm::vec2 vp) const;
+    // The wanted stars exactly as the HUD draws them, right-aligned at `right`,
+    // for panels that show them elsewhere (the respray booth).
+    void draw_wanted_badge(Hud& hud, int wanted_level, bool flash, int64_t step,
+                           float right, float top) const;
 
     // The "we are recording" dot, under the clock. Public so the pause screen
     // can show it too — checking whether a session is being logged is exactly

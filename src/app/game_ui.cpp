@@ -1883,6 +1883,11 @@ void GameUi::draw(Hud& hud, const UiFlow& flow,
     }
 }
 
+void GameUi::draw_wanted_badge(Hud& hud, int wanted_level, bool flash, int64_t step,
+                               float right, float top) const {
+    draw_wanted_stars(hud, std::clamp(wanted_level, 0, 5), flash, step, right, top);
+}
+
 void GameUi::draw_arrested(Hud& hud, float remaining_s, glm::vec2 vp) const {
     if (remaining_s <= 0.0f || vp.x <= 0.0f || vp.y <= 0.0f) return;
     const float alpha = glm::smoothstep(0.0f, 1.0f, remaining_s);
