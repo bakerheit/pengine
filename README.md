@@ -194,6 +194,27 @@ because the headless suites cannot see a corpse standing back up or a banner
 playing over a world the player is already driving around in, and both of those
 broke at some point while every test passed.
 
+**Rook's Auto Repair resprays cars.** Drive into a bay, stop, press R or pad X:
+the world pauses, the camera swings round to frame the car beside a paint
+picker (24 presets, or a custom hue bar and saturation/value plane), and the
+car wears the colour you are pointing at. Confirm and it sprays for a second.
+If no cop saw you pull in, the stars go with the old paint; if one did, you get
+the paint and keep the stars. The colour is a CPU recolour of only the paint
+texels of whatever atlas the car wears — glass, chrome, lamps, lightbars and
+livery lettering stay — driven by per-car paint profiles in
+`tools/paint_profiles/`; see [`docs/architecture.md`](docs/architecture.md)
+(Rendering) for why. `--paint-check --frames 18000` does it all in the real
+game, every car driven in from the forecourt and every booth action a pushed
+key or click: profile stats against the real PNGs, the lot hint, an unseen
+roll-in, getting out and back in, the booth (sim paused, key repeat ignored,
+cancel from its button, preset and custom drags), a respray that clears three
+stars, a cancel by rolling, a stolen Car 8 that keeps its livery and resprays
+into its own slot, a save/load round trip, a pull-in watched by a real
+cruiser, both police liveries with their lightbars on, a car swap mid-spray,
+and a firetruck in bay two. Nine screenshots land in `build/paint-check.*.png`;
+add `--night` to see the lamp and lightbar glow over a respray. Not yet tried by
+hand on a pad, and its sounds have not been listened to.
+
 **Every `--frames` run is unattended.** The window is created hidden, the
 process never enters the desktop's foreground and the OS cursor is never
 captured, so a scripted check running on a machine somebody is also using does

@@ -648,7 +648,8 @@ real collider — the ray clear to the eye plus the same 0.35 m, the eye above
 the same clamp, all eight corners of the car's body box in line of sight, and
 the sight kept under Rook's roof and out over the office divider's open top,
 neither of which is solid, so no ray sees them — and taking the first that
-clears. Nothing in `App` calls it yet.
+clears. `App` calls it once, when the booth opens, and `--paint-check` framed a
+Vesper Mistral in bay one and a firetruck in bay two with it.
 
 What it costs. The 0.35 m and the 1.2 m are restated in the header, and nothing
 ties them to the literals in `update_camera`: change one there and the chooser
@@ -660,7 +661,11 @@ scans every static box, so it grows with the world — run it once when the
 picker opens, never per frame. Against all 32 drivable cars in both bays,
 19,664 reachable poses, every sight cleared. Before the ground clamp became part
 of the fit, a Fang Venom wedged into the back of bay -9 fell through to the
-fallback: the bike fit so close that its eye was under the clamp.
+fallback: the bike fit so close that its eye was under the clamp. Scoring once
+also means the shot knows nothing that arrives after it: in `--paint-check`'s
+seen stage the cruiser that watched the pull-in followed the car into the
+garage and parked in the camera's ray, and the obstruction pass pulled the eye
+in until the resprayed car was half out of frame.
 
 **Guard the aspect ratio.** A minimised window reports height 0; an aspect of
 infinity produces an all-NaN projection matrix, which poisons the frustum and
@@ -701,7 +706,10 @@ unique colours and the recolour runs once per painted colour (44 on
 vesper_mistral, 3,841 on the halcyon_six photo bake), 0.16-0.34 ms. The memo is
 exactly the kind of optimisation that quietly stops being exact, so the suite
 holds it bit for bit to `recolour_paint_per_texel()`, the definition it replaces.
-The booth that calls any of this is not wired into the app yet.
+In the game, `app/vehicle_paint_materials.h` composites at most once per
+rendered frame however many drag events arrived, and `--paint-check` opens by
+rebuilding every profiled mask from its real PNG with this port and holding it
+to the lab's stats: 36 atlases, none drifted.
 
 **Every drivable car has a paint profile or is named as pending, and a test
 enforces it.** "Every car can be painted" is a promise about a list that keeps
@@ -833,7 +841,10 @@ load, new game — starts a visit that never arrives. The price is paid by the
 player: step out in the bay and you drive out and pull in again to respray, and
 a cop who turns up after you have stopped does not block the clear. The latch,
 its resets and the 0.25 s exit grace are pinned in
-`tests/respray_shop_tests.cpp`; the app does not call the step yet.
+`tests/respray_shop_tests.cpp`. The app steps it inside the fixed step, after
+the wanted update, from the same visible-police list; `--paint-check` drives in
+unseen and clears three stars, then waits for a real cruiser to watch a
+pull-in and shows the stars kept.
 
 *Status in apricot:* `step_vehicle()` is real. Suspension, a tyre model with a
 friction circle, an engine torque curve, a gearbox with an RPM readout, load

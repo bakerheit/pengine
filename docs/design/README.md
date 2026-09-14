@@ -90,6 +90,19 @@ suffer engine failure. Stopping in an eligible bay at Rook's Auto Repair restore
 body and mechanical condition after the service dwell; a repair payment system
 is not established.
 
+Rook's also resprays, free. Drive into a bay and stop, press R or pad X, and a
+booth opens beside the car with 24 preset paints and a custom hue,
+saturation and brightness picker; the car previews the colour live and the
+world waits. Confirming sprays the car for a second. A respray drops the wanted
+level only if no cop had eyes on the car while it pulled into the bay; if one
+did, the car is painted and the stars stay. The pull-in is the point: getting
+out and back in inside the bay, or arriving any way but driving in, means
+driving out and pulling in again. Every drivable car can be painted, police,
+ambulance and fire engines included. A stolen car keeps the traffic livery it
+was driving in until it is resprayed, and a checkpoint keeps the current car's
+paint. Three cars' paint masks are rough — Halcyon Six, the Car 8 ambulance and
+the firetruck — and their follow-up is an authored mask for each.
+
 Road-car entry checks speed and door clearance. Supported vehicles have staged
 driver transitions. Stopped civilian traffic can be taken over; previously
 driven cars can remain parked and re-enterable during the session. Active
@@ -106,6 +119,7 @@ Sources: [character controller](../../src/game/character.h),
 [climbing](../../src/game/climb.h),
 [vehicle interactions](../../src/app/vehicle_interaction.cpp),
 [repair shop](../../src/game/repair_shop.h),
+[respray rules](../../src/game/respray_shop.h),
 [vehicle catalog](../../src/app/player_car_catalog.h),
 [driving characterization](../driving-extremes.md), and
 [tractor and trailer](../tractor-trailer.md).

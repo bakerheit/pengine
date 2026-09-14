@@ -14,10 +14,11 @@ namespace apricot {
 // The atlas a car actually wears, asset-relative. The catalog row names it,
 // except Workman: its articulated cab wears the semantic body.png, not the
 // body_surface.png charts its legacy mesh used. PlayerCarVisual::load_model
-// loads this path. The respray booth is not wired yet; when it is, it will look
-// the paint profile up by this same path, so the texture on the car and the
-// profile a respray picks can't name different atlases. Today only
-// vehicle_paint_profiles_tests joins the two.
+// loads this path, and the respray booth looks the paint profile up by the
+// same path (through the paint base, below), so the texture on the car and the
+// profile a respray picks can't name different atlases.
+// vehicle_paint_profiles_tests joins the two headlessly; --paint-check does it
+// on the real PNGs.
 inline constexpr const char* player_car_body_texture_path(PlayerCarId id) {
     const PlayerCarDefinition& car = player_car_definition(id);
     return car.id == PlayerCarId::HarrowWorkman
