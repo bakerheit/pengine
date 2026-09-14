@@ -25,6 +25,7 @@ target_sources(apricot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/signal_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/traffic_horn_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/overlay.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/paint_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/paint_shop_interaction.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/player_car_visual.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/damage_check.cpp

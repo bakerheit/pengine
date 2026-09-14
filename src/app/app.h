@@ -140,6 +140,12 @@ public:
     bool convertible_check_passed() const {
         return convertible_check_captures_==7u && !convertible_check_failed_;
     }
+    // --paint-check: a respray at Rook's, end to end. God mode, because the
+    // seen stage invites a pursuit and the check is about paint, not dents.
+    void set_paint_check(bool enabled) { paint_check_=enabled; if (enabled) vehicle_god_mode_=true; }
+    bool paint_check_passed() const;
+    unsigned paint_check_bits() const { return paint_check_bits_; }
+    unsigned paint_check_captures() const { return paint_check_captures_; }
     bool traffic_horn_check_passed() const {
         return traffic_horn_check_done_ && !traffic_horn_check_failed_;
     }
@@ -508,6 +514,27 @@ private:
     int respray_reveal_step_=-1;
     unsigned respray_reveal_count_=0;
     unsigned respray_completions_=0;
+    unsigned respray_starts_=0, respray_cancels_=0, respray_rejects_=0, paint_preview_count_=0;
+    // --paint-check. See src/app/paint_check.cpp.
+    bool paint_check_=false, paint_check_done_=false, paint_check_failed_=false;
+    unsigned paint_check_bits_=0, paint_check_captures_=0;
+    int paint_check_stage_=0, paint_check_phase_=0, paint_check_mark_=0, paint_check_retries_=0;
+    bool paint_check_driving_=false, paint_check_any_visible_=false;
+    float paint_check_bay_x_=-9.0f;
+    unsigned paint_check_seen_steps_=0;
+    unsigned paint_check_mark_count_=0, paint_check_mark_reveals_=0, paint_check_mark_completions_=0;
+    uint64_t paint_check_mark_step_=0;
+    int paint_check_mark_level_=0;
+    PaintColor paint_check_pick_{}, paint_check_parked_colour_{}, paint_check_saved_colour_{};
+    MaterialId paint_check_parked_material_=kInvalidId, paint_check_saved_livery_=kInvalidId;
+    std::size_t paint_check_parked_index_=0;
+    PlayerCarId paint_check_saved_model_=PlayerCarId::VesperMistral;
+    uint8_t paint_check_saved_base_=0;
+    std::string paint_check_capture_;
+    unsigned paint_check_capture_bit_=0;
+    void tick_paint_check();
+    InputFrame paint_check_input();
+    void capture_paint_check();
     ResprayClips respray_clips_;
     RespraySound respray_sound_;
     uint64_t respray_vehicle_identity() const;

@@ -5,6 +5,7 @@
 #include <cstdio>
 
 #include "app/game_ui.h"
+#include "core/log.h"
 #include "game/ui_canvas.h"
 #include "gfx/hud.h"
 
@@ -57,6 +58,20 @@ void PaintShopInteraction::open(const PaintPickerOpen& init) {
 
 void PaintShopInteraction::event(const SDL_Event& e, glm::vec2 window_size, glm::vec2 canvas_size) {
     if (!modal()) return;
+    handle(e, window_size, canvas_size);
+    if (!modal()) {
+        // One line per close, so a booth that shuts itself says what shut it.
+        AP_INFO("respray booth closed by event 0x%x (key %d repeat %d, button %d at %d,%d)",
+                e.type, e.type == SDL_KEYDOWN || e.type == SDL_KEYUP ? e.key.keysym.sym : 0,
+                e.type == SDL_KEYDOWN ? e.key.repeat : 0,
+                e.type == SDL_MOUSEBUTTONDOWN ? e.button.button
+                    : e.type == SDL_CONTROLLERBUTTONDOWN ? e.cbutton.button : -1,
+                e.type == SDL_MOUSEBUTTONDOWN ? e.button.x : 0,
+                e.type == SDL_MOUSEBUTTONDOWN ? e.button.y : 0);
+    }
+}
+
+void PaintShopInteraction::handle(const SDL_Event& e, glm::vec2 window_size, glm::vec2 canvas_size) {
     const PaintPickerLayout layout = PaintPickerLayout::from_canvas(canvas_size);
     const UiCanvas canvas{canvas_size};
     const auto at = [&](int x, int y) {

@@ -3167,7 +3167,9 @@ void App::render() {
                     (helicopter_.rotor<kHeliLiftoffRotor ? "ROTOR SPOOLING UP..." :
                     "SHIFT/CTRL CLIMB / DESCEND   W/S FORWARD / BACK   A/D TURN   R RESET"),
                     vp.x*.5f,vp.y-130,18,{1,1,1,1});
-            } else if (!on_foot_) {
+            } else if (!on_foot_ && !paint_shop_.modal()) {
+                // The respray booth's panel owns the right edge while it is
+                // open; the car panel would show through under its hint line.
                 const float speed_mph = metres_per_second_to_miles_per_hour(
                     glm::length(car_.velocity));
                 const float speed_limit_mps = current_speed_limit_mps();
@@ -3647,6 +3649,7 @@ void App::render() {
     if(police_officer_check_)capture_police_officer_check();
     if(traffic_horn_check_)capture_traffic_horn_check();
     if (convertible_check_) capture_convertible_check();
+    if (paint_check_) capture_paint_check();
     if (!screenshot_path_.empty() && frame_limit_ > 0 &&
         frames_rendered_ + 1 >= frame_limit_) {
         save_screenshot(screenshot_path_);
@@ -3951,6 +3954,8 @@ int App::run() {
         if (delivery_check_) tick_delivery_check();
         if (molotov_check_) tick_molotov_check();
         if (damage_check_) { tick_damage_check(); capture_damage_check(); }
+        if (paint_check_ && (paint_check_failed_ || (paint_check_done_ && paint_check_capture_.empty()))) break;
+        if (paint_check_) tick_paint_check();
         if (weapon_check_) {
             tick_weapon_hit_check();
             const auto key=[&](SDL_Keycode code,bool down) {
@@ -4120,7 +4125,7 @@ int App::run() {
             !weapon_wheel_.open && !weapon_input_consumed_ &&
             !paint_shop_.modal() && !paint_input_consumed_ &&
             !(lighting_benchmark_ && frames_rendered_>=300)) {
-            tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_) ? 1.0/60.0 : dt);
+            tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_ || paint_check_) ? 1.0/60.0 : dt);
         } else {
             // Title, pause and map are real pauses. Never let wall time from a
             // modal screen turn into a burst of vehicle steps on return.
@@ -4149,7 +4154,8 @@ int App::run() {
                 ? tire_track_check_input()
                 : (signal_check_ ? signal_check_input()
                     : (traffic_horn_check_ ? traffic_horn_check_input()
-                        : (police_officer_check_ ? police_officer_check_input() : input_.frame())));
+                        : (police_officer_check_ ? police_officer_check_input()
+                            : (paint_check_ ? paint_check_input() : input_.frame()))));
             // A DEAD PLAYER DRIVES NOTHING. Gating here rather than at each
             // consumer is deliberate: the car, the character, the weapon and
             // the door interactions all read from this one frame, and a gate

@@ -112,10 +112,20 @@ bool App::try_open_paint_shop(const SDL_Event& e, bool road_vehicle_controls) {
         (e.type == SDL_KEYDOWN && e.key.repeat == 0 && e.key.keysym.sym == SDLK_r &&
          !(e.key.keysym.mod & (KMOD_CTRL | KMOD_GUI))) ||
         (e.type == SDL_CONTROLLERBUTTONDOWN && e.cbutton.button == SDL_CONTROLLER_BUTTON_X);
-    if (!pressed || !road_vehicle_controls || !player_vitals_.alive()) return false;
-    if (!respray_visit_.arrived || respray_visit_.spraying() || respray_order_pending_ ||
-        !repair_shop_ready(car_, tuning_) || player_car_paint_pending(car_visual_.active_car()))
+    if (!pressed) return false;
+    const bool ready = repair_shop_ready(car_, tuning_);
+    const bool pending_car = player_car_paint_pending(car_visual_.active_car());
+    if (!road_vehicle_controls || !player_vitals_.alive() || !respray_visit_.arrived ||
+        respray_visit_.spraying() || respray_order_pending_ || !ready || pending_car) {
+        // R is also the trailer drop, so a refusal is normal play; say why only
+        // where a respray was plausibly meant.
+        if (respray_visit_.in_bay || paint_check_)
+            AP_INFO("respray: R refused (controls %d, alive %d, arrived %d, spraying %d, "
+                    "order pending %d, stopped in bay %d, profile pending %d)",
+                    road_vehicle_controls, player_vitals_.alive(), respray_visit_.arrived,
+                    respray_visit_.spraying(), respray_order_pending_.has_value(), ready, pending_car);
         return false;
+    }
     if (!open_paint_shop()) return false;
     paint_input_consumed_ = true;
     return true;
@@ -173,7 +183,10 @@ bool App::process_paint_shop_input(float dt) {
         const MaterialId material = preview.factory
             ? car_visual_.factory_material()
             : paint_pool_.preview(car_visual_.worn_atlas(), preview.colour);
-        if (material != kInvalidId) car_visual_.preview_body_material(scene_, material);
+        if (material != kInvalidId) {
+            car_visual_.preview_body_material(scene_, material);
+            ++paint_preview_count_;
+        }
     }
     if (paint_shop_.take_cancel()) {
         car_visual_.preview_body_material(scene_, committed_body_material());
@@ -216,6 +229,7 @@ void App::apply_respray_result(const ResprayResult& result) {
     case ResprayEvent::None:
         return;
     case ResprayEvent::Started:
+        ++respray_starts_;
         respray_reveal_step_ = -1;
         respray_sound_.start_hiss(audio_device_.mixer(), respray_clips_);
         AP_INFO("respray: spraying %s", paint_order_name(result.order));
@@ -226,10 +240,12 @@ void App::apply_respray_result(const ResprayResult& result) {
         respray_sound_.stop_hiss(audio_device_.mixer());
         respray_reveal_step_ = -1;
         if (result.event == ResprayEvent::Cancelled) {
+            ++respray_cancels_;
             vehicle_interaction_notice_ = "Respray cancelled - hold still in the bay";
             vehicle_notice_until_ = step_index_ + 240;
             AP_INFO("respray: cancelled");
         } else {
+            ++respray_rejects_;
             AP_INFO("respray: order refused");
         }
         return;

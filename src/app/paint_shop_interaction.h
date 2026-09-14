@@ -54,6 +54,7 @@ public:
     float orbit_yaw() const { return orbit_yaw_; }
 
 private:
+    void handle(const SDL_Event& e, glm::vec2 window_size, glm::vec2 canvas_size);
     PaintPicker picker_;
     float trigger_left_ = 0.0f, trigger_right_ = 0.0f;
     bool orbiting_ = false;
