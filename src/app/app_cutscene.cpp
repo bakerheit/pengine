@@ -43,6 +43,7 @@ void App::begin_new_game() {
     }
     parked_vehicles_.clear();world_.set_parked_vehicle_poses({});
     repair_shop_visit_={};repair_shop_feedback_s_=0;
+    reset_respray_state();
     mission_success_feedback_s_=0;
     vehicle_interaction_notice_.clear();vehicle_notice_until_=0;
     driving_mechanics_style_=DrivingMechanicsStyle::ClassicGta;

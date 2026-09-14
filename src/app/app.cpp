@@ -682,6 +682,8 @@ bool App::init() {
         return false;
     }
     if (!car_visual_.select(scene_,tuning_,car_,start_car_)) return false;
+    if (!paint_pool_.init(renderer_)) return false;
+    respray_clips_ = build_respray_clips(respray_clip_paths());
     dev_menu_.set_player_car(car_visual_.active_car());
     vehicle_audio_.set_model(player_car_definition(car_visual_.active_car()).mesh_path);
     if (!vehicle_effects_.init(renderer_)) {
@@ -1211,6 +1213,7 @@ void App::poll_events() {
     player_horn_pending_=false;
     bank_input_consumed_ = false;
     weapon_input_consumed_=false;
+    paint_input_consumed_=false;
 
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -1305,6 +1308,7 @@ void App::poll_events() {
             input_.handle_event(e);
             continue;
         }
+        if (route_paint_shop_event(e)) continue;
 
         const bool wheel_down=(e.type==SDL_KEYDOWN && e.key.repeat==0 && e.key.keysym.sym==SDLK_TAB) ||
             (e.type==SDL_CONTROLLERBUTTONDOWN && e.cbutton.button==SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
@@ -1351,6 +1355,9 @@ void App::poll_events() {
             !vehicle_transition_.active() && !boat_transition_.active();
         if (road_vehicle_controls && e.type==SDL_KEYDOWN && e.key.repeat==0 &&
             e.key.keysym.sym==SDLK_h) player_horn_pending_=true;
+        // R / pad X in a Rook's bay the car has pulled into and stopped in.
+        // Taken here, before the mapper, so it never reaches the trailer drop.
+        if (try_open_paint_shop(e, road_vehicle_controls)) continue;
         const bool emergency_toggle=(e.type==SDL_KEYDOWN && e.key.repeat==0 &&
             e.key.keysym.sym==SDLK_j) || (e.type==SDL_CONTROLLERBUTTONDOWN &&
             e.cbutton.button==SDL_CONTROLLER_BUTTON_LEFTSTICK);
@@ -1490,6 +1497,7 @@ void App::process_ui_input(float dt) {
         clock_.reset();
         return;
     }
+    if (process_paint_shop_input(dt)) return;
     if (ui_.screen() == UiScreen::Driving && !dev_menu_.open() &&
         !vehicle_transition_.active() &&
         was_pressed(input_.frame(), kBtnAccept) &&
@@ -1581,6 +1589,7 @@ void App::process_ui_input(float dt) {
             }
             if (car_visual_.select(
                     scene_, tuning_, car_, dev_action.player_car)) {
+                reset_respray_state();
                 dev_menu_.set_player_car(dev_action.player_car);
                 if (!in_boat_) vehicle_audio_.set_model(player_car_definition(dev_action.player_car).mesh_path);
                 dev_menu_.close();
@@ -2308,6 +2317,7 @@ void App::teleport(glm::vec3 to, float heading_radians) {
     cancel_vehicle_transition();
     transition_camera_release_=0;
     police_emergency_enabled_=false;
+    reset_respray_state();
     if (in_aircraft_) { in_aircraft_=false; on_foot_=true; }
     if (in_helicopter_) { in_helicopter_=false; on_foot_=true; }
     if (in_boat_) {
@@ -2393,6 +2403,17 @@ void App::update_camera(float dt) {
         return;
     }
     const float a = static_cast<float>(clock_.alpha());
+    // The respray bay shot hands over through the transition camera both
+    // ways: it blends in from wherever the chase camera was, and releases back
+    // to it the same way when the booth, the spray and its hold are done.
+    const bool respray_camera=respray_camera_active();
+    if (respray_camera!=respray_camera_was_active_) {
+        transition_camera_=camera_;
+        camera_obstruction_distance_=-1.0f;
+        if (respray_camera) respray_camera_blend_=0.0f;
+        else transition_camera_release_=1.0f;
+        respray_camera_was_active_=respray_camera;
+    }
     ChaseCameraPose pose;
     if (boat_transition_.active()) {
         const auto* body=world_.rendered_boat_transform(scene_);
@@ -2446,6 +2467,8 @@ void App::update_camera(float dt) {
         pose.collision_pivot=pos+glm::vec3{0,5,0};
         pose.desired_eye=pos-forward*17.0f+glm::vec3{0,7.5f,0};
         pose.fov_y=glm::radians(65.0f);
+    } else if (respray_camera) {
+        respray_camera_pose(pose, dt);
     } else if (on_foot_) {
         const glm::vec3 pos = glm::mix(prev_player_character_.position,
                                        player_character_.position, a);
@@ -3253,7 +3276,7 @@ void App::render() {
                 }
             }
 
-            if (!dev_menu_.open() && !bank_interaction_.modal() &&
+            if (!dev_menu_.open() && !bank_interaction_.modal() && !paint_shop_.modal() &&
                 !weapon_wheel_.open && mission_success_feedback_s_ <= 0.0f) {
                 std::string prompt;
                 if (step_index_<vehicle_notice_until_) prompt=vehicle_interaction_notice_;
@@ -3300,6 +3323,7 @@ void App::render() {
                 if (!on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ && repair_shop_ready(car_,tuning_))
                     prompt += repair_shop_visit_.serviced ? "   SERVICE COMPLETE" : "   HOLD STILL - REPAIRING";
                 if (!prompt.empty()) hud_.text_centered(prompt.c_str(),vp.x*.5f,vp.y-90,20,{1,.95f,.75f,1});
+                draw_respray_prompt(vp);
             }
             game_ui_.draw_dev_menu(hud_, dev_menu_, vp);
             if (on_foot_ && !dev_menu_.open() && !bank_interaction_.modal() &&
@@ -3401,8 +3425,9 @@ void App::render() {
                                          {0.92f, 0.08f, 0.05f, 1.0f});
             }
             draw_weapon_wheel(hud_,weapon_wheel_,vp);
-            if(repair_shop_feedback_s_>0)
+            if(repair_shop_feedback_s_>0 && respray_feedback_s_<=0)
                 hud_.text_centered("CAR REPAIRED",vp.x*.5f,vp.y*.25f,30,{.65f,1,.65f,1});
+            draw_respray_card(vp);
             if (mission_success_feedback_s_ > 0.0f) {
                 constexpr float kDisplaySeconds = 6.25f;
                 const float age = kDisplaySeconds - mission_success_feedback_s_;
@@ -3441,6 +3466,7 @@ void App::render() {
                                    top + 137.0f, 17.0f,
                                    {1.0f, 0.72f, 0.30f, alpha});
             }
+            if (!dev_menu_.open()) draw_respray_booth(vp);
             if (!dev_menu_.open()) bank_interaction_.draw(hud_, vp,
                 bank_target(city::bank_local_position(player_character_.position), on_foot_),
                 bank_vault_);
@@ -4060,6 +4086,8 @@ int App::run() {
         camera_frame_dt_ = static_cast<float>(std::clamp(dt, 0.0, 0.1));
         perf_mark_feedback_s_=std::max(0.f,perf_mark_feedback_s_-camera_frame_dt_);
         repair_shop_feedback_s_=std::max(0.f,repair_shop_feedback_s_-camera_frame_dt_);
+        respray_feedback_s_=std::max(0.f,respray_feedback_s_-camera_frame_dt_);
+        respray_camera_hold_s_=std::max(0.f,respray_camera_hold_s_-camera_frame_dt_);
         mission_success_feedback_s_=std::max(
             0.f,mission_success_feedback_s_-camera_frame_dt_);
         if (ui_.screen()==UiScreen::Driving)
@@ -4090,6 +4118,7 @@ int App::run() {
         if (ui_.screen() == UiScreen::Driving && !began_or_resumed &&
             !dev_menu_.open() && !bank_interaction_.modal() && !bank_input_consumed_ &&
             !weapon_wheel_.open && !weapon_input_consumed_ &&
+            !paint_shop_.modal() && !paint_input_consumed_ &&
             !(lighting_benchmark_ && frames_rendered_>=300)) {
             tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_) ? 1.0/60.0 : dt);
         } else {
@@ -4148,7 +4177,12 @@ int App::run() {
 
             if (i == 0 && was_pressed(input_.frame(), kBtnTrailer)) toggle_trailer();
             if (i == 0 && was_pressed(input_.frame(), kBtnRespawn) && !on_foot_) drop_trailer();
-            if (i == 0 && was_pressed(input_.frame(), kBtnAccept)) {
+            // Not on the step a respray order enters, nor in the first moment
+            // of the spray: a second tap of the button that confirmed it must
+            // not throw the player out of the car. Past that, getting out
+            // cancels the spray.
+            if (i == 0 && was_pressed(input_.frame(), kBtnAccept) &&
+                !respray_order_pending_ && !respray_blocks_exit(respray_visit_)) {
                 toggle_player_mode();
             }
             if (i == 0 && was_pressed(input_.frame(), kBtnDrink))
@@ -4249,7 +4283,11 @@ int App::run() {
                 step_tuning.brake_torque*=.80f;
             }
             const bool transitioning=vehicle_transition_.active();
-            const InputFrame vehicle_input = apply_drunk_input(raw_input, drunk_);
+            InputFrame vehicle_input = apply_drunk_input(raw_input, drunk_);
+            // A spray holds the car still, from the step its order enters, so
+            // a key still held from the picker cannot roll it out of the bay.
+            if (respray_visit_.spraying() || (i == 0 && respray_order_pending_))
+                vehicle_input = hold_for_respray(vehicle_input);
             car_ = (on_foot_ || in_aircraft_ || in_helicopter_ || in_boat_ || transitioning)
                 ? step_unoccupied_vehicle(car_, step_tuning, collider_,
                                           static_cast<float>(kSimDt))
@@ -4420,6 +4458,10 @@ int App::run() {
                 !current_police_visible.empty(),
                 world_.traffic().police_tuning());
             add_ms(sim_police_ms_, police_t3);
+            // After the wanted update, from the same visible list, so the
+            // respray's pull-in latch needs no second sight query.
+            police_eyes_on_=!current_police_visible.empty();
+            step_respray_visit(i);
             // The stars flash from the crime until the dispatch radio goes
             // out (PENG-46); the crowd owns that step, so the latch clears
             // on exactly the frame the callout would play.
@@ -4449,6 +4491,7 @@ int App::run() {
             if (boat_check_ && !boat_check_ran_) run_boat_check();
             if (trailer_check_ && !trailer_check_ran_) run_trailer_check();
         }
+        step_respray_reveal();
         sim_ms_ = std::chrono::duration<double>(WallClock::now() - sim_t0)
                       .count() * 1000.0;
 

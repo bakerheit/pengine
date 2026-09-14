@@ -28,6 +28,11 @@
 #include "game/police_arrest.h"
 #include "game/police_visibility.h"
 #include "game/repair_shop.h"
+#include "game/respray_shop.h"
+#include "app/paint_shop_interaction.h"
+#include "app/respray_audio.h"
+#include "app/respray_camera.h"
+#include "app/vehicle_paint_materials.h"
 #include "game/road_name.h"
 #include "app/world.h"
 #include "city/start_area.h"
@@ -479,6 +484,50 @@ private:
     float repair_shop_feedback_s_=0;
     float mission_success_feedback_s_=0;
     RepairShopVisit repair_shop_visit_;
+    // The respray option at Rook's: rules in game/respray_shop.h, the booth in
+    // app/paint_shop_interaction.h, the paint in app/vehicle_paint_materials.h,
+    // and the App glue in src/app/respray_booth.cpp.
+    PaintMaterialPool paint_pool_;
+    PaintShopInteraction paint_shop_;
+    bool paint_input_consumed_=false;
+    bool paint_restore_mouse_=false;
+    ResprayVisit respray_visit_;
+    std::optional<PaintOrder> respray_order_pending_;
+    std::optional<PaintOrder> respray_previous_;
+    // A render-side copy of "a cop sees the player" for the prompt. The sim
+    // hands the visible list to the respray step itself.
+    bool police_eyes_on_=false;
+    float respray_feedback_s_=0;
+    ResprayOutcome respray_feedback_outcome_=ResprayOutcome::Painted;
+    PaintOrder respray_feedback_order_{};
+    float respray_camera_hold_s_=0;
+    float respray_camera_blend_=0;
+    bool respray_camera_was_active_=false;
+    bool respray_sight_valid_=false;
+    RespraySight respray_sight_{};
+    int respray_reveal_step_=-1;
+    unsigned respray_reveal_count_=0;
+    unsigned respray_completions_=0;
+    ResprayClips respray_clips_;
+    RespraySound respray_sound_;
+    uint64_t respray_vehicle_identity() const;
+    std::vector<MaterialId> live_body_materials() const;
+    MaterialId committed_body_material();
+    MaterialId acquire_paint_material(PaintColor colour);
+    void reset_respray_state();
+    bool route_paint_shop_event(const SDL_Event& e);
+    bool try_open_paint_shop(const SDL_Event& e, bool road_vehicle_controls);
+    bool open_paint_shop();
+    void choose_respray_sight();
+    bool process_paint_shop_input(float dt);
+    void step_respray_visit(int step_in_frame);
+    void apply_respray_result(const ResprayResult& result);
+    void step_respray_reveal();
+    bool respray_camera_active() const;
+    void respray_camera_pose(ChaseCameraPose& pose, float dt);
+    void draw_respray_prompt(glm::vec2 vp);
+    void draw_respray_booth(glm::vec2 vp);
+    void draw_respray_card(glm::vec2 vp);
     bool on_foot_ = true;
     VehicleTransitionState vehicle_transition_;
     bool transition_waiting_=false;

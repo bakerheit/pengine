@@ -1,5 +1,7 @@
 #include "app/app.h"
+#include "app/traffic_paint_paths.h"
 #include "app/vehicle_model_tuning.h"
+#include "app/vehicle_paint_catalog.h"
 #include "game/save_game.h"
 #include "core/log.h"
 #include <SDL.h>
@@ -38,6 +40,9 @@ bool App::save_game() {
     saved.car_health=car_.health; saved.car_damage=car_.body_damage;
     saved.car_mechanical=car_.mechanical; saved.car_key=car_.mechanical_key;
     saved.car_registration=car_visual_.registration();
+    saved.car_paint_base=car_visual_.paint_base();
+    saved.car_has_paint=car_visual_.respray().has_value();
+    saved.car_paint=car_visual_.respray().value_or(PaintColor{});
     saved.has_trailer=true;saved.trailer=trailer_;
     if (!store_game_save(save_path_,saved,save_notice_)) { AP_WARN("save: %s",save_notice_.c_str()); return false; }
     save_notice_="Game saved."; ui_.set_save_available(true);
@@ -58,6 +63,11 @@ bool App::load_game() {
     next_car.position=saved.car_position; next_car.orientation=saved.car_rotation;
     next_car.health=saved.car_health; next_car.body_damage=saved.car_damage;
     next_car.mechanical=saved.car_mechanical; next_car.mechanical_key=saved.car_key;
+    // The save format checks a paint base's range on its own; only the app
+    // knows how many liveries this model has.
+    if (!paint_base_valid(model,saved.car_paint_base)) {
+        save_notice_="Saved paint is unavailable. Game left unchanged."; return false;
+    }
     if (!car_visual_.select(scene_,next_tuning,next_car,model)) {
         save_notice_="Saved vehicle is unavailable. Game left unchanged."; return false;
     }
@@ -96,6 +106,20 @@ bool App::load_game() {
     }
     parked_vehicles_.clear();
     world_.set_parked_vehicle_poses({});
+    // The paint, after the parked cars have gone: they no longer hold pool
+    // slots, and select() above left the catalog paint on the body.
+    reset_respray_state();
+    if (saved.car_paint_base>0) {
+        const TrafficVehicleKind kind=canonical_player_car_id(model)==PlayerCarId::LegacyCar8
+            ? TrafficVehicleKind::BoxTruck : TrafficVehicleKind::Sedan;
+        const MaterialId livery=traffic_visual_.paint_material(kind,saved.car_paint_base);
+        if (livery!=kInvalidId) car_visual_.set_factory_paint(scene_,livery,saved.car_paint_base);
+    }
+    if (saved.car_has_paint) {
+        const MaterialId owned=acquire_paint_material(saved.car_paint);
+        if (owned!=kInvalidId) car_visual_.apply_respray(scene_,owned,saved.car_paint);
+        else AP_WARN("load: the saved respray could not be applied; factory paint shown");
+    }
     traffic_visual_.reset_signals(scene_,collider_);
     enable_trailer_collision(false);
     if(saved.has_trailer) {

@@ -76,6 +76,10 @@ void App::sync_current_vehicle_obstacle() {
 
 void App::park_current_vehicle() {
     drop_trailer();
+    // A parked copy must never wear the booth's preview slot, which is
+    // repainted every time the picked colour changes.
+    if (paint_pool_.is_preview(car_visual_.paint(scene_)))
+        car_visual_.preview_body_material(scene_, committed_body_material());
     ParkedVehicle parked;
     car_visual_.clone_parked(scene_,parked.visual);
     parked.state=car_;parked.state.velocity=glm::vec3{0};parked.state.angular_velocity=glm::vec3{0};
