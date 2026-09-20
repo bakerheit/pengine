@@ -354,3 +354,6 @@ apricot_add_suite(vehicle_paint_tests)
 # has a profile or is pending, and the generated .inc still matches
 # tools/paint_profiles/*.json.
 apricot_add_suite(vehicle_paint_profiles_tests)
+# The respray booth's picker model (game/paint_picker.h): presets, layout and
+# hit-testing at 1x and 2x DPI, focus, repeat timing and the confirm rules.
+apricot_add_suite(paint_picker_tests)
