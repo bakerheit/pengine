@@ -75,8 +75,16 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::Bwc360: // planted compact rear-drive sedan
             // A calm torque curve lets the rear tyres hook up; the chassis
             // gets its character from turn-in, not from constant oversteer.
-            return {1430.f,.98f,1.01f,1.10f,1.f,1.10f,1.12f,1.16f,1.08f,
-                    1.12f,1.16f,-.015f,.95f,.96f,-.10f,1.f,1.f};
+            // The speed lives in tall gearing and a slippery shell, not in
+            // torque: it tops out above every patrol tune while still
+            // launching slower than Car 5, which is the sports-sedan read and
+            // also what keeps police_performance_tests green. That suite wants
+            // 30% of civilians to match each police car, and adding this car
+            // as the 27th civilian moved the bar from 8 cars to 9 -- a top
+            // speed under the cruisers would have made it the car that broke
+            // the rule it was counted in.
+            return {1430.f,.98f,1.12f,1.10f,1.f,1.10f,1.12f,1.16f,1.08f,
+                    1.12f,1.16f,-.015f,.93f,.96f,-.10f,1.f,1.f};
         case PlayerCarId::RodeoGrazer: // compact four-wheel-drive pickup
             return {1580.f,1.18f,.82f,1.01f,.94f,.91f,1.06f,.95f,.95f,
                     .94f,1.10f,.025f,1.15f,1.18f,.0f,1.23f,1.f};

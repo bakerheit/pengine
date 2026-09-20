@@ -1,0 +1,10 @@
+{
+  "slug": "bwc_360",
+  "grade": "exact",
+  "stock": "bwc_360/body.png",
+  "coverage": [["bwc_360", []]],
+  "refs": [{"uv": [8, 8, 118, 108]}, {"uv": [138, 8, 248, 108]}],
+  "tol": {"c": 0.03, "dark": 0.08, "fc": 0.02, "fl": 0.02, "light": 0.08},
+  "include": [[0, 0, 256, 128]],
+  "clean": 0
+}
