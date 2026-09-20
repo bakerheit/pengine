@@ -1,0 +1,10 @@
+{
+  "slug": "orison_cinder",
+  "grade": "exact",
+  "stock": "orison_cinder/body.png",
+  "coverage": [["orison_cinder", []]],
+  "refs": [{"rgb": [23, 59, 60]}, {"rgb": [28, 70, 69]}, {"rgb": [34, 81, 79]}, {"rgb": [42, 94, 90]}, {"rgb": [49, 105, 99]}, {"rgb": [63, 119, 111]}, {"rgb": [22, 54, 56]}],
+  "tol": {"c": 0.01, "dark": 0.01, "fc": 0.006, "fl": 0.006, "light": 0.01},
+  "include": [[4, 4, 171, 77], [176, 4, 251, 171]],
+  "clean": 0
+}

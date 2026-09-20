@@ -1,0 +1,11 @@
+{
+  "slug": "car5_next_police",
+  "grade": "exact",
+  "stock": "car5_next_police/body.png",
+  "coverage": [["car5_next_police", ["body_open", "driver_door"]]],
+  "refs": [{"rgb": [21, 21, 24]}, {"rgb": [15, 16, 17], "tol": {"c": 0.008, "fc": 0.005}}],
+  "tol": {"c": 0.015, "dark": 0.1, "fc": 0.01, "fl": 0.04, "light": 0.12},
+  "exclude_refs": [{"rgb": [40, 40, 46], "tol": {"c": 0.006, "dark": 0.012, "fc": 0.004, "fl": 0.004, "light": 0.03}}],
+  "exclude": [[2, 22, 22, 42], [214, 14, 242, 21]],
+  "clean": 0
+}

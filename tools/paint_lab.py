@@ -34,7 +34,11 @@ Params JSON:
   clean              3x3 median passes
   grow               null or [passes, dark, light]
   region_from_stock  default true
+  stock_region_only  default false; the stock only bounds the alternates (no sheet)
   overrides          {"<atlas file name>": {extra refs/rects/clean/grow}}
+  grade              exact | good | rough; read by tools/paint_profiles.py
+An alternate may be {"atlas": A, "alias_of": B}: A is resprayed by recolouring
+B, so it has no mask or sheet. tools/paint_profiles.py validates all of this.
 
 Commands:
   paint_lab.py sheet PARAMS.json [--only STEM] [--scale N]   contact sheet per atlas
@@ -144,8 +148,12 @@ def load_params(path) -> dict:
     for key, default in (('refs', []), ('exclude_refs', []), ('include', []),
                          ('exclude', []), ('force', []), ('clean', 0), ('grow', None),
                          ('alternates', []), ('region_from_stock', True),
-                         ('overrides', {}), ('coverage', [])):
+                         ('stock_region_only', False), ('overrides', {}), ('coverage', [])):
         p.setdefault(key, default)
+    # An alias alternate {"atlas", "alias_of"} is resprayed by recolouring
+    # alias_of, so it has no mask or sheet of its own.
+    p['aliases'] = {a['atlas']: a['alias_of'] for a in p['alternates'] if isinstance(a, dict)}
+    p['alternates'] = [a for a in p['alternates'] if not isinstance(a, dict)]
     tol = dict(DEFAULT_TOL)
     tol.update(p.get('tol', {}))
     p['tol'] = tol
@@ -499,7 +507,7 @@ def sheet(params_path, scale=None, only=None):
     slug = P['slug']
     OUT.mkdir(parents=True, exist_ok=True)
     results = []
-    for atlas in [P['stock']] + P['alternates']:
+    for atlas in ([] if P['stock_region_only'] else [P['stock']]) + P['alternates']:
         if only and Path(atlas).stem != only:
             continue
         t1 = time.perf_counter()

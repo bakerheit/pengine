@@ -1,13 +1,50 @@
 #!/usr/bin/env python3
-"""Generate the C++ side of vehicle paint from tools/paint_lab.py.
+"""Generate and audit the C++ side of vehicle paint from tools/paint_lab.py.
 
-  paint_profiles.py golden [--check]
+  paint_profiles.py emit                       write src/game/vehicle_paint_profiles.inc
+  paint_profiles.py check                      exit 1 if that file is stale
+  paint_profiles.py sheet [SLUG ...] [--only STEM]
+  paint_profiles.py lamps [SLUG ...]           exit 1 if a respray could touch a lamp lens
+  paint_profiles.py golden [--check]           write tests/vehicle_paint_golden.inc
 
+emit    Reads tools/paint_profiles/*.json -- one paint family per file: a stock
+        atlas plus the alternate liveries that share its UVs -- validates it,
+        runs the lab on every atlas the family recolours, and writes the table
+        src/game/vehicle_paint_profiles.cpp compiles: each atlas's params with
+        its override merged in, and what the lab measured on the real PNG
+        (painted texels, weight sum, base colour). vehicle_paint_profiles_tests
+        holds the file to the JSON by digest, so an edit without a regenerate
+        fails ctest.
+check   The same derivation, compared with the committed file, with every
+        atlas's stats printed and any drift marked. Run it after editing a
+        profile and after any vehicle texture cook: rects belong to one bake,
+        and tools/bake_vehicle_surfaces.py repacks charts.
+sheet   The lab's contact sheets (build/paint_lab/<slug>__<stem>.png): the
+        atlas, its mask, and recolours to blue, white, black and lime. Look at
+        them before emitting a changed profile; a number cannot tell you a
+        stripe was eaten.
+lamps   For every drivable car and every atlas it can wear, rasterises the mesh
+        the lamp overlays draw, finds the texels inside the shader's brake boxes
+        (rear-facing, passing lit.frag's red test) and lightbar boxes, and fails
+        if the paint mask reaches any of them: a respray there would change what
+        a lens glows. Paint inside a headlight box is reported, not failed; lamp
+        nodes follow the body material on purpose. KNOWN_RED_BRAKE_PAINT pins
+        the one accepted case by count.
 golden  Runs the lab on synthetic 16x16 atlases and writes
         tests/vehicle_paint_golden.inc: the params, the pixels in both row
         orders, and the lab's mask, trust, base colour and recolours.
         vehicle_paint_tests holds src/game/vehicle_paint.cpp to it within one
         8-bit level. --check exits 1 if the committed file is stale.
+
+Profile JSON is the lab's (tools/paint_lab.py), plus:
+  grade              "exact" | "good" | "rough": the lab's judgement of the result
+  stock_region_only  the stock atlas only bounds the alternates and another
+                     profile owns it (car8_ambulance bounds car8/ambulance.png
+                     by car8/body.png, which car8.json owns)
+  alternates         an entry may be {"atlas": A, "alias_of": B}: a car wearing
+                     A is resprayed by recolouring B (car5/taxi.png, whose tail
+                     lamps its cook painted yellow)
+Every atlas is claimed by exactly one profile.
 
 Emitter rules. Each one is a -Werror failure somebody already paid for:
   - every float is printed %.5f with an f suffix: a double literal in a float
@@ -15,15 +52,19 @@ Emitter rules. Each one is a -Werror failure somebody already paid for:
   - an empty list is `nullptr, 0`, never `{}`: a zero-length array fails
     -Wzero-length-array
   - counts are static_cast<uint16_t>(std::size(kName))
-  - identifiers, numbers and the case names in GOLDEN_CASES, nothing else: the
-    sim purity guard does not scan .inc files, so the generator is the only
-    thing keeping them clean
+  - identifiers, numbers, validated atlas paths and the case names in
+    GOLDEN_CASES, nothing else: the sim purity guard does not scan .inc files,
+    so the generator is the only thing keeping them clean. A slug or path is
+    lower-case letters, digits and _ only, and never names a host-layer
+    library.
 The lab runs on the float32 value of each printed literal, so the numbers in
-the file are exactly the numbers that were tested.
+the files are exactly the numbers that were tested.
 """
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import sys
 from pathlib import Path
 
@@ -35,8 +76,31 @@ sys.path.insert(0, str(HERE))
 import paint_lab as lab  # noqa: E402
 
 GOLDEN = REPO / 'tests/vehicle_paint_golden.inc'
+PROFILES = HERE / 'paint_profiles'
+TABLE = REPO / 'src/game/vehicle_paint_profiles.inc'
+SHADERS = REPO / 'assets/shaders'
+CATALOG = REPO / 'src/app/player_car_catalog.h'
+PAINT_CATALOG = REPO / 'src/app/vehicle_paint_catalog.h'
+DRIVER_POSE = REPO / 'src/app/vehicle_driver_pose.h'
+TEX_PREFIX = 'textures/vehicles/'
 GOLDEN_TARGETS = [(20, 40, 140), (240, 240, 236)]   # recoloured after the atlas's own base
 TOL_KEYS = ('c', 'fc', 'dark', 'light', 'fl')
+
+TABLE_HEADER = '// GENERATED by tools/paint_profiles.py emit -- do not edit'
+SLUG = re.compile(r'[a-z0-9_]+\Z')
+ATLAS = re.compile(r'[a-z0-9_]+/[a-z0-9_]+\.png\Z')
+BANNED = ('glad', 'sdl', 'gl/', 'miniaudio', 'imgui')
+GRADES = {'exact': 'Exact', 'good': 'Good', 'rough': 'Rough'}
+LIST_KEYS = ('refs', 'exclude_refs', 'include', 'exclude', 'force')
+PROFILE_KEYS = {'slug', 'grade', 'stock', 'stock_region_only', 'region_from_stock', 'alternates', 'coverage',
+                'tol', 'clean', 'grow', 'overrides'} | set(LIST_KEYS)
+OVERRIDE_KEYS = set(LIST_KEYS) | {'clean', 'grow'}
+REF_KEYS = {'rgb', 'uv', 'tol'}
+FNV_OFFSET, FNV_PRIME = 0xcbf29ce484222325, 0x100000001b3
+
+
+def fail(msg):
+    raise SystemExit('paint_profiles: %s' % msg)
 
 
 # ----------------------------------------------------------------------------
@@ -339,13 +403,504 @@ def golden_text():
     return '\n'.join(lines) + '\n'
 
 
+# ----------------------------------------------------------------------------
+# Profiles
+def fnv1a64(data: bytes, h: int = FNV_OFFSET) -> int:
+    """FNV-1a 64 with carriage returns skipped, so a checkout that converts
+    line endings digests the same bytes vehicle_paint_profiles_tests does."""
+    for b in data:
+        if b == 13:
+            continue
+        h = ((h ^ b) * FNV_PRIME) & 0xFFFFFFFFFFFFFFFF
+    return h
+
+
+def profile_files():
+    files = sorted(PROFILES.glob('*.json'), key=lambda p: p.name)
+    if not files:
+        fail('no profiles in %s' % PROFILES.relative_to(REPO))
+    return files
+
+
+def json_digest(files) -> int:
+    """File name, a NUL, the file's bytes, in file-name order."""
+    h = FNV_OFFSET
+    for path in files:
+        h = fnv1a64(path.name.encode() + b'\0' + path.read_bytes(), h)
+    return h
+
+
+def clean_name(value, pattern, what, where):
+    if not isinstance(value, str) or not pattern.match(value):
+        fail('%s: %s %r must be lower-case letters, digits and _ only' % (where, what, value))
+    if any(b in value for b in BANNED):
+        fail('%s: %s %r names a host-layer library, and no guard scans the .inc' % (where, what, value))
+    return value
+
+
+def camel(s):
+    return ''.join(part[:1].upper() + part[1:] for part in s.split('_'))
+
+
+def check_refs(refs, where):
+    for r in refs:
+        if not isinstance(r, dict) or set(r) - REF_KEYS or ('rgb' in r) == ('uv' in r):
+            fail('%s: a ref is {"rgb": [r,g,b]} or {"uv": rect}, with an optional "tol": %r' % (where, r))
+        if set(r.get('tol', {})) - set(TOL_KEYS):
+            fail('%s: unknown tolerance keys in %r' % (where, r))
+
+
+def load_profiles():
+    """Every profile, validated, with the claims resolved. Adds private keys
+    _alternates (atlases with their own mask), _aliases {atlas: alias_of},
+    _region_only and _region."""
+    files = profile_files()
+    profiles, owner = [], {}
+    for path in files:
+        where = str(path.relative_to(REPO))
+        try:
+            P = json.loads(path.read_text())
+        except json.JSONDecodeError as e:
+            fail('%s: %s' % (where, e))
+        unknown = set(P) - PROFILE_KEYS
+        if unknown:
+            fail('%s: unknown keys %s' % (where, sorted(unknown)))
+        if clean_name(P.get('slug'), SLUG, 'slug', where) != path.stem:
+            fail('%s: "slug" must equal the file name' % where)
+        if P.get('grade') not in GRADES:
+            fail('%s: "grade" must be one of %s' % (where, ', '.join(GRADES)))
+        stock = clean_name(P.get('stock'), ATLAS, 'stock', where)
+        alternates, aliases = [], {}
+        for a in P.get('alternates', []):
+            if isinstance(a, dict):
+                if set(a) != {'atlas', 'alias_of'}:
+                    fail('%s: an alias alternate is {"atlas": A, "alias_of": B}: %r' % (where, a))
+                aliases[clean_name(a['atlas'], ATLAS, 'alias', where)] = clean_name(
+                    a['alias_of'], ATLAS, 'alias_of', where)
+            else:
+                alternates.append(clean_name(a, ATLAS, 'alternate', where))
+        region_only = P.get('stock_region_only', False)
+        region = P.get('region_from_stock', True)
+        if not isinstance(region_only, bool) or not isinstance(region, bool):
+            fail('%s: stock_region_only and region_from_stock are true or false' % where)
+        if region_only and (not alternates or not region):
+            fail('%s: stock_region_only needs an alternate that the stock mask bounds' % where)
+        if not P.get('refs'):
+            fail('%s: a profile needs at least one paint reference' % where)
+        check_refs(P.get('refs', []) + P.get('exclude_refs', []), where)
+        names = [Path(a).name for a in [stock] + alternates]
+        if len(set(names)) != len(names):
+            fail('%s: two atlases share a file name, so an override would be ambiguous' % where)
+        for name, ov in P.get('overrides', {}).items():
+            if name not in names:
+                fail('%s: override %r names no atlas of this profile' % (where, name))
+            if not isinstance(ov, dict) or set(ov) - OVERRIDE_KEYS:
+                fail('%s: override %r may only hold %s' % (where, name, sorted(OVERRIDE_KEYS)))
+            check_refs(ov.get('refs', []) + ov.get('exclude_refs', []), where)
+        for atlas in [stock] + alternates:
+            if not (lab.TEX / atlas).is_file():
+                fail('%s: %s%s does not exist' % (where, TEX_PREFIX, atlas))
+        for atlas in ([] if region_only else [stock]) + alternates + list(aliases):
+            if atlas in owner:
+                fail('%s%s is claimed by both %s.json and %s.json' % (TEX_PREFIX, atlas, owner[atlas], path.stem))
+            owner[atlas] = path.stem
+        P['_alternates'], P['_aliases'], P['_region_only'], P['_region'] = alternates, aliases, region_only, region
+        profiles.append(P)
+    recoloured = {a for P in profiles for a in ([] if P['_region_only'] else [P['stock']]) + P['_alternates']}
+    for P in profiles:
+        for atlas, target in P['_aliases'].items():
+            if target not in recoloured:
+                fail('%s.json: %s is an alias of %s, which no profile recolours' % (P['slug'], atlas, target))
+    return profiles, files
+
+
+def merged(P, atlas):
+    """The family params with this atlas's override merged in, as lab.gate
+    merges them: lists concatenate, clean and grow replace."""
+    ov = P.get('overrides', {}).get(Path(atlas).name, {})
+    M = {k: list(P.get(k, [])) + list(ov.get(k, [])) for k in LIST_KEYS}
+    M['tol'] = P.get('tol', {})
+    M['clean'] = ov.get('clean', P.get('clean', 0))
+    M['grow'] = ov.get('grow', P.get('grow'))
+    return M
+
+
+def resolve_checked(P, atlas, rgba, w, h):
+    where = '%s.json (%s)' % (P['slug'], atlas)
+    R = resolve_params(merged(P, atlas), w, h)
+    for r in R['refs'] + R['exclude_refs']:
+        t = r['tol']
+        if min(t.values()) < 0 or t['fc'] <= 0 or t['fl'] <= 0:
+            fail('%s: tolerances are >= 0, and fc and fl are > 0: %r' % (where, t))
+        if 'uv' in r and not lab.rect_mask([r['uv']], w, h).any():
+            fail('%s: box ref %r covers no texel centre' % (where, r['uv']))
+    if not 0 <= R['clean'] <= 255 or (R['grow'] and not 0 <= R['grow'][0] <= 255):
+        fail('%s: clean and grow passes are 0..255' % where)
+    return R
+
+
+def derive(P):
+    """[(atlas, rgba, R, mask, region_R)] for every atlas the profile
+    recolours, masks bounded by the stock mask where the lab bounds them."""
+    stock_rgba = lab.load_rgba(P['stock'])
+    sh, sw = stock_rgba.shape[:2]
+    if (sw, sh) not in ((128, 128), (256, 256)):
+        fail('%s.json: %s is %dx%d; atlases are 128 or 256 square' % (P['slug'], P['stock'], sw, sh))
+    R_stock = resolve_checked(P, P['stock'], stock_rgba, sw, sh)
+    m_stock, _ = lab.gate(stock_rgba, R_stock)
+    out = [] if P['_region_only'] else [(P['stock'], stock_rgba, R_stock, m_stock, None)]
+    for atlas in P['_alternates']:
+        rgba = lab.load_rgba(atlas)
+        if rgba.shape != stock_rgba.shape:
+            fail('%s.json: %s is %dx%d, but its stock %s is %dx%d' % (
+                P['slug'], atlas, rgba.shape[1], rgba.shape[0], P['stock'], sw, sh))
+        R = resolve_checked(P, atlas, rgba, sw, sh)
+        m, _ = lab.gate(rgba, R)
+        if P['_region']:
+            m = np.minimum(m, m_stock)
+        out.append((atlas, rgba, R, m, R_stock if P['_region'] else None))
+    return out
+
+
+def stats(rgba, mask):
+    q8 = np.clip(np.round(mask * 255.0), 0, 255).astype(np.int64)
+    base8 = tuple(int(v) for v in lab.oklab_to_srgb8(lab.base_colour(rgba, mask)))
+    return int((mask >= 0.5).sum()), int(q8.sum()), base8
+
+
+ROW = re.compile(r'\{"(textures/vehicles/[a-z0-9_/]+\.png)", (nullptr|"[^"]*"), (nullptr|"[^"]*"), '
+                 r'(nullptr|&k\w+), (nullptr|&k\w+), (\d+), (\d+), \{(\d+), (\d+), \{(\d+), (\d+), (\d+)\}\}, '
+                 r'PaintGrade::(\w+)\}')
+
+
+def table_text():
+    """(the .inc text, one report row per atlas)."""
+    profiles, files = load_profiles()
+    body = ['// Regenerate: python3 tools/paint_profiles.py emit. Audit: tools/paint_profiles.py check, lamps.',
+            'static constexpr uint64_t kPaintProfilesJsonDigest = 0x%016xull;' % json_digest(files),
+            '']
+    idents, rows, sizes, grades, report = set(), [], {}, {}, []
+    for P in profiles:
+        slug = P['slug']
+        body.append('// %s' % slug)
+        emitted = set()
+
+        def params(atlas, R):
+            name = '%s%s' % (camel(slug), camel(Path(atlas).stem))
+            if name not in emitted:
+                if name in idents:
+                    fail('%s.json: identifier k%sParams is generated twice' % (slug, name))
+                idents.add(name)
+                emitted.add(name)
+                body.extend(c_mask_params(name, R))
+            return '&k%sParams' % name
+
+        for atlas, rgba, R, mask, region_R in derive(P):
+            region = params(P['stock'], region_R) if region_R is not None else None
+            own = params(atlas, R)
+            h, w = rgba.shape[:2]
+            painted, weight, base8 = stats(rgba, mask)
+            if painted == 0:
+                fail('%s.json: %s paints no texel at weight .5' % (slug, atlas))
+            sizes[atlas], grades[atlas] = (w, h), GRADES[P['grade']]
+            rows.append((TEX_PREFIX + atlas, '    {"%s%s", nullptr, %s, %s, %s, %d, %d, {%d, %d, %s}, PaintGrade::%s},' % (
+                TEX_PREFIX, atlas, '"%s%s"' % (TEX_PREFIX, P['stock']) if region else 'nullptr', own,
+                region or 'nullptr', w, h, painted, weight, c_colour(base8), GRADES[P['grade']])))
+            report.append((TEX_PREFIX + atlas, slug, P['grade'], (w, h), painted, weight, base8, None))
+        body.append('')
+    for P in profiles:
+        for atlas, target in sorted(P['_aliases'].items()):
+            w, h = sizes[target]
+            rows.append((TEX_PREFIX + atlas, '    {"%s%s", "%s%s", nullptr, nullptr, nullptr, %d, %d, {0, 0, {0, 0, 0}}, '
+                                             'PaintGrade::%s},' % (TEX_PREFIX, atlas, TEX_PREFIX, target, w, h, grades[target])))
+            report.append((TEX_PREFIX + atlas, P['slug'], None, (w, h), 0, 0, None, TEX_PREFIX + target))
+    body.append('static constexpr PaintAtlasProfile kPaintAtlasProfiles[] = {')
+    body += [row for _, row in sorted(rows)]
+    body.append('};')
+    body_text = '\n'.join(body) + '\n'
+    text = '%s\n// json-fnv1a64: 0x%016x\n// body-fnv1a64: 0x%016x\n%s' % (
+        TABLE_HEADER, json_digest(files), fnv1a64(body_text.encode()), body_text)
+    if any(b in text for b in BANNED):
+        fail('the generated table names a host-layer library; refusing to write it')
+    return text, sorted(report)
+
+
+def cmd_emit():
+    text, report = table_text()
+    TABLE.write_text(text)
+    print('wrote %s: %d atlases (%d aliases)' % (
+        TABLE.relative_to(REPO), len(report), sum(1 for r in report if r[7])))
+
+
+def cmd_check():
+    text, report = table_text()
+    committed = TABLE.read_text() if TABLE.exists() else ''
+    old = {m.group(1): (int(m.group(8)), int(m.group(9)), (int(m.group(10)), int(m.group(11)), int(m.group(12))))
+           for m in ROW.finditer(committed)}
+    drifted = 0
+    for atlas, slug, grade, (w, h), painted, weight, base8, alias in report:
+        if alias:
+            print('%-52s alias of %s' % (atlas, alias))
+            continue
+        was = old.get(atlas)
+        mark = ''
+        if was is None:
+            mark, drifted = '  NOT IN THE COMMITTED TABLE', drifted + 1
+        elif was != (painted, weight, base8):
+            mark, drifted = '  DRIFT: committed %d painted, %d q8, base %s' % was, drifted + 1
+        print('%-52s %-5s %3dx%-3d %6d painted %9d q8  base %-15s%s' % (
+            atlas, grade, w, h, painted, weight, base8, mark))
+    grades = [r[2] for r in report if not r[7]]
+    print('%d profiles, %d atlases: %d exact, %d good, %d rough, %d aliases' % (
+        len(profile_files()), len(report), grades.count('exact'), grades.count('good'), grades.count('rough'),
+        len(report) - len(grades)))
+    if committed != text:
+        why = 'stats drifted on %d atlases' % drifted if drifted else 'params or digests differ'
+        fail('%s is stale (%s): run python3 tools/paint_profiles.py emit' % (TABLE.relative_to(REPO), why))
+    print('%s is current' % TABLE.relative_to(REPO))
+
+
+def select_profiles(slugs):
+    files = profile_files()
+    if not slugs:
+        return files
+    by_slug = {p.stem: p for p in files}
+    missing = [s for s in slugs if s not in by_slug]
+    if missing:
+        fail('no profile named %s' % ', '.join(missing))
+    return [by_slug[s] for s in slugs]
+
+
+def cmd_sheet(slugs, only):
+    for path in select_profiles(slugs):
+        lab.sheet(path, None, only)
+
+
+# ----------------------------------------------------------------------------
+# Lamps
+EPS = 0.004   # native units of slack on every lamp box: a texel just outside still reaches the lens through filtering
+LIGHTBAR = re.compile(r'v_headlight_profile == (\d+) &&\s*x>=([-\d.]+) && x<=([-\d.]+) && p\.y>=([-\d.]+) && '
+                      r'p\.y<=([-\d.]+) &&\s*p\.z>=([-\d.]+) && p\.z<=([-\d.]+)')
+CATALOG_ROW = re.compile(r'\{PlayerCarId::(\w+),\s*"[^"]*",\s*"[^"]*",\s*"(models/vehicles/[a-z0-9_]+/[a-z0-9_]+\.emesh)",'
+                         r'\s*"(textures/vehicles/[a-z0-9_]+/[a-z0-9_]+\.png)"')
+
+# Body paint that passes lit.frag's red test inside a brake box, so it glows
+# when braking today. Each entry was checked texel by texel: every one is a
+# paint colour at full mask weight, and every lens-coloured texel in the same
+# boxes is unpainted. A respray moves these to the new colour, and a non-red
+# one stops them glowing, which is the body-material rule for lamp nodes
+# (docs/architecture.md). Pinned by count, so one more painted texel fails.
+KNOWN_RED_BRAKE_PAINT = {
+    # the one-texel maroon border (125,44,55) beside each red lamp cell
+    ('AlderWayfarer', 'alder_wayfarer/body.png'): 24,
+    # tangerine paint-cell texels (228,81,12) sampled by the lamp triangles' edges
+    ('EmberGt', 'ember_gt/body.png'): 22,
+    # corners of the SEAM swatch the profile paints as dark paint
+    ('SpagattiShu', 'spagatti_shu/body.png'): 8,
+    # the dark red-brown REAR body panel (25,15,14) inside the brake box
+    ('MunicipalCruiser91E', 'municipal_cruiser_91e/body.png'): 348,
+}
+
+
+def lamp_blocks(path, kind):
+    """{profile number: [(x0, y0, x1, y1, z0, z1, round)]} holding the FIRST
+    block per number, because the shader's `if (profile == n) { ... return
+    false; }` chain never reaches a later one; plus [(name, number)] in file
+    order, which is how the host layer matches a mesh path to a number."""
+    first, order, cur = {}, [], None
+    for line in path.read_text().splitlines():
+        m = re.match(r'\s*%s_MODEL\((\w+),\s*(\d+)\)' % kind, line)
+        if m:
+            number = int(m.group(2))
+            order.append((m.group(1), number))
+            cur = None if number in first else first.setdefault(number, [])
+            continue
+        m = re.match(r'\s*%s_(RECT|ROUND)\(([^)]*)\)' % kind, line)
+        if m:
+            if cur is not None:
+                cur.append(tuple(float(v) for v in m.group(2).split(',')) + (m.group(1) == 'ROUND',))
+            continue
+        if re.match(r'\s*%s_END' % kind, line):
+            cur = None
+    if not order:
+        fail('no %s_MODEL blocks in %s' % (kind, path.relative_to(REPO)))
+    return first, order
+
+
+def in_regions(P, regions):
+    ax, y, z = np.abs(P[..., 0]), P[..., 1], P[..., 2]
+    out = np.zeros(ax.shape, bool)
+    for x0, y0, x1, y1, z0, z1, round_lens in regions:
+        x0, y0, z0, x1, y1, z1 = x0 - EPS, y0 - EPS, z0 - EPS, x1 + EPS, y1 + EPS, z1 + EPS
+        inside = (ax >= x0) & (ax <= x1) & (y >= y0) & (y <= y1) & (z >= z0) & (z <= z1)
+        if round_lens:
+            qx, qy = (2 * ax - x0 - x1) / (x1 - x0), (2 * y - y0 - y1) / (y1 - y0)
+            inside &= qx * qx + qy * qy <= 1.0
+        out |= inside
+    return out
+
+
+def in_lightbar(P, boxes):
+    ax, y, z = np.abs(P[..., 0]), P[..., 1], P[..., 2]
+    out = np.zeros(ax.shape, bool)
+    for x0, x1, y0, y1, z0, z1 in boxes:
+        out |= (ax >= x0 - EPS) & (ax <= x1 + EPS) & (y >= y0 - EPS) & (y <= y1 + EPS) & \
+               (z >= z0 - EPS) & (z <= z1 + EPS)
+    return out
+
+
+def lamp_texels(mesh, head, brake, bars, w, h):
+    """Texels of a (w, h) atlas that the lamp overlays of `mesh` can light:
+    rasterised at texel centres (PNG row = (1 - v) * H, the engine's row flip),
+    each with the native position and normal the shader tests."""
+    out = {k: np.zeros((h, w), bool) for k in ('head', 'brake', 'lightbar')}
+    if not (head or brake or bars):
+        return out
+    v, ids = lab.read_emesh(REPO / 'assets' / mesh)
+    pos, nrm, uv = (v[:, 0:3].astype(np.float64), v[:, 3:6].astype(np.float64), v[:, 6:8].astype(np.float64))
+    for tri in ids:
+        u, vv = uv[tri, 0] * w, (1.0 - uv[tri, 1]) * h
+        x0, x1 = int(max(0, np.floor(u.min()))), int(min(w, np.ceil(u.max())))
+        y0, y1 = int(max(0, np.floor(vv.min()))), int(min(h, np.ceil(vv.max())))
+        if x1 <= x0 or y1 <= y0:
+            continue
+        d = (vv[1] - vv[2]) * (u[0] - u[2]) + (u[2] - u[1]) * (vv[0] - vv[2])
+        if abs(d) < 1e-12:
+            continue
+        ys, xs = np.mgrid[y0:y1, x0:x1]
+        cx, cy = xs + 0.5, ys + 0.5
+        l1 = ((vv[1] - vv[2]) * (cx - u[2]) + (u[2] - u[1]) * (cy - vv[2])) / d
+        l2 = ((vv[2] - vv[0]) * (cx - u[2]) + (u[0] - u[2]) * (cy - vv[2])) / d
+        bary = np.stack([l1, l2, 1.0 - l1 - l2], -1)
+        inside = np.all(bary >= -0.02, -1)
+        if not inside.any():
+            continue
+        P, N = bary @ pos[tri], bary @ nrm[tri]
+        # lit.frag: front lamps discard n.z < 0.15, rear lamps discard n.z > -0.15.
+        for kind, hit in (('head', inside & (N[..., 2] >= 0.15) & in_regions(P, head) if head else None),
+                          ('brake', inside & (N[..., 2] <= -0.15) & in_regions(P, brake) if brake else None),
+                          ('lightbar', inside & in_lightbar(P, bars) if bars else None)):
+            if hit is not None:
+                out[kind][ys[hit], xs[hit]] = True
+    return out
+
+
+def drivable_cars():
+    """[(PlayerCarId name, mesh the lamp overlays draw, lamp profile number,
+    worn atlas relative to textures/vehicles/)], read from the catalog and
+    the rules PlayerCarVisual::load_model applies."""
+    text = CATALOG.read_text(encoding='utf-8')
+    rows = CATALOG_ROW.findall(text)
+    if not rows or len(rows) != len(re.findall(r'\{PlayerCarId::\w+,\s*"', text)):
+        fail('could not read every kPlayerCars row from %s' % CATALOG.relative_to(REPO))
+    worn = dict(re.findall(r'PlayerCarId::(\w+)\s*\?\s*"(textures/vehicles/[^"]+)"', PAINT_CATALOG.read_text()))
+    if 'HarrowWorkman' not in worn:
+        fail('%s lost the Workman case this check mirrors' % PAINT_CATALOG.relative_to(REPO))
+    m = re.search(r'inline bool has_animated_driver\(PlayerCarId car\) \{(.*?)\n\}', DRIVER_POSE.read_text(), re.S)
+    bike = re.search(r'inline constexpr bool is_motorbike\(PlayerCarId id\) \{(.*?)\n\}', text, re.S)
+    if not m or not bike:
+        fail('has_animated_driver or is_motorbike moved; update drivable_cars()')
+    animated = set(re.findall(r'PlayerCarId::(\w+)', m.group(1)))
+    if 'is_municipal_cruiser_91(car)' in m.group(1):
+        animated |= {'MunicipalCruiser91%s' % c for c in 'ABCDE'}
+    bikes = set(re.findall(r'PlayerCarId::(\w+)', bike.group(1)))
+    _, head_order = lamp_blocks(SHADERS / 'vehicle_headlight_profiles.inc', 'HEADLIGHT')
+    cars = []
+    for cid, mesh, texture in rows:
+        number = next((n for name, n in head_order if '/%s/' % name in mesh), -1)
+        lamp_mesh = mesh.rsplit('/', 1)[0] + '/body_open.emesh' if cid in animated and cid not in bikes else mesh
+        cars.append((cid, lamp_mesh, number, worn.get(cid, texture)[len(TEX_PREFIX):]))
+    return cars
+
+
+def cmd_lamps(slugs):
+    profiles, _ = load_profiles()
+    if slugs:
+        unknown = set(slugs) - {P['slug'] for P in profiles}
+        if unknown:
+            fail('no profile named %s' % ', '.join(sorted(unknown)))
+    head, _ = lamp_blocks(SHADERS / 'vehicle_headlight_profiles.inc', 'HEADLIGHT')
+    brake, _ = lamp_blocks(SHADERS / 'vehicle_brakelight_profiles.inc', 'BRAKELIGHT')
+    bars = {}
+    for m in LIGHTBAR.finditer((SHADERS / 'lit.frag').read_text()):
+        bars.setdefault(int(m.group(1)), []).append(tuple(float(m.group(i)) for i in range(2, 8)))
+    if not bars:
+        fail('no lightbar boxes parsed from assets/shaders/lit.frag')
+
+    family = {}   # atlas -> (profile, atlases the same car can wear)
+    for P in profiles:
+        own = ([] if P['_region_only'] else [P['stock']]) + P['_alternates']
+        for atlas in own:
+            family[atlas] = (P, own if atlas == P['stock'] else [atlas])
+        for alias, target in P['_aliases'].items():
+            family[alias] = (P, [target])
+    masks, texels, failures, checked = {}, {}, [], 0
+    for cid, mesh, number, worn in drivable_cars():
+        if worn not in family:
+            print('%-22s %-40s no paint profile (ctest reports it)' % (cid, worn))
+            continue
+        P, atlases = family[worn]
+        if slugs and P['slug'] not in slugs:
+            continue
+        for atlas in atlases:
+            owner = family[atlas][0]
+            if owner['slug'] not in masks:
+                masks[owner['slug']] = {a: (rgba, mask) for a, rgba, _, mask, _ in derive(owner)}
+            rgba, mask = masks[owner['slug']][atlas]
+            h, w = rgba.shape[:2]
+            key = (mesh, number, w, h)
+            if key not in texels:
+                texels[key] = lamp_texels(mesh, head.get(number, []), brake.get(number, []),
+                                          bars.get(number, []), w, h)
+            K = texels[key]
+            src = rgba[..., :3].astype(np.float64) / 255.0
+            red = (src[..., 0] >= src[..., 1] * 1.6) & (src[..., 0] >= src[..., 2] * 1.5) & (src[..., 0] >= 0.08)
+            painted = np.round(mask * 255.0) >= 1
+            red_brake = int((K['brake'] & red).sum())
+            red_painted = int((K['brake'] & red & painted).sum())
+            bar_painted = int((K['lightbar'] & painted).sum())
+            head_painted = int((K['head'] & painted).sum())
+            allowed = KNOWN_RED_BRAKE_PAINT.get((cid, atlas), 0)
+            bad = []
+            if red_painted != allowed:
+                bad.append('%d painted red brake-lens texels (%d allowed)' % (red_painted, allowed))
+            if bar_painted:
+                bad.append('%d painted lightbar texels' % bar_painted)
+            print('%-22s %-40s profile %2d  brake %4d (red %4d, painted %4d)  lightbar %4d (painted %d)  '
+                  'head %4d (painted %4d)%s' % (
+                      cid, atlas, number, int(K['brake'].sum()), red_brake, red_painted,
+                      int(K['lightbar'].sum()), bar_painted, int(K['head'].sum()), head_painted,
+                      '  FAIL: ' + '; '.join(bad) if bad else ''))
+            checked += 1
+            if bad:
+                failures.append('%s on %s: %s' % (cid, atlas, '; '.join(bad)))
+    if failures:
+        fail('lamp lenses a respray would change:\n  ' + '\n  '.join(failures))
+    print('lamps: %d car/atlas pairs checked, no lamp lens painted beyond KNOWN_RED_BRAKE_PAINT' % checked)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
+    sub.add_parser('emit')
+    sub.add_parser('check')
+    s = sub.add_parser('sheet')
+    s.add_argument('slugs', nargs='*')
+    s.add_argument('--only', help='one atlas stem, e.g. mail')
+    lm = sub.add_parser('lamps')
+    lm.add_argument('slugs', nargs='*')
     g = sub.add_parser('golden')
     g.add_argument('--check', action='store_true', help='exit 1 if the committed file is stale')
     a = ap.parse_args()
-    if a.cmd == 'golden':
+    if a.cmd == 'emit':
+        cmd_emit()
+    elif a.cmd == 'check':
+        cmd_check()
+    elif a.cmd == 'sheet':
+        cmd_sheet(a.slugs, a.only)
+    elif a.cmd == 'lamps':
+        cmd_lamps(a.slugs)
+    elif a.cmd == 'golden':
         text = golden_text()
         if a.check:
             if not GOLDEN.exists() or GOLDEN.read_text() != text:

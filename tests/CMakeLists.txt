@@ -346,3 +346,8 @@ apricot_add_suite(bwc_360_tests)
 # The respray recolour core (game/vehicle_paint.h), held to tools/paint_lab.py
 # by tests/vehicle_paint_golden.inc (tools/paint_profiles.py golden).
 apricot_add_suite(vehicle_paint_tests)
+
+# The paint profile table (game/vehicle_paint_profiles.h): every drivable car
+# has a profile or is pending, and the generated .inc still matches
+# tools/paint_profiles/*.json.
+apricot_add_suite(vehicle_paint_profiles_tests)
