@@ -814,6 +814,23 @@ which sizes the friction circle. It deliberately does not touch engine or brake
 torque: scaling both applies the weather twice, once to the tyre that is sliding
 and again to an engine that does not know what it is driving on.
 
+**A respray loses the cops on a latch over the pull-in, never on a sample.**
+`game/respray_shop.h` decides from step-owned state whether a respray at Rook's
+clears the wanted level. The visit ORs the police sighting into `seen` on every
+step from the first one the car fits a bay through the first one it is stopped
+in it, then latches `arrived`; and only a visit whose previous step was spent
+driving outside the bay can arrive at all. The plan's first version started the
+latch whenever a visit began, and review caught what that costs: most cars exit
+and re-enter instantly, so getting out and back in while parked in the bay began
+a fresh visit on a stationary car, sampled a street with nobody on it, and
+cleared stars that a cop had watched you pull in with. So every way a driven car
+can be in a bay without driving in — exit and re-entry, teleport, a car swap,
+load, new game — starts a visit that never arrives. The price is paid by the
+player: step out in the bay and you drive out and pull in again to respray, and
+a cop who turns up after you have stopped does not block the clear. The latch,
+its resets and the 0.25 s exit grace are pinned in
+`tests/respray_shop_tests.cpp`; the app does not call the step yet.
+
 *Status in apricot:* `step_vehicle()` is real. Suspension, a tyre model with a
 friction circle, an engine torque curve, a gearbox with an RPM readout, load
 transfer, progressive Ackermann steering, axle anti-roll bars, handbrake and

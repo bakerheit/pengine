@@ -259,6 +259,9 @@ apricot_add_suite(pawn_shop_tests)
 apricot_add_suite(gun_store_tests)
 
 apricot_add_suite(repair_shop_tests)
+# The respray visit at Rook's (game/respray_shop.h): the pull-in latch that
+# decides whether a respray loses the cops, the spray, and the prompt line.
+apricot_add_suite(respray_shop_tests)
 
 # Rook's respray bay camera, scored against the real baked garage with the
 # obstruction pass's own raycast and the police line-of-sight query.
