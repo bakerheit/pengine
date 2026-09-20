@@ -671,6 +671,34 @@ legitimately returns 4.1 core for any 3.2+ core request.
 the backing scale factor, and using logical size for the GL viewport renders
 the frame into the bottom-left quarter of the window.
 
+**Recolour maths lives sim-side; the host layer decodes pixels and uploads
+bytes, and does nothing else.** A respray repaints the atlas a car wears. Which
+texels are paint, what colour the paint is now, and how its shading carries
+onto the new colour are all `src/game/vehicle_paint.{h,cpp}`: a decoded RGBA
+buffer goes in, a recoloured buffer comes out. The shader looks like the cheap
+place for it — one colour uniform, one mask texture, no upload. It would be a
+second derivation of maths that already exists in `tools/paint_lab.py`, where
+the paint profiles are tuned, and no headless suite can run a shader, so the
+first report of drift would be a player's car the wrong colour at a panel
+seam. On the CPU, `vehicle_paint_tests` holds the port to the lab's own float64
+output (`tests/vehicle_paint_golden.inc`, from `tools/paint_profiles.py
+golden`) within one 8-bit level; on car5, vesper_mistral, halcyon_six and
+municipal_cruiser_91c the measured difference was zero. Change the lab and the
+port in the same commit and then regenerate: a golden regenerated on its own is
+a test rewritten to agree with the bug.
+
+What it costs is pixels and time. `Texture::load_file` frees the pixels after
+upload, so a respray re-decodes the worn PNG, and the maths is per texel —
+1.2-3.6 ms per recolour done the obvious way, measured on this machine, which
+is a visible hitch for a colour picker that previews every drag. That is paid
+back by a rule that changes no result: the gate, the colour trust and the
+recolour are functions of a texel's RGB alone, so the mask keeps the atlas's
+unique colours and the recolour runs once per painted colour (44 on
+vesper_mistral, 3,841 on the halcyon_six photo bake), 0.16-0.34 ms. The memo is
+exactly the kind of optimisation that quietly stops being exact, so the suite
+holds it bit for bit to `recolour_paint_per_texel()`, the definition it replaces.
+The booth that calls any of this is not wired into the app yet.
+
 *Status in apricot:* **there is a render pass, and this note used to say there
 was not.** `gl_state`, `Shader`, `Texture` (procedural plus authored PNG paint),
 `Mesh` including cooked static `.emesh` geometry and the instanced attribute
