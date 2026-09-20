@@ -175,6 +175,10 @@ void main() {
     // chrome rims, white reverse cells and amber pixels out of the brake glow.
     if (v_vehicle_lamp >= 2.0 && v_vehicle_lamp < 4.0 &&
         (source.r < source.g * 1.6 || source.r < source.b * 1.5 || source.r < 0.08)) discard;
+    // The Shū's curved lamp receivers meet red hood facets. Only neutral lens
+    // texels emit; the shared geometric circle alone would also light paint.
+    if (v_vehicle_lamp >= 0.0 && v_vehicle_lamp < 2.0 && v_headlight_profile == 22 &&
+        (source.r > source.g * 1.35 || source.r > source.b * 1.35)) discard;
     // Scraped-metal colours must not make a damaged red lens emit white light.
     vec3 albedo = v_vehicle_lamp >= 0.0
         ? apply_vehicle_damage(source.rgb) * v_tint.rgb

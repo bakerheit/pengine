@@ -266,6 +266,7 @@ private:
     city::BuildingAccessBake access_layout_; // metadata only, no retained road meshes
     std::vector<MeshId> miandi_gas_station_meshes_;
     std::vector<glm::vec3> miandi_gas_station_lights_;
+    std::vector<MeshId> kyjhi_phonebooth_meshes_;
     std::vector<MeshId> burgerpiz_meshes_;
     std::vector<glm::vec3> burgerpiz_lights_;
     std::vector<glm::vec3> burgerpiz_parking_lights_;

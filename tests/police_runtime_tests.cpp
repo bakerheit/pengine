@@ -150,10 +150,10 @@ void ambient_patrols_and_response_are_deterministic() {
     for (int64_t step = 50; step < 390; ++step) {
         tick(forward, step, 5, {});
         tick(reverse, step, 5, {});
-        REQUIRE(forward.police_pursuit_count() <= 7u);
+        REQUIRE(forward.police_pursuit_count() <= 5u);
         REQUIRE(forward.population_hash() == reverse.population_hash());
     }
-    REQUIRE(forward.police_pursuit_count() == 7u);
+    REQUIRE(forward.police_pursuit_count() == 5u);
     REQUIRE(forward.police_pursuit_count() == reverse.police_pursuit_count());
 
     std::size_t routed = 0;
@@ -357,12 +357,12 @@ void no_resident_patrol_cruiser_arrives_after_district_delay() {
         if (step >= 545) REQUIRE(forward.police_responding_level() == 2);
         if (step < 540) REQUIRE(forward.police_unit_count() == 0u);
         if (first_unit_step < 0 && forward.police_unit_count() > 0) first_unit_step = step;
-        REQUIRE(forward.police_unit_count() <= 4u);
+        REQUIRE(forward.police_unit_count() <= 2u);
         REQUIRE(forward.population_hash() == reverse.population_hash());
     }
     std::printf("      first cruiser at step %lld\n", static_cast<long long>(first_unit_step));
     REQUIRE(first_unit_step >= 540 && first_unit_step <= 560);
-    REQUIRE(forward.police_unit_count() == 4u);
+    REQUIRE(forward.police_unit_count() == 2u);
     for (const VehicleAgent& v : forward.vehicles()) {
         if (!v.police_unit) continue;
         REQUIRE(v.slot >= Crowd::kPoliceDispatchSlotBase);
@@ -370,7 +370,7 @@ void no_resident_patrol_cruiser_arrives_after_district_delay() {
         const Lane& lane = network.lanes.lane(v.lane);
         REQUIRE(lane.cls != RoadClass::Dirt && lane.cls != RoadClass::Alley);
     }
-    // Stand down, then a fresh crime: the hold runs again and the four
+    // Stand down, then a fresh crime: the hold runs again and the two
     // resident cruisers are what gets converted — nothing new is spawned
     // while patrols exist to wake.
     tick(forward, 1000, 0); tick(reverse, 1000, 0);
@@ -378,7 +378,7 @@ void no_resident_patrol_cruiser_arrives_after_district_delay() {
     for (int64_t step = 1001; step < 1700; ++step) {
         tick(forward, step, 2); tick(reverse, step, 2);
         if (step < 1001 + 535) REQUIRE(forward.police_responding_level() == 0);
-        REQUIRE(forward.police_unit_count() == 4u);
+        REQUIRE(forward.police_unit_count() == 2u);
         REQUIRE(forward.population_hash() == reverse.population_hash());
     }
     REQUIRE(forward.police_pursuit_count() >= 1u);

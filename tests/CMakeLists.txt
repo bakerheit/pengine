@@ -197,6 +197,7 @@ apricot_add_suite(police_officer_tests)
 apricot_add_suite(police_arrest_tests)
 apricot_add_suite(police_character_pose_tests)
 apricot_add_suite(wanted_system_tests)
+apricot_add_suite(police_escalation_tests)
 apricot_add_suite(weather_tests)
 apricot_add_suite(lightning_tests)
 apricot_add_suite(objective_runtime_tests)
@@ -332,3 +333,5 @@ apricot_add_suite(license_plate_tests)
 # The visibility query that replaced a contact raycast in police line of
 # sight, checked against the predicate it replaced.
 apricot_add_suite(line_of_sight_tests)
+
+apricot_add_suite(bwc_360_tests)

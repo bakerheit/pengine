@@ -72,6 +72,11 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::HarrowParcel: // commercial panel van
             return {2200.f,1.34f,.72f,.98f,.91f,.82f,1.15f,.88f,.94f,
                     .84f,.92f,.075f,1.28f,1.30f,.10f,1.42f,1.f};
+        case PlayerCarId::Bwc360: // planted compact rear-drive sedan
+            // A calm torque curve lets the rear tyres hook up; the chassis
+            // gets its character from turn-in, not from constant oversteer.
+            return {1430.f,.98f,1.01f,1.10f,1.f,1.10f,1.12f,1.16f,1.08f,
+                    1.12f,1.16f,-.015f,.95f,.96f,-.10f,1.f,1.f};
         case PlayerCarId::RodeoGrazer: // compact four-wheel-drive pickup
             return {1580.f,1.18f,.82f,1.01f,.94f,.91f,1.06f,.95f,.95f,
                     .94f,1.10f,.025f,1.15f,1.18f,.0f,1.23f,1.f};
@@ -245,6 +250,20 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.chassis_roof=1.245f-definition.arch_centre_y-
                              static_suspension_length(tuning)-
                              tuning.com_height_above_mount;
+    } else if (car == PlayerCarId::Bwc360) {
+        tuning.front_drive_bias=0.f;
+        // This is RWD, not a drift car. Keep a strong recovery floor after a
+        // tyre passes peak and couple the rear axle so one spinning wheel
+        // cannot leave the sedan skating sideways under ordinary throttle.
+        tuning.tyre_tail_grip=std::max(tuning.tyre_tail_grip,.94f);
+        tuning.tyre_falloff=std::min(tuning.tyre_falloff,.20f);
+        tuning.differential_coupling=std::max(tuning.differential_coupling,105.f);
+        // Ackermann's inside wheel stays within the tested .48 rad sweep.
+        tuning.max_steer=std::min(tuning.max_steer,.37f);
+        tuning.chassis_half_width=.86f;tuning.chassis_half_length=2.20f;
+        tuning.car_collision_half_width=1.041f;tuning.car_collision_half_length=2.31f;
+        tuning.chassis_floor=.24f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
+        tuning.chassis_roof=1.43f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
     } else if (car == PlayerCarId::RodeoGrazer) {
         tuning.front_drive_bias=.50f;
         tuning.suspension_travel=std::max(tuning.suspension_travel,.20f);

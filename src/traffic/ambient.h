@@ -72,6 +72,7 @@ enum class TrafficVehicleKind : uint8_t {
     VesperVx91 = 6,
     Police = 7,
     Snowplow = 8,
+    Bwc360 = 9,
 };
 
 inline constexpr float kSnowplowBladeForwardM = 2.95f;
@@ -98,12 +99,13 @@ inline TrafficVehicleKind traffic_vehicle_kind(uint64_t lane_key,
     const uint32_t legacy_roll = roll % 15u;
     if (legacy_roll < 10u) {
         const uint32_t sedan_variant = static_cast<uint32_t>(
-            (identity / 30u) % 4u);
+            (identity / 30u) % 5u);
         if (sedan_variant == 0u) return TrafficVehicleKind::HalcyonSix;
         if (sedan_variant == 1u) {
             return TrafficVehicleKind::MontroseRegentEight;
         }
         if (sedan_variant == 2u) return TrafficVehicleKind::VesperVx91;
+        if (sedan_variant == 3u) return TrafficVehicleKind::Bwc360;
         return TrafficVehicleKind::Sedan;
     }
     if (legacy_roll < 14u) return TrafficVehicleKind::BoxTruck;
@@ -140,6 +142,7 @@ inline TrafficVehicleFootprint traffic_vehicle_footprint(
     // Legacy bodies measured after make_traffic_visual_layout() 5 m fit;
     // the authored service truck keeps its full body and blade dimensions.
     switch (kind) {
+        case TrafficVehicleKind::Bwc360: return {1.041f, 2.31f};
         case TrafficVehicleKind::Sedan: return {0.943954f, 2.5f};
         case TrafficVehicleKind::BoxTruck: return {1.148594f, 2.5f};
         case TrafficVehicleKind::Ambulance: return {0.964955f, 2.5f};
@@ -172,7 +175,8 @@ inline float widest_parked_half_width_m() {
                                  TrafficVehicleKind::BoxTruck,
                                  TrafficVehicleKind::HalcyonSix,
                                  TrafficVehicleKind::MontroseRegentEight,
-                                 TrafficVehicleKind::VesperVx91})
+                                 TrafficVehicleKind::VesperVx91,
+                                 TrafficVehicleKind::Bwc360})
         widest = std::max(widest, traffic_vehicle_footprint(k).half_width_m);
     return widest;
 }

@@ -27,6 +27,7 @@ struct GameUiSnapshot {
     // the sim step so a replay pulses identically.
     bool wanted_searching = false;
     bool wanted_report_pending = false;
+    const char* police_stop_prompt = "";
     int64_t step = 0;
     // [0, 1): midnight at 0, noon at 0.5. This is the visible sky clock.
     float time_of_day = 0.28f;

@@ -249,11 +249,11 @@ struct PoliceLevelProfile {
 inline constexpr PoliceLevelProfile kPoliceLevelProfiles[6] = {
     // units cadence escape detect cruise  hazard ram    spawn  fire
     {0,      1.4f,    8.0f,   0.0f, 0.0f,  true,  false, false, false}, // 0: clean
-    {3,      1.4f,   30.0f, 145.0f, 0.6f,  true,  false, true,  false},
-    {4,      0.7f,   37.0f, 230.0f, 1.2f,  true,  true,  true,  false},
-    {5,      0.7f,   45.0f, 340.0f, 1.8f,  false, true,  true,  false},
-    {6,      0.4f,   56.0f, 510.0f, 2.4f,  false, true,  true,  true },
-    {7,      0.4f,   82.0f, 850.0f, 3.0f,  false, true,  true,  true },
+    {1,      1.4f,   30.0f, 145.0f, 0.6f,  true,  false, true,  false}, // 1: stop
+    {2,      0.7f,   37.0f, 230.0f, 1.2f,  true,  false, true,  false}, // 2: chase
+    {3,      0.7f,   45.0f, 340.0f, 1.8f,  false, true,  true,  false}, // 3: PIT
+    {4,      0.4f,   56.0f, 510.0f, 2.4f,  false, true,  true,  true },
+    {5,      0.4f,   82.0f, 850.0f, 3.0f,  false, true,  true,  true },
 };
 
 // Clamps: a level below zero is clean, one above five is five. Every caller
@@ -271,7 +271,7 @@ constexpr int police_min_ram_level() {
     return 6;
 }
 
-static_assert(police_min_ram_level() == 2, "two stars is the ramming threshold");
+static_assert(police_min_ram_level() == 3, "three stars is the PIT threshold");
 static_assert(kPoliceLevelProfiles[0].units == 0, "a clean player is not dispatched on");
 static_assert(kPoliceLevelProfiles[1].units <= kPoliceLevelProfiles[2].units &&
               kPoliceLevelProfiles[2].units <= kPoliceLevelProfiles[3].units &&

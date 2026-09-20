@@ -45,6 +45,11 @@ public:
 
     void set_auto_recenter(bool enabled) { auto_recenter_ = enabled; }
     bool auto_recenter() const { return auto_recenter_; }
+    void set_orbit(float yaw, float pitch) {
+        orbit_yaw_ = wrap_angle(yaw);
+        orbit_pitch_ = std::clamp(pitch, -0.32f, 0.62f);
+        look_idle_ = 0.0f;
+    }
     void set_camera_shake(bool enabled) {
         camera_shake_ = enabled;
         if (!enabled) { shake_ = 0.0f; shake_phase_ = 0.0f; }

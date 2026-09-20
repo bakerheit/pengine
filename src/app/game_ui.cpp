@@ -39,6 +39,7 @@
 #include "city/hospital_overhaul_massing.h"
 #include "city/emergency_stations.h"
 #include "city/east_arm_plaza.h"
+#include "city/kyjhi_phonebooth_asset.h"
 #include "city/neighborhood_bar.h"
 #include "city/loom_cultural.h"
 #include "city/burgerpiz.h"
@@ -1161,6 +1162,19 @@ const MapSiteMarker kMapSiteMarkers[] = {
     {&city::kMiandiCalleNocheSite, {1.f, .80f, .52f, 1}, -1,
      UiSymbol::Count, "T", {city::kMiandiPalmaRoofs[0].centre.x,
                             city::kMiandiPalmaRoofs[0].centre.z}, city::kTropicoIdentity.name},
+    // One payphone booth per district (src/city/kyjhi_phonebooth_asset.h).
+    {&city::kKyjhiPhoneboothSites[0], {0.25f, 0.65f, 0.90f, 1}, -1, UiSymbol::Count, "T"},
+    {&city::kKyjhiPhoneboothSites[1], {0.25f, 0.65f, 0.90f, 1}, -1, UiSymbol::Count, "T"},
+    {&city::kKyjhiPhoneboothSites[2], {0.25f, 0.65f, 0.90f, 1}, -1, UiSymbol::Count, "T"},
+    {&city::kKyjhiPhoneboothSites[3], {0.25f, 0.65f, 0.90f, 1}, -1, UiSymbol::Count, "T"},
+    {&city::kKyjhiPhoneboothSites[4], {0.25f, 0.65f, 0.90f, 1}, -1, UiSymbol::Count, "T"},
+    {&city::kKyjhiPhoneboothSites[5], {0.25f, 0.65f, 0.90f, 1}, -1, UiSymbol::Count, "T"},
+    {&city::kKyjhiPhoneboothSites[6], {0.25f, 0.65f, 0.90f, 1}, -1, UiSymbol::Count, "T"},
+    {&city::kKyjhiPhoneboothSites[7], {0.25f, 0.65f, 0.90f, 1}, -1, UiSymbol::Count, "T"},
+    {&city::kKyjhiPhoneboothSites[8], {0.25f, 0.65f, 0.90f, 1}, -1, UiSymbol::Count, "T"},
+    {&city::kKyjhiPhoneboothSites[9], {0.25f, 0.65f, 0.90f, 1}, -1, UiSymbol::Count, "T"},
+    {&city::kKyjhiPayphoneSites[0], {0.25f, 0.65f, 0.90f, 1}, -1, UiSymbol::Count, "T"},
+    {&city::kKyjhiWallPhoneSites[0], {0.25f, 0.65f, 0.90f, 1}, -1, UiSymbol::Count, "T"},
 };
 }
 
@@ -1194,6 +1208,11 @@ void GameUi::draw_minimap(Hud& hud, const UiFlow& flow,
                       snapshot.wanted_searching || snapshot.wanted_report_pending,
                       snapshot.step,
                       clock_right, clock_top + clock_height + 10.0f);
+    if (snapshot.police_stop_prompt && snapshot.police_stop_prompt[0]) {
+        hud.text_centered(snapshot.police_stop_prompt, clock_right - clock_width * 0.5f,
+                          clock_top + clock_height + 48.0f, 18.0f,
+                          {1.0f, 0.68f, 0.12f, 1.0f});
+    }
 
     const auto view = MinimapView::make(snapshot.player_position, snapshot.player_forward,
                                        snapshot.speed_mph, vp);

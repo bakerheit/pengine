@@ -77,6 +77,8 @@ bool App::load_game() {
     snowplow_service_.reset();
     game_ui_.clear_waypoint();
     wanted_.reset();
+    police_escalation_.reset();
+    police_stop_feedback_s_=0.0f;
     police_offenses_.reset();
     police_arrest_.reset();
     traffic_horn_audio_.reset();

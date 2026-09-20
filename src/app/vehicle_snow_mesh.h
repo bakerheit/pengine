@@ -26,7 +26,8 @@ struct VehicleWindshieldProfile {
 // those profiles allow the measured receiver offset; UV atlas coordinates are
 // intentionally absent because the surface bake repacks those charts.
 // Coordinates are Apricot source XYZ (+Z forward), after Blender export.
-inline constexpr std::array<VehicleWindshieldProfile,30> kVehicleWindshields{{
+inline constexpr std::array<VehicleWindshieldProfile,31> kVehicleWindshields{{
+    {"bwc_360",.786f,.947f,1.310f,.923f,.384f,.045f},
     {"rodeo_grazer",.858f,1.10f,1.70f,.927f,.431f,.04f},
     {"ember_gt",.753f,.762f,1.224f,.910f,.289f,.06f},
     {"alder_pip",.66f,.98f,1.38f,.572f,.258f},
@@ -55,7 +56,7 @@ inline constexpr std::array<VehicleWindshieldProfile,30> kVehicleWindshields{{
     {"municipal_cruiser_91e",.93f,1.035f,1.455f,.75f,.305f},
     {"firetruck",.95f,1.52f,2.27f,2.82f,2.82f},
     {"orison_cinder",.74f,.872f,1.188f,.597f,.014f,.035f},
-    {"spagatti_shu",.64f,.87f,1.16f,.80f,.225f},
+    {"spagatti_shu",.68f,.865f,1.171f,.851f,.331f,.04f},
     {"vesper_mistral",.756f,.95f,1.401f,.489f,.061f},
     {"vesper_scythe",.68f,.77f,1.065f,.959f,.2715f},
     {"vesper_vx91",.69f,1.15f,1.665f,.405f,-.265f,.16f}

@@ -52,6 +52,8 @@ void print_usage() {
         "  --start-player-at X Z place the on-foot player separately for interior QA\n"
         "  --start-player-height Y select a supported floor with --start-player-at\n"
         "  --start-heading DEG face a direction at the visual-QA start\n"
+        "  --camera-orbit YAW PITCH pose the chase camera in degrees for visual QA\n"
+        "  --camera-mode near|chase|far set the capture distance for visual QA\n"
         "  --player-car KEY select a model folder key for visual QA\n"
         "  --driver-transition-check test the selected car entry/exit\n"
         "  --start-driving start seated in the selected car\n"
@@ -124,6 +126,10 @@ int main(int argc, char** argv) {
     bool start_position_set = false;
     float start_heading_radians = apricot::city::kOpeningMissionCarHeading;
     bool start_heading_set = false;
+    float camera_orbit_yaw_radians = 0.0f;
+    float camera_orbit_pitch_radians = 0.0f;
+    bool camera_orbit_set = false;
+    int camera_mode = -1;
     glm::vec2 start_player_position{0};
     bool start_player_position_set=false;
     float start_player_height=0;
@@ -386,6 +392,34 @@ int main(int argc, char** argv) {
             start_heading_set = true;
             continue;
         }
+        if (std::strcmp(a, "--camera-orbit") == 0 && i + 2 < argc) {
+            char* yaw_end = nullptr;
+            char* pitch_end = nullptr;
+            const float yaw_degrees = std::strtof(argv[++i], &yaw_end);
+            const float pitch_degrees = std::strtof(argv[++i], &pitch_end);
+            if (yaw_end == nullptr || *yaw_end != '\0' || pitch_end == nullptr ||
+                *pitch_end != '\0' || !std::isfinite(yaw_degrees) ||
+                !std::isfinite(pitch_degrees)) {
+                std::fprintf(stderr, "--camera-orbit needs two finite degree values\n");
+                return 2;
+            }
+            constexpr float kDegreesToRadians = 3.14159265358979323846f / 180.0f;
+            camera_orbit_yaw_radians = yaw_degrees * kDegreesToRadians;
+            camera_orbit_pitch_radians = pitch_degrees * kDegreesToRadians;
+            camera_orbit_set = true;
+            continue;
+        }
+        if (std::strcmp(a, "--camera-mode") == 0 && i + 1 < argc) {
+            const char* mode = argv[++i];
+            if (std::strcmp(mode, "near") == 0) camera_mode = 0;
+            else if (std::strcmp(mode, "chase") == 0) camera_mode = 1;
+            else if (std::strcmp(mode, "far") == 0) camera_mode = 2;
+            else {
+                std::fprintf(stderr, "--camera-mode needs near, chase, or far\n");
+                return 2;
+            }
+            continue;
+        }
         if (std::strcmp(a, "--screenshot") == 0 && i + 1 < argc) {
             screenshot_path = argv[++i];
             continue;
@@ -592,6 +626,9 @@ int main(int argc, char** argv) {
         app.set_start_player_position(start_player_position);
     }
     app.set_start_heading(start_heading_radians);
+    if (camera_orbit_set)
+        app.set_camera_orbit(camera_orbit_yaw_radians, camera_orbit_pitch_radians);
+    if (camera_mode >= 0) app.set_camera_mode(camera_mode);
     if (!explicit_seed) {
         // Host-only entropy chooses a run; simulation consumes the saved seed.
         std::random_device entropy;

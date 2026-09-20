@@ -709,7 +709,7 @@ void test_the_tape_format_is_a_flat_block_of_bytes(const Recording& rec,
 // now, next to the layout above that it versions.
 void test_the_tape_version_is_pinned(const Recording& rec,
                                      const TerrainCollider& collider) {
-    REQUIRE_MSG(kReplayTapeVersion == 7u,
+    REQUIRE_MSG(kReplayTapeVersion == 8u,
                 "kReplayTapeVersion changed; every recorded tape is now junk, "
                 "which is fine if you meant it",
                 "tape version");

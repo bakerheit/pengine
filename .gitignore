@@ -20,3 +20,4 @@ __pycache__/
 
 # Proprietary model assets must stay local.
 /assets/models/
+.worktree-rescue/

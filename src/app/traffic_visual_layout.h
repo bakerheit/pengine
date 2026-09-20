@@ -130,12 +130,13 @@ inline TrafficSignalLayout make_traffic_signal_layout(
 
 inline TrafficVisualLayout make_traffic_visual_layout(
     const AABB& bounds, float arch_centre_y_native, float wheel_x_native,
-    float wheel_front_z_native, float wheel_rear_z_native) {
+    float wheel_front_z_native, float wheel_rear_z_native,
+    float visual_length=5.f, float wheel_radius=.34375f) {
     // Probable Cause fitted every vehicle into its 4 m chassis, then applied
     // the global 1.25 vehicle scale. Preserve that 5 m visual length and its
     // shared 0.275 * 1.25 m visible wheel radius.
-    constexpr float kLegacyVisualLength = 5.0f;
-    constexpr float kLegacyWheelRadius = 0.34375f;
+    const float kLegacyVisualLength = visual_length;
+    const float kLegacyWheelRadius = wheel_radius;
     constexpr float kPi = 3.14159265358979323846f;
 
     TrafficVisualLayout out;

@@ -44,7 +44,8 @@ namespace apricot {
 // v6: appended the settings menu direction buttons; the byte layout is
 // unchanged.
 // v7: appended the on-foot jump button and airborne character movement.
-inline constexpr uint32_t kReplayTapeVersion = 7;
+// v8: BWC 360 joins deterministic ambient traffic, changing collision footprints.
+inline constexpr uint32_t kReplayTapeVersion = 8;
 
 struct ReplayTape {
     uint32_t version = kReplayTapeVersion;

@@ -718,18 +718,16 @@ void test_police_should_ram() {
     REQUIRE(ram(true, false, police_min_ram_level(), t.ram_min_ahead, t.ram_range, 6.f));
 }
 
-// One row per star. Levels 1–5 must be exactly what the scattered literals
-// were before the table existed — the runtime suites pin the cadence in steps
-// and the unit budget by count, and this is the test that says the refactor
-// moved nothing. The pinned points below are the old expressions written out.
+// One row per star. Traffic stops stay small, then every escalation adds one
+// unit; deliberate vehicle contact begins at the tactical third star.
 void test_police_level_profile_table() {
     for (int level = 1; level <= 5; ++level) {
         const PoliceLevelProfile& p = police_level_profile(level);
-        REQUIRE(p.units == std::min(8, level + 2));
+        REQUIRE(p.units == level);
         const float old_cadence = level >= 4 ? 0.4f : level >= 2 ? 0.7f : 1.4f;
         REQUIRE_NEAR(p.cadence_s, old_cadence, 1e-6f);
         REQUIRE(p.hazard_braking == (level <= 2));
-        REQUIRE(p.may_ram == (level >= 2));
+        REQUIRE(p.may_ram == (level >= 3));
         REQUIRE_NEAR(p.cruise_bonus_mps, 0.6f * static_cast<float>(level), 1e-6f);
         REQUIRE(p.may_spawn);
     }
@@ -746,7 +744,7 @@ void test_police_level_profile_table() {
                 police_level_profile(level + 1).detect_range_m);
     }
     REQUIRE(police_level_profile(0).detect_range_m == 0.0f);
-    REQUIRE(police_min_ram_level() == 2);
+    REQUIRE(police_min_ram_level() == 3);
     // The bonus is pinned below the 38 m/s cap, where it is actually visible:
     // 10 m/s suspect, three stars -> 10*1.3 + 6 + 1.8.
     REQUIRE_NEAR(police_pursuit_cruise_mps(0.0f, 10.0f, 3), 20.8f, 1e-5f);

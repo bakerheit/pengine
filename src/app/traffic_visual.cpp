@@ -176,6 +176,31 @@ bool TrafficVisual::load_model(Renderer& renderer, const char* mesh_path,
         out.glass_count=std::size(kGlassNames);
     }
 
+    const bool bwc=std::string_view(mesh_path).find("bwc_360/")!=std::string_view::npos;
+    if (bwc) {
+        const std::string root="models/vehicles/bwc_360/";
+        StaticEmesh opaque;
+        if (!read_static_emesh(asset_path(root+"body_traffic.emesh"),opaque)) return false;
+        out.mesh=renderer.add_mesh(make_vehicle_snow_mesh(opaque,root+"body_traffic.emesh"));
+        out.glass_material=renderer.add_glass_material();
+        constexpr const char* panes[]{"windshield","rear_glass","passenger_front_glass","driver_front_glass","driver_rear_glass","passenger_rear_glass"};
+        for (std::size_t i=0;i<std::size(panes);++i) {
+            StaticEmesh glass;
+            if (!read_static_emesh(asset_path(root+panes[i]+".emesh"),glass)) return false;
+            out.glass_meshes[i]=i==0 ? renderer.add_mesh(make_windshield_snow_mesh(glass)) : renderer.add_mesh(glass);
+            out.glass_bounds[i]=glass.bounds;
+            if (out.glass_meshes[i]==kInvalidId) return false;
+        }
+        out.glass_count=std::size(panes);
+        for (std::size_t i=0;i<2;++i) {
+            StaticEmesh wheel;
+            if (!read_static_emesh(asset_path(root+(i==0 ? "front_wheel.emesh" : "rear_wheel.emesh")),wheel)) return false;
+            out.wheel_meshes[i]=renderer.add_mesh(wheel);out.wheel_bounds[i]=wheel.bounds;
+            if (out.wheel_meshes[i]==kInvalidId) return false;
+        }
+        out.wheel_native_radius=.315f;
+        if (out.mesh==kInvalidId || out.glass_material==kInvalidId) return false;
+    }
     out.paints.clear();
     out.paints.reserve(paint_count);
     for (std::size_t i = 0; i < paint_count; ++i) {
@@ -186,7 +211,8 @@ bool TrafficVisual::load_model(Renderer& renderer, const char* mesh_path,
 
     out.layout = make_traffic_visual_layout(
         body.bounds, arch_centre_y_native, wheel_x_native,
-        wheel_front_z_native, wheel_rear_z_native);
+        wheel_front_z_native, wheel_rear_z_native,
+        bwc ? body.bounds.size().z : 5.f, bwc ? .315f : .34375f);
     const auto profile = vehicle_headlight_profile(mesh_path);
     out.headlight_profile = profile.id;
     out.exposed_headlights = profile.exposed();
@@ -243,6 +269,7 @@ bool TrafficVisual::init(Renderer& renderer, Scene& scene,
     static constexpr const char* kVesperVx91Paints[] = {
         "textures/vehicles/vesper_vx91/body_surface.png",
     };
+    static constexpr const char* kBwcPaints[]{"textures/vehicles/bwc_360/body.png"};
     static constexpr const char* kPolicePaints[] = {
         "textures/vehicles/municipal_cruiser_91c/body.png",
     };
@@ -270,7 +297,9 @@ bool TrafficVisual::init(Renderer& renderer, Scene& scene,
                     0.55f, 1.08f, 2.08f, 1.86f, models_[6]) ||
         !load_model(renderer, "models/vehicles/municipal_cruiser_91c/body.emesh",
                     kPolicePaints, 1,
-                    .42f, .94f, 1.63f, 1.53f, models_[7])) {
+                    .42f, .94f, 1.63f, 1.53f, models_[7]) ||
+        !load_model(renderer,"models/vehicles/bwc_360/body.emesh",kBwcPaints,1,
+                    .325f,.755f,1.27f,1.30f,models_[9])) {
         AP_ERROR("traffic visual: a traffic body or paint failed to load");
         return false;
     }
@@ -363,7 +392,7 @@ bool TrafficVisual::init(Renderer& renderer, Scene& scene,
     build_signals(scene, lanes, collider);
     build_street_lamps(scene, lanes, collider);
     build_road_controls(scene, lanes, collider);
-    AP_INFO("traffic visual: 9 bodies, shared moving wheels, %zu signal "
+    AP_INFO("traffic visual: 10 bodies, shared moving wheels, %zu signal "
             "heads, %zu street lamps, %zu stop/yield signs ready",
             signals_.size(), street_lamps_.size(), road_sign_count_);
     return true;
@@ -377,7 +406,7 @@ TrafficVisual::Rig TrafficVisual::create_rig(
     rig.generation=agent.generation;
 
     // Stable secondary buckets split ordinary cars between the original sedan,
-    // Halcyon, Montrose, and Vesper. Emergency/truck weights stay unchanged.
+    // Halcyon, Montrose, Vesper, and BWC. Emergency/truck weights stay unchanged.
     const uint64_t h = traffic_vehicle_identity_hash(
         agent.lane_key, agent.slot);
     rig.model = static_cast<std::size_t>(kind);
@@ -433,8 +462,12 @@ TrafficVisual::Rig TrafficVisual::create_rig(
     Renderable wheel;
     wheel.mesh = wheel_mesh_;
     wheel.material = wheel_material_;
-    for (NodeId& id : rig.wheels) {
-        id = scene.create(wheel, Transform{}, wheel_bounds_);
+    for (std::size_t i=0;i<rig.wheels.size();++i) {
+        auto& id=rig.wheels[i];const auto axle=i<2 ? 0u : 1u;
+        const bool custom=model.wheel_meshes[axle]!=kInvalidId;
+        wheel.mesh=custom ? model.wheel_meshes[axle] : wheel_mesh_;
+        wheel.material=custom ? model.paints[0] : wheel_material_;
+        id = scene.create(wheel, Transform{}, custom ? model.wheel_bounds[axle] : wheel_bounds_);
         set_draw_distance(scene, id, vehicle_draw_distance_);
     }
     for (std::size_t i = 0; i < rig.lamps.size(); ++i) {
@@ -568,9 +601,11 @@ void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
         steer=(agent.turn_from_lane!=kInvalidLane ? agent.turn_steer_rad:0.f)-agent.collision_steer_rad;
     }
     if (agent.maneuver.active()) steer = agent.maneuver_steer_rad;
+    if (rig.model==static_cast<std::size_t>(TrafficVehicleKind::Bwc360)) steer=std::clamp(steer,-.48f,.48f);
     const float spin = static_cast<float>(step) * static_cast<float>(kSimDt) *
                        agent.speed_mps / model.layout.wheel_radius;
-    const float wheel_scale = model.layout.wheel_radius / native_wheel_radius_;
+    const float wheel_scale = model.layout.wheel_radius /
+        (model.wheel_native_radius>0.f ? model.wheel_native_radius : native_wheel_radius_);
 
     for (std::size_t i = 0; i < rig.wheels.size(); ++i) {
         const bool front = i < 2u;

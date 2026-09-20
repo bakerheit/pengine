@@ -44,6 +44,8 @@ void App::begin_player_death(const char* cause) {
     // respawned player is immediately re-arrested by a cop still walking
     // toward where the body was.
     wanted_.reset();
+    police_escalation_.reset();
+    police_stop_feedback_s_=0.0f;
     police_offenses_.reset();
     police_arrest_.reset();
     world_.set_police_context(0, player_focus_position());
@@ -181,6 +183,7 @@ void App::throw_player_punch() {
     wanted_.add_heat(body.killed ? kCivilianKilledHeat : kCivilianWoundedHeat,
                      body.killed ? WantedSystem::Crime::Violent
                                  : WantedSystem::Crime::Assault);
+    if (body.killed) police_escalation_.record_civilian_kill();
     AP_INFO("punch %s pedestrian %llu/%u; wanted %d",
             body.killed ? "killed" : "connected with",
             static_cast<unsigned long long>(body.lane_key), body.slot,

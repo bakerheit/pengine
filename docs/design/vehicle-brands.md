@@ -4,25 +4,26 @@
 
 This is the official brand roster for the pilot world (O'Haven / Pinatty and
 Florangia). It exists to keep brand names, segments and tone consistent as
-more cars get built — the models-and-stats catalog that will eventually sit
-under each brand is future work, not yet started.
+more cars get built. The detailed model/spec catalog begins with the
+[BWC 360](../assets/bwc-360.md) and will expand as cars are finished.
 
 **Two tiers below: catalog and draft.** Catalog entries are wired into
 [`src/app/player_car_catalog.h`](../../src/app/player_car_catalog.h), under
-`F1 > Vehicle > Choose Car`. Draft makers have no selectable vehicle; BWC
-has a modeled 360 sedan with its emblem fitted, awaiting catalog integration. Model availability and emblem installation
-are separate: a catalog model does not imply its proposed badge is fitted.
+`F1 > Vehicle > Choose Car`. Draft makers have no selectable vehicle. Model
+availability and emblem installation are separate: a catalog model does not
+imply its proposed badge is fitted.
 The roster was checked against source on 2026-09-12; this documentation pass
 does not repeat each model's runtime validation.
 
 ## Catalog brands and fleet label
 
-12 manufacturers plus the Municipal fleet label, with 32 selectable models,
+13 manufacturers plus the Municipal fleet label, with 33 selectable models,
 confirmed against the catalog on 2026-09-12.
 
 | Brand | Segment / vibe | Catalog models |
 |---|---|---|
 | **ALDER** | Everyday economy — city hatch to family wagon | Pip, Ridge, Wayfarer |
+| **BWC** | Durable Belgian compact family and fleet cars | 360 |
 | **EMBER** | Sports cars — wide, low, mid-engine | GT |
 | **FANG** | Motorcycles — light, quick-steering | Venom |
 | **GLM** (General Lifetime Motors) | Flagship performance under a dull corporate name | Lunge, Zip |
@@ -54,12 +55,11 @@ Notes on the less obvious entries:
 
 ## Draft manufacturers (no selectable vehicles)
 
-These names are recorded in the roster. BWC's badge direction is documented
-below and fitted to its 360 model; Ashworth and Regalia's first vehicles remain future work.
+These names are recorded in the roster. Ashworth and Regalia's first vehicles
+remain future work.
 
 | Brand | Intended segment / vibe |
 |---|---|
-| **BWC** (Belgium Working Coach) | Durable Belgian compact family and fleet cars |
 | **ASHWORTH** | British-coded luxury saloons |
 | **REGALIA** | Limousines, town cars |
 
@@ -117,7 +117,7 @@ intent survives outside the ignored preview page.
 | RODEO | Branding-iron R, black upright/bowl and orange leg | Fitted to the Grazer grille and tailgate; see the [implementation and evidence](../assets/rodeo-grazer-emblem.md). |
 | SPAGATTI | Folded ribbon S | Proposal; retain the pasta nod without losing a simple silhouette. |
 | VESPER | Diagonal evening needle through a diamond | Proposal; simplify thin details for small badges. |
-| BWC | Belgian roundel with curved BWC | Fitted to the [360 model](../assets/bwc-360.md); not yet a selectable catalog entry. |
+| BWC | Belgian roundel with curved BWC | Fitted to the selectable [360 model](../assets/bwc-360.md). |
 
 ASHWORTH and REGALIA do not yet have documented emblem directions. Before
 mounting any new mark, decide its actual front/rear placement, material,
@@ -142,10 +142,10 @@ founding year, parent company or country unless this roster says so.
 
 - [x] Brand names for RODEO and EMBER confirmed against shipped code.
 - [x] BWC manufacturer and emblem direction defined; 360 four-door model created with mounted roundels.
-- [ ] Integrate the BWC 360 model into the selectable vehicle catalog and runtime door rig.
+- [x] Integrate the BWC 360 model into the selectable vehicle catalog and runtime door rig.
 - [x] Current catalog names the former GLR maker GLM, with Lunge and Zip models.
 - [ ] Resolve the Ashworth/Regalia luxury overlap with Halcyon/Montrose.
 - [ ] Build Ashworth and Regalia's first models, if the overlap resolves in
 their favor.
-- [ ] Per-model stats catalog (handling, top speed, price, rarity) — not
-      started for any brand, shipped or draft.
+- [ ] Extend the per-model stats catalog (handling, top speed, price, rarity)
+      beyond the BWC 360.

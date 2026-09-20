@@ -85,8 +85,9 @@ HEADLIGHT_MODEL(orison_cinder, 21)
 HEADLIGHT_RECT(.38,.30,.62,.415,2.21,2.22)
 HEADLIGHT_END
 HEADLIGHT_MODEL(spagatti_shu, 22)
-// Curved receiver spans the rounded nose; glow reuses its exact body facets.
-HEADLIGHT_RECT(.47,.46,.93,.64,1.90,2.405)
+// Paired lenses sit inside the sculpted round buckets.
+HEADLIGHT_ROUND(.460,.585,.620,.745,1.80,2.405)
+HEADLIGHT_ROUND(.710,.615,.870,.775,1.80,2.405)
 HEADLIGHT_END
 
 HEADLIGHT_MODEL(municipal_cruiser_91a, 23)
@@ -124,4 +125,9 @@ HEADLIGHT_END
 
 HEADLIGHT_MODEL(rodeo_grazer, 31)
 HEADLIGHT_RECT(.505,.78,.765,.95,2.397,2.406)
+HEADLIGHT_END
+
+HEADLIGHT_MODEL(bwc_360, 32)
+HEADLIGHT_ROUND(.446,.689,.526,.769,2.10,2.25)
+HEADLIGHT_ROUND(.598,.687,.682,.771,2.10,2.25)
 HEADLIGHT_END

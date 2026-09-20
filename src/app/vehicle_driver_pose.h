@@ -26,7 +26,7 @@ inline bool shows_mistral_driver(PlayerCarId car, bool occupied) {
 }
 
 inline bool has_animated_driver(PlayerCarId car) {
-    return car == PlayerCarId::VesperMistral || car == PlayerCarId::HarrowWorkman ||
+    return car == PlayerCarId::Bwc360 || car == PlayerCarId::VesperMistral || car == PlayerCarId::HarrowWorkman ||
         car==PlayerCarId::AlderPip || car==PlayerCarId::VesperScythe ||
         car==PlayerCarId::FangVenom || car==PlayerCarId::EmberGt || car==PlayerCarId::RodeoGrazer ||
         car==PlayerCarId::HalcyonSovereign ||
@@ -144,6 +144,12 @@ inline const VehicleDriverLayout& vehicle_driver_layout(PlayerCarId car) {
         {{.30f,.55f,.70f},{.50f,.55f,.70f}},
         {{.30f,1.02f,.38f},{.50f,1.02f,.38f}},
         {{.09f,.87f,.12f},{.73f,.87f,.12f}},{1.30f,1.00f,-.19f},1.04f};
+    static const VehicleDriverLayout bwc{
+        {.38f,.58f,.22f},{{.27f,.94f,.58f},{.49f,.94f,.58f}},
+        {{.33f,.40f,.76f},{.48f,.40f,.76f}},
+        {{.29f,.81f,.54f},{.48f,.81f,.54f}},
+        {{.08f,.68f,.28f},{.69f,.68f,.28f}},{1.20f,.82f,.07f},1.02f};
+    if(car==PlayerCarId::Bwc360) return bwc;
     if(car==PlayerCarId::RodeoGrazer) return grazer;
     if(car==PlayerCarId::EmberGt) return ember;
     if(car==PlayerCarId::AlderPip) return pip;

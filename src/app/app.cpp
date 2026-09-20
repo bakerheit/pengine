@@ -871,6 +871,11 @@ bool App::init() {
     camera_.near_plane = kNearPlane;
     camera_.far_plane = kRenderDistance + 200.0f;
     chase_camera_.reset();
+    if (camera_mode_ >= 0) chase_camera_.set_mode(camera_mode_);
+    if (camera_orbit_set_) {
+        chase_camera_.set_orbit(camera_orbit_yaw_, camera_orbit_pitch_);
+        chase_camera_.set_auto_recenter(false);
+    }
     camera_obstruction_distance_ = -1.0f;
     seen_impact_count_ = car_.impact_count;
     update_camera(0.0f);
@@ -1196,7 +1201,10 @@ void App::step_weapon_use(bool available, float dt) {
                                              : kCivilianWoundedHeat,
                                  body.killed ? WantedSystem::Crime::Violent
                                              : WantedSystem::Crime::Assault);
-                if (body.killed) ++weapon_kills_;
+                if (body.killed) {
+                    ++weapon_kills_;
+                    police_escalation_.record_civilian_kill();
+                }
                 AP_INFO("pistol %s pedestrian %llu/%u; wanted %d",
                     body.killed ? "killed" : "hit",
                     static_cast<unsigned long long>(body.lane_key),body.slot,
@@ -2995,6 +3003,7 @@ void App::render() {
             radar.wanted_level = wanted_.level();
             radar.wanted_searching = world_.traffic().police_searching();
             radar.wanted_report_pending = wanted_report_blink_;
+            radar.police_stop_prompt = police_stop_prompt_;
             radar.step = static_cast<int64_t>(step_index_);
             radar.time_of_day = env.time_of_day;
             if (mission_stage_ == MissionStage::DeliveryNeedsCar)
@@ -4351,11 +4360,49 @@ int App::run() {
             const bool player_armed = player_has_drawn_weapon();
             const glm::vec3 police_target = player_focus_position();
             const int wanted_level_before_offenses = wanted_.level();
+            police_stop_feedback_s_ = std::max(
+                0.0f, police_stop_feedback_s_ - static_cast<float>(kSimDt));
             check_police_driving_offenses();
             check_police_armed_offense(player_armed);
             const auto police_visible = visible_police(police_target);
+            const bool driving_suspect = !on_foot_ && !in_aircraft_ &&
+                !in_helicopter_ && !in_boat_ && !vehicle_transition_.active() &&
+                !boat_transition_.active();
+            bool officer_on_foot_near = false;
+            for (const VehicleAgent& unit : world_.traffic().vehicles()) {
+                if (!unit.police_pursuit ||
+                    unit.officer.phase != PoliceOfficerPhase::Pursuing) continue;
+                if (glm::distance(unit.officer.pos, police_target) <= 7.0f) {
+                    officer_on_foot_near = true;
+                    break;
+                }
+            }
+            const PoliceEscalationOutput escalation = police_escalation_.step({
+                wanted_.level(), driving_suspect, player_armed,
+                world_.traffic().police_pursuit_count() > 0,
+                officer_on_foot_near, glm::length(car_.velocity),
+                static_cast<float>(kSimDt)});
+            if (escalation.minimum_wanted_level > wanted_.level()) {
+                wanted_.set_level(escalation.minimum_wanted_level);
+                AP_INFO("police escalation: %s; wanted %d",
+                    escalation.fled_stop ? "failed to stop" : "armed or multiple-kill threat",
+                    wanted_.level());
+            }
+            if (escalation.stop_resolved) {
+                wanted_.reset();
+                police_escalation_.reset();
+                police_stop_prompt_ = "TRAFFIC STOP COMPLETE";
+                police_stop_feedback_s_ = 3.0f;
+                AP_INFO("police traffic stop resolved without a chase");
+            } else if (escalation.pull_over_prompt) {
+                police_stop_prompt_ = "PULL OVER - STOP FOR OFFICER";
+            } else if (police_stop_feedback_s_ > 0.0f) {
+                police_stop_prompt_ = "TRAFFIC STOP COMPLETE";
+            } else {
+                police_stop_prompt_ = "";
+            }
             const WallClock::time_point ctx_t0 = WallClock::now();
-            world_.set_police_context(wanted_.level(), police_target,
+            world_.set_police_context(escalation.stop_resolved ? 0 : wanted_.level(), police_target,
                                       police_visible);
             const glm::vec3 target_velocity = on_foot_
                 ? player_character_.velocity : car_.velocity;
@@ -4595,6 +4642,7 @@ int App::run() {
             if (vehicle_engine_failed(vehicle.mechanical)) continue;
             const char* model = "car5";
             switch (traffic_vehicle_kind(vehicle)) {
+                case TrafficVehicleKind::Bwc360: model = "bwc_360"; break;
                 case TrafficVehicleKind::Sedan: break;
                 case TrafficVehicleKind::BoxTruck: model = "car8"; break;
                 case TrafficVehicleKind::Ambulance: model = "ambulance"; break;
@@ -4771,6 +4819,9 @@ int App::run() {
             traffic_visual_.signal_head_count(),
             world_.traffic().police_unit_count(),
             world_.traffic().police_pursuit_count());
+    AP_INFO("BWC 360 traffic: %zu moving rigs, %zu parked rigs",
+            traffic_visual_.model_count(TrafficVehicleKind::Bwc360),
+            traffic_visual_.model_count(TrafficVehicleKind::Bwc360,true));
     AP_INFO("presentation: %zu traffic rigs, %zu parked rigs, %zu ambient NPC rigs, %zu staff "
             "rigs; %d character draws; interior %s",
             traffic_visual_.car_count(), traffic_visual_.parked_car_count(),

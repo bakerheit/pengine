@@ -75,19 +75,19 @@ bool PlayerCarVisual::load_model(
         const std::string path=definition.mesh_path;
         const std::string root=path.substr(0,path.find_last_of('/')+1);
         StaticEmesh open_body, door;
-        if (!read_static_emesh(asset_path(root + "body_open.emesh"), open_body) ||
-            !read_static_emesh(asset_path(root + "driver_door.emesh"), door)) {
+        if (!read_static_emesh(asset_path(root + (definition.id==PlayerCarId::Bwc360 ? "body_drive.emesh" : "body_open.emesh")), open_body) ||
+            !read_static_emesh(asset_path(root + (definition.id==PlayerCarId::Bwc360 ? "driver_front_door.emesh" : "driver_door.emesh")), door)) {
             AP_ERROR("player car: %s articulated meshes missing; recook the vehicle assets", definition.model);
             return false;
         }
         out.body_mesh = renderer.add_mesh(
-            make_vehicle_snow_mesh(open_body, root + "body_open.emesh"));
+            make_vehicle_snow_mesh(open_body, root + (definition.id==PlayerCarId::Bwc360 ? "body_drive.emesh" : "body_open.emesh")));
         out.driver_door_mesh = renderer.add_mesh(door);
         out.driver_door_bounds = door.bounds;
         if (out.driver_door_mesh == kInvalidId) return false;
         if (has_passenger_door(definition.id)) {
             StaticEmesh passenger;
-            if (!read_static_emesh(asset_path(root+"passenger_door.emesh"),passenger)) return false;
+            if (!read_static_emesh(asset_path(root+(definition.id==PlayerCarId::Bwc360 ? "passenger_front_door.emesh" : "passenger_door.emesh")),passenger)) return false;
             out.passenger_door_mesh=renderer.add_mesh(passenger);
             out.passenger_door_bounds=passenger.bounds;
             if (out.passenger_door_mesh==kInvalidId) return false;
@@ -113,9 +113,9 @@ bool PlayerCarVisual::load_model(
             if (out.soft_top_meshes[i]==kInvalidId) return false;
         }
     }
-    if (definition.id == PlayerCarId::HarrowWorkman ||
+    if (definition.id == PlayerCarId::Bwc360 || definition.id == PlayerCarId::HarrowWorkman ||
         definition.id == PlayerCarId::EmberGt || definition.id == PlayerCarId::RodeoGrazer ||
-        definition.id == PlayerCarId::AlderPip ||
+        definition.id == PlayerCarId::AlderPip || definition.id == PlayerCarId::SpagattiShu ||
         definition.id == PlayerCarId::LegacyCar5Next ||
         definition.id == PlayerCarId::LegacyCar5NextPolice ||
         is_municipal_cruiser_91(definition.id) ||
@@ -129,7 +129,7 @@ bool PlayerCarVisual::load_model(
         out.glass_material = renderer.add_glass_material();
         for (std::size_t i=0;i<pane_count;++i) {
             StaticEmesh glass;
-            if (!read_static_emesh(asset_path(root+names[i]+".emesh"),glass)) return false;
+            if (!read_static_emesh(asset_path(root+(definition.id==PlayerCarId::Bwc360 && i==2 ? "passenger_front_glass" : definition.id==PlayerCarId::Bwc360 && i==3 ? "driver_front_glass" : names[i])+".emesh"),glass)) return false;
             out.glass_meshes[i] = i == 0u && !is_motorbike(definition.id)
                 ? renderer.add_mesh(make_windshield_snow_mesh(glass))
                 : renderer.add_mesh(glass);
@@ -146,7 +146,7 @@ bool PlayerCarVisual::load_model(
         return false;
     }
 
-    if (is_motorbike(definition.id) || definition.id==PlayerCarId::EmberGt || definition.id==PlayerCarId::RodeoGrazer) {
+    if (is_motorbike(definition.id) || definition.id==PlayerCarId::Bwc360 || definition.id==PlayerCarId::EmberGt || definition.id==PlayerCarId::RodeoGrazer) {
         const std::string path=definition.mesh_path;
         const std::string root=path.substr(0,path.find_last_of('/')+1);
         constexpr const char* names[]{"front_wheel.emesh","rear_wheel.emesh"};

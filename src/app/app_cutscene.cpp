@@ -25,6 +25,8 @@ void App::begin_new_game() {
     game_ui_.clear_waypoint();
     bank_vault_={};world_.reset_session_objects(scene_,collider_);
     wanted_.reset();
+    police_escalation_.reset();
+    police_stop_feedback_s_=0.0f;
     traffic_visual_.reset_signals(scene_,collider_);
     weapon_wheel_={};dev_menu_={};step_index_=0;seed_=new_game_seed_;
     // A new game starts in a city that is not on fire. The fire is world

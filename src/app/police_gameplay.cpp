@@ -117,6 +117,8 @@ void App::check_police_arrest(const std::vector<VisiblePoliceIdentity>& visible)
         player_character_.position,world_.traffic().vehicles(),visible);
     if (!event) return;
     wanted_.reset();
+    police_escalation_.reset();
+    police_stop_feedback_s_=0.0f;
     world_.set_police_context(0,player_focus_position());
     arrested_feedback_s_=GameUi::kArrestedDisplaySeconds;
     ++police_arrest_reports_;
@@ -134,6 +136,7 @@ void App::check_police_arrest(const std::vector<VisiblePoliceIdentity>& visible)
 void App::check_pedestrian_casualties() {
     for (const auto& kill : world_.traffic().ped_run_downs()) {
         ++pedestrian_kill_reports_;
+        police_escalation_.record_civilian_kill();
         wanted_.add_heat(kCivilianRunDownHeat,
                          WantedSystem::Crime::VehicularAssault);
         AP_INFO("ran down pedestrian %llu/%u at %.1f mph; wanted %d",

@@ -42,6 +42,7 @@ enum class PlayerCarId : uint8_t {
     LegacyCar5NextPolice,
     EmberGt,
     RodeoGrazer,
+    Bwc360,
     kCount,
 };
 
@@ -97,6 +98,9 @@ inline constexpr std::array<PlayerCarDefinition, kSelectablePlayerCarCount>
          "models/vehicles/alder_wayfarer/body.emesh",
          "textures/vehicles/alder_wayfarer/body.png",
          0.43f, 1.00f, 1.70f, 1.55f},
+        {PlayerCarId::Bwc360, "BWC", "360",
+         "models/vehicles/bwc_360/body.emesh", "textures/vehicles/bwc_360/body.png",
+         .325f,.755f,1.27f,1.30f,1.285f,.755f,.315f},
         {PlayerCarId::EmberGt, "EMBER", "GT",
          "models/vehicles/ember_gt/body.emesh", "textures/vehicles/ember_gt/body.png",
          .375f,.88f,1.40f,1.36f,1.38f,.88f,.365f},
@@ -238,20 +242,21 @@ struct PlayerCarBrand {
     std::size_t car_count = 0;
 };
 
-inline constexpr std::array<PlayerCarBrand, 13> kPlayerCarBrands{{
+inline constexpr std::array<PlayerCarBrand, 14> kPlayerCarBrands{{
     {"ALDER", "ALDER  >", 0u, 3u},
-    {"EMBER", "EMBER  >", 3u, 1u},
-    {"FANG", "FANG  >", 4u, 1u},
-    {"GLM", "GLM  >", 5u, 2u},
-    {"HALCYON", "HALCYON  >", 7u, 2u},
-    {"HARROW", "HARROW  >", 9u, 4u},
-    {"LEGACY", "LEGACY  >", 13u, 5u},
-    {"MONTROSE", "MONTROSE  >", 18u, 1u},
-    {"MUNICIPAL", "MUNICIPAL  >", 19u, 7u},
-    {"ORISON", "ORISON  >", 26u, 1u},
-    {"RODEO", "RODEO  >", 27u, 1u},
-    {"SPAGATTI", "SPAGATTI  >", 28u, 1u},
-    {"VESPER", "VESPER  >", 29u, 3u},
+    {"BWC", "BWC  >", 3u, 1u},
+    {"EMBER", "EMBER  >", 4u, 1u},
+    {"FANG", "FANG  >", 5u, 1u},
+    {"GLM", "GLM  >", 6u, 2u},
+    {"HALCYON", "HALCYON  >", 8u, 2u},
+    {"HARROW", "HARROW  >", 10u, 4u},
+    {"LEGACY", "LEGACY  >", 14u, 5u},
+    {"MONTROSE", "MONTROSE  >", 19u, 1u},
+    {"MUNICIPAL", "MUNICIPAL  >", 20u, 7u},
+    {"ORISON", "ORISON  >", 27u, 1u},
+    {"RODEO", "RODEO  >", 28u, 1u},
+    {"SPAGATTI", "SPAGATTI  >", 29u, 1u},
+    {"VESPER", "VESPER  >", 30u, 3u},
 }};
 
 inline constexpr const PlayerCarDefinition& player_car_definition(

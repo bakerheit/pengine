@@ -1,10 +1,9 @@
-# Spagatti Shū model-derived imagegen texture prompt
+# Spagatti Shū legacy texture brief
 
-The final Blender mesh is cooked first. Its exact UV receivers are then rendered
-to `build/spagatti-shu-imagegen-template.png`. Built-in imagegen edits that
-template into
-`assets/textures/vehicles/spagatti_shu/body-imagegen-source.png`; the cooker
-reduces the edit to the production 256x256 limited-palette `body.png`.
+This is the retained brief for the previous model. The current finish uses the
+model-derived atlas in `make_spagatti_shu_assets.py`; it does not read
+`body-imagegen-source.png`. See `docs/assets/spagatti-shu.md` for the current
+cook and UV contract.
 
 ## Prompt
 

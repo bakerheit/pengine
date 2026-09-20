@@ -55,6 +55,7 @@
 #include "city/imported_restaurants.h"
 #include "gfx/street_lamp_light.h"
 #include "city/miandi_gas_station_asset.h"
+#include "city/kyjhi_phonebooth_asset.h"
 #include "city/luxury_neighborhood.h"
 #include "city/westmere_streetscape.h"
 #include "city/residential_neighborhood.h"
@@ -3124,6 +3125,48 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
             precipitation_cover_.push_back(box);
         }
     }
+    const auto place_kyjhi_prop=[&](const char* root,const char* label,
+            const city::StartSite* site_data,std::size_t site_count)->bool {
+        city::KyjhiPropAsset prop_asset;
+        if(!city::load_kyjhi_prop_asset(prop_asset,root)) {
+            AP_ERROR("%s: missing or invalid cooked private asset; run tools/cook_kyjhi_payphones.py",label);
+            return false;
+        }
+        for(std::size_t i=0;i<site_count;++i) {
+            const auto& site=site_data[i];
+            Transform pose;
+            pose.position=city::kyjhi_prop_world({0,0,0},site);
+            pose.rotation=glm::angleAxis(std::atan2(site.sin_yaw,site.cos_yaw),glm::vec3{0,1,0});
+            for(const auto& part:prop_asset.materials) {
+                StaticEmesh mesh;
+                Texture texture;
+                if(!read_static_emesh(city::kyjhi_prop_path(part.mesh,root),mesh) ||
+                   !texture.load_file(city::kyjhi_prop_path(part.texture,root))) {
+                    AP_ERROR("%s: failed loading %s",site.name,part.mesh.c_str());return false;
+                }
+                Renderable placed;
+                placed.mesh=renderer.add_mesh(mesh);
+                if(placed.mesh==kInvalidId)return false;
+                kyjhi_phonebooth_meshes_.push_back(placed.mesh);
+                placed.material=renderer.add_material(std::move(texture),false,.25f,{},false,true);
+                const auto node=scene.create(placed,pose,mesh.bounds);
+                start_nodes_.push_back(node);
+                if(auto* n=scene.get(node))n->max_draw_distance=site.max_draw_distance_m;
+            }
+            city::add_kyjhi_prop_collision(collider,prop_asset,site);
+        }
+        AP_INFO("%s: %zu sites, %zu material meshes each",label,site_count,prop_asset.materials.size());
+        return true;
+    };
+    if(!place_kyjhi_prop(city::kKyjhiPhoneboothAssetRoot,"kyjhi phonebooth",
+            city::kKyjhiPhoneboothSites.data(),city::kKyjhiPhoneboothSites.size()))
+        return false;
+    if(!place_kyjhi_prop(city::kKyjhiPayphoneAssetRoot,"kyjhi payphone pedestal",
+            city::kKyjhiPayphoneSites.data(),city::kKyjhiPayphoneSites.size()))
+        return false;
+    if(!place_kyjhi_prop(city::kKyjhiWallPhoneAssetRoot,"kyjhi wall phone",
+            city::kKyjhiWallPhoneSites.data(),city::kKyjhiWallPhoneSites.size()))
+        return false;
     auto museum_parts=city::bake_loom_museum();
     register_interior(city::kLoomMuseumSite,museum_parts);
     city::apply_building_access_layout(city::kLoomMuseumSite,museum_parts,access_layout_);
@@ -3919,6 +3962,8 @@ void World::shutdown(Scene& scene, Renderer& renderer) {
     burgerpiz_meshes_.clear();
     for(const auto mesh:miandi_gas_station_meshes_)renderer.remove_mesh(mesh);
     miandi_gas_station_meshes_.clear();
+    for(const auto mesh:kyjhi_phonebooth_meshes_)renderer.remove_mesh(mesh);
+    kyjhi_phonebooth_meshes_.clear();
     miandi_gas_station_lights_.clear();
     if(museum_amphora_mesh_!=kInvalidId) {renderer.remove_mesh(museum_amphora_mesh_);museum_amphora_mesh_=kInvalidId;}
     for(const MeshId mesh:museum_meshes_) if(mesh!=kInvalidId) renderer.remove_mesh(mesh);

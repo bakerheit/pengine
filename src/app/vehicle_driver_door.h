@@ -19,6 +19,7 @@ struct VehicleDriverDoor {
 
 inline VehicleDriverDoor vehicle_driver_door(PlayerCarId car) {
     car=canonical_player_car_id(car);
+    if(car==PlayerCarId::Bwc360) return {{.864f,.28f,.861f},{.881f,.835f,.07f},-.072f,.858f,.265f,1.07f,-1.082104136f};
     if(car==PlayerCarId::RodeoGrazer) return {{.90f,.43f,.92f},{.916f,1.015f,-.19f},-.28f,.92f,.43f,1.31f};
     if(car==PlayerCarId::EmberGt) return {{.93f,.32f,.86f},{.953f,.757f,-.41f},-.60f,.86f,.24f,.96f};
     if(car==PlayerCarId::AlderPip) return {{.824f,.32f,.58f},{.824f,.78f,-.43f},-.55f,.58f,.32f,1.16f};
@@ -51,7 +52,7 @@ inline VehicleDriverDoor vehicle_driver_door(PlayerCarId car) {
 }
 
 inline bool has_passenger_door(PlayerCarId car) {
-    return car==PlayerCarId::EmberGt || car==PlayerCarId::RodeoGrazer;
+    return car==PlayerCarId::Bwc360 || car==PlayerCarId::EmberGt || car==PlayerCarId::RodeoGrazer;
 }
 
 inline Transform vehicle_passenger_door_transform(PlayerCarId car,const Transform& body,float open) {

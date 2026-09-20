@@ -10,7 +10,7 @@ catalog, model names, and badge-production status, see
 
 | Maker | Founded | Home | Public character | Current game connection |
 | --- | ---: | --- | --- | --- |
-| BWC — Belgium Working Coach | 1879 | Belgium | Sturdy family and fleet machinery with more pride than glamour | Manufacturer and roundel concept; first vehicle is still open |
+| BWC — Belgium Working Coach | 1879 | Belgium | Sturdy family and fleet machinery with more pride than glamour | 360 compact sedan |
 | GLM — General Lifetime Motors | 1925 | United States | A vast, dull-sounding corporation that occasionally builds something ridiculous | Lunge and Zip |
 | Spagatti | 1950 | Italy | Grand-touring theatre: speed, polish, and a name that tries very hard | Shū |
 | Rodeo | 1965 | United States | Straightforward pickups and 4x4s for work, dirt roads, and people who want to look capable | Grazer 4x4 |
@@ -46,8 +46,9 @@ single miracle invention:
 That history informs the modern name. BWC cars should feel purposeful,
 overbuilt, and faintly pleased with themselves. The current curved-letter
 roundel borrows the seriousness of a German prestige badge but uses Belgian
-black, yellow, and red. It is a design concept, not yet a badge installed on a
-vehicle. **Krammeit** remains only a possible first sedan name.
+black, yellow, and red. It is fitted to the **360**, a compact four-door sedan
+with a planted rear-drive road tune. **Krammeit** remains only a possible
+future model name.
 
 ## GLM — General Lifetime Motors
 

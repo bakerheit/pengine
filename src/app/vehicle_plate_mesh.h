@@ -15,6 +15,10 @@ using VehiclePlateMounts = std::vector<VehiclePlateMount>;
 // Native source coordinates: +Z nose, +Y up. Authored mounts win; legacy
 // bodies are probed across the plate footprint so a bumper can't bury a corner.
 inline VehiclePlateMounts vehicle_plate_mounts(const StaticEmesh& body, std::string_view path) {
+    if (path.find("bwc_360/")!=std::string_view::npos)
+        return {{{0,.482f,2.244f},{0,0,1}},{{0,.650f,-2.233f},{0,0,-1}}};
+    if (path.find("spagatti_shu/")!=std::string_view::npos)
+        return {{{.52f,.33f,2.324f},{0,0,1}},{{0,.49f,-2.407f},{0,0,-1}}};
     if (path.find("rodeo_grazer/")!=std::string_view::npos)
         return {{{0,.625f,2.446f},{0,0,1}},{{0,.560f,-2.646f},{0,0,-1}}};
     if (path.find("fang_venom_v2/")!=std::string_view::npos)

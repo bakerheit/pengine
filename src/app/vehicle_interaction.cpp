@@ -11,6 +11,7 @@ namespace apricot {
 namespace {
 PlayerCarId traffic_model(const VehicleAgent& v) {
     switch (traffic_vehicle_kind(v)) {
+        case TrafficVehicleKind::Bwc360:return PlayerCarId::Bwc360;
         case TrafficVehicleKind::Sedan:return PlayerCarId::LegacyCar5;
         case TrafficVehicleKind::BoxTruck:
         case TrafficVehicleKind::Snowplow:return PlayerCarId::LegacyCar8;

@@ -23,6 +23,7 @@
 #include "game/molotov.h"
 #include "game/fire.h"
 #include "game/wanted_system.h"
+#include "game/police_escalation.h"
 #include "game/police_offenses.h"
 #include "game/player_vitals.h"
 #include "game/police_arrest.h"
@@ -188,6 +189,12 @@ public:
     void set_start_player_height(float y) { start_player_height_=y;start_player_height_set_=true; }
     void set_start_player_position(glm::vec2 xz) { start_player_position_=xz;start_player_position_set_=true; }
     void set_start_heading(float radians) { start_heading_radians_ = radians; }
+    void set_camera_orbit(float yaw_radians, float pitch_radians) {
+        camera_orbit_yaw_=yaw_radians;
+        camera_orbit_pitch_=pitch_radians;
+        camera_orbit_set_=true;
+    }
+    void set_camera_mode(int mode) { camera_mode_=mode; }
     void set_session_seed(uint64_t seed) { seed_=new_game_seed_=seed; }
     void set_clear_weather(bool clear) { clear_weather_=clear; }
     void set_weather_preset(DevWeatherPreset preset);
@@ -567,6 +574,9 @@ private:
     bool ui_settings_applied_ = false;
     GameUi game_ui_;
     WantedSystem wanted_;
+    PoliceEscalationTracker police_escalation_;
+    const char* police_stop_prompt_ = "";
+    float police_stop_feedback_s_ = 0.0f;
     // The report-pending blink latch (PENG-46): armed on a fresh crime,
     // cleared the step the dispatch radio fires.
     bool wanted_report_blink_ = false;
@@ -683,6 +693,10 @@ private:
     glm::vec2 start_position_{city::kOpeningMissionCarPosition.x,
                              city::kOpeningMissionCarPosition.z};
     float start_heading_radians_ = city::kOpeningMissionCarHeading;
+    float camera_orbit_yaw_=0.0f;
+    float camera_orbit_pitch_=0.0f;
+    bool camera_orbit_set_=false;
+    int camera_mode_=-1;
     glm::vec2 start_player_position_{0};
     bool start_player_position_set_=false;
     float start_player_height_=0;

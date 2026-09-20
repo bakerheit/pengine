@@ -117,6 +117,12 @@ public:
     VehicleRegistration vehicle_registration(const VehicleAgent& agent) const;
 
     std::size_t car_count() const { return rigs_.size(); }
+    std::size_t model_count(TrafficVehicleKind kind, bool parked=false) const {
+        const auto& rigs=parked ? parked_rigs_ : rigs_;
+        return static_cast<std::size_t>(std::count_if(rigs.begin(),rigs.end(),[kind](const auto& rig) {
+            return rig.model==static_cast<std::size_t>(kind);
+        }));
+    }
     std::size_t parked_car_count() const { return parked_rigs_.size(); }
     std::size_t signal_head_count() const { return signals_.size(); }
     std::size_t street_lamp_count() const { return street_lamps_.size(); }
@@ -127,6 +133,9 @@ public:
 private:
     struct Model {
         VehiclePlateMounts plate_mounts;
+        std::array<MeshId,2> wheel_meshes{kInvalidId,kInvalidId};
+        std::array<AABB,2> wheel_bounds{};
+        float wheel_native_radius=0.f;
         MeshId mesh = kInvalidId;
         MeshId driver_door_mesh = kInvalidId;
         AABB driver_door_bounds;
@@ -238,7 +247,7 @@ private:
     Renderer* plate_renderer_ = nullptr;
     MaterialId plate_material_ = kInvalidId;
     std::map<uint64_t,city::StateId> registration_states_;
-    std::array<Model, 9> models_{};
+    std::array<Model, 10> models_{};
     std::array<MeshId, 3> snowplow_detail_meshes_{};
     std::array<AABB, 3> snowplow_detail_bounds_{};
     MeshId wheel_mesh_ = kInvalidId;
