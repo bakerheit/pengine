@@ -221,6 +221,38 @@ MaterialId Renderer::add_glass_material() {
     return id;
 }
 
+MaterialId Renderer::add_paintable_material(int width, int height) {
+    if (width <= 0 || height <= 0) {
+        AP_ERROR("renderer: refusing a %dx%d paintable material", width, height);
+        return kInvalidId;
+    }
+    const std::vector<uint8_t> white(static_cast<std::size_t>(width) *
+                                         static_cast<std::size_t>(height) * 4u,
+                                     uint8_t{255});
+    Texture texture;
+    if (!texture.upload_rgba(width, height, white)) return kInvalidId;
+    const MaterialId id = add_material(std::move(texture));
+    materials_[id].paintable = true;
+    return id;
+}
+
+bool Renderer::update_paintable_material(MaterialId id, int width, int height,
+                                         const std::vector<uint8_t>& rgba) {
+    if (!material_paintable(id)) {
+        // Loud, because the caller is about to believe a car changed colour.
+        // The likeliest id to arrive here is a shared stock or traffic paint,
+        // and writing it would recolour every car that shares it.
+        AP_ERROR("renderer: material %u is not paintable; its texture is left "
+                 "alone", id);
+        return false;
+    }
+    return materials_[id].diffuse.upload_rgba(width, height, rgba);
+}
+
+bool Renderer::material_paintable(MaterialId id) const {
+    return id < materials_.size() && materials_[id].paintable;
+}
+
 void Renderer::set_snow_clearance(const SnowClearanceField& field,
                                    float global_depth_m) {
     snow_clearance_count_ = 0;

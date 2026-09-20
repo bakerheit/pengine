@@ -168,3 +168,81 @@ obeys it.
 terrain chunk shares one material and the road layers share six, all created at
 startup. A free path for a table that never grows would be untested code
 guarding a case that does not occur.
+
+## Paintable materials, the one exception to append-only
+
+Append-only means a material, once added, is never freed and never changes.
+**Paintable materials are the one exception to the second half** — their
+texels may be rewritten; they are still never freed. `add_paintable_material(w,
+h)` mints one, starting as opaque white so an unwritten one draws its tint
+rather than black. `update_paintable_material()` rewrites it: same GL object,
+same `MaterialId`, `glTexSubImage2D` when the size and RGBA8 storage match and
+`glTexImage2D` when they do not, the whole mip chain regenerated every time.
+There is no `glDelete*` anywhere on that path, so the recycled-id hazard above
+never opens while scene nodes hold the handle.
+
+`update_paintable_material()` refuses every id `add_material()` returned, with
+an error and no change. That refusal is the point. Materials are shared by
+handle: every traffic car of one paint variant draws through a single id,
+picked from its model's paint table by hash. A respray that rewrote a shared id
+would repaint every car of that variant in the city in the same frame, and it
+would be reported as a traffic bug. So the check lives in gfx itself rather
+than in the caller's good intentions — and the converse is the caller's:
+**a paintable id must never go into a table that traffic, or any other shared
+owner, draws from.** One car, one paintable id.
+
+What it costs:
+
+- A paintable material holds its full RGBA storage and mip chain from the
+  moment it exists, painted or not: a third of a MiB at 256², 5.3 MiB at 1024².
+  The table never frees, so a pool that needs N of them allocates N up front and
+  keeps them.
+- Every rewrite regenerates the whole mip chain. Fine for one car at a respray;
+  wrong for anything that wants to repaint per frame.
+- A texture keeps no CPU copy of its pixels once uploaded, so a recolour has to
+  start from its own decode. `decode_rgba_file()` is that decode, and it is the
+  very function `load_file()` calls, so composited texels land one-for-one on
+  the stock paint instead of mirrored across the atlas. The price is one extra
+  copy of the image out of the decoder's buffer on every `load_file()`.
+
+Nothing calls these yet. The respray pool at Rook's Auto Repair is the first
+consumer, and it has not landed.
+
+## HUD gradients cost vertices, never a draw call
+
+`Hud::gradient_triangle()` and `Hud::gradient_rect()` put a colour on each
+corner and ride the same path as every other HUD primitive: the solid atlas
+block, the CPU clip rect, the single draw in `end()`. A colour picker is a few
+hundred vertices in the batch, not a second pass and not a texture.
+
+**A four-corner blend is not something a triangle can draw.** The GPU
+interpolates each triangle linearly, and a bilinear blend has a `u·v` term no
+pair of triangles reproduces. A colour picker's saturation/value plane — white,
+the hue, black, black — drawn as one quad is wrong through its middle by a
+quarter of full scale. So `gradient_rect()` cuts the rect into `cols` × `rows`
+cells, each exact at its own corners, and the worst error falls with the square
+of the cell count. Measured on that plane against a true bilinear blend, using
+the triangulation `hud.cpp` actually submits:
+
+| cells | worst error, in 8-bit levels |
+|---|---|
+| 1×1 | 63.75 |
+| 2×2 | 15.94 |
+| 4×4 | 3.98 |
+| 8×8 | 1.00 |
+| 16×16 | 0.25 |
+| 32×32 | 0.06 |
+
+A GL readback of a real `Hud` pass agreed to within 8-bit rounding (8×8 read
+1.47 levels worst, 32×32 read 0.56), with no crack pixels at any grid size.
+8×8 is the knee: one level at worst, 384 vertices. Counts clamp to 1..32 (6144
+vertices, about 190 KiB of that frame's upload), and a zero-area rect queues
+nothing.
+
+Every grid line is computed from its own index as `i / n` through `glm::mix`,
+never by accumulating a step, so neighbouring cells share bit-identical edges
+and the last cell lands exactly on `max`. An accumulated step leaves hairline
+cracks the backdrop shows through.
+
+Nothing calls these yet either; the respray colour picker is the first
+consumer.

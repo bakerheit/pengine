@@ -65,6 +65,24 @@ public:
     void circle(glm::vec2 centre, float radius, glm::vec4 color);
     void triangle(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec4 color);
 
+    // A colour per corner, interpolated linearly across the triangle. Same
+    // solid atlas block, same CPU clip and same single draw as everything else:
+    // a gradient costs vertices, never a draw call.
+    void gradient_triangle(glm::vec2 a, glm::vec2 b, glm::vec2 c, glm::vec4 ca,
+                           glm::vec4 cb, glm::vec4 cc);
+
+    // Axis-aligned rect with a colour at each corner, blended BILINEARLY. The
+    // GPU can only interpolate a triangle linearly, and a four-corner blend is
+    // not linear — a colour picker's saturation/value plane drawn as two
+    // triangles is visibly wrong through its middle. So the rect is cut into
+    // `cols` x `rows` cells, each exact at its own corners, and the error
+    // shrinks with the square of the cell count. Both counts are clamped to
+    // 1..32, which caps one call at 6144 vertices. A zero-area rect draws
+    // nothing. See src/gfx/README.md for the measured error per grid size.
+    void gradient_rect(glm::vec2 min_px, glm::vec2 max_px, glm::vec4 top_left,
+                       glm::vec4 top_right, glm::vec4 bottom_right,
+                       glm::vec4 bottom_left, int cols = 1, int rows = 1);
+
     // Use the real font advances and presentation scale for label placement.
     float measure_text(const char* s, float glyph_h_px) const;
     float text_line_height(float glyph_h_px) const;

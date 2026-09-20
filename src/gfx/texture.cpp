@@ -68,10 +68,12 @@ float value_noise(uint64_t seed, float u, float v, int period) {
 Texture::~Texture() { destroy(); }
 
 Texture::Texture(Texture&& other) noexcept
-    : tex_(other.tex_), width_(other.width_), height_(other.height_) {
+    : tex_(other.tex_), width_(other.width_), height_(other.height_),
+      rgba8_(other.rgba8_) {
     other.tex_ = 0;
     other.width_ = 0;
     other.height_ = 0;
+    other.rgba8_ = false;
 }
 
 Texture& Texture::operator=(Texture&& other) noexcept {
@@ -80,9 +82,11 @@ Texture& Texture::operator=(Texture&& other) noexcept {
         tex_ = other.tex_;
         width_ = other.width_;
         height_ = other.height_;
+        rgba8_ = other.rgba8_;
         other.tex_ = 0;
         other.width_ = 0;
         other.height_ = 0;
+        other.rgba8_ = false;
     }
     return *this;
 }
@@ -97,39 +101,93 @@ void Texture::destroy() {
     tex_ = 0;
     width_ = 0;
     height_ = 0;
+    rgba8_ = false;
 }
 
 void Texture::bind(GLuint unit) const { gl_state::bind_texture(unit, tex_); }
 
-bool Texture::load_file(const std::string& path) {
+bool decode_rgba_file(const std::string& path, int& width, int& height,
+                      std::vector<uint8_t>& rgba, int* source_channels) {
+    rgba.clear();
+    width = 0;
+    height = 0;
+
     stbi_set_flip_vertically_on_load(1);
-    int width = 0;
-    int height = 0;
-    int source_channels = 0;
-    stbi_uc* pixels = stbi_load(path.c_str(), &width, &height, &source_channels,
-                                STBI_rgb_alpha);
-    if (!pixels || width <= 0 || height <= 0) {
+    int w = 0;
+    int h = 0;
+    int channels = 0;
+    stbi_uc* pixels = stbi_load(path.c_str(), &w, &h, &channels, STBI_rgb_alpha);
+    if (!pixels || w <= 0 || h <= 0) {
         AP_ERROR("texture: cannot load '%s' (%s)", path.c_str(),
                  stbi_failure_reason() ? stbi_failure_reason() : "unknown error");
         if (pixels) stbi_image_free(pixels);
         return false;
     }
 
-    if (!tex_) glGenTextures(1, &tex_);
-    if (!tex_) {
-        AP_ERROR("texture: GL refused an object for '%s'", path.c_str());
-        stbi_image_free(pixels);
+    // One copy out of the decoder's buffer, so a load briefly holds the image
+    // twice. That is the price of load_file() and a CPU recolour sharing one
+    // decode, and it is paid once per load, never per frame.
+    const std::size_t bytes =
+        static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4u;
+    rgba.assign(pixels, pixels + bytes);
+    stbi_image_free(pixels);
+
+    width = w;
+    height = h;
+    if (source_channels) *source_channels = channels;
+    return true;
+}
+
+bool Texture::load_file(const std::string& path) {
+    int width = 0;
+    int height = 0;
+    int source_channels = 0;
+    std::vector<uint8_t> rgba;
+    if (!decode_rgba_file(path, width, height, rgba, &source_channels)) return false;
+    if (!upload_rgba(width, height, rgba)) {
+        AP_ERROR("texture: GL refused the upload for '%s'", path.c_str());
+        return false;
+    }
+    AP_INFO("texture: loaded '%s' (%dx%d, source channels %d)", path.c_str(),
+            width, height, source_channels);
+    return true;
+}
+
+bool Texture::upload_rgba(int width, int height, const std::vector<uint8_t>& rgba) {
+    const std::size_t expected =
+        static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u;
+    if (width <= 0 || height <= 0 || rgba.size() != expected) {
+        AP_ERROR("texture: refusing a %dx%d RGBA upload with %zu bytes (need %zu)",
+                 width, height, rgba.size(), expected);
         return false;
     }
 
+    if (!tex_) glGenTextures(1, &tex_);
+    if (!tex_) {
+        AP_ERROR("texture: glGenTextures produced no object");
+        return false;
+    }
+    // Same object, same id, on the edit unit. No delete anywhere on this path:
+    // a paintable material is rewritten while scene nodes hold its handle, and
+    // a delete-and-regenerate would open exactly the recycled-id window the
+    // bind cache cannot see (src/gfx/README.md).
     gl_state::bind_texture(kEditUnit, tex_);
+
+    const bool in_place = rgba8_ && width == width_ && height == height_;
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA,
-                 GL_UNSIGNED_BYTE, pixels);
+    if (in_place) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA,
+                        GL_UNSIGNED_BYTE, rgba.data());
+    } else {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, rgba.data());
+    }
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-    stbi_image_free(pixels);
 
     glGenerateMipmap(GL_TEXTURE_2D);
+    // Set on both paths, so what this call promises does not depend on which
+    // upload happened to allocate the object. Four parameter writes per
+    // respray cost nothing next to the mip regeneration above.
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -137,8 +195,7 @@ bool Texture::load_file(const std::string& path) {
 
     width_ = width;
     height_ = height;
-    AP_INFO("texture: loaded '%s' (%dx%d, source channels %d)", path.c_str(),
-            width, height, source_channels);
+    rgba8_ = true;
     return true;
 }
 
@@ -175,6 +232,7 @@ bool Texture::upload_rgb(int width, int height, const std::vector<uint8_t>& rgb)
 
     width_ = width;
     height_ = height;
+    rgba8_ = false;
     return true;
 }
 
@@ -345,6 +403,7 @@ bool Texture::upload_r8(int width, int height, const std::vector<uint8_t>& pixel
 
     width_ = width;
     height_ = height;
+    rgba8_ = false;
     return true;
 }
 
