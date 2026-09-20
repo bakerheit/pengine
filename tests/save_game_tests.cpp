@@ -6,6 +6,71 @@
 #include <limits>
 #include <unistd.h>
 using namespace apricot;
+namespace {
+std::string body_of(const std::string& bytes) { return bytes.substr(bytes.find('\n',bytes.find('\n')+1)+1); }
+std::string rewrap(const std::string& body,int version) {
+    uint64_t hash=14695981039346656037ull;
+    for (const char c:body) { hash^=static_cast<unsigned char>(c);hash*=1099511628211ull; }
+    return "APRICOT_SAVE "+std::to_string(version)+"\n"+std::to_string(hash)+"\n"+body;
+}
+// Cuts the body's last row and returns it, so a test can say which row it cut.
+std::string strip_row(std::string& body) {
+    const auto cut=body.rfind('\n',body.size()-2)+1;
+    std::string row=body.substr(cut);body.erase(cut);return row;
+}
+// Version 4 stores a respray: the stock paint it sits on and the picked colour.
+void paint_checkpoints() {
+    GameSave stock;std::string bytes,error;
+    REQUIRE(encode_game_save(stock,bytes,error));
+    REQUIRE(bytes.compare(0,15,"APRICOT_SAVE 4\n")==0);
+    std::string body=body_of(bytes);
+    REQUIRE(rewrap(body,4)==bytes); // Control: the framing below is the encoder's own.
+    REQUIRE(strip_row(body)=="0 0 0 0 0\n"); // Stock base, no respray.
+    GameSave painted;painted.car_paint_base=3;painted.car_has_paint=true;painted.car_paint={12,200,77};
+    // Every drivable car takes paint, emergency vehicles included. The save
+    // never asks which car it is.
+    for (int model=0;model<static_cast<int>(kPlayerCarCount);++model) {
+        painted.car_model=model;REQUIRE(encode_game_save(painted,bytes,error));
+        GameSave back;REQUIRE(decode_game_save(bytes,back,error));REQUIRE(back.car_model==model);
+        REQUIRE(back.car_paint_base==3 && back.car_has_paint && back.car_paint==painted.car_paint);
+    }
+    painted.car_model=static_cast<int>(PlayerCarId::MunicipalCruiser91C);
+    REQUIRE(encode_game_save(painted,bytes,error));
+    const std::string paint_row="3 1 12 200 77\n";
+    body=body_of(bytes);REQUIRE(strip_row(body)==paint_row);
+    const std::string v3_body=body;
+    GameSave read;
+    // Black is a colour a player can pick, not "no paint".
+    auto black=painted;black.car_paint={};REQUIRE(encode_game_save(black,bytes,error));
+    REQUIRE(decode_game_save(bytes,read,error));REQUIRE(read.car_has_paint && read.car_paint==PaintColor{});
+    // A stock alternate with no respray is a base on its own, at any index.
+    auto alternate=stock;alternate.car_paint_base=255;REQUIRE(encode_game_save(alternate,bytes,error));
+    REQUIRE(decode_game_save(bytes,read,error));REQUIRE(read.car_paint_base==255 && !read.car_has_paint);
+    // An unpainted car carries no colour, on the way in and on the way out.
+    auto stray=stock;stray.car_paint={0,0,1};REQUIRE(!encode_game_save(stray,bytes,error));
+    REQUIRE(error=="Invalid saved paint.");
+    REQUIRE(decode_game_save(rewrap(v3_body+paint_row,4),read,error)); // Control: the good row loads.
+    REQUIRE(read.car_paint==painted.car_paint && read.car_paint_base==3);
+    REQUIRE(!decode_game_save(rewrap(v3_body+"0 0 5 0 0\n",4),read,error));
+    REQUIRE(error=="Invalid saved paint.");
+    for (const char* row:{"256 1 12 200 77\n","-1 1 12 200 77\n","3 2 12 200 77\n","3 -1 12 200 77\n",
+                          "3 1 256 200 77\n","3 1 12 -1 77\n","3 1 12 200 256\n","3 1 12 200\n",
+                          "3 1 12 200 77 9\n","3 x 12 200 77\n"}) {
+        REQUIRE_MSG(!decode_game_save(rewrap(v3_body+row,4),read,error),"bad paint row decoded",row);
+    }
+    REQUIRE(read.car_paint==painted.car_paint && read.car_has_paint && read.car_paint_base==3);
+    // Versions 1-3 wore stock paint. `read` holds a respray, so passing here
+    // proves the default is written rather than left over.
+    REQUIRE(!decode_game_save(rewrap(v3_body,4),read,error));           // Control: v4 needs the row.
+    REQUIRE(!decode_game_save(rewrap(v3_body+paint_row,3),read,error)); // Control: v3 has none.
+    REQUIRE(decode_game_save(rewrap(v3_body,3),read,error));
+    REQUIRE(read.car_paint_base==0 && !read.car_has_paint && read.car_paint==PaintColor{});
+    REQUIRE(read.car_model==static_cast<int>(PlayerCarId::MunicipalCruiser91C));
+    std::string padded=rewrap(v3_body+paint_row,4);padded.insert(13,"0"); // "APRICOT_SAVE 04"
+    REQUIRE(!decode_game_save(padded,read,error));REQUIRE(error=="Unsupported save version.");
+    REQUIRE(!decode_game_save(rewrap(v3_body+paint_row,5),read,error));REQUIRE(error=="Unsupported save version.");
+}
+}
 int main() {
     static_assert(static_cast<int>(PlayerCarId::LegacyCar5)==10);
     static_assert(static_cast<int>(PlayerCarId::VesperVx91)==18);
@@ -63,6 +128,7 @@ int main() {
     REQUIRE(!load_game_save(path,read,error));REQUIRE(read.car_health==72.5f);
     for (const auto& entry : std::filesystem::directory_iterator(directory)) REQUIRE(entry.path().filename()=="checkpoint.save");
     std::filesystem::remove_all(directory);
-    apricot_test::pass("save roundtrip, damage preservation, atomic overwrite, invalid and missing saves");
+    paint_checkpoints();
+    apricot_test::pass("save roundtrip, damage preservation, atomic overwrite, invalid and missing saves, v4 paint and its v1-v3 default");
     return 0;
 }

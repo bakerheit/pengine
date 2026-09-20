@@ -101,12 +101,27 @@ void checkpoints_and_catalog() {
     REQUIRE(encode_game_save(save,bytes,error));REQUIRE(decode_game_save(bytes,out,error));REQUIRE(out.trailer.attached);
     save.car_model=0;REQUIRE(!encode_game_save(save,bytes,error));
     // Genuine v1 payload (same pre-trailer schema/checksum) still loads old ids.
+    // `out` still holds the attached hauler, so the id and the missing trailer
+    // below can only come from this payload.
     save.has_trailer=false;save.trailer={};save.car_model=18;REQUIRE(encode_game_save(save,bytes,error));
-    auto body=bytes.substr(bytes.find('\n',bytes.find('\n')+1)+1);body.erase(body.rfind('\n',body.size()-2)+1);
-    body.erase(body.rfind('\n',body.size()-2)+1); // v3 registration, then v2 trailer.
-    uint64_t hash=14695981039346656037ull;for(char c:body){hash^=static_cast<unsigned char>(c);hash*=1099511628211ull;}
-    bytes="APRICOT_SAVE 1\n"+std::to_string(hash)+"\n"+body;
-    REQUIRE(decode_game_save(bytes,out,error));REQUIRE(out.car_model==18);REQUIRE(!out.has_trailer);
+    const auto rewrap=[](const std::string& body,int version){
+        uint64_t hash=14695981039346656037ull;for(char c:body){hash^=static_cast<unsigned char>(c);hash*=1099511628211ull;}
+        return "APRICOT_SAVE "+std::to_string(version)+"\n"+std::to_string(hash)+"\n"+body;
+    };
+    const auto strip=[](std::string& body){
+        const auto cut=body.rfind('\n',body.size()-2)+1;std::string row=body.substr(cut);body.erase(cut);return row;
+    };
+    auto body=bytes.substr(bytes.find('\n',bytes.find('\n')+1)+1);
+    REQUIRE(rewrap(body,4)==bytes); // Control: rewrap is the encoder's own framing.
+    REQUIRE(strip(body)=="0 0 0 0 0\n"); // v4 paint.
+    REQUIRE(strip(body)==std::to_string(int(save.car_registration.state))+" "+
+            std::to_string(int(save.car_registration.series))+" "+std::to_string(save.car_registration.number)+"\n"); // v3 plate.
+    const auto v2=body;
+    REQUIRE(strip(body)=="0 0 0 0 0 0 0\n"); // v2 trailer.
+    REQUIRE(!decode_game_save(rewrap(v2,1),out,error));  // Control: v1 refuses the trailer row...
+    REQUIRE(!decode_game_save(rewrap(body,2),out,error)); // ...and v2 needs it.
+    REQUIRE(out.car_model==static_cast<int>(PlayerCarId::HarrowHauler));
+    REQUIRE(decode_game_save(rewrap(body,1),out,error));REQUIRE(out.car_model==18);REQUIRE(!out.has_trailer);
 }
 }
 int main(){coupling_and_parking();articulation_and_obstacles();checkpoints_and_catalog();apricot_test::pass("tractor trailer coupling, four headings, reverse, obstacles, parked state and checkpoints");}
