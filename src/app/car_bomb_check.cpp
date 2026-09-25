@@ -54,7 +54,7 @@ void push_key(SDL_Keycode code, bool down) {
 }  // namespace
 
 bool App::car_bomb_check_passed() const {
-    return car_bomb_check_done_ && !car_bomb_check_failed_ && car_bomb_check_captures_ == 0xFFu;
+    return car_bomb_check_done_ && !car_bomb_check_failed_ && car_bomb_check_captures_ == 0x1FFu;
 }
 
 void App::tick_car_bomb_check() {
@@ -280,7 +280,44 @@ void App::tick_car_bomb_check() {
         return;
     case 14:
         if (in_phase == 30) capture("respawn", 128u);
-        if (in_phase == 40) {
+        if (in_phase == 40) next();
+        return;
+    case 15: {  // Fire bites the crowd too: light one at somebody's feet.
+        if (in_phase < 20) return;
+        const PedAgent* nearest = nullptr;
+        float best = 45.0f;
+        for (const PedAgent& ped : world_.traffic().peds()) {
+            if (ped_is_floored(ped.activity)) continue;
+            const float d = glm::distance(ped.pos, player_character_.position);
+            if (d < best && d > 6.0f) { best = d; nearest = &ped; }
+        }
+        if (!nearest) {
+            if (in_phase > 600) fail("nobody walked within 45 m to set alight");
+            return;
+        }
+        const auto under = collider_.probe_down(nearest->pos + glm::vec3{0.0f, 1.0f, 0.0f}, 4.0f,
+                                                TerrainCollider::ProbeVehicles::Exclude);
+        if (!under.hit || !fire_.ignite(nearest->pos, under.point.y, 0x4E5043ull)) return;
+        car_bomb_check_bites_before_ = fire_npc_bites_;
+        const glm::vec3 look = nearest->pos - player_character_.position;
+        player_character_.view_yaw = std::atan2(look.x, -look.z);
+        player_character_.view_pitch = -0.15f;
+        prev_player_character_ = player_character_;
+        update_camera(0.0f);
+        AP_INFO("car bomb check: lit a fire under a pedestrian %.1f m away",
+                static_cast<double>(best));
+        next();
+        return;
+    }
+    case 16:
+        if (in_phase == 45) capture("ped-burning", 256u);
+        if (in_phase == 180) {
+            if (fire_npc_bites_ <= car_bomb_check_bites_before_) {
+                fail("a pedestrian standing in fire was never bitten");
+                return;
+            }
+            AP_INFO("car bomb check: fire bit the crowd %u times",
+                    fire_npc_bites_ - car_bomb_check_bites_before_);
             car_bomb_check_done_ = true;
             AP_INFO("car bomb check: PASS");
         }

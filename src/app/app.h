@@ -457,6 +457,8 @@ private:
     // damage is charged in whole bites on a timer rather than per step, so the
     // hit reads as a burn and not as a health bar sliding to zero.
     float fire_player_damage_timer_=0.f;
+    FireBiteClock fire_npc_bite_;
+    unsigned fire_npc_bites_=0;
     // --molotov-check. See src/app/molotov_check.cpp for what it drives and
     // why no headless suite can replace it: nothing in ctest can see a flame.
     bool molotov_check_=false,molotov_check_done_=false,molotov_check_failed_=false;
@@ -593,6 +595,7 @@ private:
     unsigned car_bomb_check_captures_=0, car_bomb_check_capture_bit_=0;
     std::string car_bomb_check_capture_;
     float car_bomb_check_rest_y_=0, car_bomb_check_peak_y_=0, car_bomb_check_health_=0;
+    unsigned car_bomb_check_bites_before_=0;
     void tick_car_bomb_check();
     void capture_car_bomb_check();
     bool on_foot_ = true;
@@ -717,6 +720,9 @@ private:
     float player_hit_feedback_s_=0.0f;
     bool damage_player(float amount, const char* cause);
     void begin_player_death(const char* cause);
+    // Wanted heat for one body the player hurt or killed, civilian or officer,
+    // at the prices in game/police_combat.h. The car bomb and fire both pay it.
+    void charge_body_heat(const PedShotHit& body);
     void step_player_vitals(float dt);
     void check_player_fall_damage(bool was_grounded);
     void check_player_crash_damage(float impact_speed_mps);

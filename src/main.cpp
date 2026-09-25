@@ -68,7 +68,7 @@ void print_usage() {
         "  --weapon-check  check aim, fire, reload, NPC blood hits and input guards (900+ frames)\n"
         "  --molotov-check throw one molotov and watch the fire spread and die back (1300+ frames)\n"
         "  --car-bomb-check fit a bomb at Rook's, set it off from the street, then from the\n"
-        "                  driver's seat, and respawn clear of the fire (3600+ frames)\n"
+        "                  driver's seat, respawn clear of the fire, and set a pedestrian alight (3600+ frames)\n"
         "  --attended      drive a --frames run by hand: let the window take focus and the cursor\n"
         "  --damage-check  check that three rounds kill a civilian, the body stays down,\n"
         "                  and the player dies, freezes and respawns (2400+ frames)\n"

@@ -64,6 +64,18 @@ void App::begin_player_death(const char* cause) {
     AP_INFO("player killed by %s; wasted", cause);
 }
 
+void App::charge_body_heat(const PedShotHit& body) {
+    if (body.officer) {
+        wanted_.add_heat(body.killed ? kOfficerKilledHeat : kOfficerWoundedHeat,
+                         WantedSystem::Crime::OfficerAssault);
+        return;
+    }
+    wanted_.add_heat(body.killed ? kCivilianKilledHeat : kCivilianWoundedHeat,
+                     body.killed ? WantedSystem::Crime::Violent
+                                 : WantedSystem::Crime::Assault);
+    if (body.killed) police_escalation_.record_civilian_kill();
+}
+
 void App::step_player_vitals(float dt) {
     player_hit_feedback_s_ = std::max(0.0f, player_hit_feedback_s_ - dt);
     if (!player_vitals_.step(dt)) return;

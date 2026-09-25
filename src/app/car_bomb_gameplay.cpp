@@ -219,15 +219,7 @@ void App::detonate_car_bomb(uint64_t identity) {
         if (!body.hit) continue;
         ++hurt;
         if (body.killed) ++killed;
-        if (body.officer) {
-            wanted_.add_heat(body.killed ? kOfficerKilledHeat : kOfficerWoundedHeat,
-                             WantedSystem::Crime::OfficerAssault);
-        } else {
-            wanted_.add_heat(body.killed ? kCivilianKilledHeat : kCivilianWoundedHeat,
-                             body.killed ? WantedSystem::Crime::Violent
-                                         : WantedSystem::Crime::Assault);
-            if (body.killed) police_escalation_.record_civilian_kill();
-        }
+        charge_body_heat(body);
     }
 
     // The player: killed outright if they were sitting on it, otherwise the

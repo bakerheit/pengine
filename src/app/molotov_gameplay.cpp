@@ -19,13 +19,6 @@ constexpr float kMaxSweepM = 8.0f;
 // thrown at somebody's feet still burns where they are standing.
 constexpr float kSpillStepM = 0.35f;
 
-// Standing in it. A whole bite every kFireBiteSeconds rather than a trickle
-// every step, because health that slides continuously reads as a bar bug and a
-// discrete hit reads as being on fire. Four bites kills from full, which is
-// about three and a half seconds in the flames — long enough to run out of.
-constexpr float kFireBiteSeconds = 0.85f;
-constexpr float kFireBiteDamage = 26.0f;
-
 // How far the fire throws light, and how hard. ONE light for the whole field,
 // at the burning centroid: a spot light per cell would put sixty-four extra
 // sources into the tiled grid for a glow the eye reads as a single fire.
@@ -203,6 +196,25 @@ void App::step_fire(float dt) {
             fire_voice_ = VoiceHandle{};
         } else {
             audio_device_.mixer().set_loop(fire_voice_, bed(0.92f * fire_.intensity()));
+        }
+    }
+
+    // Everybody else standing in it, on the shared beat in game/fire_harm.h.
+    // Every fire in the game is one the player lit, so a death in it is
+    // charged like any other death the player caused.
+    if (fire_npc_bite_.due(dt, burning)) {
+        const auto bitten = world_.burn_people(fire_, static_cast<int64_t>(step_index_));
+        if (!bitten.empty()) {
+            fire_npc_bites_ += static_cast<unsigned>(bitten.size());
+            AP_INFO("fire bit %zu %s", bitten.size(), bitten.size() == 1 ? "person" : "people");
+        }
+        for (const PedShotHit& body : bitten) {
+            charge_body_heat(body);
+            if (body.killed)
+                AP_INFO("fire killed %s %llu/%u; wanted %d",
+                        body.officer ? "police officer" : "pedestrian",
+                        static_cast<unsigned long long>(body.lane_key), body.slot,
+                        wanted_.level());
         }
     }
 

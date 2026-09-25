@@ -225,8 +225,9 @@ each body. Nobody gets back into a burnt-out car, and a respawn after sitting
 on your own bomb steps clear of the flames. One bomb at a time: rigging a second
 car disarms the first. Rules in `game/car_bomb.h` (`car_bomb_tests`); the App
 side in `app/car_bomb_gameplay.cpp`. `--car-bomb-check --frames 3600` runs both
-detonations in the real game and leaves eight screenshots in
-`build/car-bomb-check.*.png`. **Not there yet:** there is no money in the game,
+detonations in the real game, leaves nine screenshots in
+`build/car-bomb-check.*.png`, and lights a fire under a real pedestrian and
+requires it to bite them. **Not there yet:** there is no money in the game,
 so the bomb is free; there is no pad binding; the blast reuses the helicopter
 wreck's lit-cube fireball, which reads as orange boxes up close; no explosion
 recording ships (it layers the crash, glass and molotov whoosh, and plays
@@ -268,8 +269,11 @@ coordinates, so the same bottle in the same place burns the same shape every
 run. Flames will not climb a wall, catch on ground that is not there, or take
 on a parked car, and they refuse ground at or below sea level; lighting one
 costs 3.5 heat the moment it catches, with no witness needed. Standing in it takes a bite of health every 0.85
-seconds; **pedestrians do not burn yet** — that needs an area-damage query on
-`Crowd` that does not exist. The flames are billboards off a 132-frame sprite
+seconds, scaled by how hot the patch is (four bites at full heat) — and that
+goes for pedestrians and police officers too, on one shared beat
+(`game/fire_harm.h`, `fire_harm_tests`). A bitten survivor panics and runs; a
+body drops where it stood; every wound and death is charged like any other the
+player causes. People already on the floor are not burned. The flames are billboards off a 132-frame sprite
 atlas, two cards per cell on different frames, plus one tiled spot light for the
 whole fire. Glass, whoosh and the crackle loop are recorded takes; see
 [`assets/audio/weapons/SOURCES.md`](assets/audio/weapons/SOURCES.md).
