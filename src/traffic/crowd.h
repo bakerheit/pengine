@@ -1184,6 +1184,23 @@ public:
     PedShotHit punch_ped(glm::vec3 origin,glm::vec3 unit_direction,
                          float reach_m,int64_t step);
 
+    // A blast. Split in two so the crowd never needs the world: the caller
+    // asks who is standing within reach, drops anybody the world shelters
+    // with its own raycast, and hits the rest. Both populations again, for the
+    // reason raycast_ped gives. `body` is chest height.
+    struct BlastTarget {
+        uint64_t lane_key=0;
+        uint32_t slot=0;
+        bool officer=false;
+        glm::vec3 body{0.f};
+    };
+    std::vector<BlastTarget> standing_within(glm::vec3 origin,float radius_m) const;
+    // Throws the body away from `origin` at `throw_mps`, so the dead land
+    // somewhere other than where they stood. A survivor panics like somebody
+    // shot at. Same one-shot edges as shoot_ped.
+    PedShotHit blast_ped(const BlastTarget& target,glm::vec3 origin,float damage,
+                         float throw_mps,int64_t step);
+
     // Wanted response context for the next fixed step. Only identities in
     // `visible_police` passed their own production-world LOS raycast. An empty
     // list fails closed: no cruiser can witness or maintain contact through a

@@ -40,11 +40,14 @@ App::VehicleEntryTarget App::nearby_vehicle() const {
         }
         result=target;best=distance;
     };
-    consider({VehicleEntryTarget::Kind::Current,0,0,0,car_visual_.active_car()},car_.position,car_.orientation,
-        tuning_.car_collision_half_width,tuning_.car_collision_half_length,
-        car_.position.y-tuning_.wheel_radius-static_suspension_length(tuning_)-tuning_.com_height_above_mount,
-        glm::length(car_.velocity));
+    // A car a bomb has burnt out is scenery: nobody gets back into one.
+    if (!vehicle_burnt(respray_vehicle_identity()))
+        consider({VehicleEntryTarget::Kind::Current,0,0,0,car_visual_.active_car()},car_.position,car_.orientation,
+            tuning_.car_collision_half_width,tuning_.car_collision_half_length,
+            car_.position.y-tuning_.wheel_radius-static_suspension_length(tuning_)-tuning_.com_height_above_mount,
+            glm::length(car_.velocity));
     for (std::size_t i=0;i<parked_vehicles_.size();++i) {
+        if (vehicle_burnt(parked_vehicle_identity(i))) continue;
         const auto& p=parked_vehicles_[i];
         consider({VehicleEntryTarget::Kind::Parked,i,0,0,p.visual.active_car()},p.state.position,p.state.orientation,
             p.tuning.car_collision_half_width,p.tuning.car_collision_half_length,

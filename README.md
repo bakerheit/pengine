@@ -215,6 +215,24 @@ and a firetruck in bay two. Nine screenshots land in `build/paint-check.*.png`;
 add `--night` to see the lamp and lightbar glow over a respray. Not yet tried by
 hand on a pad, and its sounds have not been listened to.
 
+**Rook's also fits car bombs.** Stopped in a bay you pulled into, press K and
+the car is rigged. The trigger is refused anywhere on Rook's lot; off it, K sets
+the bomb off from wherever you are, including the driver's seat. The car goes
+up a metre, comes down charred, crumpled and dead, and the ground under it
+burns with the molotov's fire; bodies within ten metres are hurt with falloff
+and thrown (inside 3.5 m they die), and the city charges arson-level heat plus
+each body. Nobody gets back into a burnt-out car, and a respawn after sitting
+on your own bomb steps clear of the flames. One bomb at a time: rigging a second
+car disarms the first. Rules in `game/car_bomb.h` (`car_bomb_tests`); the App
+side in `app/car_bomb_gameplay.cpp`. `--car-bomb-check --frames 3600` runs both
+detonations in the real game and leaves eight screenshots in
+`build/car-bomb-check.*.png`. **Not there yet:** there is no money in the game,
+so the bomb is free; there is no pad binding; the blast reuses the helicopter
+wreck's lit-cube fireball, which reads as orange boxes up close; no explosion
+recording ships (it layers the crash, glass and molotov whoosh, and plays
+`assets/audio/weapons/runtime/car_bomb_blast.wav` if one appears); the blast
+does not touch traffic or parked cars; and none of it has been played by hand.
+
 **Every `--frames` run is unattended.** The window is created hidden, the
 process never enters the desktop's foreground and the OS cursor is never
 captured, so a scripted check running on a machine somebody is also using does

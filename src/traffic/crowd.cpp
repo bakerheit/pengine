@@ -4636,6 +4636,80 @@ PedShotHit Crowd::strike_ped(glm::vec3 origin,glm::vec3 unit_direction,
     return hit;
 }
 
+std::vector<Crowd::BlastTarget> Crowd::standing_within(glm::vec3 origin,
+                                                        float radius_m) const {
+    std::vector<BlastTarget> out;
+    if (!(radius_m>0.f) || !std::isfinite(radius_m)) return out;
+    const float r2=radius_m*radius_m;
+    const glm::vec3 chest{0.f,1.2f,0.f};
+    const auto near=[&](glm::vec3 feet) {
+        const glm::vec3 d=feet+chest-origin;
+        return glm::dot(d,d)<=r2;
+    };
+    for (const PedAgent& ped:peds_)
+        if (!ped_is_floored(ped.activity) && near(ped.pos))
+            out.push_back({ped.lane_key,ped.slot,false,ped.pos+chest});
+    for (const VehicleAgent& car:vehicles_)
+        if (car.police_unit && police_officer_shootable(car.officer) && near(car.officer.pos))
+            out.push_back({car.lane_key,car.slot,true,car.officer.pos+chest});
+    return out;
+}
+
+PedShotHit Crowd::blast_ped(const BlastTarget& target,glm::vec3 origin,float damage,
+                            float throw_mps,int64_t step) {
+    PedShotHit hit;
+    if (step<0) return hit;
+    const glm::vec3 away=target.body-origin;
+    const glm::vec2 planar{away.x,away.z};
+    const float planar_length=glm::length(planar);
+    const glm::vec2 fall=planar_length>1e-4f ? planar/planar_length : glm::vec2{0.f,-1.f};
+    hit.point=target.body;
+    hit.distance=glm::length(away);
+    hit.lane_key=target.lane_key;
+    hit.slot=target.slot;
+    hit.officer=target.officer;
+    if (target.officer) {
+        for (VehicleAgent& car:vehicles_) {
+            if (!car.police_unit || car.lane_key!=target.lane_key || car.slot!=target.slot)
+                continue;
+            if (!police_officer_shootable(car.officer)) return hit;
+            hit.hit=true;
+            hit.officer_downed=police_officer_take_bullet(car.officer,damage,fall);
+            // Thrown by the blast, not shot: the fall is the struck one.
+            car.officer.impact_from_bullet=false;
+            hit.killed=hit.officer_downed;
+            return hit;
+        }
+        return hit;
+    }
+    for (PedAgent& ped:peds_) {
+        if (ped.lane_key!=target.lane_key || ped.slot!=target.slot) continue;
+        if (ped_is_floored(ped.activity)) return hit;
+        hit.hit=true;
+        const PedLifeTuning& life=tuning_.ped_life;
+        hit.killed=apply_body_damage(ped.health,damage);
+        if (!hit.killed) {
+            ped.wounded_steps=std::max(ped.wounded_steps,
+                static_cast<int64_t>(life.wounded_panic_seconds/kSimDtF));
+            return hit;
+        }
+        ped.activity=PedActivity::Dead;
+        ped.activity_steps=0;
+        ped.panic_seconds=0.f;
+        ped.wounded_steps=0;
+        ped.speed_mps=0.f;
+        ped.impact_dir_xz=fall;
+        // The body is thrown, and the sim integrates the throw for the dead as
+        // it does for the downed, so where it lands is where it lies.
+        const float speed=std::isfinite(throw_mps) ? std::max(0.f,throw_mps) : 0.f;
+        ped.impact_speed_mps=std::max(3.f,speed);
+        ped.impact_from_bullet=false;
+        ped.impact_velocity={fall.x*speed,speed*.45f,fall.y*speed};
+        return hit;
+    }
+    return hit;
+}
+
 bool Crowd::ped_crossing_is_clear(LaneRef foot_lane, int64_t step) const {
     if (!graph_ || !graph_->valid(foot_lane)) return true;
     const Lane& lane = graph_->lane(foot_lane);

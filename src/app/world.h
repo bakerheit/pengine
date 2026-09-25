@@ -188,6 +188,10 @@ public:
                          float reach_m, int64_t step) {
         return crowd_.punch_ped(origin,direction,reach_m,step);
     }
+    PedShotHit blast_ped(const Crowd::BlastTarget& target, glm::vec3 origin,
+                         float damage, float throw_mps, int64_t step) {
+        return crowd_.blast_ped(target,origin,damage,throw_mps,step);
+    }
     bool take_traffic_vehicle(uint64_t key, uint32_t slot, VehicleAgent& out) {
         return crowd_.take_vehicle(key,slot,out);
     }

@@ -73,6 +73,7 @@ void App::step_player_vitals(float dt) {
     // city/ but nothing routes to it yet, and a respawn that teleports you
     // across the island is a bigger decision than this change is making.
     place_character_next_to_car();
+    respawn_clear_of_fire();
     prev_player_character_ = player_character_;
     player_character_.velocity = glm::vec3{0.0f};
     player_landing_speed_mps_ = 0.0f;

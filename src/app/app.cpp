@@ -837,6 +837,10 @@ bool App::init() {
         asset_path("audio/weapons/runtime/molotov_whoosh.wav"));
     override_clip_from_wav(fire_loop_clip_,
         asset_path("audio/weapons/runtime/fire_loop.wav"));
+    // Optional: no blast recording ships yet, and the car bomb layers the
+    // crash, the glass and the whoosh without it.
+    override_clip_from_wav(car_bomb_blast_clip_,
+        asset_path("audio/weapons/runtime/car_bomb_blast.wav"));
     if (start_driving_ &&
         (has_animated_driver(car_visual_.active_car()) || road_start_qa_)) {
         on_foot_=false;
@@ -1366,6 +1370,9 @@ void App::poll_events() {
         // R / pad X in a Rook's bay the car has pulled into and stopped in.
         // Taken here, before the mapper, so it never reaches the trailer drop.
         if (try_open_paint_shop(e, road_vehicle_controls)) continue;
+        // K: fit a car bomb in a Rook's bay, or set off the one you have.
+        // game/car_bomb.h decides which.
+        if (try_car_bomb_key(e)) continue;
         const bool emergency_toggle=(e.type==SDL_KEYDOWN && e.key.repeat==0 &&
             e.key.keysym.sym==SDLK_j) || (e.type==SDL_CONTROLLERBUTTONDOWN &&
             e.cbutton.button==SDL_CONTROLLER_BUTTON_LEFTSTICK);
@@ -3342,6 +3349,7 @@ void App::render() {
                     prompt += repair_shop_visit_.serviced ? "   SERVICE COMPLETE" : "   HOLD STILL - REPAIRING";
                 if (!prompt.empty()) hud_.text_centered(prompt.c_str(),vp.x*.5f,vp.y-90,20,{1,.95f,.75f,1});
                 draw_respray_prompt(vp);
+                draw_car_bomb_prompt(vp);
             }
             game_ui_.draw_dev_menu(hud_, dev_menu_, vp);
             if (on_foot_ && !dev_menu_.open() && !bank_interaction_.modal() &&
@@ -3446,6 +3454,7 @@ void App::render() {
             if(repair_shop_feedback_s_>0 && respray_feedback_s_<=0)
                 hud_.text_centered("CAR REPAIRED",vp.x*.5f,vp.y*.25f,30,{.65f,1,.65f,1});
             draw_respray_card(vp);
+            if (respray_feedback_s_ <= 0.0f) draw_car_bomb_card(vp);
             if (mission_success_feedback_s_ > 0.0f) {
                 constexpr float kDisplaySeconds = 6.25f;
                 const float age = kDisplaySeconds - mission_success_feedback_s_;
@@ -3666,6 +3675,7 @@ void App::render() {
     if(traffic_horn_check_)capture_traffic_horn_check();
     if (convertible_check_) capture_convertible_check();
     if (paint_check_) capture_paint_check();
+    if (car_bomb_check_) capture_car_bomb_check();
     if (!screenshot_path_.empty() && frame_limit_ > 0 &&
         frames_rendered_ + 1 >= frame_limit_) {
         save_screenshot(screenshot_path_);
@@ -3972,6 +3982,9 @@ int App::run() {
         if (damage_check_) { tick_damage_check(); capture_damage_check(); }
         if (paint_check_ && (paint_check_failed_ || (paint_check_done_ && paint_check_capture_.empty()))) break;
         if (paint_check_) tick_paint_check();
+        if (car_bomb_check_ && (car_bomb_check_failed_ ||
+            (car_bomb_check_done_ && car_bomb_check_capture_.empty()))) break;
+        if (car_bomb_check_) tick_car_bomb_check();
         if (weapon_check_) {
             tick_weapon_hit_check();
             const auto key=[&](SDL_Keycode code,bool down) {
@@ -4108,6 +4121,7 @@ int App::run() {
         perf_mark_feedback_s_=std::max(0.f,perf_mark_feedback_s_-camera_frame_dt_);
         repair_shop_feedback_s_=std::max(0.f,repair_shop_feedback_s_-camera_frame_dt_);
         respray_feedback_s_=std::max(0.f,respray_feedback_s_-camera_frame_dt_);
+        car_bomb_feedback_s_=std::max(0.f,car_bomb_feedback_s_-camera_frame_dt_);
         respray_camera_hold_s_=std::max(0.f,respray_camera_hold_s_-camera_frame_dt_);
         mission_success_feedback_s_=std::max(
             0.f,mission_success_feedback_s_-camera_frame_dt_);
@@ -4141,7 +4155,7 @@ int App::run() {
             !weapon_wheel_.open && !weapon_input_consumed_ &&
             !paint_shop_.modal() && !paint_input_consumed_ &&
             !(lighting_benchmark_ && frames_rendered_>=300)) {
-            tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_ || paint_check_) ? 1.0/60.0 : dt);
+            tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_ || paint_check_ || car_bomb_check_) ? 1.0/60.0 : dt);
         } else {
             // Title, pause and map are real pauses. Never let wall time from a
             // modal screen turn into a burst of vehicle steps on return.
@@ -4171,7 +4185,7 @@ int App::run() {
                 : (signal_check_ ? signal_check_input()
                     : (traffic_horn_check_ ? traffic_horn_check_input()
                         : (police_officer_check_ ? police_officer_check_input()
-                            : (paint_check_ ? paint_check_input() : input_.frame()))));
+                            : (paint_check_ || car_bomb_check_ ? paint_check_input() : input_.frame()))));
             // A DEAD PLAYER DRIVES NOTHING. Gating here rather than at each
             // consumer is deliberate: the car, the character, the weapon and
             // the door interactions all read from this one frame, and a gate
@@ -4269,13 +4283,13 @@ int App::run() {
             // it happened. Reading the edge rather than the flag is what gets
             // the second blast when the falling wreck finally arrives.
             if (helicopter_.impacts != prev_helicopter_.impacts) {
-                helicopter_blast_.emit(
+                wreck_blast_.emit(
                     helicopter_point(helicopter_,{0,2.f,0}), helicopter_.impacts);
             }
             // The smoke outlives the crash, and it outlives R as well, so this
             // runs every step rather than only while something is burning.
-            helicopter_blast_.step(static_cast<float>(kSimDt));
-            world_.sync_wreck_explosion(scene_,helicopter_blast_);
+            wreck_blast_.step(static_cast<float>(kSimDt));
+            world_.sync_wreck_explosion(scene_,wreck_blast_);
 
             // Conditions are a pure function of (seed, ABSOLUTE step), never an
             // accumulator, so a tape replayed from any point in the session
@@ -4522,6 +4536,7 @@ int App::run() {
             // respray's pull-in latch needs no second sight query.
             police_eyes_on_=!current_police_visible.empty();
             step_respray_visit(i);
+            step_car_bomb_rules(i);
             // The stars flash from the crime until the dispatch radio goes
             // out (PENG-46); the crowd owns that step, so the latch clears
             // on exactly the frame the callout would play.

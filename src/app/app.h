@@ -59,6 +59,7 @@
 #include "game/aircraft.h"
 #include "game/helicopter.h"
 #include "game/wreck_explosion.h"
+#include "game/car_bomb.h"
 #include "game/boat.h"
 #include "gfx/camera.h"
 #include "gfx/chase_camera.h"
@@ -144,6 +145,9 @@ public:
     // --paint-check: a respray at Rook's, end to end. God mode, because the
     // seen stage invites a pursuit and the check is about paint, not dents.
     void set_paint_check(bool enabled) { paint_check_=enabled; if (enabled) vehicle_god_mode_=true; }
+    void set_car_bomb_check(bool enabled) { car_bomb_check_=enabled; if (enabled) vehicle_god_mode_=true; }
+    bool car_bomb_check_passed() const;
+    unsigned car_bomb_check_captures() const { return car_bomb_check_captures_; }
     bool paint_check_passed() const;
     unsigned paint_check_bits() const { return paint_check_bits_; }
     unsigned paint_check_captures() const { return paint_check_captures_; }
@@ -544,6 +548,7 @@ private:
     void capture_paint_check();
     ResprayClips respray_clips_;
     RespraySound respray_sound_;
+    static uint64_t vehicle_identity(uint64_t mechanical_key, PlayerCarId model);
     uint64_t respray_vehicle_identity() const;
     std::vector<MaterialId> live_body_materials() const;
     MaterialId committed_body_material();
@@ -562,6 +567,34 @@ private:
     void draw_respray_prompt(glm::vec2 vp);
     void draw_respray_booth(glm::vec2 vp);
     void draw_respray_card(glm::vec2 vp);
+    // The car bomb at Rook's: rules in game/car_bomb.h, the App glue in
+    // src/app/car_bomb_gameplay.cpp.
+    CarBomb car_bomb_;
+    bool car_bomb_trigger_pending_=false;
+    // Cars a bomb has burnt out, by vehicle identity. Nobody gets back into one.
+    std::vector<uint64_t> burnt_vehicles_;
+    float car_bomb_feedback_s_=0;
+    const char* car_bomb_feedback_title_="";
+    const char* car_bomb_feedback_line_="";
+    unsigned car_bomb_fits_=0, car_bomb_detonations_=0;
+    PcmClip car_bomb_blast_clip_;
+    bool try_car_bomb_key(const SDL_Event& e);
+    void step_car_bomb_rules(int step_in_frame);
+    void detonate_car_bomb(uint64_t vehicle);
+    bool vehicle_burnt(uint64_t identity) const;
+    uint64_t parked_vehicle_identity(std::size_t index) const;
+    const VehicleState* car_bomb_vehicle_state(uint64_t identity) const;
+    void respawn_clear_of_fire();
+    void draw_car_bomb_prompt(glm::vec2 vp);
+    void draw_car_bomb_card(glm::vec2 vp);
+    // --car-bomb-check. See src/app/car_bomb_check.cpp.
+    bool car_bomb_check_=false, car_bomb_check_done_=false, car_bomb_check_failed_=false;
+    int car_bomb_check_phase_=0, car_bomb_check_mark_=0;
+    unsigned car_bomb_check_captures_=0, car_bomb_check_capture_bit_=0;
+    std::string car_bomb_check_capture_;
+    float car_bomb_check_rest_y_=0, car_bomb_check_peak_y_=0, car_bomb_check_health_=0;
+    void tick_car_bomb_check();
+    void capture_car_bomb_check();
     bool on_foot_ = true;
     VehicleTransitionState vehicle_transition_;
     bool transition_waiting_=false;
@@ -594,9 +627,10 @@ private:
     AircraftState aircraft_, prev_aircraft_;
     bool aircraft_check_=false, aircraft_check_ran_=false, aircraft_check_passed_=false;
     HelicopterState helicopter_, prev_helicopter_;
-    // Fired off HelicopterState::impacts, which bumps once per collision --
-    // the hit that wrecks it, and again when the wreck reaches the ground.
-    WreckExplosion helicopter_blast_;
+    // The one fireball pool. Fired off HelicopterState::impacts, which bumps
+    // once per collision -- the hit that wrecks it, and again when the wreck
+    // reaches the ground -- and by a car bomb going off.
+    WreckExplosion wreck_blast_;
     bool helicopter_check_=false, helicopter_check_ran_=false,
          helicopter_check_passed_=false;
     bool character_spawned_ = false;

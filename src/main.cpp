@@ -67,6 +67,8 @@ void print_usage() {
         "  --road-start    settle --start-at after authored road collision loads\n"
         "  --weapon-check  check aim, fire, reload, NPC blood hits and input guards (900+ frames)\n"
         "  --molotov-check throw one molotov and watch the fire spread and die back (1300+ frames)\n"
+        "  --car-bomb-check fit a bomb at Rook's, set it off from the street, then from the\n"
+        "                  driver's seat, and respawn clear of the fire (3600+ frames)\n"
         "  --attended      drive a --frames run by hand: let the window take focus and the cursor\n"
         "  --damage-check  check that three rounds kill a civilian, the body stays down,\n"
         "                  and the player dies, freezes and respawns (2400+ frames)\n"
@@ -152,6 +154,7 @@ int main(int argc, char** argv) {
     bool traffic_horn_check=false;
     bool convertible_check=false;
     bool paint_check=false;
+    bool car_bomb_check=false;
     int start_wanted=0;
     bool weapon_check=false;
     bool molotov_check=false;
@@ -227,6 +230,7 @@ int main(int argc, char** argv) {
         if (std::strcmp(a,"--traffic-horn-check")==0) { traffic_horn_check=true; continue; }
         if (std::strcmp(a,"--convertible-check")==0) { convertible_check=true; continue; }
         if (std::strcmp(a,"--paint-check")==0) { paint_check=true; continue; }
+        if (std::strcmp(a,"--car-bomb-check")==0) { car_bomb_check=true; continue; }
         if (std::strcmp(a,"--wanted")==0) {
             if (++i>=argc) { std::fprintf(stderr,"--wanted needs a level from 1 to 5\n"); return 2; }
             start_wanted=std::atoi(argv[i]);
@@ -469,6 +473,30 @@ int main(int argc, char** argv) {
         if (!screenshot_path) screenshot_path="build/paint-check";
         app.set_paint_check(true);
     }
+    if (car_bomb_check) {
+        // Drives the bay with the paint check's autopilot, so it runs alone
+        // for the same reasons that one does.
+        if (frame_limit<3600 || paint_check || vehicle_entry_check || driver_transition_check ||
+            aircraft_check || helicopter_check || boat_check || trailer_check || tire_track_check ||
+            police_check || police_officer_check || traffic_horn_check || convertible_check ||
+            weapon_check || molotov_check || damage_check || house_check || signal_check ||
+            character_identity_check || lighting_benchmark || warp_every) {
+            std::fprintf(stderr,"--car-bomb-check needs --frames 3600 or more and no other checks or warps\n");
+            return 2;
+        }
+        if (!player_car_explicit) start_car=apricot::PlayerCarId::VesperMistral;
+        clear_weather=true;
+        if (!lighting_night) daylight_qa=true;
+        start_driving=true;
+        if (!start_position_set) {
+            const auto& site=apricot::city::kAutoRepairSite;
+            start_position={site.origin.x+site.cos_yaw*-9.0f+site.sin_yaw*12.0f,
+                            site.origin.z-site.sin_yaw*-9.0f+site.cos_yaw*12.0f};
+            if (!start_heading_set) start_heading_radians=std::atan2(site.sin_yaw,site.cos_yaw);
+        }
+        if (!screenshot_path) screenshot_path="build/car-bomb-check";
+        app.set_car_bomb_check(true);
+    }
     if (convertible_check) {
         // The canvas takes 2.4 s each way and the second press lands at frame
         // 420; below this there is no room left to capture the return.
@@ -691,6 +719,9 @@ int main(int argc, char** argv) {
     }
     if (convertible_check && !app.convertible_check_passed()) {
         AP_ERROR("convertible top regression did not capture all three poses");rc=1;
+    }
+    if (car_bomb_check && !app.car_bomb_check_passed()) {
+        AP_ERROR("car bomb check did not pass: captures 0x%x", app.car_bomb_check_captures());rc=1;
     }
     if (paint_check && !app.paint_check_passed()) {
         AP_ERROR("paint check did not pass: stages 0x%x, captures 0x%x",

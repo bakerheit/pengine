@@ -15,11 +15,15 @@ namespace apricot {
 // What lives here is the glue only App can do: it knows the live car, every
 // parked car, the camera, the HUD and the wanted system.
 
+uint64_t App::vehicle_identity(uint64_t mechanical_key, PlayerCarId model) {
+    return mechanical_key ^ ((static_cast<uint64_t>(model) + 1u) * 0x9E3779B97F4A7C15ull);
+}
+
 uint64_t App::respray_vehicle_identity() const {
     // A theft, a parked car re-entered and a dev car swap all change this, and
-    // a changed identity starts the visit over.
-    return car_.mechanical_key ^
-        ((static_cast<uint64_t>(car_visual_.active_car()) + 1u) * 0x9E3779B97F4A7C15ull);
+    // a changed identity starts the visit over. The car bomb names its car by
+    // the same identity, parked or driven.
+    return vehicle_identity(car_.mechanical_key, car_visual_.active_car());
 }
 
 std::vector<MaterialId> App::live_body_materials() const {
