@@ -32,8 +32,11 @@ namespace city {
 
 inline constexpr Landmark kLandmarks[] = {
     // ---- Island tier: three, and two must be visible from anywhere --------
+    // The middle of the summit plateau. It used to say (600, -1780), which
+    // is the lip of an 8 m terrace step; src/city/ferrone_mast.h builds the
+    // mast here and reads the position from this row.
     {.name = "Ferrone Mast",
-     .pos = {600.0f, -1780.0f},
+     .pos = {599.0f, -1798.0f},
      .height_m = 60.0f,
      .tier = LandmarkTier::Island,
      .kind = LandmarkKind::Mast,

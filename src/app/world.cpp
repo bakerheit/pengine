@@ -2408,6 +2408,35 @@ void World::sync_burgerpiz_parking_lamps(Scene& scene,float night_level) {
         if(auto* node=scene.get(id))node->renderable.tint=street_lamp_lens_tint(night_level);
 }
 
+void World::sync_ferrone_mast(Scene& scene,glm::vec3 camera,float sim_seconds,float night_level) {
+    const bool far=glm::distance(camera,ferrone_mast_centre_)>=city::kFerroneMastFarFromM;
+    for(const auto id:ferrone_mast_far_nodes_)
+        if(auto* n=scene.get(id))n->visible=far;
+    // Painted towers light only at night: by day the lenses are red glass.
+    const float night=std::clamp(night_level,0.0f,1.0f);
+    const float flash=night>0.0f?city::ferrone_mast_beacon_level(sim_seconds):0.0f;
+    for(const auto id:ferrone_mast_beacon_nodes_)
+        if(auto* n=scene.get(id))n->renderable.tint.a=1.0f+1.5f*night*flash;
+    for(std::size_t i=0;i<ferrone_mast_night_nodes_.size();++i)
+        if(auto* n=scene.get(ferrone_mast_night_nodes_[i])) {
+            n->renderable.tint=ferrone_mast_night_tints_[i];
+            n->renderable.tint.a=1.0f+1.5f*night;
+        }
+    for(std::size_t i=0;i<ferrone_mast_glow_nodes_.size();++i) {
+        const auto& light=ferrone_mast_glow_lights_[i];
+        auto* n=scene.get(ferrone_mast_glow_nodes_[i]);
+        if(!n)continue;
+        const float level=night*(light.glow==city::FerroneMastGlow::FlashingRed?flash:1.0f);
+        n->visible=level>0.02f;
+        if(!n->visible)continue;
+        n->renderable.tint.a=1.0f+1.5f*level;
+        Transform t=n->local;
+        t.scale=glm::vec3{city::ferrone_mast_glow_diameter(
+            glm::distance(camera,light.position))*std::sqrt(level)};
+        scene.set_transform(ferrone_mast_glow_nodes_[i],t);
+    }
+}
+
 void World::update(Scene& scene, Renderer& renderer, glm::vec3 focus,
                    StepMode mode) {
     const StreamerStats st = streamer_.step(scene, proto_, focus, mode);
@@ -3167,6 +3196,100 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
     if(!place_kyjhi_prop(city::kKyjhiWallPhoneAssetRoot,"kyjhi wall phone",
             city::kKyjhiWallPhoneSites.data(),city::kKyjhiWallPhoneSites.size()))
         return false;
+    // The Ferrone Mast. The pad is baked from the sampled summit and always
+    // exists; the tower on it is a cooked mesh that a fresh checkout may not
+    // have yet, and a missing landmark is not a reason to refuse to start.
+    ferrone_mast_far_nodes_.clear();ferrone_mast_beacon_nodes_.clear();
+    ferrone_mast_night_nodes_.clear();ferrone_mast_night_tints_.clear();
+    ferrone_mast_glow_nodes_.clear();ferrone_mast_glow_lights_.clear();
+    ferrone_mast_lamp_lights_.clear();
+    {
+        const TerrainGround mast_ground{seed_};
+        const auto pad_parts=city::bake_ferrone_mast_pad(mast_ground.sampler());
+        append_start_site(scene,collider,precipitation_cover_,city::kFerroneMastSite,
+            pad_parts.data(),pad_parts.size(),r,unit.bounds,start_materials,
+            SiteMaterialStyle::TexturedBuilding,start_decal_mesh_,start_billboard_mesh_,
+            start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_);
+        const auto site=city::ferrone_mast_mesh_site(mast_ground.sampler());
+        ferrone_mast_centre_=city::ferrone_mast_world({0,city::kFerroneMastHeightM*.5f,0},site);
+        city::FerroneMastAsset mast;
+        if(!city::load_ferrone_mast_asset(mast)) {
+            AP_WARN("Ferrone Mast: no cooked tower under %s; the summit pad stands empty. "
+                    "Run tools/ferrone_mast_blender.py",city::kFerroneMastAssetRoot);
+        } else {
+            Transform pose;
+            pose.position=city::ferrone_mast_world({0,0,0},site);
+            bool placed_all=true;
+            const auto upload=[&](const city::FerroneMastMaterial& part,Renderable& placed,
+                                  AABB& bounds)->bool {
+                StaticEmesh mesh;
+                Texture texture;
+                if(!read_static_emesh(city::ferrone_mast_path(part.mesh),mesh) ||
+                   !(part.texture=="-"?texture.make_white():
+                     texture.load_file(city::ferrone_mast_path(part.texture)))) {
+                    AP_ERROR("Ferrone Mast: failed loading %s",part.mesh.c_str());
+                    return false;
+                }
+                placed.mesh=renderer.add_mesh(mesh);
+                if(placed.mesh==kInvalidId)return false;
+                ferrone_mast_meshes_.push_back(placed.mesh);
+                placed.material=part.glass?renderer.add_glass_material():
+                    renderer.add_material(std::move(texture),part.alpha,.25f,{},false,!part.alpha);
+                placed.tint=part.tint;
+                bounds=mesh.bounds;
+                return true;
+            };
+            for(const auto& part:mast.materials) {
+                Renderable placed;
+                AABB bounds;
+                if(!upload(part,placed,bounds)) {placed_all=false;break;}
+                const auto node=scene.create(placed,pose,bounds);
+                start_nodes_.push_back(node);
+                auto* n=scene.get(node);
+                if(!n)continue;
+                switch(part.lod) {
+                case city::FerroneMastLod::Always:n->max_draw_distance=site.max_draw_distance_m;break;
+                case city::FerroneMastLod::Near:n->max_draw_distance=city::kFerroneMastNearToM;break;
+                case city::FerroneMastLod::Far:
+                    n->max_draw_distance=site.max_draw_distance_m;n->visible=false;
+                    ferrone_mast_far_nodes_.push_back(node);break;
+                case city::FerroneMastLod::Site:n->max_draw_distance=900.0f;break;
+                }
+                if(part.glow==city::FerroneMastGlow::FlashingRed)
+                    ferrone_mast_beacon_nodes_.push_back(node);
+                else if(part.glow!=city::FerroneMastGlow::None) {
+                    ferrone_mast_night_nodes_.push_back(node);
+                    ferrone_mast_night_tints_.push_back(part.tint);
+                }
+            }
+            if(placed_all) {
+                for(const auto& light:mast.lights) {
+                    if(light.glow==city::FerroneMastGlow::WarmLamp) {
+                        ferrone_mast_lamp_lights_.push_back(city::ferrone_mast_world(light.position,site));
+                        continue;
+                    }
+                    Renderable glow;
+                    AABB bounds;
+                    if(!upload(mast.glow_sphere,glow,bounds)) {placed_all=false;break;}
+                    Transform at;
+                    at.position=city::ferrone_mast_world(light.position,site);
+                    const auto node=scene.create(glow,at,bounds);
+                    start_nodes_.push_back(node);
+                    if(auto* n=scene.get(node)) {
+                        n->visible=false;
+                        n->max_draw_distance=site.max_draw_distance_m;
+                    }
+                    ferrone_mast_glow_nodes_.push_back(node);
+                    ferrone_mast_glow_lights_.push_back({at.position,light.glow});
+                }
+            }
+            if(!placed_all)return false;
+            city::add_ferrone_mast_collision(collider,mast,site);
+            AP_INFO("Ferrone Mast: %zu parts, %zu solid boxes, %zu lights, pad top %.2f m at %.1f %.1f",
+                mast.materials.size(),mast.boxes.size(),mast.lights.size(),site.ground_m,
+                site.origin.x,site.origin.z);
+        }
+    }
     auto museum_parts=city::bake_loom_museum();
     register_interior(city::kLoomMuseumSite,museum_parts);
     city::apply_building_access_layout(city::kLoomMuseumSite,museum_parts,access_layout_);
@@ -3964,6 +4087,12 @@ void World::shutdown(Scene& scene, Renderer& renderer) {
     miandi_gas_station_meshes_.clear();
     for(const auto mesh:kyjhi_phonebooth_meshes_)renderer.remove_mesh(mesh);
     kyjhi_phonebooth_meshes_.clear();
+    for(const auto mesh:ferrone_mast_meshes_)renderer.remove_mesh(mesh);
+    ferrone_mast_meshes_.clear();
+    ferrone_mast_far_nodes_.clear();ferrone_mast_beacon_nodes_.clear();
+    ferrone_mast_night_nodes_.clear();ferrone_mast_night_tints_.clear();
+    ferrone_mast_glow_nodes_.clear();ferrone_mast_glow_lights_.clear();
+    ferrone_mast_lamp_lights_.clear();
     miandi_gas_station_lights_.clear();
     if(museum_amphora_mesh_!=kInvalidId) {renderer.remove_mesh(museum_amphora_mesh_);museum_amphora_mesh_=kInvalidId;}
     for(const MeshId mesh:museum_meshes_) if(mesh!=kInvalidId) renderer.remove_mesh(mesh);

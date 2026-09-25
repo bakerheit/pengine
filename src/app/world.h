@@ -13,6 +13,7 @@
 #include "terrain/streamer.h"
 #include "traffic/crowd.h"
 #include "city/building_access.h"
+#include "city/ferrone_mast_asset.h"
 #include "city/interior_streaming.h"
 #include "city/residential_doors.h"
 #include "city/quickbite_doors.h"
@@ -202,6 +203,11 @@ public:
     const std::vector<glm::vec3>& burgerpiz_parking_lights() const { return burgerpiz_parking_lights_; }
     const std::vector<glm::vec3>& burgerpiz_lights() const { return burgerpiz_lights_; }
     const std::vector<glm::vec3>& residential_lights() const { return residential_lights_; }
+    // The Ferrone Mast's per-frame presentation: near/far lattice swap by
+    // distance, the flashing beacon and steady obstruction lights at night,
+    // and glow spheres held at a constant on-screen size. Display only.
+    void sync_ferrone_mast(Scene& scene,glm::vec3 camera,float sim_seconds,float night_level);
+    const std::vector<glm::vec3>& ferrone_mast_lamp_lights() const { return ferrone_mast_lamp_lights_; }
     bool inside_authored_interior(glm::vec3 position,
                                   float margin_m = 0.0f) const;
     std::size_t interior_streaming_volume_count() const {
@@ -267,6 +273,16 @@ private:
     std::vector<MeshId> miandi_gas_station_meshes_;
     std::vector<glm::vec3> miandi_gas_station_lights_;
     std::vector<MeshId> kyjhi_phonebooth_meshes_;
+    // Non-owning node lists: start_nodes_ remains the sole removal owner.
+    std::vector<MeshId> ferrone_mast_meshes_;
+    std::vector<NodeId> ferrone_mast_far_nodes_;
+    std::vector<NodeId> ferrone_mast_beacon_nodes_;
+    std::vector<NodeId> ferrone_mast_night_nodes_;
+    std::vector<glm::vec4> ferrone_mast_night_tints_;
+    std::vector<NodeId> ferrone_mast_glow_nodes_;
+    std::vector<city::FerroneMastLight> ferrone_mast_glow_lights_;
+    std::vector<glm::vec3> ferrone_mast_lamp_lights_;
+    glm::vec3 ferrone_mast_centre_{0.0f};
     std::vector<MeshId> burgerpiz_meshes_;
     std::vector<glm::vec3> burgerpiz_lights_;
     std::vector<glm::vec3> burgerpiz_parking_lights_;

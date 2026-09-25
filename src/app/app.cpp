@@ -2788,6 +2788,7 @@ void App::render() {
             std::min(kRenderDistance, env.fog_end + 96.0f);
     }
     world_.sync_burgerpiz_parking_lamps(scene_,visible_night_level);
+    world_.sync_ferrone_mast(scene_,camera_.position,sim_seconds,visible_night_level);
     traffic_visual_.sync_street_lights(scene_, camera_.position,
         visible_night_level);
     const Scene::CullResult& culled = scene_.cull(
@@ -2909,6 +2910,12 @@ void App::render() {
         if(glm::distance(p,camera_.position)<65.f)
             emergency_light_sources_.push_back({glm::vec4{p,7.f},
                 {0,-1,0,2.6f},{1,.92f,.80f,.35f}});
+    }
+    // The transmitter shelter's door wall-pack, on at dusk like the lens.
+    if(!lighting_stress_ && visible_night_level>0) for(const auto& p:world_.ferrone_mast_lamp_lights()) {
+        if(glm::distance(p,camera_.position)<70.f)
+            emergency_light_sources_.push_back({glm::vec4{p,7.f},
+                {-.33f,-.94f,0,2.4f*visible_night_level},{1,.84f,.62f,.45f}});
     }
     if(!lighting_stress_) for(const auto& p:world_.residential_lights()) {
         if(glm::distance(p,camera_.position)<65.f)

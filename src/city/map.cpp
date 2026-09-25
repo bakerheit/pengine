@@ -3,6 +3,7 @@
 #include "city/airport.h"
 #include "city/florangia_airport.h"
 #include "city/districts.h"
+#include "city/ferrone_mast.h"
 #include "city/landmarks.h"
 #include "city/luxury_neighborhood.h"
 #include "city/miandi_layout.h"
@@ -61,6 +62,9 @@ float wild_scatter_at(float x, float z) {
     if (miandi_city_contains(x, z, 12.0f)) return 0.0f;
     // Crops, the house yard, and barn circulation are authored open ground.
     if (tidewater_farm_lot_contains(x, z, 7.0f)) return 0.0f;
+    // The transmitter compound is a fenced concrete platform; a tree through
+    // the gravel or a boulder against the tower legs is a layout bug.
+    if (ferrone_mast_lot_contains(x, z, 6.0f)) return 0.0f;
     // Westmere supplies its own mature trees; random forest would block
     // drives, pools and the sightline through the gate.
     if (luxury_neighborhood_contains(x, z, 8.0f)) return 0.0f;
