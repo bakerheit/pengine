@@ -85,6 +85,9 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
             // the rule it was counted in.
             return {1430.f,.98f,1.12f,1.10f,1.f,1.10f,1.12f,1.16f,1.08f,
                     1.12f,1.16f,-.015f,.93f,.96f,-.10f,1.f,1.f};
+        case PlayerCarId::SaddleTango: // balanced 1991 sport sedan
+            return {1420.f,1.02f,1.03f,1.06f,1.01f,1.05f,.97f,1.05f,1.03f,
+                    1.05f,1.04f,-.006f,.98f,1.01f,-.02f,1.01f,1.f};
         case PlayerCarId::RodeoGrazer: // compact four-wheel-drive pickup
             return {1580.f,1.18f,.82f,1.01f,.94f,.91f,1.06f,.95f,.95f,
                     .94f,1.10f,.025f,1.15f,1.18f,.0f,1.23f,1.f};

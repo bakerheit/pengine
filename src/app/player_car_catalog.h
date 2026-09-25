@@ -43,6 +43,7 @@ enum class PlayerCarId : uint8_t {
     EmberGt,
     RodeoGrazer,
     Bwc360,
+    SaddleTango,
     kCount,
 };
 
@@ -218,6 +219,10 @@ inline constexpr std::array<PlayerCarDefinition, kSelectablePlayerCarCount>
         {PlayerCarId::RodeoGrazer, "RODEO", "GRAZER 4X4",
          "models/vehicles/rodeo_grazer/body.emesh", "textures/vehicles/rodeo_grazer/body.png",
          .405f,.82f,1.43f,1.50f,1.465f,.82f,.405f},
+        {PlayerCarId::SaddleTango, "SADDLE", "TANGO",
+         "models/vehicles/saddle_tango/body.emesh",
+         "textures/vehicles/saddle_tango/body.png",
+         .35f,.84f,1.37f,1.38f,1.375f,.84f,.35f},
         {PlayerCarId::SpagattiShu, "SPAGATTI", "SHŪ",
          "models/vehicles/spagatti_shu/body.emesh",
          "textures/vehicles/spagatti_shu/body.png",
@@ -242,7 +247,7 @@ struct PlayerCarBrand {
     std::size_t car_count = 0;
 };
 
-inline constexpr std::array<PlayerCarBrand, 14> kPlayerCarBrands{{
+inline constexpr std::array<PlayerCarBrand, 15> kPlayerCarBrands{{
     {"ALDER", "ALDER  >", 0u, 3u},
     {"BWC", "BWC  >", 3u, 1u},
     {"EMBER", "EMBER  >", 4u, 1u},
@@ -255,8 +260,9 @@ inline constexpr std::array<PlayerCarBrand, 14> kPlayerCarBrands{{
     {"MUNICIPAL", "MUNICIPAL  >", 20u, 7u},
     {"ORISON", "ORISON  >", 27u, 1u},
     {"RODEO", "RODEO  >", 28u, 1u},
-    {"SPAGATTI", "SPAGATTI  >", 29u, 1u},
-    {"VESPER", "VESPER  >", 30u, 3u},
+    {"SADDLE", "SADDLE  >", 29u, 1u},
+    {"SPAGATTI", "SPAGATTI  >", 30u, 1u},
+    {"VESPER", "VESPER  >", 31u, 3u},
 }};
 
 inline constexpr const PlayerCarDefinition& player_car_definition(

@@ -17,8 +17,8 @@ does not repeat each model's runtime validation.
 
 ## Catalog brands and fleet label
 
-13 manufacturers plus the Municipal fleet label, with 33 selectable models,
-confirmed against the catalog on 2026-09-12.
+14 manufacturers plus the Municipal fleet label, with 34 selectable models,
+confirmed against the catalog on 2026-09-25.
 
 | Brand | Segment / vibe | Catalog models |
 |---|---|---|
@@ -34,6 +34,7 @@ confirmed against the catalog on 2026-09-12.
 | **MUNICIPAL** | Not a manufacturer — the city fleet livery itself | Ambulance, Firetruck, Cruiser 91-A/B/C/D/E |
 | **ORISON** | Boutique retro sports coupe, 1990s | Cinder GT |
 | **RODEO** | Pickup trucks and 4x4s | Grazer 4x4 |
+| **SADDLE** | 1990s sports sedans | Tango |
 | **SPAGATTI** | Italian-coded exotic grand tourer | Shū |
 | **VESPER** | Premium sports and GT | Mistral, Scythe, VX-91 |
 

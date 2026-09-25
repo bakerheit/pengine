@@ -114,7 +114,7 @@ bool PlayerCarVisual::load_model(
             if (out.soft_top_meshes[i]==kInvalidId) return false;
         }
     }
-    if (definition.id == PlayerCarId::Bwc360 || definition.id == PlayerCarId::HarrowWorkman ||
+    if (definition.id == PlayerCarId::Bwc360 || definition.id == PlayerCarId::SaddleTango || definition.id == PlayerCarId::HarrowWorkman ||
         definition.id == PlayerCarId::EmberGt || definition.id == PlayerCarId::RodeoGrazer ||
         definition.id == PlayerCarId::AlderPip || definition.id == PlayerCarId::SpagattiShu ||
         definition.id == PlayerCarId::LegacyCar5Next ||
@@ -147,7 +147,7 @@ bool PlayerCarVisual::load_model(
         return false;
     }
 
-    if (is_motorbike(definition.id) || definition.id==PlayerCarId::Bwc360 || definition.id==PlayerCarId::EmberGt || definition.id==PlayerCarId::RodeoGrazer) {
+    if (is_motorbike(definition.id) || definition.id==PlayerCarId::Bwc360 || definition.id==PlayerCarId::SaddleTango || definition.id==PlayerCarId::EmberGt || definition.id==PlayerCarId::RodeoGrazer) {
         const std::string path=definition.mesh_path;
         const std::string root=path.substr(0,path.find_last_of('/')+1);
         constexpr const char* names[]{"front_wheel.emesh","rear_wheel.emesh"};
@@ -518,7 +518,7 @@ void PlayerCarVisual::sync_driver_door(Scene& scene, float open_fraction) const 
         glass->renderable.mesh=model.glass_meshes[i];
         glass->renderable.material=model.glass_material;
         glass->local_bounds=model.glass_bounds[i];
-        scene.set_transform(glass_nodes_[i],i==3
+        scene.set_transform(glass_nodes_[i],i==3 && has_animated_driver(active_car_)
             ? vehicle_driver_door_transform(active_car_,body->local,open_fraction) : body->local);
     }
     if (!door->visible) return;
