@@ -30,10 +30,14 @@ void main() {
     color += vec3(0.25, 0.27, 0.28) * rain * 0.12 * smoothstep(0.35, 0.8, screen.x);
     color *= smoothstep(0.0, 0.8, u_time);
 
+    // Sample the logo on every pixel and mask afterwards. Fetching inside the
+    // rect test puts a mipmapped texture() in non-uniform control flow, where
+    // the implicit LOD is undefined: quads straddling the rect edge picked a
+    // tiny mip and drew a faint cream hairline along the top and bottom.
     vec2 logo_uv = (screen - u_logo_rect.xy) / u_logo_rect.zw;
-    if (all(greaterThanEqual(logo_uv, vec2(0))) && all(lessThanEqual(logo_uv, vec2(1)))) {
-        vec4 logo = texture(u_logo, vec2(logo_uv.x, 1.0 - logo_uv.y));
-        color = mix(color, logo.rgb, logo.a * smoothstep(0.65, 2.1, u_time));
-    }
+    vec4 logo = texture(u_logo, clamp(vec2(logo_uv.x, 1.0 - logo_uv.y), 0.0, 1.0));
+    float inside = step(0.0, logo_uv.x) * step(logo_uv.x, 1.0)
+                 * step(0.0, logo_uv.y) * step(logo_uv.y, 1.0);
+    color = mix(color, logo.rgb, inside * logo.a * smoothstep(0.65, 2.1, u_time));
     frag_color = vec4(color, 1.0);
 }
