@@ -1798,6 +1798,24 @@ void a_real_car_drives_from_district_to_district() {
                 glm::vec2{70.0f, -40.0f}, glm::vec2{880.0f, -1580.0f}, 14.0f,
                 180000);
 
+    // On from the top of the Shoulder to the Ferrone Mast's gate: the paved
+    // ridge road, then the dirt track up the knob at up to 13 per cent. And
+    // back down, because a car that can climb a grade can still fail to stop
+    // on it, and the saddle embankment is steepest heading home.
+    // Two legs uphill because run_journey picks its first lane by the
+    // straight-line bearing to the destination, and on a road that winds
+    // north, west and back south that bearing points the wrong way: from the
+    // Shoulder's top it chooses the Shoulder downhill and U-turns 1.3 km later.
+    run_journey(lanes, collider, "Upper Terrace -> Mast Road ridge",
+                glm::vec2{1025.0f, -1690.0f}, glm::vec2{900.0f, -1891.0f}, 11.0f,
+                30000, {106u});
+    run_journey(lanes, collider, "Mast Road ridge -> Ferrone Mast gate",
+                glm::vec2{900.0f, -1891.0f}, glm::vec2{612.0f, -1787.0f}, 11.0f,
+                30000, {106u, 107u});
+    run_journey(lanes, collider, "Ferrone Mast gate -> the Shoulder",
+                glm::vec2{640.0f, -1850.0f}, glm::vec2{880.0f, -1580.0f}, 11.0f,
+                60000, {106u, 103u});
+
     // Across the water, over the Kessel Bridge. The longest drive on the map.
     run_journey(lanes, collider, "Pinatty Row -> Kepler Flats",
                 glm::vec2{70.0f, -40.0f}, glm::vec2{-500.0f, -1900.0f}, 17.0f,

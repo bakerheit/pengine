@@ -63,9 +63,9 @@ the lighting schedule. `src/city/ferrone_mast_asset.h` is the loader.
 - **The pad** is a retaining block, gravel and a curb, baked in C++ from the
   real `TerrainGround`. Its top clears the highest ground sample by 0.3 m and
   its footing goes 0.6 m below the lowest. On kMapSeed that means a pad top
-  at 123.75 m, walls up to 11 m on the low sides, and a tip at 183.75 m ASL.
-  The plateau is smaller than the compound, so walls that tall cannot be
-  avoided anywhere on the summit (probed).
+  at 123.70 m, walls up to 3.25 m, and a tip at 183.70 m ASL. Before the
+  Mast Track graded the knob's east flank, the walls were up to 11 m. The
+  pad follows whatever the ground does, because it is baked from it.
 - **Scatter** is zeroed over the lot plus 6 m (`city/map.cpp`).
 - **Collision** is 121 boxes from the cooker, made from the same member list
   that draws: a box per leg per panel, a core box per panel, platforms, pole,
@@ -87,10 +87,24 @@ displayed.
   scaled with distance to stay about 3 px across at 1080p.
 - The shelter's wall-pack lamp is a real tiled spot light within 70 m.
 
+## Getting there
+
+Two roads, both in `src/city/roads.h`:
+
+- **The Mast Road** (id 106): an alley-width paved service road from the east
+  end of Upper Terrace. It runs north and then west along the ridge at about
+  105 m to a turnout below the summit. Its one fill is the ~80 m saddle
+  between the terrace and the ridge, which its corridor builds up into an
+  embankment.
+- **The Mast Track** (id 107): dirt, at 7–13%, from the turnout up the knob's
+  east flank to the compound's east gate.
+
+The summit is an isolated knob in a bowl at 40–60 m, and the ridge is the
+only way to it at a drivable grade. The route leaves from the top of the
+Shoulder, so blocking the Shoulder still seals the hill (pinned by
+`city_roads_tests`). The same suite drives a real car from Upper Terrace to
+the gate and back.
+
 ## Not done
 
-- **No road reaches the summit.** It is an isolated peak: the Shoulder tops out
-  at 116 m about 350 m away, across a valley. You can see the mast, fly to it,
-  and walk the compound, but you cannot drive up. An access track would be a
-  new spine in `roads.h`, and that is a map change with a cost of its own.
 - The gate is closed and has no door system, and the shelter has no interior.

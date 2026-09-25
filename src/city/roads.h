@@ -1199,8 +1199,48 @@ inline constexpr Road kRoads[] = {
     // level and do not mind being capped at the junction height; the road whose
     // gradient IS the gameplay wins its own approach.
 
+    // THE WAY UP TO THE FERRONE MAST (src/city/ferrone_mast.h). The summit is
+    // an isolated knob in a bowl at 40-60 m, so it cannot be reached from the
+    // valley at any sane grade. It can be reached along the ridge that runs
+    // north from Upper Terrace's east end and west along z ~ -1885 at 95-113 m,
+    // which is the line a real transmitter service road takes. It does not
+    // change the hill's topology: it leaves from the TOP of the Shoulder, so
+    // blocking the Shoulder still seals the hill.
+    //
+    // Two roads because they are two roads. The paved one is an alley-width
+    // service lane, since a road with sidewalks on a ridge top would be absurd.
+    // It holds ~105 m along the ridge. Its one fill is the saddle at ~80 m
+    // between the terrace and the ridge, which the corridor builds up into an
+    // embankment. The last stretch up the knob's east flank is a dirt track at
+    // 7-13 per cent, and it ends at the compound's east gate just under the
+    // pad top.
+    //
+    // Listed before Upper Terrace (stub-first, see above). Both meet their
+    // parent at the parent's own height, so neither levels anything it joins.
+    {.name = "the Mast Track", .id = 107, .district = DistrictId::FerroneHill,
+     .cls = RoadClass::Dirt, .block_quality = 0, .shapes_ground = true,
+     .path = {{690.0f, -1872.0f, 110.0f},
+              {650.0f, -1858.0f, 113.0f},
+              {628.0f, -1830.0f, 117.0f},
+              {626.0f, -1800.0f, 121.0f},
+              {612.0f, -1787.0f, 123.4f}},
+     .count = 5},
+    {.name = "the Mast Road", .id = 106, .district = DistrictId::FerroneHill,
+     .cls = RoadClass::Alley, .block_quality = 10, .shapes_ground = true,
+     .path = {{1010.0f, -1660.0f, 116.0f},
+              {1030.0f, -1700.0f, 113.0f},
+              {1050.0f, -1760.0f, 108.0f},
+              {1050.0f, -1830.0f, 106.0f},
+              {1030.0f, -1880.0f, 105.0f},
+              {960.0f, -1892.0f, 105.0f},
+              {860.0f, -1890.0f, 105.0f},
+              {760.0f, -1885.0f, 105.0f},
+              {690.0f, -1872.0f, 110.0f}},
+     .count = 9},
+
     // Terrace streets off the Shoulder. Short, level along the contour, and
-    // every one of them a cul-de-sac: a missed hairpin is a 30 m drop.
+    // every one of them a dead end: a missed hairpin is a 30 m drop. Upper
+    // Terrace continues as the Mast Road above, which ends at the mast.
     {.name = "Upper Terrace", .id = 103, .district = DistrictId::FerroneHill,
      .cls = RoadClass::Street, .block_quality = 20, .shapes_ground = true,
      .path = {{880.0f, -1580.0f, 116.0f}, {1010.0f, -1660.0f, 116.0f}},

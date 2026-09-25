@@ -26,7 +26,8 @@ namespace apricot::city {
 //
 // WHERE IT STANDS, AND WHY IT IS NOT A FREE CHOICE. The summit is a terraced
 // knob: the Bench operators leave a plateau at ~121.5 m about 12 m by 18 m,
-// with 8-10 m steps down to a ~112 m bench on every side. The tower centre is
+// with 8-10 m steps down to a ~112 m bench (the Mast Track has since graded
+// the east flank up to meet the gate). The tower centre is
 // the middle of that plateau, and it is read from kLandmarks rather than
 // repeated here — the landmark row used to say (600, -1780), which is the lip
 // of a step, and a second copy of the position is how the two would have come
