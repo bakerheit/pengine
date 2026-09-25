@@ -168,18 +168,19 @@ inline bool respray_blocks_exit(const ResprayVisit& v) {
 // The respray line of the in-car prompt. It draws on its own line.
 enum class RespraySuffix : uint8_t {
     None, LotPullIn, LotWantedSeen, LotWantedClear, NeedsPullIn,
-    Ready, ReadyUnseen, ReadySeen, Spraying, Unavailable
+    Ready, ReadyUnseen, ReadySeen, Spraying, Unavailable, StopToRespray
 };
 
 // driving:     in a road car, alive, not mid-transition
 // on_lot:      on_repair_lot(car)
 // fits:        repair_bay_fits(car, tuning)
+// ready:       repair_shop_ready(car, tuning), the gate an order must pass
 // pending_car: the car has no paint profile yet
 // eyes_on:     a cop sees the player now (the live list, render-side copy)
 // visit:       the visit as the last sim step left it
 struct ResprayHintInput {
-    bool driving = false, on_lot = false, fits = false, pending_car = false,
-         eyes_on = false;
+    bool driving = false, on_lot = false, fits = false, ready = false,
+         pending_car = false, eyes_on = false;
     int wanted_level = 0;
     const ResprayVisit* visit = nullptr;
 };
@@ -187,6 +188,9 @@ struct ResprayHintInput {
 // Until the visit arrives the car is still pulling in, so the lot hints hold
 // through the roll into the bay rather than blinking off; once the latch has
 // seen a cop, the wanted hint says so even if that cop has since looked away.
+// `arrived` stays latched while the car creeps about inside the bay, and an
+// order there is Rejected, so the R / X prompt waits for `ready` too: a prompt
+// for a key that does nothing is worse than no prompt.
 constexpr RespraySuffix respray_hint(const ResprayHintInput& in) {
     if (!in.driving || in.visit == nullptr) return RespraySuffix::None;
     const ResprayVisit& v = *in.visit;
@@ -194,6 +198,7 @@ constexpr RespraySuffix respray_hint(const ResprayHintInput& in) {
     if (!in.fits && !in.on_lot) return RespraySuffix::None;
     if (in.pending_car) return RespraySuffix::Unavailable;
     if (in.fits && v.arrived) {
+        if (!in.ready) return RespraySuffix::StopToRespray;
         if (in.wanted_level <= 0) return RespraySuffix::Ready;
         return v.seen ? RespraySuffix::ReadySeen : RespraySuffix::ReadyUnseen;
     }
@@ -215,6 +220,7 @@ constexpr const char* respray_hint_text(RespraySuffix s) {
     case RespraySuffix::ReadySeen: return "R / X - RESPRAY (STARS STAY - A COP SAW YOU PULL IN)";
     case RespraySuffix::Spraying: return "RESPRAYING - E / A TO ABORT";
     case RespraySuffix::Unavailable: return "RESPRAY NOT AVAILABLE FOR THIS CAR YET";
+    case RespraySuffix::StopToRespray: return "STOP IN THE BAY TO RESPRAY";
     }
     return "";
 }

@@ -109,9 +109,23 @@ public:
     const AABB& vehicle_source_bounds(const VehicleAgent& agent) const {
         return models_[static_cast<std::size_t>(traffic_vehicle_kind(agent))].bounds;
     }
-    MaterialId vehicle_paint(const VehicleAgent& agent) const {
+    // Which of its kind's paints a traffic car wears: an index into
+    // traffic_paint_paths(kind) (the snowplow's one flat white is index 0).
+    std::size_t vehicle_paint_index(const VehicleAgent& agent) const {
         const auto& paints=models_[static_cast<std::size_t>(traffic_vehicle_kind(agent))].paints;
-        return paints[(traffic_vehicle_identity_hash(agent.lane_key,agent.slot)>>8)%paints.size()];
+        return static_cast<std::size_t>(
+            (traffic_vehicle_identity_hash(agent.lane_key,agent.slot)>>8)%paints.size());
+    }
+    MaterialId vehicle_paint(const VehicleAgent& agent) const {
+        return paint_material(traffic_vehicle_kind(agent),vehicle_paint_index(agent));
+    }
+    // A kind's paint by index, as a save names a stolen car's livery. The
+    // traffic material itself, shared by every car of that livery: never
+    // paintable, never edited. kInvalidId for an index the kind lacks.
+    MaterialId paint_material(TrafficVehicleKind kind, std::size_t index) const {
+        const std::size_t k=static_cast<std::size_t>(kind);
+        if (k>=models_.size() || index>=models_[k].paints.size()) return kInvalidId;
+        return models_[k].paints[index];
     }
 
     VehicleRegistration vehicle_registration(const VehicleAgent& agent) const;

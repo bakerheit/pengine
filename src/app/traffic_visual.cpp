@@ -1,5 +1,6 @@
 #include "app/traffic_visual.h"
 #include "app/snowplow_mesh.h"
+#include "app/traffic_paint_paths.h"
 #include "app/vehicle_registration.h"
 
 #include <algorithm>
@@ -242,63 +243,44 @@ bool TrafficVisual::init(Renderer& renderer, Scene& scene,
         const auto origin=lane.centreline.front();
         registration_states_.emplace(lane.key,registration_state_at(origin.x,origin.z));
     }
-    static constexpr const char* kCar5Paints[] = {
-        "textures/vehicles/car5/body.png",
-        "textures/vehicles/car5/green.png",
-        "textures/vehicles/car5/grey.png",
-        "textures/vehicles/car5/taxi.png",
-    };
-    static constexpr const char* kCar8Paints[] = {
-        "textures/vehicles/car8/body.png",
-        "textures/vehicles/car8/grey.png",
-        "textures/vehicles/car8/purple.png",
-        "textures/vehicles/car8/mail.png",
-    };
-    static constexpr const char* kAmbulancePaints[] = {
-        "textures/vehicles/ambulance/body.png",
-    };
-    static constexpr const char* kFiretruckPaints[] = {
-        "textures/vehicles/firetruck/body_surface.png",
-    };
-    static constexpr const char* kHalcyonSixPaints[] = {
-        "textures/vehicles/halcyon_six/body_surface.png",
-    };
-    static constexpr const char* kMontroseRegentEightPaints[] = {
-        "textures/vehicles/montrose_regent_eight/body_surface.png",
-    };
-    static constexpr const char* kVesperVx91Paints[] = {
-        "textures/vehicles/vesper_vx91/body_surface.png",
-    };
-    static constexpr const char* kBwcPaints[]{"textures/vehicles/bwc_360/body.png"};
-    static constexpr const char* kPolicePaints[] = {
-        "textures/vehicles/municipal_cruiser_91c/body.png",
-    };
+    // The paint lists live in app/traffic_paint_paths.h: the Car 5 and Car 8
+    // orders are a saved ID, pinned there.
+    const auto paints = [](TrafficVehicleKind kind) { return traffic_paint_paths(kind); };
+    const TrafficPaintPaths car5 = paints(TrafficVehicleKind::Sedan);
+    const TrafficPaintPaths car8 = paints(TrafficVehicleKind::BoxTruck);
+    const TrafficPaintPaths ambulance = paints(TrafficVehicleKind::Ambulance);
+    const TrafficPaintPaths firetruck = paints(TrafficVehicleKind::Firetruck);
+    const TrafficPaintPaths halcyon = paints(TrafficVehicleKind::HalcyonSix);
+    const TrafficPaintPaths montrose = paints(TrafficVehicleKind::MontroseRegentEight);
+    const TrafficPaintPaths vx91 = paints(TrafficVehicleKind::VesperVx91);
+    const TrafficPaintPaths police = paints(TrafficVehicleKind::Police);
+    const TrafficPaintPaths bwc = paints(TrafficVehicleKind::Bwc360);
 
-    if (!load_model(renderer, "models/vehicles/car5/body.emesh", kCar5Paints,
-                    std::size(kCar5Paints), 0.45f, 1.038f, 2.254f, 1.813f,
+    if (!load_model(renderer, "models/vehicles/car5/body.emesh", car5.paths,
+                    car5.count, 0.45f, 1.038f, 2.254f, 1.813f,
                     models_[0]) ||
-        !load_model(renderer, "models/vehicles/car8/body.emesh", kCar8Paints,
-                    4, 0.525f, 1.10f, 1.65f, 2.25f, models_[1]) ||
+        !load_model(renderer, "models/vehicles/car8/body.emesh", car8.paths,
+                    car8.count, 0.525f, 1.10f, 1.65f, 2.25f, models_[1]) ||
         !load_model(renderer, "models/vehicles/ambulance/body.emesh",
-                    kAmbulancePaints, 1, .47f, .98f, 1.78f, 1.58f,
+                    ambulance.paths, ambulance.count, .47f, .98f, 1.78f, 1.58f,
                     models_[2]) ||
         !load_model(renderer, "models/vehicles/firetruck/body_surface.emesh",
-                    kFiretruckPaints, 1, 0.72f, 1.13f, 2.18f, 2.12f,
+                    firetruck.paths, firetruck.count, 0.72f, 1.13f, 2.18f, 2.12f,
                     models_[3]) ||
         !load_model(renderer, "models/vehicles/halcyon_six/body_surface.emesh",
-                    kHalcyonSixPaints, 1, 0.68f, 1.06f, 2.18f, 1.86f,
+                    halcyon.paths, halcyon.count, 0.68f, 1.06f, 2.18f, 1.86f,
                     models_[4]) ||
         !load_model(renderer,
                     "models/vehicles/montrose_regent_eight/body_surface.emesh",
-                    kMontroseRegentEightPaints, 1,
+                    montrose.paths, montrose.count,
                     0.68f, 1.10f, 2.30f, 2.05f, models_[5]) ||
         !load_model(renderer, "models/vehicles/vesper_vx91/body_surface.emesh",
-                    kVesperVx91Paints, 1,
+                    vx91.paths, vx91.count,
                     0.55f, 1.08f, 2.08f, 1.86f, models_[6]) ||
         !load_model(renderer, "models/vehicles/municipal_cruiser_91c/body.emesh",
-                    kPolicePaints, 1,
+                    police.paths, police.count,
                     .42f, .94f, 1.63f, 1.53f, models_[7]) ||
-        !load_model(renderer,"models/vehicles/bwc_360/body.emesh",kBwcPaints,1,
+        !load_model(renderer,"models/vehicles/bwc_360/body.emesh",bwc.paths,bwc.count,
                     .325f,.755f,1.27f,1.30f,models_[9])) {
         AP_ERROR("traffic visual: a traffic body or paint failed to load");
         return false;

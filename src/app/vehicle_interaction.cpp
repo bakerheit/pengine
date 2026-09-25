@@ -1,4 +1,6 @@
 #include "app/app.h"
+#include "app/traffic_paint_paths.h"
+#include "app/vehicle_paint_catalog.h"
 #include "core/log.h"
 #include "core/rng.h"
 #include "city/map.h"
@@ -10,19 +12,7 @@
 namespace apricot {
 namespace {
 PlayerCarId traffic_model(const VehicleAgent& v) {
-    switch (traffic_vehicle_kind(v)) {
-        case TrafficVehicleKind::Bwc360:return PlayerCarId::Bwc360;
-        case TrafficVehicleKind::Sedan:return PlayerCarId::LegacyCar5;
-        case TrafficVehicleKind::BoxTruck:
-        case TrafficVehicleKind::Snowplow:return PlayerCarId::LegacyCar8;
-        case TrafficVehicleKind::Ambulance:return PlayerCarId::MunicipalAmbulance;
-        case TrafficVehicleKind::Firetruck:return PlayerCarId::MunicipalFiretruck;
-        case TrafficVehicleKind::HalcyonSix:return PlayerCarId::HalcyonSix;
-        case TrafficVehicleKind::MontroseRegentEight:return PlayerCarId::MontroseRegentEight;
-        case TrafficVehicleKind::VesperVx91:return PlayerCarId::VesperVx91;
-        case TrafficVehicleKind::Police:return PlayerCarId::MunicipalCruiser91C;
-    }
-    return PlayerCarId::LegacyCar5;
+    return traffic_player_car(traffic_vehicle_kind(v));
 }
 glm::quat traffic_rotation(const VehicleAgent& v) {
     return glm::angleAxis(std::atan2(-v.fwd.x,-v.fwd.z),glm::vec3{0,1,0});
@@ -86,6 +76,10 @@ void App::sync_current_vehicle_obstacle() {
 
 void App::park_current_vehicle() {
     drop_trailer();
+    // A parked copy must never wear the booth's preview slot, which is
+    // repainted every time the picked colour changes.
+    if (paint_pool_.is_preview(car_visual_.paint(scene_)))
+        car_visual_.preview_body_material(scene_, committed_body_material());
     ParkedVehicle parked;
     car_visual_.clone_parked(scene_,parked.visual);
     parked.state=car_;parked.state.velocity=glm::vec3{0};parked.state.angular_velocity=glm::vec3{0};
@@ -124,6 +118,8 @@ bool App::take_nearby_vehicle(const VehicleEntryTarget& target) {
         const VehicleAgent candidate=*it;
         const auto layout=traffic_visual_.vehicle_layout(candidate);
         const MaterialId paint=traffic_visual_.vehicle_paint(candidate);
+        const uint8_t paint_base=paint_base_for_traffic(traffic_vehicle_kind(candidate),
+            traffic_visual_.vehicle_paint_index(candidate));
         VehicleAgent taken;
         if (!world_.take_traffic_vehicle(candidate.lane_key,candidate.slot,taken)) return false;
         park_current_vehicle();
@@ -149,7 +145,9 @@ bool App::take_nearby_vehicle(const VehicleEntryTarget& target) {
         float damage=0;for (float zone:taken.body_damage.zones) damage=std::max(damage,zone);
         car_.health=std::max(5.f,100.f-90.f*damage);
         car_visual_.select(scene_,tuning_,car_,target.model);
-        car_visual_.set_paint(scene_,paint);
+        // The traffic material is shared by every car in that livery, so it is
+        // the factory paint and never painted; a respray takes a pool slot.
+        car_visual_.set_factory_paint(scene_,paint,paint_base);
         car_visual_.set_registration(scene_,traffic_visual_.vehicle_registration(taken));
         vehicle_interaction_notice_="Vehicle taken";
         vehicle_notice_until_=step_index_+360;
@@ -536,6 +534,11 @@ void App::run_vehicle_entry_check() {
         if (pack_vehicle_damage0(car_.body_damage)!=pack_vehicle_damage0(candidate.body_damage)) { fail("damage changed on takeover");return; }
         if (pack_vehicle_damage1(car_.body_damage)!=pack_vehicle_damage1(candidate.body_damage) ||
             car_visual_.paint(scene_)!=expected_paint) { fail("paint or scratches changed on takeover");return; }
+        if (car_visual_.factory_material()!=expected_paint || car_visual_.respray() ||
+            car_visual_.paint_base()!=paint_base_for_traffic(traffic_vehicle_kind(candidate),
+                traffic_visual_.vehicle_paint_index(candidate))) {
+            fail("taken car's factory livery was not recorded");return;
+        }
         if (car_visual_.registration()!=expected_plate || parked_vehicles_[parked_before].visual.registration()!=old_plate) { fail("plate changed on takeover or parking");return; }
         if (parked_vehicles_[parked_before].state.position!=old_position) { fail("old car teleported");return; }
         for (const auto& v:world_.traffic().vehicles())

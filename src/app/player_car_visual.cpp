@@ -62,9 +62,9 @@ bool PlayerCarVisual::load_model(
 
     out.plate_mounts=vehicle_plate_mounts(body,definition.mesh_path);
     Texture body_texture;
-    // The catalog's atlas, except Workman's semantic body.png. The paint
-    // profile lookup keys on the same function, so a respray repaints the
-    // atlas this loads.
+    // The catalog's atlas, except Workman's semantic body.png. The respray
+    // booth looks the paint profile up by this same function, so a respray
+    // repaints the atlas this loads.
     const char* texture_path = player_car_body_texture_path(definition.id);
     if (!body_texture.load_file(asset_path(texture_path))) {
         AP_ERROR("player car: paint '%s %s' failed to load",
@@ -297,6 +297,9 @@ bool PlayerCarVisual::select(Scene& scene, const VehicleTuning& tuning,
 
     body->renderable.mesh = model.body_mesh;
     body->renderable.material = model.body_material;
+    factory_material_ = model.body_material;
+    paint_base_ = 0;
+    respray_.reset();
     body->local_bounds = model.body_bounds;
     if (auto* door = scene.get(driver_door_node_)) {
         door->visible = model.driver_door_mesh != kInvalidId;
@@ -621,14 +624,46 @@ void PlayerCarVisual::clone_parked(Scene& scene, PlayerCarVisual& out) const {
     }
 }
 
-void PlayerCarVisual::set_paint(Scene& scene, MaterialId paint) {
+void PlayerCarVisual::point_paint_nodes(Scene& scene, MaterialId paint) {
     if (auto* body=scene.get(body_node_)) body->renderable.material=paint;
     if (auto* door=scene.get(driver_door_node_)) door->renderable.material=paint;
     if (auto* door=scene.get(passenger_door_node_)) door->renderable.material=paint;
     for (const auto id:soft_top_nodes_)
         if (auto* bow=scene.get(id)) bow->renderable.material=paint;
-    for (std::size_t i=0;i<2;++i)
-        if (auto* lamp=scene.get(lamp_nodes_[i])) lamp->renderable.material=paint;
+    // All four lamps, as select() points them: the rear lenses sample the same
+    // atlas, and a lens is never inside a paint mask (tools/paint_profiles.py
+    // lamps), so the brake glow keeps its red.
+    for (const auto id:lamp_nodes_)
+        if (auto* lamp=scene.get(id)) lamp->renderable.material=paint;
+    for (const auto id:wheel_nodes_)
+        if (auto* wheel=scene.get(id); wheel && wheel->renderable.mesh!=shared_wheel_mesh_)
+            wheel->renderable.material=paint;
+}
+
+void PlayerCarVisual::set_factory_paint(Scene& scene, MaterialId material, uint8_t paint_base) {
+    factory_material_=material;
+    paint_base_=paint_base;
+    respray_.reset();
+    point_paint_nodes(scene,material);
+}
+
+void PlayerCarVisual::apply_respray(Scene& scene, MaterialId material, PaintColor colour) {
+    respray_=colour;
+    point_paint_nodes(scene,material);
+}
+
+void PlayerCarVisual::clear_respray(Scene& scene) {
+    respray_.reset();
+    point_paint_nodes(scene,factory_material_);
+}
+
+void PlayerCarVisual::preview_body_material(Scene& scene, MaterialId material) {
+    point_paint_nodes(scene,material);
+}
+
+const char* PlayerCarVisual::worn_atlas() const {
+    const char* atlas=player_car_paint_base_atlas(active_car_,paint_base_);
+    return atlas?atlas:player_car_body_texture_path(active_car_);
 }
 
 void PlayerCarVisual::destroy(Scene& scene) {

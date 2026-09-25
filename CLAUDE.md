@@ -22,7 +22,9 @@ disbelieving working systems.** Today: `src/traffic/` simulates a live ambient
 population that consumes `city/traffic_ai.h`; `game/wanted_system.h` consumes
 `city/police_ai.h`, and officers witness offences, pursue, fire and arrest;
 `game/delivery_mission.h` is wired into the app; `game/molotov.h` and
-`game/fire.h` put a second weapon in the wheel and burning ground under it; and
+`game/fire.h` put a second weapon in the wheel and burning ground under it;
+Rook's Auto Repair resprays any drivable car and loses the cops if none saw the
+pull-in (`game/respray_shop.h`, `--paint-check`); and
 a growing set of authored buildings are enterable — the bar, pawn shop, gun store, gas store, quickbite,
 repair shop, bank vault and a furnished house among them, each with its own
 suite. `game/climb.h` vaults the player over a wall or fence up to 1.30 m when

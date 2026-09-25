@@ -193,6 +193,17 @@ void a_wobble_cancels_the_spray_but_keeps_the_latch(const Shop& shop) {
         // Arrived, but rolling: an order does not start until the car stops.
         REQUIRE(d.step(wobble, false, &kRed).event == ResprayEvent::Rejected);
         REQUIRE(!d.visit.spraying() && d.visit.arrived);
+        // ...and the prompt does not offer R / X, which would be Rejected, until it has.
+        ResprayHintInput hint;
+        hint.driving = true;
+        hint.on_lot = on_repair_lot(wobble);
+        hint.fits = repair_bay_fits(wobble, shop.tuning);
+        hint.ready = repair_shop_ready(wobble, shop.tuning);
+        hint.wanted_level = 3;
+        hint.visit = &d.visit;
+        REQUIRE(respray_hint(hint) == RespraySuffix::StopToRespray);
+        hint.ready = repair_shop_ready(d.stopped(), shop.tuning);
+        REQUIRE(respray_hint(hint) == RespraySuffix::ReadySeen);
         REQUIRE(d.step(d.stopped(), false, &kRed).event == ResprayEvent::Started);
         int steps = 0;
         REQUIRE(d.spray_to_end(false, steps).seen);
@@ -274,6 +285,25 @@ void exit_and_reenter_in_the_bay_never_arrives(const Shop& shop) {
         REQUIRE(respray_hint(hint) == RespraySuffix::NeedsPullIn);
     }
     apricot_test::pass("getting out and back in while fitted needs a fresh pull-in, even unseen");
+}
+
+// 8b. The other exit and re-entry: out of the car on the forecourt, and back in
+// once it has rolled into the bay. Only a step spent DRIVING outside the bay
+// counts toward a pull-in.
+void exit_on_the_forecourt_and_reenter_in_the_bay_never_arrives(const Shop& shop) {
+    for (float bay : kBays) {
+        Drive d{shop, bay};
+        REQUIRE(d.step(d.forecourt(), false).event == ResprayEvent::None);
+        REQUIRE(d.visit.outside_driving);
+        const auto coasting = shop.at(bay, 6.0f, 1.0f);
+        REQUIRE(!repair_bay_fits(coasting, shop.tuning));
+        REQUIRE(d.step(coasting, false, nullptr, false).event == ResprayEvent::None);
+        REQUIRE(!d.visit.outside_driving);
+        REQUIRE(d.step(d.stopped(), false).event == ResprayEvent::None);
+        REQUIRE(d.visit.in_bay && !d.visit.pulled_in && !d.visit.arrived);
+        REQUIRE(d.step(d.stopped(), false, &kRed).event == ResprayEvent::Rejected);
+    }
+    apricot_test::pass("getting out on the forecourt and back in once the car rolled into the bay needs a pull-in");
 }
 
 // 9
@@ -430,46 +460,53 @@ void the_lot_and_the_hint_table(const Shop& shop) {
 
     struct Row {
         const char* name;
-        bool driving, on_lot, fits, pending, eyes;
+        bool driving, on_lot, fits, ready, pending, eyes;
         int wanted;
         const ResprayVisit* visit;
         RespraySuffix expected;
         const char* text;
     };
     const Row rows[] = {
-        {"on foot", false, true, true, false, false, 0, &arrived, RespraySuffix::None, ""},
-        {"no visit", true, true, true, false, false, 0, nullptr, RespraySuffix::None, ""},
-        {"off the lot", true, false, false, false, true, 3, &outside, RespraySuffix::None, ""},
-        {"lot", true, true, false, false, false, 0, &outside, RespraySuffix::LotPullIn,
+        {"on foot", false, true, true, true, false, false, 0, &arrived, RespraySuffix::None, ""},
+        {"no visit", true, true, true, true, false, false, 0, nullptr, RespraySuffix::None, ""},
+        {"off the lot", true, false, false, false, false, true, 3, &outside, RespraySuffix::None, ""},
+        {"lot", true, true, false, false, false, false, 0, &outside, RespraySuffix::LotPullIn,
          "PULL ALL THE WAY INTO A BAY - REPAIR + RESPRAY"},
-        {"lot wanted seen", true, true, false, false, true, 2, &outside, RespraySuffix::LotWantedSeen,
+        {"lot wanted seen", true, true, false, false, false, true, 2, &outside, RespraySuffix::LotWantedSeen,
          "PULL INTO A BAY TO LOSE THE COPS - A COP CAN SEE YOU"},
-        {"lot wanted clear", true, true, false, false, false, 2, &outside, RespraySuffix::LotWantedClear,
+        {"lot wanted clear", true, true, false, false, false, false, 2, &outside, RespraySuffix::LotWantedClear,
          "PULL INTO A BAY TO LOSE THE COPS - NO COP SEES YOU"},
-        {"rolling in", true, true, true, false, false, 0, &rolling, RespraySuffix::LotPullIn,
+        {"rolling in", true, true, true, false, false, false, 0, &rolling, RespraySuffix::LotPullIn,
          "PULL ALL THE WAY INTO A BAY - REPAIR + RESPRAY"},
-        {"rolling in, latched", true, true, true, false, false, 1, &rolling_seen,
+        {"rolling in, latched", true, true, true, false, false, false, 1, &rolling_seen,
          RespraySuffix::LotWantedSeen, "PULL INTO A BAY TO LOSE THE COPS - A COP CAN SEE YOU"},
-        {"fitted, not pulled in", true, true, true, false, true, 4, &fitted_not_pulled,
+        {"fitted, not pulled in", true, true, true, true, false, true, 4, &fitted_not_pulled,
          RespraySuffix::NeedsPullIn, "DRIVE OUT AND PULL IN TO RESPRAY"},
-        {"ready", true, true, true, false, true, 0, &arrived, RespraySuffix::Ready, "R / X - RESPRAY"},
-        {"ready unseen", true, true, true, false, true, 3, &arrived, RespraySuffix::ReadyUnseen,
+        {"ready", true, true, true, true, false, true, 0, &arrived, RespraySuffix::Ready, "R / X - RESPRAY"},
+        {"ready unseen", true, true, true, true, false, true, 3, &arrived, RespraySuffix::ReadyUnseen,
          "R / X - RESPRAY TO LOSE THE COPS"},
-        {"ready seen", true, true, true, false, false, 3, &arrived_seen, RespraySuffix::ReadySeen,
+        {"ready seen", true, true, true, true, false, false, 3, &arrived_seen, RespraySuffix::ReadySeen,
          "R / X - RESPRAY (STARS STAY - A COP SAW YOU PULL IN)"},
-        {"spraying", true, true, true, false, false, 3, &spraying, RespraySuffix::Spraying,
+        {"arrived, rolling", true, true, true, false, false, false, 0, &arrived, RespraySuffix::StopToRespray,
+         "STOP IN THE BAY TO RESPRAY"},
+        {"arrived, rolling, wanted unseen", true, true, true, false, false, true, 3, &arrived,
+         RespraySuffix::StopToRespray, "STOP IN THE BAY TO RESPRAY"},
+        {"arrived, rolling, wanted seen", true, true, true, false, false, false, 3, &arrived_seen,
+         RespraySuffix::StopToRespray, "STOP IN THE BAY TO RESPRAY"},
+        {"spraying", true, true, true, true, false, false, 3, &spraying, RespraySuffix::Spraying,
          "RESPRAYING - E / A TO ABORT"},
-        {"pending in bay", true, true, true, true, false, 0, &arrived, RespraySuffix::Unavailable,
+        {"pending in bay", true, true, true, true, true, false, 0, &arrived, RespraySuffix::Unavailable,
          "RESPRAY NOT AVAILABLE FOR THIS CAR YET"},
-        {"pending on lot", true, true, false, true, false, 2, &outside, RespraySuffix::Unavailable,
+        {"pending on lot", true, true, false, false, true, false, 2, &outside, RespraySuffix::Unavailable,
          "RESPRAY NOT AVAILABLE FOR THIS CAR YET"},
     };
-    bool covered[10] = {};
+    bool covered[11] = {};
     for (const Row& row : rows) {
         ResprayHintInput in;
         in.driving = row.driving;
         in.on_lot = row.on_lot;
         in.fits = row.fits;
+        in.ready = row.ready;
         in.pending_car = row.pending;
         in.eyes_on = row.eyes;
         in.wanted_level = row.wanted;
@@ -532,6 +569,7 @@ int main() {
     an_order_that_cannot_start_is_rejected(shop);
     leaving_the_wheel_or_the_car_mid_spray_cancels(shop);
     exit_and_reenter_in_the_bay_never_arrives(shop);
+    exit_on_the_forecourt_and_reenter_in_the_bay_never_arrives(shop);
     a_visit_that_starts_fitted_never_arrives(shop);
     a_crawl_in_arrives_on_the_first_fitted_step(shop);
     outcome_truth_table();

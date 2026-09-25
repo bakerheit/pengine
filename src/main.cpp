@@ -45,6 +45,8 @@ void print_usage() {
         "  --police-pursuit-check test an away-facing cruiser turning and pulling over (6000+ frames)\n"
         "  --traffic-horn-check test real traffic impatience, horn playback and lane release (6000+ frames)\n"
         "  --convertible-check capture the Mistral canvas up, folding and stowed (1000+ frames)\n"
+        "  --paint-check   drive cars into Rook's and respray them: booth, wanted rule, theft,\n"
+        "                  saves, police liveries, firetruck; nine captures (18000+ frames)\n"
         "  --wanted N      start with wanted level 1-5 for pursuit QA\n"
         "  --no-instancing start on the naive per-node draw path\n"
         "  --warp-every N  teleport across the island every N frames\n"
@@ -149,6 +151,7 @@ int main(int argc, char** argv) {
     bool police_pursuit_check=false;
     bool traffic_horn_check=false;
     bool convertible_check=false;
+    bool paint_check=false;
     int start_wanted=0;
     bool weapon_check=false;
     bool molotov_check=false;
@@ -223,6 +226,7 @@ int main(int argc, char** argv) {
         }
         if (std::strcmp(a,"--traffic-horn-check")==0) { traffic_horn_check=true; continue; }
         if (std::strcmp(a,"--convertible-check")==0) { convertible_check=true; continue; }
+        if (std::strcmp(a,"--paint-check")==0) { paint_check=true; continue; }
         if (std::strcmp(a,"--wanted")==0) {
             if (++i>=argc) { std::fprintf(stderr,"--wanted needs a level from 1 to 5\n"); return 2; }
             start_wanted=std::atoi(argv[i]);
@@ -437,6 +441,34 @@ int main(int argc, char** argv) {
     }
 
     apricot::App app;
+    if (paint_check) {
+        // Every stage drives a car in from the forecourt and some wait for a
+        // real police unit to see it, so it needs room; it also owns the car,
+        // the wanted level and the camera, so it runs alone.
+        if (frame_limit<18000 || vehicle_entry_check || driver_transition_check || aircraft_check ||
+            helicopter_check || boat_check || trailer_check || tire_track_check || police_check ||
+            police_officer_check || traffic_horn_check || convertible_check || weapon_check ||
+            molotov_check || damage_check || house_check || signal_check || character_identity_check ||
+            lighting_benchmark || warp_every) {
+            std::fprintf(stderr,"--paint-check needs --frames 18000 or more and no other checks or warps\n");
+            return 2;
+        }
+        if (!player_car_explicit) start_car=apricot::PlayerCarId::VesperMistral;
+        // Clear daylight, so the captures are about the paint. `--night` is
+        // honoured: it is how the lamp and lightbar glow over a respray is seen.
+        clear_weather=true;
+        if (!lighting_night) daylight_qa=true;
+        start_driving=true;
+        if (!start_position_set) {
+            // Rook's forecourt, in front of bay one, facing the garage.
+            const auto& site=apricot::city::kAutoRepairSite;
+            start_position={site.origin.x+site.cos_yaw*-9.0f+site.sin_yaw*12.0f,
+                            site.origin.z-site.sin_yaw*-9.0f+site.cos_yaw*12.0f};
+            if (!start_heading_set) start_heading_radians=std::atan2(site.sin_yaw,site.cos_yaw);
+        }
+        if (!screenshot_path) screenshot_path="build/paint-check";
+        app.set_paint_check(true);
+    }
     if (convertible_check) {
         // The canvas takes 2.4 s each way and the second press lands at frame
         // 420; below this there is no room left to capture the return.
@@ -659,6 +691,10 @@ int main(int argc, char** argv) {
     }
     if (convertible_check && !app.convertible_check_passed()) {
         AP_ERROR("convertible top regression did not capture all three poses");rc=1;
+    }
+    if (paint_check && !app.paint_check_passed()) {
+        AP_ERROR("paint check did not pass: stages 0x%x, captures 0x%x",
+                 app.paint_check_bits(), app.paint_check_captures());rc=1;
     }
     if (police_officer_check && !app.police_officer_check_passed()) {
         AP_ERROR("police officer gameplay regression did not complete");rc=1;

@@ -343,5 +343,8 @@ level (a cut would be exact silence) and that it is gone a few blocks later.
 shipped that would be four warnings on every launch. A file that exists but
 does not parse still reaches the loader, and still warns.
 
-**Not wired yet:** nothing in `App` builds or plays these clips. The booth's
-own flow lands separately.
+`App` builds the four clips once at startup and holds them for the life of the
+mixer. The hiss starts with the spray and fades on a cancel or a refused
+order; the stinger for the outcome plays when the spray completes.
+`--paint-check` fires every one of those paths, but a frame-limited run cannot
+listen, and nobody has listened to them in the game yet.

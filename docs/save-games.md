@@ -10,15 +10,15 @@ A checkpoint restores Johnny's location, facing, camera look and on-foot/car mod
 
 Version 4 adds the car's paint, as three `GameSave` fields written as the body's last row, `paint_base has_paint r g b`:
 
-- `car_paint_base` is an index into the model's stock paint list — `kCar5Paints` and `kCar8Paints`, today function-local in `src/app/traffic_visual.cpp`, where index 0 is the stock body texture.
+- `car_paint_base` is an index into the model's livery list — `kCar5Paints` and `kCar8Paints` in `src/app/traffic_paint_paths.h`, where index 0 is the stock body texture. A stolen Car 5 or Car 8 keeps the traffic livery it was driving in as that base. Those two lists are a saved ID now: append only, never reorder, pinned entry by entry in `vehicle_paint_profiles_tests`. Every other model has base 0 only.
 - `car_has_paint` says whether a respray sits on top of that base.
 - `car_paint` is the picked sRGB colour, a `PaintColor` from `game/vehicle_paint.h`.
 
-**Not wired yet.** Only the format has landed. `src/app/app_save.cpp` neither fills these fields when it saves nor repaints the car when it loads, and there is no respray to pick a colour with, so every checkpoint still writes `0 0 0 0 0` and comes back in stock paint.
+`App::save_game()` writes the current car's base and respray. `App::load_game()` refuses a base the saved model does not have ("Saved paint is unavailable. Game left unchanged.") before it touches the game, restores a stolen Car 5 or Car 8's livery from the traffic material, then takes a paint slot for the respray once the session's parked cars are gone. `--paint-check` saves a stolen, resprayed Car 8, scrambles its paint and position, loads, and gets the model, the purple livery base and the red respray back.
 
 **Versions only append rows, and old saves load as stock paint.** Version 2 added the trailer row, 3 the plate, 4 the paint; the decoder reads a row only from the version that introduced it. A v1–v3 save loads as base 0 with no respray, which is what every car wore before a respray existed. The cost is on the tests. `save_game_tests`, `license_plate_tests` and `tractor_trailer_tests` build old saves by cutting rows off a new one, so every version bump rewrites those cuts, and a cut that lands on the wrong row does not always fail. `license_plate_tests` splices corrupt plate rows onto a body with its plate row cut off. Had that splice kept cutting one row after version 4, it would have cut the paint row and left the real plate row in place. Each corrupt row would then be refused as trailing tokens rather than for its values, and those negatives would pass while checking nothing. So each cut now asserts the exact row it removed and shows the older header refusing the uncut body, and each splice first proves the good row loads.
 
-**The base index is range-checked, not checked against the car.** The save accepts any base from 0 to 255 on any model. The paint lists belong to the app, and the save takes no new include to reach them. The cost: a save can name a base the model does not have, and whoever applies it on load has to handle that, because the save cannot.
+**The base index is range-checked, not checked against the car.** The save accepts any base from 0 to 255 on any model. The paint lists belong to the app, and the save takes no new include to reach them. The cost: a save can name a base the model does not have, and the save cannot catch it, so `App::load_game()` checks it against the model with `paint_base_valid()` and refuses the load.
 
 **Every drivable car can carry paint, emergency vehicles included.** Nothing in the save depends on the model, and `save_game_tests` round-trips a respray on every player car id.
 

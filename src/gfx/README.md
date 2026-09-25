@@ -205,8 +205,10 @@ What it costs:
   the stock paint instead of mirrored across the atlas. The price is one extra
   copy of the image out of the decoder's buffer on every `load_file()`.
 
-Nothing calls these yet. The respray pool at Rook's Auto Repair is the first
-consumer, and it has not landed.
+The respray pool at Rook's Auto Repair (`app/vehicle_paint_materials.h`) is the
+one consumer: twelve paintable materials made at startup, the booth's preview
+slot rewritten at most once per rendered frame, owned slots only while no body
+wears them.
 
 ## HUD gradients cost vertices, never a draw call
 
@@ -244,5 +246,6 @@ never by accumulating a step, so neighbouring cells share bit-identical edges
 and the last cell lands exactly on `max`. An accumulated step leaves hairline
 cracks the backdrop shows through.
 
-Nothing calls these yet either; the respray colour picker is the first
-consumer.
+The respray colour picker is the consumer: its hue bar is 36 two-colour
+segments, exact because the hue's kinks fall on sixths, and its saturation/value
+plane is one 12×12 `gradient_rect()`.
