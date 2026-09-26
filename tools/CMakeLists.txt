@@ -47,7 +47,10 @@ target_compile_options(apricot_boat_driver_lab PRIVATE ${APRICOT_STRICT_FLAGS})
 target_link_libraries(apricot_boat_driver_lab PRIVATE apricot_host)
 
 # Standalone scene authoring and playback. Shares world loading without App.
-add_executable(apricot_cutscene_lab cutscene_lab.cpp ${CMAKE_SOURCE_DIR}/src/app/world.cpp)
+# world.cpp builds the Bellwether town through bellwether.cpp, so the lab needs
+# both halves of World.
+add_executable(apricot_cutscene_lab cutscene_lab.cpp ${CMAKE_SOURCE_DIR}/src/app/world.cpp
+    ${CMAKE_SOURCE_DIR}/src/app/bellwether.cpp)
 target_include_directories(apricot_cutscene_lab PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_include_directories(apricot_cutscene_lab SYSTEM PRIVATE ${stb_SOURCE_DIR})
 target_compile_options(apricot_cutscene_lab PRIVATE ${APRICOT_STRICT_FLAGS})
