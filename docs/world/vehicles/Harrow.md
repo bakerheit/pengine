@@ -12,7 +12,7 @@ Steel-beam H. See the [brand design record](../../design/vehicle-brands.md#emble
 
 - [Cityliner Bus](Harrow/Cityliner%20Bus.md)
 - [Hauler Semi](Harrow/Hauler%20Semi.md)
-- [Hookline](Harrow/Hookline.md)
+- [Hookline](Harrow/Hookline.md) — **Class 3**, a design, detail and documentation benchmark.
 - [Parcel](Harrow/Parcel.md)
 - [Workman](Harrow/Workman.md)
 

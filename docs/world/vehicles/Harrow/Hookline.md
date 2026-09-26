@@ -8,12 +8,15 @@
 
 City recovery truck.
 
+**Class 3 — design and detail benchmark.** User-designated alongside Pizaz Constant and Rodeo Switchback as a reference for bringing Class 1 and Class 2 vehicles up to the same standard of design, detail, documentation and reference imagery. See [vehicle quality classes](../quality-classes.md).
+
 ## Model information
 
 | Detail | Value |
 |---|---|
 | Manufacturer | [Harrow](../Harrow.md) |
 | Model | Hookline |
+| Quality class | **Class 3** — user-designated benchmark |
 | Status | Selectable in the game catalog |
 | Vehicle role | city recovery truck |
 | In-game mass | 4,200 kg |

@@ -6,7 +6,7 @@ Each manufacturer has a page here and a folder containing its model pages. Model
 
 ## Quality classes
 
-**[Pizaz Constant](Pizaz/Constant.md) and [Rodeo Switchback](Rodeo/Switchback.md) are user-designated Class 3 benchmarks:** well designed and detailed, with good documentation and reference images. Use them as quality references when bringing Class 1 or Class 2 vehicles up to Class 3. [Class definitions and upgrade guide](quality-classes.md).
+**[Pizaz Constant](Pizaz/Constant.md), [Rodeo Switchback](Rodeo/Switchback.md) and [Harrow Hookline](Harrow/Hookline.md) are user-designated Class 3 benchmarks:** well designed and detailed, with good documentation and reference images. Use them as quality references when bringing Class 1 or Class 2 vehicles up to Class 3. [Class definitions and upgrade guide](quality-classes.md).
 
 ## Performance
 
@@ -22,7 +22,7 @@ Model pages list **top speed (mph)** and **0–60 mph (X.X s)**. [Measured roste
 | [Ember](Ember.md) | [GT](Ember/GT.md) |
 | [Fang](Fang.md) | [Venom](Fang/Venom.md) |
 | [GLM](GLM.md) | [Lunge](GLM/Lunge.md) · [Meridian](GLM/Meridian.md) · [Zip](GLM/Zip.md) |
-| [Harrow](Harrow.md) | [Cityliner Bus](Harrow/Cityliner%20Bus.md) · [Hauler Semi](Harrow/Hauler%20Semi.md) · [Hookline](Harrow/Hookline.md) · [Parcel](Harrow/Parcel.md) · [Workman](Harrow/Workman.md) |
+| [Harrow](Harrow.md) | [Cityliner Bus](Harrow/Cityliner%20Bus.md) · [Hauler Semi](Harrow/Hauler%20Semi.md) · [Hookline](Harrow/Hookline.md) — **Class 3 benchmark** · [Parcel](Harrow/Parcel.md) · [Workman](Harrow/Workman.md) |
 | [Karlsdale](Karlsdale.md) | [Lux](Karlsdale/Lux.md) · [Regent Eight](Karlsdale/Regent%20Eight.md) · [Six Sedan](Karlsdale/Six%20Sedan.md) |
 | [Legacy](Legacy.md) | [Car 5](Legacy/Car%205.md) · [Car 5-Next](Legacy/Car%205-Next.md) · [Car 5-Next Patrol](Legacy/Car%205-Next%20Patrol.md) · [Car 8](Legacy/Car%208.md) · [Car 8 Ambulance](Legacy/Car%208%20Ambulance.md) |
 | [Municipal](Municipal.md) | [Ambulance](Municipal/Ambulance.md) · [Cruiser 91-A Square](Municipal/Cruiser%2091-A%20Square.md) · [Cruiser 91-B Aero](Municipal/Cruiser%2091-B%20Aero.md) · [Cruiser 91-C Pursuit](Municipal/Cruiser%2091-C%20Pursuit.md) · [Cruiser 91-D Metro](Municipal/Cruiser%2091-D%20Metro.md) · [Cruiser 91-E Highway](Municipal/Cruiser%2091-E%20Highway.md) · [Firetruck](Municipal/Firetruck.md) |
