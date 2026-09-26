@@ -2883,12 +2883,12 @@ void App::render() {
         add_interior_lights(city::kLoomParkSite,park_lights,"garden gazebo light lens",7.f);
     static const auto bar_lights=city::bake_neighborhood_bar();
     add_interior_lights(city::kNeighborhoodBarSite,bar_lights,"bar warm light lens",6.5f);
-    // Hospital fixtures are authored by the exterior sidecars, but their
-    // albedo/emissive faces do not illuminate the pavement by themselves.
-    // Feed the named lenses through the existing tiled-light path after dusk.
+    static const auto hospital_lights = city::bake_polished_hospital_campus();
+    add_interior_lights(city::kHospitalSite, hospital_lights,
+        "hospital interior ceiling light lens", 8.0f,
+        {0.0f, -1.0f, 0.0f}, 0.9f, 0.48f, {1.0f, 0.97f, 0.91f});
+    // Indoor fixtures stay on; exterior campus lighting follows dusk.
     if (visible_night_level > 0.05f) {
-        static const auto hospital_lights =
-            city::bake_polished_hospital_campus();
         add_interior_lights(city::kHospitalSite, hospital_lights,
             "hospital facade wall light lens", 8.0f,
             {0.0f, -0.65f, -1.0f}, 2.4f, 0.42f);

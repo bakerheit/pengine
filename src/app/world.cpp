@@ -46,6 +46,7 @@
 #include "city/construction_expansion.h"
 #include "city/hospital_campus.h"
 #include "city/hospital_exterior.h"
+#include "city/hospital_interior_materials.h"
 #include "city/emergency_stations.h"
 #include "city/east_arm_plaza.h"
 #include "city/neighborhood_bar.h"
@@ -164,6 +165,8 @@ struct StartMaterials {
     MaterialId construction_equipment_section = kInvalidId;
     MaterialId construction_barrier_section = kInvalidId;
     MaterialId construction_wayfinding_section = kInvalidId;
+    std::array<MaterialId, city::kHospitalInteriorMaterials.size()> hospital_interior{};
+    MeshId hospital_interior_face = kInvalidId;
     MaterialId hospital_entry_mural = kInvalidId;
     MaterialId hospital_emergency_bay_two = kInvalidId;
     MaterialId hospital_garage_pay_station = kInvalidId;
@@ -261,6 +264,22 @@ bool load_start_materials(Renderer& renderer, StartMaterials& out) {
     out.residential_roof.fill(kInvalidId);
     out.glass = renderer.add_glass_material();
     if (out.glass == kInvalidId) return false;
+
+    for (std::size_t i = 0; i < city::kHospitalInteriorMaterials.size(); ++i) {
+        if (!load_start_texture(renderer, city::kHospitalInteriorMaterials[i].path,
+                                out.hospital_interior[i])) return false;
+    }
+    // Hospital signs face local north. The shared billboard faces south.
+    auto hospital_face = make_billboard_quad();
+    hospital_face.bounds = AABB{};
+    for (auto& vertex : hospital_face.vertices) {
+        vertex.position.x = -vertex.position.x;
+        vertex.position.z = -vertex.position.z;
+        vertex.normal.z = -vertex.normal.z;
+        hospital_face.bounds.expand(vertex.position);
+    }
+    out.hospital_interior_face = renderer.add_mesh(hospital_face);
+    if (out.hospital_interior_face == kInvalidId) return false;
 
     if (!load_start_texture(renderer,"textures/world/loom_museum/paintings-atlas.png",out.museum_artwork)) return false;
     for (std::size_t i=0;i<out.museum_paintings.size();++i) {
@@ -2123,6 +2142,37 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
                 r.tint = part_name_has(part, "core")
                     ? glm::vec4{1.0f, .80f, .40f, 2.0f}
                     : glm::vec4{1.0f, .40f, .06f, 2.0f};
+            }
+        }
+        if (&site == &city::kHospitalSite) {
+            const int material_index = city::hospital_interior_material_index(part.name);
+            if (material_index >= 0) {
+                const auto index = static_cast<std::size_t>(material_index);
+                const auto& material = city::kHospitalInteriorMaterials[index];
+                r.material = materials.hospital_interior[index];
+                r.tint = {1, 1, 1, 1};
+                // A small authored bounce term keeps the acoustic soffit
+                // readable; downward fixtures cannot light its underside.
+                if (part_name_has(part, " ceiling tex ceiling"))
+                    r.tint.a = 1.28f;
+                if (part_name_has(part, " floor skin tex terrazzo"))
+                    r.tint = {0.78f, 0.78f, 0.78f, 1.0f};
+                if (material.fitted)
+                    r.tint.a = part_name_has(part, "screen") ? 1.25f : 1.12f;
+                if (material.fitted) {
+                    r.mesh = materials.hospital_interior_face;
+                    r.uv_scale = {1, 1};
+                } else {
+                    const bool horizontal = part.height_m <= 0.35f;
+                    r.uv_scale = {
+                        (horizontal ? part.width_m : std::max(part.width_m, part.depth_m)) /
+                            material.tile_span_m,
+                        (horizontal ? part.depth_m : part.height_m) / material.tile_span_m};
+                }
+            }
+            if (part_name_is(part, "hospital interior ceiling light lens")) {
+                r.material = prototype.material;
+                r.tint = {1.0f, 0.97f, 0.91f, 3.2f};
             }
         }
         if(part.shape==city::BuildingPieceShape::GablePrism)r.mesh=gable_prism;
