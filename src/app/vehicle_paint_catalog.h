@@ -30,7 +30,8 @@ inline constexpr const char* player_car_body_texture_path(PlayerCarId id) {
 // needs a profile (tools/paint_profiles/) or an entry here, and
 // vehicle_paint_profiles_tests fails otherwise; it also fails for an entry
 // that has a profile, so delete the entry in the commit that adds one.
-inline constexpr std::initializer_list<PlayerCarId> kPaintProfilePending = {};
+inline constexpr std::initializer_list<PlayerCarId> kPaintProfilePending = {
+    PlayerCarId::GlmMeridian, PlayerCarId::RodeoSwitchback, PlayerCarId::HarrowHookline};
 
 inline constexpr bool player_car_paint_pending(PlayerCarId id) {
     id = canonical_player_car_id(id);

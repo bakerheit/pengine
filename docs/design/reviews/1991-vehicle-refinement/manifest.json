@@ -1,0 +1,54 @@
+{
+  "generated_at": "2026-09-26T01:41:03.569983+00:00",
+  "models": {
+    "glm_meridian": {
+      "body_triangles": 44646,
+      "sha256": {
+        "assets/models/vehicles/glm_meridian/passenger_rear_glass.emesh": "5d962f73467c98d9d0bdfbb43af4567add12193e53e9e803a615948f3bd2e7e1",
+        "assets/models/vehicles/glm_meridian/front_wheel.emesh": "86dcf5b19dadf99fb0e4c5370a16f710f4e93e371ec9a19dd303d6c15fb31578",
+        "assets/models/vehicles/glm_meridian/driver_glass.emesh": "2a3a4c0f4861c639f9ed188d4250a63e0f2dbc727e9f22d951f6afc8724bd496",
+        "assets/models/vehicles/glm_meridian/rear_glass.emesh": "dff9f7ca4eaaf0704d40cfe0c28530850233ee39bf2922626ee95084dd9a1dd9",
+        "assets/models/vehicles/glm_meridian/windshield.emesh": "a863d042999c8629f2bb6a47a307f8d94573f387708cd15228b14581a42b1e2b",
+        "assets/models/vehicles/glm_meridian/driver_rear_glass.emesh": "bc4178c62896845b609c4e87be26898a4122ab52d6daa580698efd670ba46b3c",
+        "assets/models/vehicles/glm_meridian/body_open.emesh": "d05d24cd3191726be7229e62d83bb211c6dbb178adb7ebdd3047fadc133f3436",
+        "assets/models/vehicles/glm_meridian/driver_door.emesh": "edaf8557a631c22fc6506d6b707cf86cc4ae85ab5de0c3f1b568c2a90c8e37ee",
+        "assets/models/vehicles/glm_meridian/passenger_glass.emesh": "3ea8410ac37487b044b247a6b8a56e3a8376255a368815dcffeb2602124aa1d0",
+        "assets/models/vehicles/glm_meridian/rear_wheel.emesh": "86dcf5b19dadf99fb0e4c5370a16f710f4e93e371ec9a19dd303d6c15fb31578",
+        "assets/models/vehicles/glm_meridian/body.emesh": "3450d70d089be4af234269282b923e3d44506561b6c66fd69fb0f75da6730c23",
+        "assets/textures/vehicles/glm_meridian/body.png": "95fcab1ad833bf1819ced8c2e727690ab8cbe71d45e299b134d2b0fce4ea7d11"
+      }
+    },
+    "rodeo_switchback": {
+      "body_triangles": 44524,
+      "sha256": {
+        "assets/models/vehicles/rodeo_switchback/passenger_rear_glass.emesh": "ae1805d59128937f4186dddccd36c2e691e3811d8be7aa02f927fcc113947d51",
+        "assets/models/vehicles/rodeo_switchback/front_wheel.emesh": "b9dc7f21df52f0fed5c5b1449446daa64006f4f7d61ac3e623a0002f9f2f0dbd",
+        "assets/models/vehicles/rodeo_switchback/driver_glass.emesh": "2b7252435a37c087edf57f060f8287a0a4bc59727a5a354b27b6163f9dfb98ef",
+        "assets/models/vehicles/rodeo_switchback/rear_glass.emesh": "cf1ab20fd4b41ed3bedd0f5df59ce9ff168ede992d6177a8863aaa603d3413f0",
+        "assets/models/vehicles/rodeo_switchback/windshield.emesh": "b86b19cfb250491c2bc0996e58c9ae398ae7210b8faff53e0bf022d7dfc7226d",
+        "assets/models/vehicles/rodeo_switchback/driver_rear_glass.emesh": "e726366a0cb35ba0ee6047f45e755a66fe4a48168c02e410eaae639e56dfacc4",
+        "assets/models/vehicles/rodeo_switchback/body_open.emesh": "74bb002b1fe90919918d440405077da80ce13a4be3d88309ad71066acd6a887d",
+        "assets/models/vehicles/rodeo_switchback/driver_door.emesh": "038b4072162d21aa9c6298e76a6c66685dfedd051b4f14036cb9e4d9f75489b6",
+        "assets/models/vehicles/rodeo_switchback/passenger_glass.emesh": "bf83de98592bb5eaee10ee3c1f219f888fcd4c9064f6aa901395b2a5add3b821",
+        "assets/models/vehicles/rodeo_switchback/rear_wheel.emesh": "b9dc7f21df52f0fed5c5b1449446daa64006f4f7d61ac3e623a0002f9f2f0dbd",
+        "assets/models/vehicles/rodeo_switchback/body.emesh": "61827ea0c8351cc03356da0e21abd048cec3ee754437e7b72310ea01ee80c6b6",
+        "assets/textures/vehicles/rodeo_switchback/body.png": "a68a47991a76b4dca59b22f3904f4cdc7c644207457d0109f2df7cb41e6db38c"
+      }
+    },
+    "harrow_hookline": {
+      "body_triangles": 48784,
+      "sha256": {
+        "assets/models/vehicles/harrow_hookline/front_wheel.emesh": "825ddca39d444ee23abdf2dffb498852650f15d5bae4dd5a174b94cdee974855",
+        "assets/models/vehicles/harrow_hookline/driver_glass.emesh": "983ca2a274e3c2605743130d61d0facad711e6701697c17bad550d89a605a168",
+        "assets/models/vehicles/harrow_hookline/rear_glass.emesh": "cf67ea55f6222e5db163bd97985784f63b7846cbb18184bd5006727c2bd2da2d",
+        "assets/models/vehicles/harrow_hookline/windshield.emesh": "d0c27b361cebe86cd187121603d84a73c7b95811d281d0d7fada51da34ebf754",
+        "assets/models/vehicles/harrow_hookline/body_open.emesh": "f88094333e1772d744b35655618c380f803b9d12102d779e60b5028f8b77f708",
+        "assets/models/vehicles/harrow_hookline/driver_door.emesh": "ba26a092546a03932cb22e525790026803708afad93336e0561b4f9705c269ed",
+        "assets/models/vehicles/harrow_hookline/passenger_glass.emesh": "14e690576fa6c8c24db914fad565d2f1be301886a16d6bab65676c39fd0c644e",
+        "assets/models/vehicles/harrow_hookline/rear_wheel.emesh": "8af08479885d4a81109989b5d848b67c90af26fbbca7e079531d7f0323c81e32",
+        "assets/models/vehicles/harrow_hookline/body.emesh": "985db5af9b0ab6b75cefc72a78b548fbc472f44dc6b47479b84f973401a5a6b9",
+        "assets/textures/vehicles/harrow_hookline/body.png": "1b228fe6aa67dace340d53fe6f7ec1fa67e495d4d4414c27ce042bdbcfa47792"
+      }
+    }
+  }
+}

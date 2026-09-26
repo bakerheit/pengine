@@ -21,6 +21,12 @@ inline VehiclePlateMounts vehicle_plate_mounts(const StaticEmesh& body, std::str
         return {{{.52f,.33f,2.324f},{0,0,1}},{{0,.49f,-2.407f},{0,0,-1}}};
     if (path.find("rodeo_grazer/")!=std::string_view::npos)
         return {{{0,.625f,2.446f},{0,0,1}},{{0,.560f,-2.646f},{0,0,-1}}};
+    if (path.find("glm_meridian/")!=std::string_view::npos)
+        return {{{0,.48f,2.545f},{0,0,1}},{{0,.48f,-2.555f},{0,0,-1}}};
+    if (path.find("rodeo_switchback/")!=std::string_view::npos)
+        return {{{0,.48f,2.405f},{0,0,1}},{{0,.48f,-2.415f},{0,0,-1}}};
+    if (path.find("harrow_hookline/")!=std::string_view::npos)
+        return {{{0,.48f,2.815f},{0,0,1}},{{0,.48f,-2.825f},{0,0,-1}}};
     if (path.find("fang_venom_v2/")!=std::string_view::npos)
         return {{{0,.715f,-1.134f},{0,0,-1},.240f,.110f}};
     VehiclePlateMounts result;

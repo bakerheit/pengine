@@ -18,7 +18,7 @@ struct VehicleSoundProfile {
     float pitch = 1.0f;
 };
 
-inline constexpr std::array<VehicleSoundProfile, 33> kVehicleSoundProfiles{{
+inline constexpr std::array<VehicleSoundProfile, 36> kVehicleSoundProfiles{{
     {"bwc_360", 1.02f},
     {"rodeo_grazer", .915f},
     {"ember_gt", 1.105f},
@@ -52,6 +52,9 @@ inline constexpr std::array<VehicleSoundProfile, 33> kVehicleSoundProfiles{{
     {"municipal_cruiser_91e", 1.01f},
     {"fang_venom_v2", 1.115f},
     {"saddle_tango", 1.045f},
+    {"glm_meridian", .995f},
+    {"rodeo_switchback", .925f},
+    {"harrow_hookline", .815f},
 }};
 
 // Accept a canonical lowercase model key or a relative/absolute mesh path.

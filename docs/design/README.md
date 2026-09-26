@@ -12,7 +12,7 @@ or progression ladder. This document connects the existing design work and
 current systems so new content has a shared direction.
 
 [Documentation home](../README.md) · [Lore and world](../lore/README.md) ·
-[Vehicle brands](vehicle-brands.md)
+[Vehicle brands](vehicle-brands.md) · [Vehicle reference photos](references/1991-selected-vehicles.md)
 
 ## What the player should feel
 

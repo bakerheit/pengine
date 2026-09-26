@@ -1,7 +1,9 @@
 #include <cmath>
+#include <cstddef>
 #include "app/player_car_catalog.h"
 #include "app/vehicle_model_tuning.h"
 #include "app/vehicle_headlight_profile.h"
+#include "app/vehicle_snow_mesh.h"
 #include "audio/vehicle_sound_profile.h"
 #include "core/asset_root.h"
 #include "core/emesh_reader.h"
@@ -71,8 +73,73 @@ void model_contract(PlayerCarId id,float length,float width,float mass,float doo
     std::printf("  position %.2f %.2f %.2f velocity %.2f %.2f %.2f\n",car.position.x,car.position.y,car.position.z,car.velocity.x,car.velocity.y,car.velocity.z);
     REQUIRE(stopped);
 }
+void selected_1991_candidates_are_playable_models() {
+    struct Expected { PlayerCarId id; float mass; float radius; int panes; };
+    for (const Expected expected : {
+             Expected{PlayerCarId::GlmMeridian,1750.f,.365f,6},
+             Expected{PlayerCarId::RodeoSwitchback,1680.f,.46f,6},
+             Expected{PlayerCarId::HarrowHookline,4200.f,.46f,4}}) {
+        const auto& car=player_car_definition(expected.id);
+        const auto tuning=player_model_tuning(DrivingMechanicsStyle::ClassicGta,expected.id);
+        REQUIRE_NEAR(tuning.mass_kg,expected.mass,.001f);
+        REQUIRE_NEAR(tuning.wheel_radius,expected.radius,.001f);
+        REQUIRE(vehicle_sound_profile(car.mesh_path).model_key!="default");
+        const std::string folder=std::string(car.mesh_path).substr(0,
+            std::string(car.mesh_path).find_last_of('/')+1);
+        StaticEmesh body,open,door,front_wheel,rear_wheel;
+        REQUIRE(read_static_emesh(asset_path(car.mesh_path),body));
+        REQUIRE(read_static_emesh(asset_path(folder+"body_open.emesh"),open));
+        REQUIRE(read_static_emesh(asset_path(folder+"driver_door.emesh"),door));
+        REQUIRE(read_static_emesh(asset_path(folder+"front_wheel.emesh"),front_wheel));
+        REQUIRE(read_static_emesh(asset_path(folder+"rear_wheel.emesh"),rear_wheel));
+        REQUIRE(body.indices.size()>open.indices.size());
+        REQUIRE(door.indices.size()>100u);
+        REQUIRE(body.indices.size()/3u<60000u);
+        for (const auto* mesh : {&body,&open,&door,&front_wheel,&rear_wheel}) {
+            REQUIRE(mesh->bounds.valid() && !mesh->indices.empty());
+            for (const auto& vertex:mesh->vertices) {
+                REQUIRE(std::isfinite(vertex.px) && std::isfinite(vertex.py) &&
+                        std::isfinite(vertex.pz));
+                REQUIRE(vertex.u>=0.f && vertex.u<=1.f && vertex.v>=0.f && vertex.v<=1.f);
+            }
+        }
+        constexpr const char* panes[]{"windshield","rear_glass","passenger_glass",
+            "driver_glass","driver_rear_glass","passenger_rear_glass"};
+        for (int i=0;i<expected.panes;++i) {
+            StaticEmesh glass;
+            REQUIRE(read_static_emesh(asset_path(folder+panes[i]+".emesh"),glass));
+            REQUIRE(glass.bounds.valid() && !glass.indices.empty());
+            if(i==0) {
+                REQUIRE(vehicle_windshield_profile(car.mesh_path)!=nullptr);
+                const auto tagged=make_windshield_snow_mesh(glass);
+                REQUIRE(tagged.indices.size()==glass.indices.size());
+                for(const auto& vertex:tagged.vertices)
+                    REQUIRE(vertex.material_weights.w==-1.f);
+            }
+        }
+        const auto head=vehicle_headlight_profile(car.mesh_path);
+        const auto brake=vehicle_brakelight_profile(car.mesh_path);
+        REQUIRE(head.exposed() && brake.id==head.id);
+        for(std::size_t side=0;side<2;++side) {
+            glm::vec3 point;
+            REQUIRE(vehicle_headlight_origin(body,head,side,point));
+        }
+        TerrainCollider ground(city::kMapSeed);
+        ground.add_static_ground_rect({150,2046},200.f,{2000,2000},0,Surface::Rock);
+        auto state=spawn_vehicle(tuning,ground,150,2046,0);
+        state.position.y=200.f+static_ride_height(tuning);
+        InputFrame input;input.throttle=1.f;
+        for(int step=0;step<960;++step) {
+            state=step_vehicle(state,tuning,input,ground,1.f/120.f);
+            REQUIRE(std::isfinite(state.position.y) && vehicle_up(state).y>.8f);
+        }
+        REQUIRE(vehicle_speed(state)>4.f);
+    }
+    apricot_test::pass("1991 Meridian, Switchback and Hookline have complete assets and drivable tuning");
+}
 }
 int main() {
+    selected_1991_candidates_are_playable_models();
     model_contract(PlayerCarId::VesperScythe,4.65f,2.18f,1320.f,-.54f,.78f);
     model_contract(PlayerCarId::HalcyonSovereign,8.20f,2.26f,2750.f,.18f,1.60f);
     REQUIRE(player_model_tuning(DrivingMechanicsStyle::ClassicGta,PlayerCarId::HarrowCityliner).mass_kg==9000.f);

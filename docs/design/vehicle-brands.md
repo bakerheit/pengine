@@ -17,7 +17,7 @@ does not repeat each model's runtime validation.
 
 ## Catalog brands and fleet label
 
-14 manufacturers plus the Municipal fleet label, with 34 selectable models,
+14 manufacturers plus the Municipal fleet label, with 37 selectable models,
 confirmed against the catalog on 2026-09-25.
 
 | Brand | Segment / vibe | Catalog models |
@@ -26,24 +26,23 @@ confirmed against the catalog on 2026-09-25.
 | **BWC** | Durable Belgian compact family and fleet cars | 360 |
 | **EMBER** | Sports cars — wide, low, mid-engine | GT |
 | **FANG** | Motorcycles — light, quick-steering | Venom |
-| **GLM** (General Lifetime Motors) | Flagship performance under a dull corporate name | Lunge, Zip |
+| **GLM** (General Lifetime Motors) | Family transport through flagship performance | Lunge, Meridian, Zip |
 | **HALCYON** | Old-money heritage — pre-war sedan to limousine | Six Sedan, Sovereign Limo |
-| **HARROW** | Commercial and municipal-adjacent utility | Cityliner Bus, Hauler Semi, Parcel, Workman |
+| **HARROW** | Commercial and municipal-adjacent utility | Cityliner Bus, Hauler Semi, Hookline, Parcel, Workman |
 | **LEGACY** | The original all-rounder line — the game's oldest cars | Car 5, Car 5-Next, Car 5-Next Patrol, Car 8, Car 8 Ambulance |
 | **MONTROSE** | Formal 1930s luxury | Regent Eight |
 | **MUNICIPAL** | Not a manufacturer — the city fleet livery itself | Ambulance, Firetruck, Cruiser 91-A/B/C/D/E |
 | **ORISON** | Boutique retro sports coupe, 1990s | Cinder GT |
-| **RODEO** | Pickup trucks and 4x4s | Grazer 4x4 |
+| **RODEO** | Pickup trucks and 4x4s | Grazer 4x4, Switchback |
 | **SADDLE** | 1990s sports sedans | Tango |
 | **SPAGATTI** | Italian-coded exotic grand tourer | Shū |
 | **VESPER** | Premium sports and GT | Mistral, Scythe, VX-91 |
 
 Notes on the less obvious entries:
 
-- **GLM was formerly GLR.** Same two cars (Lunge, Zip),
-  same flagship-mid-engine-wedge / compact-targa positioning — just a name
-  with an actual meaning behind it now. Use GLM in new writing and the
-  current catalog's names and asset paths when referring to implementation.
+- **GLM was formerly GLR.** The Lunge and Zip kept their existing asset paths
+  when renamed; Meridian expands the range with a seven-seat minivan. Use
+  GLM in new writing and the catalog's asset paths for implementation.
 - **MUNICIPAL isn't a car company.** It is the government fleet's own
   livery — ambulances, fire apparatus, and the Cruiser 91 family across five
   pursuit tunes. Real-world city fleets don't buy from a brand called

@@ -11,6 +11,7 @@ inline PlateUse player_plate_use(PlayerCarId model) {
         model==PlayerCarId::LegacyCar5NextPolice) return PlateUse::Government;
     if (model==PlayerCarId::HarrowCityliner || model==PlayerCarId::HarrowParcel ||
         model==PlayerCarId::HarrowWorkman || model==PlayerCarId::HarrowHauler ||
+        model==PlayerCarId::HarrowHookline ||
         model==PlayerCarId::LegacyCar8) return PlateUse::Commercial;
     return PlateUse::Private;
 }

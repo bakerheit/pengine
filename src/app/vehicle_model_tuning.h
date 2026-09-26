@@ -57,6 +57,9 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::GlmZip: // compact targa sports car
             return {1180.f,1.15f,1.08f,1.08f,1.08f,1.13f,.91f,1.10f,1.10f,
                     1.14f,1.08f,-.012f,.94f,.94f,-.10f,.88f,1.f};
+        case PlayerCarId::GlmMeridian: // seven-seat family minivan
+            return {1750.f,.98f,.80f,1.02f,.90f,.85f,1.12f,.94f,.94f,
+                    .86f,1.06f,.055f,1.17f,1.18f,.22f,1.21f,1.f};
         case PlayerCarId::HalcyonSix: // pre-war family sedan
             return {1720.f,.76f,.58f,.78f,1.02f,.78f,1.16f,.78f,.78f,
                     .68f,.80f,.080f,1.30f,1.28f,-.04f,1.28f,1.f};
@@ -69,6 +72,9 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::HarrowHauler: // tractor cab
             return {6500.f,4.40f,.42f,.94f,.72f,.62f,1.22f,.86f,.98f,
                     .88f,1.38f,.090f,1.44f,1.46f,.08f,3.f,1.f};
+        case PlayerCarId::HarrowHookline: // city recovery truck
+            return {4200.f,2.25f,.60f,.98f,.83f,.73f,1.18f,.85f,1.06f,
+                    .80f,1.35f,.115f,1.40f,1.38f,-.10f,2.05f,1.f};
         case PlayerCarId::HarrowParcel: // commercial panel van
             return {2200.f,1.34f,.72f,.98f,.91f,.82f,1.15f,.88f,.94f,
                     .84f,.92f,.075f,1.28f,1.30f,.10f,1.42f,1.f};
@@ -91,6 +97,9 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::RodeoGrazer: // compact four-wheel-drive pickup
             return {1580.f,1.18f,.82f,1.01f,.94f,.91f,1.06f,.95f,.95f,
                     .94f,1.10f,.025f,1.15f,1.18f,.0f,1.23f,1.f};
+        case PlayerCarId::RodeoSwitchback: // short-wheelbase four-wheel-drive SUV
+            return {1680.f,1.12f,.83f,1.02f,1.02f,.93f,1.06f,.96f,1.03f,
+                    .95f,1.10f,.055f,1.16f,1.19f,.0f,1.25f,1.f};
         case PlayerCarId::HarrowWorkman: // torquey utility pickup
             return {1980.f,1.28f,.78f,.96f,.96f,.88f,1.08f,.91f,.96f,
                     .90f,.94f,.060f,1.20f,1.24f,-.12f,1.32f,1.f};
@@ -286,6 +295,26 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.car_collision_half_width=1.041f;tuning.car_collision_half_length=2.31f;
         tuning.chassis_floor=.24f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
         tuning.chassis_roof=1.43f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
+    } else if (car == PlayerCarId::GlmMeridian) {
+        tuning.max_steer=std::min(tuning.max_steer,.53f);
+        tuning.chassis_half_width=.84f;tuning.chassis_half_length=2.28f;
+        tuning.car_collision_half_width=1.06f;tuning.car_collision_half_length=2.54f;
+        tuning.chassis_floor=.30f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
+        tuning.chassis_roof=1.99f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
+    } else if (car == PlayerCarId::RodeoSwitchback) {
+        tuning.front_drive_bias=.50f;
+        tuning.suspension_travel=std::max(tuning.suspension_travel,.21f);
+        tuning.max_steer=std::min(tuning.max_steer,.51f);
+        tuning.chassis_half_width=.86f;tuning.chassis_half_length=2.10f;
+        tuning.car_collision_half_width=1.10f;tuning.car_collision_half_length=2.73f;
+        tuning.chassis_floor=.37f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
+        tuning.chassis_roof=1.90f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
+    } else if (car == PlayerCarId::HarrowHookline) {
+        tuning.max_steer=std::min(tuning.max_steer,.48f);
+        tuning.chassis_half_width=.97f;tuning.chassis_half_length=2.57f;
+        tuning.car_collision_half_width=1.15f;tuning.car_collision_half_length=2.82f;
+        tuning.chassis_floor=.35f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
+        tuning.chassis_roof=2.74f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
     } else if (car == PlayerCarId::RodeoGrazer) {
         tuning.front_drive_bias=.50f;
         tuning.suspension_travel=std::max(tuning.suspension_travel,.20f);

@@ -115,6 +115,7 @@ bool PlayerCarVisual::load_model(
         }
     }
     if (definition.id == PlayerCarId::Bwc360 || definition.id == PlayerCarId::SaddleTango || definition.id == PlayerCarId::HarrowWorkman ||
+        definition.id == PlayerCarId::GlmMeridian || definition.id == PlayerCarId::RodeoSwitchback || definition.id == PlayerCarId::HarrowHookline ||
         definition.id == PlayerCarId::EmberGt || definition.id == PlayerCarId::RodeoGrazer ||
         definition.id == PlayerCarId::AlderPip || definition.id == PlayerCarId::SpagattiShu ||
         definition.id == PlayerCarId::LegacyCar5Next ||
@@ -126,7 +127,7 @@ bool PlayerCarVisual::load_model(
         const std::string body_path=definition.mesh_path;
         const std::string root=body_path.substr(0,body_path.find_last_of('/')+1);
         const std::size_t pane_count=is_motorbike(definition.id) ? 1u :
-            definition.id == PlayerCarId::HarrowWorkman ? 4u : 6u;
+            (definition.id == PlayerCarId::HarrowWorkman || definition.id == PlayerCarId::HarrowHookline) ? 4u : 6u;
         out.glass_material = renderer.add_glass_material();
         for (std::size_t i=0;i<pane_count;++i) {
             StaticEmesh glass;
@@ -147,7 +148,8 @@ bool PlayerCarVisual::load_model(
         return false;
     }
 
-    if (is_motorbike(definition.id) || definition.id==PlayerCarId::Bwc360 || definition.id==PlayerCarId::SaddleTango || definition.id==PlayerCarId::EmberGt || definition.id==PlayerCarId::RodeoGrazer) {
+    if (is_motorbike(definition.id) || definition.id==PlayerCarId::Bwc360 || definition.id==PlayerCarId::SaddleTango || definition.id==PlayerCarId::EmberGt || definition.id==PlayerCarId::RodeoGrazer ||
+        definition.id==PlayerCarId::GlmMeridian || definition.id==PlayerCarId::RodeoSwitchback || definition.id==PlayerCarId::HarrowHookline) {
         const std::string path=definition.mesh_path;
         const std::string root=path.substr(0,path.find_last_of('/')+1);
         constexpr const char* names[]{"front_wheel.emesh","rear_wheel.emesh"};

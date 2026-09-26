@@ -27,6 +27,7 @@ inline bool shows_mistral_driver(PlayerCarId car, bool occupied) {
 
 inline bool has_animated_driver(PlayerCarId car) {
     return car == PlayerCarId::Bwc360 || car == PlayerCarId::VesperMistral || car == PlayerCarId::HarrowWorkman ||
+        car == PlayerCarId::GlmMeridian || car == PlayerCarId::RodeoSwitchback || car == PlayerCarId::HarrowHookline ||
         car==PlayerCarId::AlderPip || car==PlayerCarId::VesperScythe ||
         car==PlayerCarId::FangVenom || car==PlayerCarId::EmberGt || car==PlayerCarId::RodeoGrazer ||
         car==PlayerCarId::HalcyonSovereign ||
@@ -149,7 +150,25 @@ inline const VehicleDriverLayout& vehicle_driver_layout(PlayerCarId car) {
         {{.33f,.40f,.76f},{.48f,.40f,.76f}},
         {{.29f,.81f,.54f},{.48f,.81f,.54f}},
         {{.08f,.68f,.28f},{.69f,.68f,.28f}},{1.20f,.82f,.07f},1.02f};
+    static const VehicleDriverLayout meridian{
+        {.40f,.92f,.49f},{{.29f,1.20f,1.08f},{.51f,1.20f,1.08f}},
+        {{.31f,.47f,1.25f},{.51f,.47f,1.25f}},
+        {{.31f,1.04f,.87f},{.51f,1.04f,.87f}},
+        {{.10f,.96f,.56f},{.74f,.96f,.56f}},{1.32f,1.10f,.24f},1.05f};
+    static const VehicleDriverLayout switchback{
+        {.40f,.96f,.15f},{{.29f,1.19f,.36f},{.51f,1.19f,.36f}},
+        {{.31f,.54f,.61f},{.51f,.54f,.61f}},
+        {{.31f,1.04f,.34f},{.51f,1.04f,.34f}},
+        {{.10f,.98f,.13f},{.74f,.98f,.13f}},{1.34f,1.10f,-.18f},1.03f};
+    static const VehicleDriverLayout hookline{
+        {.43f,1.10f,1.12f},{{.32f,1.42f,1.87f},{.54f,1.42f,1.87f}},
+        {{.33f,.61f,2.02f},{.53f,.61f,2.02f}},
+        {{.33f,1.26f,1.48f},{.53f,1.26f,1.48f}},
+        {{.11f,1.14f,1.12f},{.76f,1.14f,1.12f}},{1.52f,1.23f,.75f},1.15f};
     if(car==PlayerCarId::Bwc360) return bwc;
+    if(car==PlayerCarId::GlmMeridian) return meridian;
+    if(car==PlayerCarId::RodeoSwitchback) return switchback;
+    if(car==PlayerCarId::HarrowHookline) return hookline;
     if(car==PlayerCarId::RodeoGrazer) return grazer;
     if(car==PlayerCarId::EmberGt) return ember;
     if(car==PlayerCarId::AlderPip) return pip;

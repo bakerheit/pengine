@@ -54,6 +54,9 @@ void catalog_and_identity() {
     }
     REQUIRE(player_plate_use(PlayerCarId::RodeoGrazer)==PlateUse::Private);
     REQUIRE(player_plate_use(PlayerCarId::HarrowWorkman)==PlateUse::Commercial);
+    REQUIRE(player_plate_use(PlayerCarId::GlmMeridian)==PlateUse::Private);
+    REQUIRE(player_plate_use(PlayerCarId::RodeoSwitchback)==PlateUse::Private);
+    REQUIRE(player_plate_use(PlayerCarId::HarrowHookline)==PlateUse::Commercial);
     REQUIRE(player_plate_use(PlayerCarId::MunicipalCruiser91C)==PlateUse::Government);
     REQUIRE(traffic_plate_use(TrafficVehicleKind::Snowplow)==PlateUse::Government);
 }
