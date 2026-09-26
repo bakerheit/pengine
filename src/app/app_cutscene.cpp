@@ -30,7 +30,7 @@ void App::begin_new_game() {
     police_escalation_.reset();
     police_stop_feedback_s_=0.0f;
     traffic_visual_.reset_signals(scene_,collider_);
-    weapon_wheel_={};dev_menu_={};step_index_=0;seed_=new_game_seed_;
+    weapon_wheel_={};weapon_use_={};economy_={};dev_menu_={};step_index_=0;seed_=new_game_seed_;
     // A new game starts in a city that is not on fire. The fire is world
     // state and deliberately survives a death (see player_damage.cpp), so it
     // has to be put out HERE, where the world itself is being replaced —

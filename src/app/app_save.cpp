@@ -5,6 +5,7 @@
 #include "game/save_game.h"
 #include "core/log.h"
 #include <SDL.h>
+#include <algorithm>
 #include <filesystem>
 
 namespace apricot {
@@ -44,6 +45,10 @@ bool App::save_game() {
     saved.car_has_paint=car_visual_.respray().has_value();
     saved.car_paint=car_visual_.respray().value_or(PaintColor{});
     saved.has_trailer=true;saved.trailer=trailer_;
+    saved.economy=economy_;
+    saved.pistol_magazine=weapon_use_.magazine;
+    saved.pistol_reserve=std::min(weapon_use_.reserve,kMaxSavedPistolReserve);
+    saved.molotov_stock=std::min(molotov_use_.stock,kMaxSavedMolotovStock);
     if (!store_game_save(save_path_,saved,save_notice_)) { AP_WARN("save: %s",save_notice_.c_str()); return false; }
     save_notice_="Game saved."; ui_.set_save_available(true);
     AP_INFO("game checkpoint saved"); return true;
@@ -83,6 +88,12 @@ bool App::load_game() {
     player_character_.view_yaw=saved.view_yaw;player_character_.view_pitch=saved.view_pitch;
     prev_player_character_=player_character_; character_spawned_=true;
     mission_stage_=saved.mission; seed_=saved.session_seed; step_index_=saved.sim_step;
+    // The wallet and the ammunition come back; the draw does not. A load
+    // starts holstered, like a new game, so nothing fires on the first step.
+    economy_=saved.economy;
+    weapon_wheel_={}; weapon_use_={}; molotov_use_={};
+    weapon_use_.magazine=saved.pistol_magazine; weapon_use_.reserve=saved.pistol_reserve;
+    molotov_use_.stock=saved.molotov_stock;
     snow_clearance_ = {};
     traffic_snow_loads_.clear();
     player_snow_load_ = -1.0f;

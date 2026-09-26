@@ -22,6 +22,7 @@
 #include "app/molotov_visual.h"
 #include "game/weapon.h"
 #include "game/molotov.h"
+#include "game/player_economy.h"
 #include "game/fire.h"
 #include "game/wanted_system.h"
 #include "game/police_escalation.h"
@@ -434,6 +435,9 @@ private:
     BankVaultState bank_vault_;
     BankInteraction bank_interaction_;
     bool bank_input_consumed_ = false;
+    // Cash and owned weapons (game/player_economy.h). Saved from version 5;
+    // every shop, fine and payout goes through its functions.
+    PlayerEconomy economy_;
     WeaponWheel weapon_wheel_;
     WeaponUseState weapon_use_;
     PcmClip weapon_shot_clip_,weapon_reload_clip_;

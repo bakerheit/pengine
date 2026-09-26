@@ -45,6 +45,11 @@ bool validate_game_save(const GameSave& d, std::string& error) {
     // One encoding per state: an unpainted car carries no colour, so two saves
     // of the same car never differ in bytes the game ignores.
     else if (!d.car_has_paint && d.car_paint != PaintColor{}) error = "Invalid saved paint.";
+    else if (!valid_player_economy(d.economy)) error = "Invalid saved wallet.";
+    else if (d.pistol_magazine < 0 || d.pistol_magazine > WeaponUseState::kMagazineCapacity ||
+             d.pistol_reserve < 0 || d.pistol_reserve > kMaxSavedPistolReserve ||
+             d.molotov_stock < 0 || d.molotov_stock > kMaxSavedMolotovStock)
+        error = "Invalid saved ammunition.";
     for (float zone : d.car_damage.zones) if (!range(zone,0,1)) error = "Invalid saved damage.";
     for (const auto& s : d.car_damage.stamps) {
         if (!range(s.contact_xz.x,-1,1) || !range(s.contact_xz.y,-1,1) || !range(s.severity,0,1) || !range(s.motion_angle,-10000,10000) || !range(s.radius,0,1) || !range(s.height,0,1) || !range(s.glancing,0,1)) error = "Invalid saved dent.";
@@ -87,8 +92,10 @@ bool encode_game_save(const GameSave& d, std::string& bytes, std::string& error)
       << d.car_registration.number << '\n';
     b << int(d.car_paint_base) << ' ' << d.car_has_paint << ' ' << int(d.car_paint.r) << ' '
       << int(d.car_paint.g) << ' ' << int(d.car_paint.b) << '\n';
+    b << d.economy.cash << ' ' << int(d.economy.owned_weapons) << ' ' << d.pistol_magazine << ' '
+      << d.pistol_reserve << ' ' << d.molotov_stock << '\n';
     const auto body = b.str();
-    bytes = "APRICOT_SAVE 4\n" + std::to_string(checksum(body)) + "\n" + body;
+    bytes = "APRICOT_SAVE 5\n" + std::to_string(checksum(body)) + "\n" + body;
     return true;
 }
 
@@ -98,9 +105,10 @@ bool decode_game_save(const std::string& bytes, GameSave& out, std::string& erro
     const auto first = bytes.find('\n'), second = first == std::string::npos ? first : bytes.find('\n',first+1);
     if (first == std::string::npos || second == std::string::npos) return false;
     // Each version appends one row to the one before: 2 the trailer, 3 the
-    // plate, 4 the paint. Rows are never reordered, so older bodies still parse.
+    // plate, 4 the paint, 5 the wallet and ammunition. Rows are never
+    // reordered, so older bodies still parse.
     int version=0;
-    for (int v=1;v<=4;++v) if (bytes.compare(0,first,"APRICOT_SAVE "+std::to_string(v))==0) version=v;
+    for (int v=1;v<=5;++v) if (bytes.compare(0,first,"APRICOT_SAVE "+std::to_string(v))==0) version=v;
     if (version==0) { error = "Unsupported save version."; return false; }
     uint64_t expected = 0;
     std::istringstream header(bytes.substr(first+1,second-first-1));
@@ -143,6 +151,17 @@ bool decode_game_save(const std::string& bytes, GameSave& out, std::string& erro
         d.car_paint_base=static_cast<uint8_t>(base);
         d.car_has_paint=painted!=0;
         d.car_paint={static_cast<uint8_t>(r),static_cast<uint8_t>(g),static_cast<uint8_t>(bl)};
+    }
+    // Before version 5 there was no economy: a new game's cash, and every
+    // weapon owned, since the wheel offered them all.
+    d.economy.owned_weapons=kLegacyOwnedWeapons;
+    if (version>=5) {
+        int64_t cash=-1;
+        int owned=-1;
+        b >> cash >> owned >> d.pistol_magazine >> d.pistol_reserve >> d.molotov_stock;
+        if (owned<0 || owned>255) return false;
+        d.economy.cash=cash;
+        d.economy.owned_weapons=static_cast<uint8_t>(owned);
     }
     if (!b || !(b >> std::ws).eof() || failed < 0 || failed > 1) return false;
     if (version<3 && d.car_model>=0 && d.car_model<static_cast<int>(kPlayerCarCount))

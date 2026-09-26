@@ -6,6 +6,8 @@
 #include "physics/vehicle.h"
 #include "game/tractor_trailer.h"
 #include "game/license_plate.h"
+#include "game/molotov.h"
+#include "game/player_economy.h"
 #include "game/vehicle_paint.h"
 
 namespace apricot {
@@ -45,7 +47,17 @@ struct GameSave {
     uint8_t car_paint_base = 0;
     bool car_has_paint = false;
     PaintColor car_paint{};
+    // Version 5: the wallet, what the player owns, and the ammunition they
+    // carry. Older saves predate the economy: they load with a new game's
+    // cash and every weapon owned, because every weapon was selectable then.
+    PlayerEconomy economy{};
+    int pistol_magazine = WeaponUseState::kMagazineCapacity;
+    int pistol_reserve = WeaponUseState::kInitialReserve;
+    int molotov_stock = MolotovUseState::kInitialStock;
 };
+
+inline constexpr int kMaxSavedPistolReserve = 9999;
+inline constexpr int kMaxSavedMolotovStock = 99;
 
 bool validate_game_save(const GameSave& data, std::string& error);
 bool encode_game_save(const GameSave& data, std::string& bytes, std::string& error);

@@ -8,6 +8,7 @@
 using namespace apricot;
 namespace {
 std::string body_of(const std::string& bytes) { return bytes.substr(bytes.find('\n',bytes.find('\n')+1)+1); }
+constexpr const char* kNewGameEconomyRow="100 5 12 48 5\n";
 std::string rewrap(const std::string& body,int version) {
     uint64_t hash=14695981039346656037ull;
     for (const char c:body) { hash^=static_cast<unsigned char>(c);hash*=1099511628211ull; }
@@ -18,13 +19,18 @@ std::string strip_row(std::string& body) {
     const auto cut=body.rfind('\n',body.size()-2)+1;
     std::string row=body.substr(cut);body.erase(cut);return row;
 }
+// The body a version 4 save would carry: the encoder's, less the v5 row.
+std::string v4_body_of(const std::string& bytes) {
+    std::string body=body_of(bytes);strip_row(body);return body;
+}
 // Version 4 stores a respray: the stock paint it sits on and the picked colour.
 void paint_checkpoints() {
     GameSave stock;std::string bytes,error;
     REQUIRE(encode_game_save(stock,bytes,error));
-    REQUIRE(bytes.compare(0,15,"APRICOT_SAVE 4\n")==0);
+    REQUIRE(bytes.compare(0,15,"APRICOT_SAVE 5\n")==0);
     std::string body=body_of(bytes);
-    REQUIRE(rewrap(body,4)==bytes); // Control: the framing below is the encoder's own.
+    REQUIRE(rewrap(body,5)==bytes); // Control: the framing below is the encoder's own.
+    REQUIRE(strip_row(body)==kNewGameEconomyRow);
     REQUIRE(strip_row(body)=="0 0 0 0 0\n"); // Stock base, no respray.
     GameSave painted;painted.car_paint_base=3;painted.car_has_paint=true;painted.car_paint={12,200,77};
     // Every drivable car takes paint, emergency vehicles included. The save
@@ -37,7 +43,7 @@ void paint_checkpoints() {
     painted.car_model=static_cast<int>(PlayerCarId::MunicipalCruiser91C);
     REQUIRE(encode_game_save(painted,bytes,error));
     const std::string paint_row="3 1 12 200 77\n";
-    body=body_of(bytes);REQUIRE(strip_row(body)==paint_row);
+    body=v4_body_of(bytes);REQUIRE(strip_row(body)==paint_row);
     const std::string v3_body=body;
     GameSave read;
     // Black is a colour a player can pick, not "no paint".
@@ -68,7 +74,44 @@ void paint_checkpoints() {
     REQUIRE(read.car_model==static_cast<int>(PlayerCarId::MunicipalCruiser91C));
     std::string padded=rewrap(v3_body+paint_row,4);padded.insert(13,"0"); // "APRICOT_SAVE 04"
     REQUIRE(!decode_game_save(padded,read,error));REQUIRE(error=="Unsupported save version.");
-    REQUIRE(!decode_game_save(rewrap(v3_body+paint_row,5),read,error));REQUIRE(error=="Unsupported save version.");
+    REQUIRE(!decode_game_save(rewrap(v3_body+paint_row,6),read,error));REQUIRE(error=="Unsupported save version.");
+}
+// Version 5 stores the wallet, the owned weapons and the ammunition carried.
+void economy_checkpoints() {
+    GameSave rich;rich.economy.cash=123456;rich.economy.owned_weapons=kAllWeaponBits;
+    rich.pistol_magazine=7;rich.pistol_reserve=300;rich.molotov_stock=0;
+    std::string bytes,error;REQUIRE(encode_game_save(rich,bytes,error));
+    GameSave read;REQUIRE(decode_game_save(bytes,read,error));
+    REQUIRE(read.economy.cash==123456 && read.economy.owned_weapons==kAllWeaponBits);
+    REQUIRE(read.pistol_magazine==7 && read.pistol_reserve==300 && read.molotov_stock==0);
+    std::string body=body_of(bytes);
+    const std::string row="123456 7 7 300 0\n";
+    REQUIRE(strip_row(body)==row);
+    const std::string v4=body;
+    REQUIRE(decode_game_save(rewrap(v4+row,5),read,error)); // Control: the good row loads.
+    // A save made before the economy owns every weapon and a new game's cash;
+    // `read` holds 123456, so passing proves the default is written.
+    REQUIRE(!decode_game_save(rewrap(v4,5),read,error));     // Control: v5 needs the row.
+    REQUIRE(!decode_game_save(rewrap(v4+row,4),read,error)); // Control: v4 has none.
+    REQUIRE(decode_game_save(rewrap(v4,4),read,error));
+    REQUIRE(read.economy.cash==kNewGameCash && read.economy.owned_weapons==kLegacyOwnedWeapons);
+    REQUIRE(read.pistol_magazine==WeaponUseState::kMagazineCapacity);
+    REQUIRE(read.pistol_reserve==WeaponUseState::kInitialReserve);
+    REQUIRE(read.molotov_stock==MolotovUseState::kInitialStock);
+    // A new game owns bare hands and molotovs; the pistol is for sale.
+    GameSave fresh;REQUIRE(encode_game_save(fresh,bytes,error));
+    body=body_of(bytes);REQUIRE(strip_row(body)==kNewGameEconomyRow);
+    for (const char* bad:{"-1 7 7 300 0\n","1000000000 7 7 300 0\n","5 6 7 300 0\n","5 8 7 300 0\n",
+                          "5 256 7 300 0\n","5 7 13 300 0\n","5 7 -1 300 0\n","5 7 7 10000 0\n",
+                          "5 7 7 300 100\n","5 7 7 300\n","5 7 7 300 0 1\n","5 x 7 300 0\n"}) {
+        REQUIRE_MSG(!decode_game_save(rewrap(v4+bad,5),read,error),"bad economy row decoded",bad);
+    }
+    REQUIRE(read.economy.cash==kNewGameCash); // Refusals leave the output alone.
+    auto invalid=rich;invalid.economy.cash=-5;REQUIRE(!encode_game_save(invalid,bytes,error));
+    REQUIRE(error=="Invalid saved wallet.");
+    invalid=rich;invalid.pistol_magazine=13;REQUIRE(!encode_game_save(invalid,bytes,error));
+    REQUIRE(error=="Invalid saved ammunition.");
+    apricot_test::pass("v5 saves the wallet, owned weapons and ammunition; v1-4 load owning every weapon");
 }
 }
 int main() {
@@ -129,6 +172,7 @@ int main() {
     for (const auto& entry : std::filesystem::directory_iterator(directory)) REQUIRE(entry.path().filename()=="checkpoint.save");
     std::filesystem::remove_all(directory);
     paint_checkpoints();
+    economy_checkpoints();
     apricot_test::pass("save roundtrip, damage preservation, atomic overwrite, invalid and missing saves, v4 paint and its v1-v3 default");
     return 0;
 }
