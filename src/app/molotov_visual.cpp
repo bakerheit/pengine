@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <tuple>
 
 #include <glm/gtc/quaternion.hpp>
 
@@ -406,6 +407,121 @@ void FireVisual::destroy(Scene& scene) {
     for (const NodeId node : cards_) scene.remove(node);
     cards_.clear();
     visible_cards_ = 0;
+    sprites_ = nullptr;
+    renderer_ = nullptr;
+}
+
+// ---------------------------------------------------------------------------
+
+bool WreckBlastVisual::init(Renderer& renderer, Scene& scene, const FireSprites& sprites) {
+    destroy(scene);
+    renderer_ = &renderer;
+    sprites_ = &sprites;
+    if (!sprites.valid()) return false;
+    // One alpha-blended white material and one unit cube for the debris; the
+    // tint carries the colour and the fade, as game/blood_particles.h does it.
+    Texture white;
+    if (!white.make_white()) return false;
+    chunk_material_ = renderer.add_material(std::move(white), /*alpha_blended=*/true);
+    const MeshData chunk = make_box(glm::vec3{.5f});
+    chunk_mesh_ = renderer.add_mesh(chunk);
+    if (chunk_mesh_ == kInvalidId || chunk_material_ == kInvalidId) return false;
+    // Allocated once for the pool's whole capacity, like the burning ground.
+    const AABB card_bounds = make_fire_card(0).bounds;
+    cards_.reserve(WreckExplosion::kCapacity);
+    chunks_.reserve(WreckExplosion::kCapacity);
+    for (std::size_t i = 0; i < WreckExplosion::kCapacity; ++i) {
+        Renderable card;
+        card.mesh = sprites.frame(0);
+        card.material = sprites.material();
+        Renderable piece;
+        piece.mesh = chunk_mesh_;
+        piece.material = chunk_material_;
+        for (auto [renderable, bounds, pool] :
+             {std::tuple{card, card_bounds, &cards_}, std::tuple{piece, chunk.bounds, &chunks_}}) {
+            const NodeId node = scene.create(renderable, Transform{}, bounds);
+            if (auto* value = scene.get(node)) {
+                value->visible = false;
+                // A blast is seen from across the city; the default cull would
+                // drop it before a wreck falling out of the sky got close.
+                value->max_draw_distance = 900.f;
+            }
+            pool->push_back(node);
+        }
+    }
+    return true;
+}
+
+void WreckBlastVisual::sync(Scene& scene, const WreckExplosion& blast, glm::vec3 eye) {
+    visible_cards_ = visible_debris_ = 0;
+    if (!sprites_ || !sprites_->valid()) return;
+    for (std::size_t i = 0; i < cards_.size() && i < chunks_.size(); ++i) {
+        const WreckParticleDraw draw = blast.draw(i);
+        auto* card = scene.get(cards_[i]);
+        auto* chunk = scene.get(chunks_[i]);
+        if (!card || !chunk) continue;
+        const bool flame = draw.visible && draw.kind != WreckParticleKind::Debris;
+        card->visible = flame;
+        chunk->visible = draw.visible && draw.kind == WreckParticleKind::Debris;
+        if (!draw.visible) continue;
+
+        if (!flame) {
+            ++visible_debris_;
+            chunk->renderable.tint = draw.tint;
+            Transform piece;
+            piece.position = draw.position;
+            piece.scale = draw.scale;
+            piece.rotation = glm::angleAxis(draw.spin,
+                glm::normalize(glm::vec3{0.42f, 0.78f, 0.47f}));
+            scene.set_transform(chunks_[i], piece);
+            continue;
+        }
+
+        // Keyed on the slot, so no two particles of one blast play the same
+        // frame at the same moment and read as a grid, which is the same rule
+        // the burning ground follows.
+        ++visible_cards_;
+        const uint64_t key = splitmix64_mix(0x9E3779B97F4A7C15ull * (i + 1u) ^ 0xB1A57ull);
+        const float offset = unit_roll(key) * static_cast<float>(kFireSheetFrames);
+        const bool smoke = draw.kind == WreckParticleKind::Smoke;
+        const float rate = smoke ? kSmokeFramesPerSecond : kFlameFramesPerSecond;
+        card->renderable.mesh =
+            sprites_->frame(static_cast<std::size_t>(draw.age * rate + offset));
+        const float fade = std::clamp(draw.tint.a, 0.f, 1.f);
+        float width, height;
+        if (smoke) {
+            // The flame take tinted down to soot and kept translucent: the
+            // licks of the flame become rolling edges on a dark plume.
+            card->renderable.tint = {draw.tint.r, draw.tint.g, draw.tint.b, fade};
+            width = draw.scale.x * 1.15f;
+            height = draw.scale.x * 1.25f;
+        } else {
+            // Above 1 the tint's alpha is the lit shader's emissive boost, so a
+            // fresh flame burns bright and a dying one goes translucent on the
+            // same number, exactly as place_flame() does for the lit rag.
+            card->renderable.tint = {1.f, .90f, .80f, .35f + 2.0f * fade};
+            width = draw.scale.x * 1.25f;
+            height = draw.scale.x * 1.55f;
+        }
+        // The card stands on its base; the particle is its middle.
+        Transform pose;
+        pose.position = draw.position - glm::vec3{0.f, height * .45f, 0.f};
+        pose.rotation = billboard_yaw(draw.position, eye);
+        pose.scale = {(key & 1u) ? width : -width, height, width};
+        scene.set_transform(cards_[i], pose);
+    }
+}
+
+void WreckBlastVisual::destroy(Scene& scene) {
+    for (const NodeId node : cards_) scene.remove(node);
+    for (const NodeId node : chunks_) scene.remove(node);
+    cards_.clear();
+    chunks_.clear();
+    if (renderer_ && chunk_mesh_ != kInvalidId) renderer_->remove_mesh(chunk_mesh_);
+    chunk_mesh_ = kInvalidId;
+    // Materials are append-only (see gfx/renderer.h).
+    chunk_material_ = kInvalidId;
+    visible_cards_ = visible_debris_ = 0;
     sprites_ = nullptr;
     renderer_ = nullptr;
 }

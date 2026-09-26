@@ -445,6 +445,7 @@ private:
     FireSprites fire_sprites_;
     MolotovVisual molotov_visual_;
     FireVisual fire_visual_;
+    WreckBlastVisual wreck_visual_;
     PcmClip molotov_glass_clip_,molotov_whoosh_clip_,fire_loop_clip_;
     // ONE looping voice for the whole field, moved to the burning centroid and
     // gained by total burn. A voice per cell would spend sixty of the mixer's
