@@ -4,6 +4,16 @@
 
 Pre-war family sedan.
 
+## Images
+
+![Karlsdale Six Sedan — model preview, saved under the former halcyon name](../images/karlsdale-six.png)
+
+*Model preview, saved under the former Halcyon name.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

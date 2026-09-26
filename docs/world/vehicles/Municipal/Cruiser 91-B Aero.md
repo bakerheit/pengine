@@ -4,6 +4,16 @@
 
 Cleaner transitional aero shell.
 
+## Images
+
+![Municipal Cruiser 91-B Aero — model preview sheet](../images/municipal-cruiser-91b.png)
+
+*Model preview sheet.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

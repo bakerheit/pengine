@@ -4,6 +4,16 @@
 
 State pursuit tune.
 
+## Images
+
+![Municipal Cruiser 91-C Pursuit — model preview sheet](../images/municipal-cruiser-91c.png)
+
+*Model preview sheet.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

@@ -4,6 +4,16 @@
 
 Compact targa sports car.
 
+## Images
+
+![GLM Zip — model preview sheet, saved under the former glr name](../images/glm-zip.png)
+
+*Model preview sheet, saved under the former GLR name.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

@@ -4,6 +4,16 @@
 
 Compact 1990s front-engine GT.
 
+## Images
+
+![Orison Cinder GT — model render sheet](../images/orison-cinder.png)
+
+*Model render sheet.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

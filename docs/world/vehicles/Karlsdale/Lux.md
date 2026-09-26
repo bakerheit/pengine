@@ -4,6 +4,20 @@
 
 Long limousine.
 
+## Images
+
+![Karlsdale Lux — generated design reference](../images/karlsdale-lux-concept.png)
+
+*Generated design reference.*
+
+![Karlsdale Lux — model render](../images/karlsdale-lux.png)
+
+*Model render.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

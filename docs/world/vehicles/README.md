@@ -28,6 +28,12 @@ Each manufacturer has a page here and a folder containing its model pages. Model
 
 ## Photos
 
+All 40 model pages include saved imagery. Most show model previews or game captures; concepts and generated references are labeled separately. The Legacy Car 8 Ambulance currently has side and rear texture references only. Archived renders may predate the latest refinements.
+
+Recovered images are stored in [images/](images/) with an [origin manifest](images/sources.json), so they remain available without the local build folder.
+
+Full directional reference galleries:
+
 - [GLM Meridian — all angles](GLM/Meridian.md#reference-photos)
 - [Rodeo Switchback — all angles](Rodeo/Switchback.md#reference-photos)
 - [Harrow Hookline — all angles](Harrow/Hookline.md#reference-photos)

@@ -4,6 +4,20 @@
 
 Calm, front-biased early-90s sedan.
 
+## Images
+
+![Pizaz Constant — generated design reference](../images/pizaz-constant-concept.png)
+
+*Generated design reference.*
+
+![Pizaz Constant — game screenshot from the local model work](../images/pizaz-constant.png)
+
+*Game screenshot from the local model work.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

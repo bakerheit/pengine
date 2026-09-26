@@ -1,0 +1,261 @@
+[
+  {
+    "page": "Alder/Pip.md",
+    "image": "images/alder-pip.png",
+    "source": "build/alder_pip-glass-front.png",
+    "kind": "Asset-lab capture",
+    "sha256": "6647ac0a0f67af62b3929f9c45194d3341da7349d4d7b47372075e8c456881ef"
+  },
+  {
+    "page": "Alder/Ridge.md",
+    "image": "images/alder-ridge.png",
+    "source": "build/alder_ridge-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "10a0faf12c0ddf01352405f8626c56ec276bd77c0dfcdf851eeda646c598b5e1"
+  },
+  {
+    "page": "Alder/Wayfarer.md",
+    "image": "images/alder-wayfarer.png",
+    "source": "build/alder-wayfarer-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "0da16ee6efa2d49b66808d223f79b48a17f55ad0cd481bd802228b240336b382"
+  },
+  {
+    "page": "BWC/360.md",
+    "image": "images/bwc-360.png",
+    "source": "build/bwc-360-hero-final.png",
+    "kind": "Game screenshot",
+    "sha256": "e1781c37e30cbb8fe1b7f3710ffb4262306264c7fd6043977a0a6913078d471a"
+  },
+  {
+    "page": "Ember/GT.md",
+    "image": "images/ember-gt.png",
+    "source": "build/ember-gt-front.png",
+    "kind": "Asset-lab capture",
+    "sha256": "c919cc2f41bfb4b64c9683666f92809e852f9b51ed74902f0f5253a2b22c50a9"
+  },
+  {
+    "page": "Fang/Venom.md",
+    "image": "images/fang-venom.png",
+    "source": "build/fang-venom-v2-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "c2767940f0b2a50c005f9ed3a816f622ac6e593f5c3ffdc5c643453a3335a777"
+  },
+  {
+    "page": "GLM/Lunge.md",
+    "image": "images/glm-lunge.png",
+    "source": "build/glr-lunge-redesign-preview.png",
+    "kind": "Model preview sheet, saved under the former GLR name",
+    "sha256": "a7a9284e0790af92efa039c647e7c9f484c2a346891daed03474aca13549af15"
+  },
+  {
+    "page": "GLM/Zip.md",
+    "image": "images/glm-zip.png",
+    "source": "build/glr-zip-preview-hood-restored.png",
+    "kind": "Model preview sheet, saved under the former GLR name",
+    "sha256": "5ad095eef3edde2f08bdbd44161e934db39dd6966f347b23ce66085ed4a53ff9"
+  },
+  {
+    "page": "Harrow/Cityliner Bus.md",
+    "image": "images/harrow-cityliner.png",
+    "source": "build/harrow_cityliner-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "10102ed5628e7d0f23a717ce989e9326dbec39a126b37e0d3d4fdf55a8b00e45"
+  },
+  {
+    "page": "Harrow/Hauler Semi.md",
+    "image": "images/harrow-hauler.png",
+    "source": "build/harrow_hauler-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "faacb78f17bd15f83410b69a8dadb24e386cb781aa570af581ea2047813db9be"
+  },
+  {
+    "page": "Harrow/Parcel.md",
+    "image": "images/harrow-parcel.png",
+    "source": "build/harrow_parcel-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "fc307a0bd2a81da151a1697709a130fcc043ffe51d61b7f1dcc11dfe3da30cda"
+  },
+  {
+    "page": "Harrow/Workman.md",
+    "image": "images/harrow-workman.png",
+    "source": "build/harrow-workman-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "85179d65e9cd74f4e638a63abf4d309b1f80bea8417b03f4c68a3316c628a107"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-concept.png",
+    "source": "docs/design/references/karlsdale_lux/concept-selected.png",
+    "kind": "Generated design reference",
+    "sha256": "e5ffb1ca93fd9b69accd8103068bdf1bdd16158aa293848e886937f6fd5ee3f7"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux.png",
+    "source": "docs/design/references/karlsdale_lux/model/front-three-quarter.png",
+    "kind": "Model render",
+    "sha256": "bb27267a690d8e6e67f7c8b0b56485d49e3b1c49c40b16ef6efb0ea36c760dfe"
+  },
+  {
+    "page": "Karlsdale/Regent Eight.md",
+    "image": "images/karlsdale-regent-eight.png",
+    "source": "build/montrose-regent-eight-wheel-fit.png",
+    "kind": "Model preview, saved under the former Montrose name",
+    "sha256": "d7b439c948545c101df99bca544f9a76890eb20f2450c0068ff9b0677ac1075d"
+  },
+  {
+    "page": "Karlsdale/Six Sedan.md",
+    "image": "images/karlsdale-six.png",
+    "source": "build/halcyon-six-wheel-fit-qa.png",
+    "kind": "Model preview, saved under the former Halcyon name",
+    "sha256": "e8b885c31c53cdbde76f8f7bb85456a89b787559fd038f7072253ea1a9fa91c4"
+  },
+  {
+    "page": "Legacy/Car 5.md",
+    "image": "images/legacy-car5.png",
+    "source": "build/car5-inspect.png",
+    "kind": "Body preview sheet; separately rendered wheels are omitted",
+    "sha256": "38c87d2963675325b2fcd8fecb54114e2f102b577677b90a641be21a70f4942c"
+  },
+  {
+    "page": "Legacy/Car 5-Next.md",
+    "image": "images/legacy-car5-next.png",
+    "source": "build/car5-next-glass.png",
+    "kind": "Game screenshot showing the rear glass",
+    "sha256": "dd8f69b6e6564e93d9e98ecc22eae9ca0dbd622c66904e6303e5fb2591a2a23b"
+  },
+  {
+    "page": "Legacy/Car 5-Next Patrol.md",
+    "image": "images/legacy-car5-next-patrol.png",
+    "source": "build/car5-police-preview.png",
+    "kind": "Patrol body preview sheet; separately rendered wheels are omitted",
+    "sha256": "2b0e6631abc7c320fe9e623045d61c7c8505f5b160c16c1198bf2e3da47f104f"
+  },
+  {
+    "page": "Legacy/Car 8.md",
+    "image": "images/legacy-car8.png",
+    "source": "build/vehicle-surface-qa/car8-clean.png",
+    "kind": "Asset-lab body capture; separately rendered wheels are omitted",
+    "sha256": "289cc861f328fabb13cd69f0735ea651df4599bf443465de698e47bb714b5168"
+  },
+  {
+    "page": "Legacy/Car 8 Ambulance.md",
+    "image": "images/legacy-car8-ambulance-rear.png",
+    "source": "assets/textures/vehicles/car8/ambulance-rear-reference.png",
+    "kind": "Generated rear-panel texture reference",
+    "sha256": "03f968f0e84ca1c9a6b084858ce6370a9504cd2bd6f6e782b61f38fb77d1b317"
+  },
+  {
+    "page": "Legacy/Car 8 Ambulance.md",
+    "image": "images/legacy-car8-ambulance-flank.png",
+    "source": "assets/textures/vehicles/car8/ambulance-flank-reference.png",
+    "kind": "Generated side-panel texture reference",
+    "sha256": "68a57db064c19f4432658af091e71f0f10b99d6c546011699685e0227fdadf31"
+  },
+  {
+    "page": "Municipal/Ambulance.md",
+    "image": "images/municipal-ambulance.png",
+    "source": "build/municipal-ambulance-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "6c931a598598d7d0a8b108f43599df8e55b6b242fbda4374427d1d7121cf2284"
+  },
+  {
+    "page": "Municipal/Cruiser 91-A Square.md",
+    "image": "images/municipal-cruiser-91a.png",
+    "source": "build/municipal-cruiser-91a-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "3f6ffc667370c2f016415e912de04e2ac352669228bc8ace30e85a9a972fd6b3"
+  },
+  {
+    "page": "Municipal/Cruiser 91-B Aero.md",
+    "image": "images/municipal-cruiser-91b.png",
+    "source": "build/municipal-cruiser-91b-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "37ba08b6e26cce4e983007b15f689503afd57e030747276b3e17ee8005a13135"
+  },
+  {
+    "page": "Municipal/Cruiser 91-C Pursuit.md",
+    "image": "images/municipal-cruiser-91c.png",
+    "source": "build/municipal-cruiser-91c-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "c2d555948e4fafa701f1b230e589ec36470fb8756cc437c1ba26baf14c472aad"
+  },
+  {
+    "page": "Municipal/Cruiser 91-D Metro.md",
+    "image": "images/municipal-cruiser-91d.png",
+    "source": "build/municipal-cruiser-91d-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "86f95a0af5d871f7fad66883b492a57afb74540abb24be30fd13740190d29019"
+  },
+  {
+    "page": "Municipal/Cruiser 91-E Highway.md",
+    "image": "images/municipal-cruiser-91e.png",
+    "source": "build/municipal-cruiser-91e-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "8f4804aea1bdf27bb4132b882032cfcc7be8f24ae07a1441ca8a6f4904c005c3"
+  },
+  {
+    "page": "Municipal/Firetruck.md",
+    "image": "images/municipal-firetruck.png",
+    "source": "build/firetruck-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "8ea4e7e99f084e5228acb5702290704eb113ae50fd66cfa66b3fff34a2883cbf"
+  },
+  {
+    "page": "Orison/Cinder GT.md",
+    "image": "images/orison-cinder.png",
+    "source": "build/orison-cinder/orison-cinder-design-sheet.png",
+    "kind": "Model render sheet",
+    "sha256": "4f60d429218aa51615fd0813b19b0de09b3a22eea8e9d8f97a12a23e7fd665b3"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-concept.png",
+    "source": "docs/design/references/pizaz-constant-press-photo.png",
+    "kind": "Generated design reference",
+    "sha256": "3db73a9b0c4e4a9fc284c0309e90c3bf60d41f14a1c54793762bb80a27403cdd"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant.png",
+    "source": "build/pizaz-constant-in-game.png",
+    "kind": "Game screenshot from the local model work",
+    "sha256": "f82a68ffb36c754815c806802026b5c75cfdeba98c1b34075e7c13a5192ca932"
+  },
+  {
+    "page": "Rodeo/Grazer 4x4.md",
+    "image": "images/rodeo-grazer.png",
+    "source": "build/rodeo-grazer-hero-final.png",
+    "kind": "Game screenshot",
+    "sha256": "4a6b967fbd7e0a034cffaa3ef266dddaedc19265a11cdb275102078366dd05a0"
+  },
+  {
+    "page": "Spagatti/Shū.md",
+    "image": "images/spagatti-shu.png",
+    "source": "build/spagatti-shu-hero-final.png",
+    "kind": "Game screenshot",
+    "sha256": "85374e0d00879ed50bcc0441fc0076be69a94ec88357ca085e5bc2a4aab5f4c9"
+  },
+  {
+    "page": "Vesper/Mistral.md",
+    "image": "images/vesper-mistral.png",
+    "source": "build/vesper_mistral-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "cfdc8ec4c95d9a7d8b161f2db9ab55ce67cd906569f8c95f8b230d76a8377747"
+  },
+  {
+    "page": "Vesper/Scythe.md",
+    "image": "images/vesper-scythe.png",
+    "source": "build/vesper_scythe-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "c67d85d6457558c7abe9aff137c40747e8501f9661456f39a969bd65c3cc6225"
+  },
+  {
+    "page": "Vesper/VX-91.md",
+    "image": "images/vesper-vx91.png",
+    "source": "build/vesper-vx91-blender-preview.png",
+    "kind": "Model preview sheet",
+    "sha256": "b93bb74137b098af0c5adef8c409fa86ce4f93e8950ca3b84c68f2aad80a7101"
+  }
+]

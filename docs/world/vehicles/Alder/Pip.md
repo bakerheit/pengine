@@ -4,6 +4,16 @@
 
 Light city hatch.
 
+## Images
+
+![Alder Pip — asset-lab capture](../images/alder-pip.png)
+
+*Asset-lab capture.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

@@ -4,6 +4,16 @@
 
 1930s formal luxury car.
 
+## Images
+
+![Karlsdale Regent Eight — model preview, saved under the former montrose name](../images/karlsdale-regent-eight.png)
+
+*Model preview, saved under the former Montrose name.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

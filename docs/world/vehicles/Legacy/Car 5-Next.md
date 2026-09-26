@@ -4,6 +4,16 @@
 
 Refreshed all-rounder, same shell.
 
+## Images
+
+![Legacy Car 5-Next — game screenshot showing the rear glass](../images/legacy-car5-next.png)
+
+*Game screenshot showing the rear glass.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

@@ -4,6 +4,16 @@
 
 Long family wagon.
 
+## Images
+
+![Alder Wayfarer — model preview sheet](../images/alder-wayfarer.png)
+
+*Model preview sheet.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

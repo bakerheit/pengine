@@ -4,6 +4,16 @@
 
 Wide, low mid-engine sports coupe.
 
+## Images
+
+![Ember GT — asset-lab capture](../images/ember-gt.png)
+
+*Asset-lab capture.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

@@ -4,6 +4,20 @@
 
 Car 8 shell, loaded ambulance.
 
+## Images
+
+![Legacy Car 8 Ambulance — generated rear-panel texture reference](../images/legacy-car8-ambulance-rear.png)
+
+*Generated rear-panel texture reference.*
+
+![Legacy Car 8 Ambulance — generated side-panel texture reference](../images/legacy-car8-ambulance-flank.png)
+
+*Generated side-panel texture reference.*
+
+These are paint references for the model’s side and rear panels. No matching full-vehicle screenshot was found in the saved image collection.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

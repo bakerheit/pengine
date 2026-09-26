@@ -4,6 +4,16 @@
 
 Low grand-touring exotic.
 
+## Images
+
+![Spagatti Shū — game screenshot](../images/spagatti-shu.png)
+
+*Game screenshot.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

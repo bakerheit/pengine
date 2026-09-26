@@ -4,6 +4,16 @@
 
 Larger old sedan.
 
+## Images
+
+![Legacy Car 8 — asset-lab body capture; separately rendered wheels are omitted](../images/legacy-car8.png)
+
+*Asset-lab body capture; separately rendered wheels are omitted.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

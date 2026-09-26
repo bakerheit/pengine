@@ -4,6 +4,16 @@
 
 Established all-rounder.
 
+## Images
+
+![Legacy Car 5 — body preview sheet; separately rendered wheels are omitted](../images/legacy-car5.png)
+
+*Body preview sheet; separately rendered wheels are omitted.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

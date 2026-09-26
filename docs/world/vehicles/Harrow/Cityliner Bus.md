@@ -4,6 +4,16 @@
 
 Full-size coach.
 
+## Images
+
+![Harrow Cityliner Bus — model preview sheet](../images/harrow-cityliner.png)
+
+*Model preview sheet.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

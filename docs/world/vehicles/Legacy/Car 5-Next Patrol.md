@@ -4,6 +4,16 @@
 
 Patrol tune of the same shell.
 
+## Images
+
+![Legacy Car 5-Next Patrol — patrol body preview sheet; separately rendered wheels are omitted](../images/legacy-car5-next-patrol.png)
+
+*Patrol body preview sheet; separately rendered wheels are omitted.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |

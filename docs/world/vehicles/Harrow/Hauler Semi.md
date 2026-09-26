@@ -4,6 +4,16 @@
 
 Tractor cab.
 
+## Images
+
+![Harrow Hauler Semi — model preview sheet](../images/harrow-hauler.png)
+
+*Model preview sheet.*
+
+Saved project imagery; model renders and game captures may predate the latest refinements.
+
+Image origins are recorded in the [source manifest](../images/sources.json).
+
 ## Model information
 
 | Detail | Value |
