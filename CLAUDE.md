@@ -66,7 +66,10 @@ cmake --build build -j         # build (-Werror is on for our targets)
 tools/ci.sh                    # THE GATE: guards + configure + build + ctest
 ```
 
-**Run `tools/ci.sh` before every push. Never push red.** It runs five steps in
+**Run `tools/ci.sh` before every push. Never push red.** The `pre-push` hook
+enforces it for main: a push runs the gate unless that exact tree already
+passed, and a push from a dirty checkout or of a commit that is not HEAD is
+refused ([`docs/versioning.md`](docs/versioning.md)). It runs five steps in
 this order, and the order is deliberate:
 
 1. `tools/guard_sim_purity.sh` — the architecture guard. First, because it is

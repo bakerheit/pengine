@@ -195,12 +195,14 @@ commit no hook that can add one. Back it out and let the commit bump it:
 
 # The backstop for everything the other hooks cannot see: fast-forwards,
 # cherry-picks, rebases, --no-verify, and `git push origin <branch>:main` from a
-# worktree. Whatever lands on the remote's main must be ahead of what is there.
+# worktree. Whatever lands on the remote's main must be ahead of what is there,
+# and must have passed tools/ci.sh.
 hook_pre_push() {
-    local local_ref local_sha remote_ref remote_sha new old
+    local local_ref local_sha remote_ref remote_sha new old gate_sha=""
     while read -r local_ref local_sha remote_ref remote_sha; do
-        [[ "$remote_ref" == refs/heads/main ]] || continue
-        [[ "$local_sha" != "$ZERO_SHA" && "$remote_sha" != "$ZERO_SHA" ]] || continue
+        [[ "$remote_ref" == refs/heads/main && "$local_sha" != "$ZERO_SHA" ]] || continue
+        gate_sha="$local_sha"
+        [[ "$remote_sha" != "$ZERO_SHA" ]] || continue
         git cat-file -e "$remote_sha^{commit}" 2>/dev/null || continue   # unfetched: git refuses it anyway
         new="$(version_at "$local_sha")"
         old="$(version_at "$remote_sha")"
@@ -214,6 +216,32 @@ Every landing on main advances VERSION. Stage a bump and commit it first:
     git commit -m \"Bump version to \$(tools/version.sh)\""
         fi
     done
+    [[ -z "$gate_sha" ]] || gate_before_push "$gate_sha"
+}
+
+# Two pushes broke main on 2026-09-26 (a link error, and a model test red for
+# eleven hours) because nobody ran the gate first. So a push to main runs it.
+# tools/ci.sh builds the checkout, not a commit, so the gate only counts when
+# the checkout IS the commit: HEAD, with no tracked changes. A green run leaves
+# a stamp naming its tree, and a push of that same tree does not pay twice.
+gate_before_push() {
+    local sha="$1" tree stamp dirty
+    tree="$(git rev-parse "$sha^{tree}")"
+    stamp="$ROOT/${BUILD_DIR:-build}/gate-passed-tree"
+    if [[ -f "$stamp" && "$(head -n 1 "$stamp")" == "$tree" ]]; then
+        say "tools/ci.sh already passed on this tree; pushing."
+        return 0
+    fi
+    [[ "$(git rev-parse HEAD)" == "$sha" ]] || die "this push sends $(git rev-parse --short "$sha") to main, but the
+checkout is at $(git rev-parse --short HEAD), and tools/ci.sh can only gate the checkout.
+Check out the commit you are pushing, run tools/ci.sh, then push."
+    dirty="$(git status --porcelain --untracked-files=no)"
+    [[ -z "$dirty" ]] || die "the checkout has tracked changes that are not in the push, and
+tools/ci.sh would build them too:
+$dirty
+Push from a clean worktree, or commit or set those aside first."
+    say "running tools/ci.sh before pushing to main (the gate; docs/versioning.md)"
+    "$ROOT/tools/ci.sh" </dev/null >&2 || die "tools/ci.sh is red. Not pushing to main."
 }
 
 cmd_bump() {

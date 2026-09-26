@@ -24,6 +24,17 @@ BUILD_DIR="${BUILD_DIR:-build}"
 # (docs/versioning.md). Idempotent, and silent once it is set.
 tools/version.sh install
 
+# The pre-push hook runs this gate before any push to main, and skips it when
+# this file already names the tree being pushed. Written only for a checkout
+# with no tracked changes that is still the same tree when the gate goes green,
+# so the stamp never vouches for edits that were not part of the commit.
+STAMP="$BUILD_DIR/gate-passed-tree"
+clean_tree() {
+    [[ -z "$(git status --porcelain --untracked-files=no)" ]] && git rev-parse 'HEAD^{tree}'
+}
+START_TREE="$(clean_tree || true)"
+rm -f "$STAMP"
+
 echo ">> [1/5] sim purity guard"
 tools/guard_sim_purity.sh
 
@@ -38,6 +49,10 @@ cmake --build "$BUILD_DIR" -j
 
 echo ">> [5/5] headless tests"
 ctest --test-dir "$BUILD_DIR" --output-on-failure
+
+if [[ -n "$START_TREE" && "$(clean_tree || true)" == "$START_TREE" ]]; then
+    echo "$START_TREE" >"$STAMP"
+fi
 
 echo ""
 echo ">> local CI passed"

@@ -36,12 +36,22 @@ cd "$WORK/repo"
 mkdir -p tools src/core
 cp "$SRC/tools/version.sh" tools/
 cp -R "$SRC/.githooks" .
+# A stand-in gate: green or red on demand, counting its runs outside the repo
+# so it never dirties the checkout it is gating.
+export GATE_RESULT="$WORK/gate-result" GATE_RUNS="$WORK/gate-runs"
+echo green >"$GATE_RESULT"; : >"$GATE_RUNS"
+cat >tools/ci.sh <<'GATE'
+#!/usr/bin/env bash
+echo run >>"$GATE_RUNS"
+[[ "$(cat "$GATE_RESULT")" == green ]]
+GATE
+chmod +x tools/ci.sh
 echo 0.1.0 >VERSION
 echo 'inline constexpr uint32_t kReplayTapeVersion = 8;' >src/core/replay_tape.h
 echo a >a.txt
 git add -A && git commit -q -m init
 tools/version.sh install 2>/dev/null
-git remote add origin "$WORK/remote.git" && git push -q origin main
+git remote add origin "$WORK/remote.git" && git push -q origin main 2>/dev/null
 
 v() { git show "${1:-HEAD}:VERSION"; }
 
@@ -99,7 +109,29 @@ git push -q origin main 2>/dev/null
 echo j >a.txt; git commit -q --no-verify -am unbumped
 check "pre-push refuses a main that did not advance" refused "$(refused git push -q origin main)"
 tools/version.sh bump patch 2>/dev/null; git commit -q --no-verify -m bump
+: >"$GATE_RUNS"
 check "pre-push accepts it once VERSION advances" accepted "$(refused git push -q origin main)"
+check "a push to main runs the gate" 1 "$(wc -l <"$GATE_RUNS" | tr -d ' ')"
+
+land() { echo "$1" >a.txt; git commit -q -am "$1" 2>/dev/null; }
+echo red >"$GATE_RESULT"; land red-gate
+check "a red gate refuses the push" refused "$(refused git push -q origin main)"
+echo green >"$GATE_RESULT"
+echo dirty >b.txt
+check "tracked changes outside the push refuse it" refused "$(refused git push -q origin main)"
+git checkout -q -- b.txt
+git checkout -q -b side
+echo s >side.txt; git add side.txt; git commit -q -m side
+check "pushing main while another commit is checked out is refused" refused "$(refused git push -q origin main)"
+git checkout -q main
+mkdir -p build && git rev-parse 'HEAD^{tree}' >build/gate-passed-tree
+echo red >"$GATE_RESULT"; : >"$GATE_RUNS"
+check "a tree the gate already passed pushes without rerunning it" accepted "$(refused git push -q origin main)"
+check "and the gate did not run" 0 "$(wc -l <"$GATE_RUNS" | tr -d ' ')"
+echo green >"$GATE_RESULT"
+git checkout -q side
+check "pushing another branch does not run the gate" accepted "$(refused git push -q origin side)"
+git checkout -q main
 
 echo 1.0.0 >VERSION; git add VERSION; BUMP=major git commit -q --no-verify -m one-oh
 sed -i.bak 's/= 9/= 10/' src/core/replay_tape.h && rm src/core/replay_tape.h.bak
