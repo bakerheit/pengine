@@ -21,10 +21,13 @@ uniform float u_snow_cover;         // 0 = exact material no-op, 1 = full cover
 // Accumulation is a material operation rather than a light. Only the opaque
 // outdoor-world shader calls it, so water and moving characters stay clean.
 // Vertical walls are below the first threshold; shallow ledges get a dusting.
+float snow_upward(float normal_up) {
+    return smoothstep(0.35, 0.85, clamp(normal_up, 0.0, 1.0));
+}
+
 float snow_accumulation(float normal_up) {
     if (u_snow_cover <= 0.0) return 0.0;
-    float upward = smoothstep(0.35, 0.85, clamp(normal_up, 0.0, 1.0));
-    return clamp(u_snow_cover, 0.0, 1.0) * upward;
+    return clamp(u_snow_cover, 0.0, 1.0) * snow_upward(normal_up);
 }
 
 vec3 apply_snow_cover(vec3 albedo, float accumulation) {

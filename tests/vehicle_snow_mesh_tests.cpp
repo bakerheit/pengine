@@ -77,6 +77,8 @@ void articulated_live_shells_keep_painted_windshields_tagged() {
     std::size_t opaque_panes=0,glass_shells=0;
     for(const auto& car:kPlayerCars) {
         if(!has_animated_driver(car.id) || is_motorbike(car.id)) continue;
+        // A plow truck draws its base truck's shell, counted once below.
+        if(player_car_body_id(car.id)!=car.id) continue;
         const std::string path=car.mesh_path;
         const std::string open_path=path.substr(0,path.find_last_of('/')+1)+(car.id==PlayerCarId::Bwc360 ? "body_drive.emesh" : "body_open.emesh");
         StaticEmesh source;

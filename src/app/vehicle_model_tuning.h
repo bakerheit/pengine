@@ -4,6 +4,7 @@
 
 #include "app/driving_mechanics.h"
 #include "app/player_car_catalog.h"
+#include "app/plow_kit.h"
 
 namespace apricot {
 
@@ -103,6 +104,18 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::HarrowWorkman: // torquey utility pickup
             return {1980.f,1.28f,.78f,.96f,.96f,.88f,1.08f,.91f,.96f,
                     .90f,.94f,.060f,1.20f,1.24f,-.12f,1.32f,1.f};
+        // THE PLOW TRUCKS are their base trucks carrying a front plow: about
+        // 300 kg of blade, A-frame and headgear hung ahead of the front axle,
+        // plus ballast in the bed. Same engine, so the torque scale stays;
+        // the load, the blade's drag and the heavier front end take the rest.
+        // Stiffer front springs for the blade's weight, slower steering for
+        // the mass on the nose, and a lower top speed nobody plows at anyway.
+        case PlayerCarId::RodeoGrazerPlow: // Grazer with a 7'6" blade
+            return {1930.f,1.18f,.70f,.96f,.90f,.84f,1.10f,.93f,1.08f,
+                    .98f,1.16f,.040f,1.38f,1.30f,.0f,1.23f,1.f};
+        case PlayerCarId::HarrowWorkmanPlow: // Workman with an 8' blade
+            return {2350.f,1.28f,.68f,.93f,.92f,.82f,1.12f,.90f,1.10f,
+                    .94f,1.00f,.075f,1.42f,1.36f,-.12f,1.32f,1.f};
         case PlayerCarId::LegacyCar5: // established all-rounder
             return {1210.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f,1.f,
                     1.f,1.f,0.f,1.f,1.f,0.f,1.f,1.f};
@@ -222,13 +235,16 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
     tuning.body_damage_gain = profile.body_damage_gain;
 
     const auto& definition = player_car_definition(car);
+    // Chassis geometry below belongs to the body, which a plow truck shares
+    // with its base truck; the profile above is the variant's own.
+    const PlayerCarId body = player_car_body_id(car);
     if (definition.physical_half_wheelbase > 0.f) {
         tuning.half_wheelbase = definition.physical_half_wheelbase;
         tuning.half_track = definition.physical_half_track;
         tuning.wheel_radius = definition.physical_wheel_radius;
     }
 
-    if (is_motorbike(car)) {
+    if (is_motorbike(body)) {
         // The simulation retains a narrow four-contact arcade chassis for
         // stability; the renderer collapses it to the bike's two centre wheels.
         tuning.max_steer=std::min(tuning.max_steer,.70f);
@@ -241,7 +257,7 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.chassis_roof=1.16f-definition.arch_centre_y-
                             static_suspension_length(tuning)-
                             tuning.com_height_above_mount;
-    } else if (is_municipal_cruiser_91(car)) {
+    } else if (is_municipal_cruiser_91(body)) {
         tuning.max_steer=std::min(tuning.max_steer,.64f);
         tuning.chassis_half_width=.96f;
         tuning.chassis_half_length=2.38f;
@@ -255,7 +271,7 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.chassis_roof=1.58f-definition.arch_centre_y-
                             static_suspension_length(tuning)-
                             tuning.com_height_above_mount;
-    } else if (car == PlayerCarId::AlderPip) {
+    } else if (body == PlayerCarId::AlderPip) {
         tuning.chassis_half_width=.82f;
         tuning.chassis_half_length=1.75f;
         tuning.car_collision_half_width=.86f;
@@ -265,7 +281,7 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.chassis_roof=1.52f-definition.arch_centre_y-
                             static_suspension_length(tuning)-
                             tuning.com_height_above_mount;
-    } else if (car == PlayerCarId::OrisonCinderGt) {
+    } else if (body == PlayerCarId::OrisonCinderGt) {
         // Ackermann makes the inside wheel turn further than this central
         // angle. Keep that wheel within the asset's tested .82-radian sweep.
         tuning.max_steer=std::min(tuning.max_steer,.67f);
@@ -281,7 +297,7 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.chassis_roof=1.245f-definition.arch_centre_y-
                              static_suspension_length(tuning)-
                              tuning.com_height_above_mount;
-    } else if (car == PlayerCarId::Bwc360) {
+    } else if (body == PlayerCarId::Bwc360) {
         tuning.front_drive_bias=0.f;
         // This is RWD, not a drift car. Keep a strong recovery floor after a
         // tyre passes peak and couple the rear axle so one spinning wheel
@@ -295,13 +311,13 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.car_collision_half_width=1.041f;tuning.car_collision_half_length=2.31f;
         tuning.chassis_floor=.24f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
         tuning.chassis_roof=1.43f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
-    } else if (car == PlayerCarId::GlmMeridian) {
+    } else if (body == PlayerCarId::GlmMeridian) {
         tuning.max_steer=std::min(tuning.max_steer,.53f);
         tuning.chassis_half_width=.84f;tuning.chassis_half_length=2.28f;
         tuning.car_collision_half_width=1.06f;tuning.car_collision_half_length=2.54f;
         tuning.chassis_floor=.30f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
         tuning.chassis_roof=1.99f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
-    } else if (car == PlayerCarId::RodeoSwitchback) {
+    } else if (body == PlayerCarId::RodeoSwitchback) {
         tuning.front_drive_bias=.50f;
         tuning.suspension_travel=std::max(tuning.suspension_travel,.21f);
         tuning.max_steer=std::min(tuning.max_steer,.51f);
@@ -309,13 +325,13 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.car_collision_half_width=1.10f;tuning.car_collision_half_length=2.73f;
         tuning.chassis_floor=.37f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
         tuning.chassis_roof=1.90f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
-    } else if (car == PlayerCarId::HarrowHookline) {
+    } else if (body == PlayerCarId::HarrowHookline) {
         tuning.max_steer=std::min(tuning.max_steer,.48f);
         tuning.chassis_half_width=.97f;tuning.chassis_half_length=2.57f;
         tuning.car_collision_half_width=1.15f;tuning.car_collision_half_length=2.82f;
         tuning.chassis_floor=.35f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
         tuning.chassis_roof=2.74f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
-    } else if (car == PlayerCarId::RodeoGrazer) {
+    } else if (body == PlayerCarId::RodeoGrazer) {
         tuning.front_drive_bias=.50f;
         tuning.suspension_travel=std::max(tuning.suspension_travel,.20f);
         tuning.max_steer=std::min(tuning.max_steer,.52f);
@@ -323,7 +339,7 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.car_collision_half_width=1.16f;tuning.car_collision_half_length=2.62f;
         tuning.chassis_floor=.31f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
         tuning.chassis_roof=1.78f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
-    } else if (car == PlayerCarId::EmberGt) {
+    } else if (body == PlayerCarId::EmberGt) {
         tuning.max_steer=std::min(tuning.max_steer,.48f);
         tuning.chassis_half_width=.92f;
         tuning.chassis_half_length=2.15f;
@@ -333,7 +349,7 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
                              static_suspension_length(tuning)-tuning.com_height_above_mount;
         tuning.chassis_roof=1.247f-definition.arch_centre_y-
                             static_suspension_length(tuning)-tuning.com_height_above_mount;
-    } else if (car == PlayerCarId::SpagattiShu) {
+    } else if (body == PlayerCarId::SpagattiShu) {
         tuning.max_steer=std::min(tuning.max_steer,.60f);
         tuning.chassis_half_width=.96f;
         tuning.chassis_half_length=2.30f;
@@ -344,9 +360,9 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.chassis_roof=1.225f-definition.arch_centre_y-
                             static_suspension_length(tuning)-
                             tuning.com_height_above_mount;
-    } else if (car == PlayerCarId::VesperScythe ||
-               car == PlayerCarId::HalcyonSovereign) {
-        const bool exotic=car==PlayerCarId::VesperScythe;
+    } else if (body == PlayerCarId::VesperScythe ||
+               body == PlayerCarId::HalcyonSovereign) {
+        const bool exotic=body==PlayerCarId::VesperScythe;
         if (!exotic) tuning.max_steer=std::min(tuning.max_steer,.60f);
         tuning.chassis_half_width=exotic?.98f:.99f;
         tuning.chassis_half_length=exotic?2.15f:3.80f;
@@ -357,7 +373,7 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.chassis_roof=(exotic?1.19f:1.68f)-definition.arch_centre_y-
                             static_suspension_length(tuning)-
                             tuning.com_height_above_mount;
-    } else if (car == PlayerCarId::HarrowHauler) {
+    } else if (body == PlayerCarId::HarrowHauler) {
         tuning.max_steer=std::min(tuning.max_steer,.55f);
         tuning.chassis_half_width=1.15f;
         tuning.chassis_half_length=3.1f;
@@ -366,7 +382,7 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.chassis_floor=-.25f;
         tuning.chassis_roof=3.25f-.50f-static_suspension_length(tuning)-
                             tuning.com_height_above_mount;
-    } else if (car == PlayerCarId::HarrowCityliner) {
+    } else if (body == PlayerCarId::HarrowCityliner) {
         tuning.max_steer=std::min(tuning.max_steer,.52f);
         tuning.chassis_half_width=1.22f;
         tuning.chassis_half_length=4.9f;
@@ -376,6 +392,16 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.chassis_roof=3.10f-definition.arch_centre_y-
                             static_suspension_length(tuning)-
                             tuning.com_height_above_mount;
+    }
+    // The blade hangs past the bumper; the footprint reaches it. The reach is
+    // pinned to the fitted kit by plow_kit_tests.
+    if (has_plow_kit(car)) {
+        const PlowKitNumbers kit = plow_kit_numbers(car);
+        tuning.car_collision_front_extension = std::max(0.f,
+            kit.reach_m - tuning.car_collision_half_length);
+        // One box covers truck and blade, so it is as wide as the wider.
+        tuning.car_collision_half_width = std::max(
+            tuning.car_collision_half_width, kit.blade.half_width_m);
     }
     return tuning;
 }

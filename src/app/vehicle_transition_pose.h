@@ -24,6 +24,7 @@ inline void exit_pose(PlayerCarId car, const Skeleton& skeleton, const Transform
         const VehicleDriverPose& seated, const VehicleDriverPose& standing,
         const VehicleTransitionSample& sample, VehicleDriverPose& out) {
     using namespace driver_pose_detail;
+    car = player_car_body_id(car);
     const auto ramp = [](float t, float begin, float end) {
         return vehicle_transition_ease((t-begin)/(end-begin));
     };
@@ -219,6 +220,7 @@ inline bool make_vehicle_transition_pose(
         const VehicleTransitionSample& sample, VehicleDriverPose& out) {
     using namespace driver_pose_detail;
     using transition_pose_detail::blend_joint;
+    car = player_car_body_id(car);
     VehicleDriverPose seated;
     if (!make_vehicle_driver_pose(car, skeleton, bounds, body, seated) ||
         standing_local.size() != seated.local.size() || !finite(standing_world.matrix()) ||

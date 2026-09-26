@@ -54,6 +54,9 @@ apricot_add_suite(snowpack_tests)
 apricot_add_suite(snow_clearance_tests)
 apricot_add_suite(snow_shelter_tests)
 apricot_add_suite(snow_shelter_render_tests)
+# Drift under open roofs, bare interiors, and each vehicle's own snow load.
+apricot_add_suite(snow_drift_tests)
+apricot_add_suite(vehicle_snow_load_tests)
 apricot_add_suite(snowplow_traffic_tests)
 apricot_add_suite(snowplow_service_tests)
 apricot_add_suite(snowplow_visual_tests)
@@ -342,6 +345,12 @@ apricot_add_suite(dev_never_wanted_tests)
 apricot_add_suite(dev_toggles_tests)
 
 apricot_add_suite(rodeo_grazer_tests)
+# The plow trucks: the kit fitted to the real cooked bodies, the pinned blade
+# numbers the sim reads, and a real plow pass through the clearance field.
+apricot_add_suite(plow_kit_tests)
+# Lot plow crews planned on the real authored lots and stepped through a real
+# clearance field on the real map terrain.
+apricot_add_suite(lot_plow_tests)
 apricot_add_suite(license_plate_tests)
 
 # The visibility query that replaced a contact raycast in police line of

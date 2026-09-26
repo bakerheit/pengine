@@ -368,7 +368,8 @@ bool Renderer::draw_run(const Scene& scene, const std::vector<NodeId>& visible,
                                         n->renderable.uv_scale,
                                         n->renderable.body_damage0,
                                         n->renderable.body_damage1,
-                                        n->renderable.deform_frame));
+                                        n->renderable.deform_frame,
+                                        n->renderable.snow_load));
     }
     if (gather_.empty()) return false;
 

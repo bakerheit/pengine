@@ -59,6 +59,9 @@ enum ButtonBit : uint32_t {
     kBtnMenuRight = 1u << 14,
     kBtnDrink     = 1u << 15,
     kBtnJump      = 1u << 16,
+    // Raise or lower a plow truck's blade. The blade decides what snow the
+    // truck clears, and cleared snow is grip, so it is sim input.
+    kBtnPlowBlade = 1u << 17,
 };
 
 struct InputFrame {

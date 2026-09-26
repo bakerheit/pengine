@@ -161,16 +161,20 @@ void TerrainCollider::set_snow_clearance(const SnowClearanceField* field,
     raw_snow_depth_metres_ = std::isfinite(raw_depth) ? std::max(raw_depth, 0.0f) : 0.0f;
 }
 
+// Roof exposure scales the pack exactly as lit.frag scales the drawn cover:
+// bare under a building, drifted in from the edges of an open canopy.
 float TerrainCollider::snow_depth_at(float x, float base_y, float z) const {
-    if (snow_shelter_ && snow_shelter_->covered(x, base_y, z)) return 0.0f;
-    return snow_clearance_ ? snow_clearance_->depth_at(x, base_y, z,
-        raw_snow_depth_metres_) : raw_snow_depth_metres_;
+    const float exposure = snow_shelter_ ? snow_shelter_->exposure(x, base_y, z) : 1.0f;
+    if (exposure <= 0.0f) return 0.0f;
+    return exposure * (snow_clearance_ ? snow_clearance_->depth_at(x, base_y, z,
+        raw_snow_depth_metres_) : raw_snow_depth_metres_);
 }
 
 float TerrainCollider::local_snow_collision_depth(float x, float base_y,
                                                   float z) const {
-    if (snow_shelter_ && snow_shelter_->covered(x, base_y, z)) return 0.0f;
-    if (!snow_clearance_) return snow_collision_depth_metres_;
+    const float exposure = snow_shelter_ ? snow_shelter_->exposure(x, base_y, z) : 1.0f;
+    if (exposure <= 0.0f) return 0.0f;
+    if (!snow_clearance_ && exposure >= 1.0f) return snow_collision_depth_metres_;
     return std::min(snow_collision_depth_metres_, static_cast<float>(
         snowpack_collision_from_depth(snow_depth_at(x, base_y, z)).depth_m));
 }

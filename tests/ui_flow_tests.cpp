@@ -781,7 +781,7 @@ void developer_menu_navigates_and_returns_a_teleport() {
     menu.set_selection(player_car_brand_index(PlayerCarId::HarrowWorkman));
     menu.update(kBtnAccept);
     REQUIRE(std::strcmp(menu.title(), "HARROW") == 0);
-    REQUIRE(menu.item_count() == 5);
+    REQUIRE(menu.item_count() == 6);
     REQUIRE(std::strcmp(menu.item_label(0), "CITYLINER BUS") == 0);
     REQUIRE(menu.update(kBtnAccept).player_car == PlayerCarId::HarrowCityliner);
     menu.set_selection(1);
@@ -800,6 +800,12 @@ void developer_menu_navigates_and_returns_a_teleport() {
     REQUIRE(choose_pickup.player_car == PlayerCarId::HarrowWorkman);
     REQUIRE(menu.player_car() == PlayerCarId::HarrowWorkman);
     REQUIRE(std::strcmp(menu.item_value(4), "ACTIVE") == 0);
+    // The plow truck sorts straight after the truck it is built on.
+    menu.set_selection(5);
+    REQUIRE(std::strcmp(menu.item_label(5), "WORKMAN PLOW") == 0);
+    REQUIRE(menu.update(kBtnAccept).player_car == PlayerCarId::HarrowWorkmanPlow);
+    menu.set_selection(4);
+    REQUIRE(menu.update(kBtnAccept).player_car == PlayerCarId::HarrowWorkman);
 
     menu.update(kBtnBack);
     REQUIRE(menu.page() == DevMenuPage::VehicleBrands);
@@ -807,10 +813,13 @@ void developer_menu_navigates_and_returns_a_teleport() {
     menu.set_selection(player_car_brand_index(PlayerCarId::RodeoSwitchback));
     menu.update(kBtnAccept);
     REQUIRE(std::strcmp(menu.title(), "RODEO") == 0);
-    REQUIRE(menu.item_count() == 2);
+    REQUIRE(menu.item_count() == 3);
     REQUIRE(std::strcmp(menu.item_label(0), "GRAZER 4X4") == 0);
-    REQUIRE(std::strcmp(menu.item_label(1), "SWITCHBACK") == 0);
+    REQUIRE(std::strcmp(menu.item_label(1), "GRAZER 4X4 PLOW") == 0);
+    REQUIRE(std::strcmp(menu.item_label(2), "SWITCHBACK") == 0);
     menu.set_selection(1);
+    REQUIRE(menu.update(kBtnAccept).player_car == PlayerCarId::RodeoGrazerPlow);
+    menu.set_selection(2);
     REQUIRE(menu.update(kBtnAccept).player_car == PlayerCarId::RodeoSwitchback);
     menu.update(kBtnBack);
     menu.set_selection(player_car_brand_index(PlayerCarId::AlderWayfarer));

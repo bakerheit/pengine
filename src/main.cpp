@@ -79,7 +79,13 @@ void print_usage() {
         "  --clear          clear weather for visual QA\n"
         "  --weather NAME   force clear, sunshower, overcast, rain, storm, thunderstorm, snow, blizzard, tornado, flood, hail, or heatwave\n"
         "  --snow-depth M   pin accumulated snow depth from 0.0 to 1.5 metres\n"
+        "  --vehicle-snow-load L  start the player car carrying snow L (0..1), as if\n"
+        "                   it had just driven in from open weather\n"
         "  --snowplow-check follow a working traffic plow; use --weather snow --snow-depth 0.18\n"
+        "  --plow-check     push two passes across a lot in a plow truck (default rodeo_grazer_plow,\n"
+        "                  snow 0.15 m); fails if the blade cleared under 12 m (2200+ frames)\n"
+        "  --lot-plow-check follow the lot plow crew nearest the start (snow 0.12 m unless set);\n"
+        "                  fails if the crews cleared under 20 m\n"
         "  --snowplow-refill-seconds N age actual cleared paths before final --frames image (QA)\n"
         "  --seed N         reproduce a session weather sequence\n"
         "  --no-traffic-headlights disable traffic beams (keep lamp glow)\n"
@@ -173,7 +179,10 @@ int main(int argc, char** argv) {
     bool weather_preset_set = false;
     float snow_depth_m = -1.0f;
     bool snow_depth_set = false;
+    float start_vehicle_snow_load = -1.0f;
     bool snowplow_check = false;
+    bool plow_check = false;
+    bool lot_plow_check = false;
     float snowplow_refill_preview_seconds = 0.0f;
     apricot::PlayerCarId start_car=apricot::PlayerCarId::LegacyCar5;
     bool player_car_explicit=false;
@@ -198,6 +207,8 @@ int main(int argc, char** argv) {
             character_identity_check=true;continue; }
         if (std::strcmp(a,"--tire-track-check")==0) { tire_track_check=true;continue; }
         if (std::strcmp(a,"--snowplow-check")==0) { snowplow_check=true;continue; }
+        if (std::strcmp(a,"--plow-check")==0) { plow_check=true;continue; }
+        if (std::strcmp(a,"--lot-plow-check")==0) { lot_plow_check=true;continue; }
         if (std::strcmp(a,"--overhead")==0) { overhead_qa=true;continue; }
         if (std::strcmp(a,"--daylight")==0) { daylight_qa=true;continue; }
         if (std::strcmp(a,"--road-start")==0) { road_start_qa=true;continue; }
@@ -244,6 +255,13 @@ int main(int argc, char** argv) {
             const std::string key=std::string("/")+argv[++i]+"/";
             bool found=false;
             for (const auto& model:apricot::kPlayerCars) {
+                // A variant sharing its base's folder answers to its own key.
+                if (const char* variant=apricot::player_car_variant_key(model.id)) {
+                    if (key==std::string("/")+variant+"/") {
+                        start_car=model.id; found=true; player_car_explicit=true; break;
+                    }
+                    continue;
+                }
                 if (std::string(model.mesh_path).find(key)!=std::string::npos) {
                     start_car=model.id; found=true; player_car_explicit=true; break;
                 }
@@ -283,6 +301,16 @@ int main(int argc, char** argv) {
             if (errno || end==argv[i] || *end || !std::isfinite(snowplow_refill_preview_seconds) ||
                 snowplow_refill_preview_seconds<0.0f || snowplow_refill_preview_seconds>86400.0f) {
                 std::fprintf(stderr,"--snowplow-refill-seconds needs 0..86400 seconds\n");
+                return 2;
+            }
+            continue;
+        }
+        if (std::strcmp(a,"--vehicle-snow-load")==0) {
+            char* end=nullptr;
+            if (++i<argc) start_vehicle_snow_load=std::strtof(argv[i],&end);
+            if (i>=argc || end==argv[i] || *end || !std::isfinite(start_vehicle_snow_load) ||
+                start_vehicle_snow_load<0.0f || start_vehicle_snow_load>1.0f) {
+                std::fprintf(stderr,"--vehicle-snow-load needs a load from 0.0 to 1.0\n");
                 return 2;
             }
             continue;
@@ -564,6 +592,41 @@ int main(int argc, char** argv) {
         if(!screenshot_path)screenshot_path="build/tire-track-check.bmp";
         app.set_tire_track_check(true);
     }
+    if(plow_check) {
+        if(frame_limit<2200 || house_check || signal_check || tire_track_check || vehicle_entry_check ||
+            driver_transition_check || aircraft_check || helicopter_check || boat_check || trailer_check ||
+            police_check || weapon_check || lighting_benchmark || warp_every || paint_check || car_bomb_check ||
+            opening_preview || delivery_preview || delivery_check) {
+            std::fprintf(stderr,"--plow-check needs --frames 2200 or more and no other checks/previews\n");
+            return 2;
+        }
+        if (!player_car_explicit) start_car=apricot::PlayerCarId::RodeoGrazerPlow;
+        if (!apricot::has_plow_kit(start_car)) {
+            std::fprintf(stderr,"--plow-check needs a plow --player-car\n");return 2;
+        }
+        start_driving=true;
+        if (!start_position_set) {
+            // Cloggers' lot, across the street north of the pumps, pushing
+            // west along the frontage bays.
+            const auto& site=apricot::city::kFastFoodSite;
+            start_position={site.origin.x+site.cos_yaw*14.0f+site.sin_yaw*-12.0f,
+                            site.origin.z-site.sin_yaw*14.0f+site.cos_yaw*-12.0f};
+            // Facing site -x (west), down the frontage.
+            if (!start_heading_set) start_heading_radians=std::atan2(site.cos_yaw,-site.sin_yaw);
+        }
+        if (!weather_preset_set) { weather_preset=apricot::DevWeatherPreset::Snow; weather_preset_set=true; }
+        if (!snow_depth_set) { snow_depth_m=0.15f; snow_depth_set=true; }
+        if (!lighting_night) daylight_qa=true;
+        if(!screenshot_path)screenshot_path="build/plow-check.bmp";
+        app.set_plow_check(true);
+    }
+    if(lot_plow_check) {
+        if (!weather_preset_set) { weather_preset=apricot::DevWeatherPreset::Snow; weather_preset_set=true; }
+        if (!snow_depth_set) { snow_depth_m=0.12f; snow_depth_set=true; }
+        if (!lighting_night) daylight_qa=true;
+        if(!screenshot_path)screenshot_path="build/lot-plow-check.bmp";
+        app.set_lot_plow_check(true);
+    }
     if(house_check) {
         if(frame_limit<6000 || tire_track_check || vehicle_entry_check || driver_transition_check || aircraft_check ||
             boat_check || police_check || weapon_check || lighting_benchmark || lighting_stress || warp_every || start_driving) {
@@ -699,6 +762,7 @@ int main(int argc, char** argv) {
     app.set_clear_weather(clear_weather);
     if (weather_preset_set) app.set_weather_preset(weather_preset);
     if (snow_depth_set) app.set_snow_depth_override(snow_depth_m);
+    app.set_start_vehicle_snow_load(start_vehicle_snow_load);
     app.set_snowplow_check(snowplow_check);
     app.set_snowplow_refill_preview(snowplow_refill_preview_seconds);
     app.set_vehicle_preview(start_car,start_driving);
@@ -738,6 +802,12 @@ int main(int argc, char** argv) {
     }
     if (character_identity_check && !app.character_identity_check_passed()) {
         AP_ERROR("ambient rig identity regression did not complete");rc=1;
+    }
+    if (lot_plow_check && !app.lot_plow_check_passed()) {
+        AP_ERROR("lot plow check: the crews cleared too little");rc=1;
+    }
+    if (plow_check && !app.plow_check_passed()) {
+        AP_ERROR("plow check: the blade cleared too little of the lot");rc=1;
     }
     if (tire_track_check && !app.tire_track_check_passed()) {
         AP_ERROR("tire-track regression did not produce enough decals");rc=1;

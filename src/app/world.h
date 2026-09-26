@@ -170,7 +170,8 @@ public:
                                    float player_half_width_m,
                                    float player_half_length_m,
                                    float player_mass_kg,
-                                   float player_body_damage_gain=1.f);
+                                   float player_body_damage_gain=1.f,
+                                   float player_front_extension_m=0.f);
 
     const Streamer& streamer() const { return streamer_; }
     const RoadMeshes& roads() const { return roads_; }

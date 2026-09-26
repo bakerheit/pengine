@@ -4266,13 +4266,19 @@ bool Crowd::resolve_player_collision(VehicleState& player,
                                      float player_half_width_m,
                                      float player_half_length_m,
                                      float player_mass_kg,
-                                  float player_body_damage_gain) {
+                                  float player_body_damage_gain,
+                                  float player_front_extension_m) {
     police_player_contacts_.clear();
     constexpr float kDamageThreshold = 2.5f;
     constexpr int kSolverPasses = 4;
 
     const float player_half_width = std::max(0.1f, player_half_width_m);
-    const float player_half_length = std::max(0.1f, player_half_length_m);
+    // Front equipment (VehicleTuning::car_collision_front_extension) moves
+    // the footprint's front face out and leaves its rear face where it was.
+    const float player_reach =
+        0.5f * std::max(0.0f, player_front_extension_m);
+    const float player_half_length =
+        std::max(0.1f, player_half_length_m) + player_reach;
 
     glm::vec3 player_fwd3 = vehicle_forward(player);
     player_fwd3.y = 0.0f;
@@ -4329,7 +4335,8 @@ bool Crowd::resolve_player_collision(VehicleState& player,
                     traffic.body_damage, player_base_centre);
             const DamageAdjustedPlanarBody player_body =
                 damage_adjusted_planar_body(
-                    player_base_centre, player_right, player_fwd,
+                    player_base_centre + player_fwd * player_reach,
+                    player_right, player_fwd,
                     player_half_width, player_half_length,
                     player.body_damage, traffic_base_centre);
             const PlanarBodyContact contact = planar_body_contact(

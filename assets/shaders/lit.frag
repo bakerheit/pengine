@@ -5,6 +5,7 @@
 #include "vehicle_damage.glsl"
 #include "vehicle_headlights.glsl"
 #include "vehicle_snow.glsl"
+#include "snow_drift.glsl"
 
 in vec3 v_world_pos;
 in vec3 v_normal;
@@ -12,6 +13,9 @@ in vec2 v_uv;
 in vec4 v_tint;
 in vec4 v_terrain_weights;
 in vec4 v_windshield;
+// A vehicle's own snow load, [0, 1] absolute cover (game/vehicle_snow_load.h).
+// Negative for everything else, which reads the world field at its position.
+flat in float v_snow_load;
 flat in float v_vehicle_lamp;
 flat in int v_headlight_profile;
 in vec3 v_lamp_source_position;
@@ -31,6 +35,8 @@ uniform float u_snow_clearance_height_tolerance;
 // Static world-space cells hold complete roof lists. Open paved lots have no
 // covering roof; top faces stay snowy because only points BELOW the underside
 // qualify. Rotated roof corners use the same narrow phase as suspension snow.
+// anchor.w marks an open-sided roof, which drifts in from its edges; any other
+// roof is a building and leaves everything beneath it bare.
 uniform samplerBuffer u_snow_shelter_roofs;
 uniform usamplerBuffer u_snow_shelter_cells;
 uniform usamplerBuffer u_snow_shelter_indices;
@@ -38,12 +44,15 @@ uniform int u_snow_shelter_columns;
 uniform int u_snow_shelter_rows;
 uniform vec2 u_snow_shelter_origin;
 uniform float u_snow_shelter_cell_size;
-bool sheltered_from_snow(vec3 position) {
-    if(u_snow_shelter_columns==0 || u_snow_shelter_rows==0) return false;
+// physics/snow_shelter.h evaluates the same roofs with the same function for
+// tyre grip; gfx/snow_shelter_grid.h mirrors this loop and a suite pins them.
+float snow_shelter_exposure(vec3 position) {
+    if(u_snow_shelter_columns==0 || u_snow_shelter_rows==0) return 1.0;
     ivec2 cell=ivec2(floor((position.xz-u_snow_shelter_origin)/u_snow_shelter_cell_size));
     if(cell.x<0 || cell.y<0 || cell.x>=u_snow_shelter_columns || cell.y>=u_snow_shelter_rows)
-        return false;
+        return 1.0;
     uvec2 span=texelFetch(u_snow_shelter_cells,cell.y*u_snow_shelter_columns+cell.x).xy;
+    float exposure=1.0;
     for(uint i=0u;i<span.y;++i) {
         int roof=int(texelFetch(u_snow_shelter_indices,int(span.x+i)).x)*4;
         vec4 anchor=texelFetch(u_snow_shelter_roofs,roof+2);
@@ -54,15 +63,20 @@ bool sheltered_from_snow(vec3 position) {
         vec4 axes=texelFetch(u_snow_shelter_roofs,roof+1);
         vec2 delta=position.xz-anchor.xy;
         vec2 point=vec2(dot(delta,axes.xy),dot(delta,axes.zw));
-        if(all(greaterThanEqual(point,local.xy)) && all(lessThanEqual(point,local.zw)))
-            return true;
+        if(!(all(greaterThanEqual(point,local.xy)) && all(lessThanEqual(point,local.zw))))
+            continue;
+        if(anchor.w<0.5) return 0.0;
+        float edge=min(min(point.x-local.x,local.z-point.x),
+                       min(point.y-local.y,local.w-point.y));
+        exposure=min(exposure,snow_drift_exposure(edge,anchor.z-position.y));
     }
-    return false;
+    return exposure;
 }
 
 float local_snow_cover(vec3 position) {
-    if(sheltered_from_snow(position)) return 0.0;
-    float cover=u_snow_cover;
+    float exposure=snow_shelter_exposure(position);
+    if(exposure<=0.0) return 0.0;
+    float cover=u_snow_cover*exposure;
     if (u_snow_clearance_count==0 ||
         position.x<u_snow_clearance_bounds.x || position.z<u_snow_clearance_bounds.y ||
         position.x>u_snow_clearance_bounds.z || position.z>u_snow_clearance_bounds.w)
@@ -91,6 +105,9 @@ void main() {
     bool windshield=v_windshield.w>.5 &&
         all(greaterThanEqual(v_windshield.xy,vec2(0.0))) &&
         all(lessThanEqual(v_windshield.xy,vec2(1.0)));
+    // A vehicle carries its own snow, so a car keeps its load under a canopy
+    // and on a plowed street. Everything else reads the ground field here.
+    bool own_snow=v_snow_load>=0.0;
     if (u_glass) {
         vec3 N=normalize(v_normal);
         vec3 V=normalize(u_cam_pos-v_world_pos);
@@ -104,8 +121,8 @@ void main() {
         float glint=pow(max(dot(R,normalize(u_light_dir)),0.0),180.0);
         vec3 glass=mix(vec3(.12,.20,.23)*u_ambient,reflection,.7)+u_light_color*glint*1.5;
         float opacity=clamp(.16+fresnel*.48+glint*.22,.16,.72);
-        if(u_snow_cover>0.0 && windshield) {
-            float snow=local_snow_cover(v_world_pos)*
+        if((own_snow ? v_snow_load>0.0 : u_snow_cover>0.0) && windshield) {
+            float snow=(own_snow ? min(v_snow_load,1.0) : local_snow_cover(v_world_pos))*
                 windshield_snow_remaining(v_windshield.xyz);
             vec3 snowy=apply_lighting(vec3(.82,.86,.90),N,v_world_pos,0.0);
             glass=mix(glass,snowy,snow);
@@ -187,13 +204,20 @@ void main() {
     // Keep zero cover on a literal branch: clear weather must not perturb the
     // existing material path at all. Snow catches broad upward-facing world
     // surfaces and becomes matte as it hides the finish underneath.
-    if (u_receives_snow && u_snow_cover > 0.0 &&
+    if (u_receives_snow && (own_snow ? v_snow_load > 0.0 : u_snow_cover > 0.0) &&
         v_vehicle_lamp < 0.0 && v_tint.a <= 1.0) {
-        float accumulation = snow_accumulation(normalize(v_normal).y);
-        if(windshield)
-            accumulation=u_snow_cover*windshield_snow_remaining(v_windshield.xyz);
-        if (accumulation > 0.0)
-            accumulation *= local_snow_cover(v_world_pos) / u_snow_cover;
+        float accumulation;
+        if (own_snow) {
+            accumulation = min(v_snow_load, 1.0) * (windshield
+                ? windshield_snow_remaining(v_windshield.xyz)
+                : snow_upward(normalize(v_normal).y));
+        } else {
+            accumulation = snow_accumulation(normalize(v_normal).y);
+            if(windshield)
+                accumulation=u_snow_cover*windshield_snow_remaining(v_windshield.xyz);
+            if (accumulation > 0.0)
+                accumulation *= local_snow_cover(v_world_pos) / u_snow_cover;
+        }
         albedo = apply_snow_cover(albedo, accumulation);
         material_specular *= 1.0 - accumulation * 0.82;
     }

@@ -2,6 +2,7 @@
 #include "physics/breakaway_contact.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 
@@ -1147,121 +1148,153 @@ VehicleState step_vehicle(const VehicleState& state, const VehicleTuning& tuning
         // wall.
         const float chassis_low = body.position.y + tuning.chassis_floor;
         const float chassis_high = body.position.y + tuning.chassis_roof;
+        // The body's cylinder, plus, for a truck with front equipment, three
+        // discs along the blade's face. A plow blade is a metre and more
+        // ahead of the bumper; with the body cylinder alone it sank two
+        // metres into a wall before the truck stopped.
+        struct Probe {
+            glm::vec3 offset;
+            float radius;
+        };
+        std::array<Probe, 4> probes{};
+        std::size_t probe_count = 1;
+        probes[0] = {glm::vec3{0.0f}, r};
+        if (tuning.car_collision_front_extension > 0.0f) {
+            constexpr float kBladeProbe = 0.28f;
+            const float reach = tuning.car_collision_half_length +
+                                tuning.car_collision_front_extension - kBladeProbe;
+            const float half = std::max(tuning.car_collision_half_width - kBladeProbe, 0.0f);
+            for (const float x : {-half, 0.0f, half})
+                probes[probe_count++] = {glm::vec3{x, 0.0f, -reach}, kBladeProbe};
+        }
 
         for (const StaticBox& b : collider.static_boxes()) {
             if (!b.enabled) continue;
             if (b.bounds.max.y <= chassis_low || b.bounds.min.y >= chassis_high) {
                 continue;
             }
-            // The enclosing AABB is only a broad bound. Test the chassis in
-            // the prop's actual frame so rotated restaurant walls do not
-            // create invisible solid wedges in the forecourt.
-            const glm::vec3 local_body = b.local_point(body.position);
-            const AABB& bounds = b.collision_bounds();
-            const float nx = clampf(local_body.x, bounds.min.x, bounds.max.x);
-            const float nz = clampf(local_body.z, bounds.min.z, bounds.max.z);
-            float dx = local_body.x - nx;
-            float dz = local_body.z - nz;
-            const float d2 = dx * dx + dz * dz;
-            BreakawayContact pole_contact;
-            if (b.breakaway_speed > 0.0f) {
-                pole_contact=breakaway_contact(body.position,body.orientation,
-                    {tuning.car_collision_half_width,tuning.car_collision_half_length},
-                    b.bounds.center(),std::max(b.bounds.extents().x,b.bounds.extents().z));
-                if (!pole_contact.hit) continue;
-            } else if (d2 >= r * r) continue;
+            for (std::size_t probe = 0; probe < probe_count; ++probe) {
+                // Poles are met by the footprint box below; the blade discs
+                // only stop the truck at walls and posts it cannot shear.
+                if (probe > 0 && b.breakaway_speed > 0.0f) continue;
+                const glm::vec3 probe_centre =
+                    body.position + body.orientation * probes[probe].offset;
+                const float pr = probes[probe].radius;
+                // The enclosing AABB is only a broad bound. Test the chassis in
+                // the prop's actual frame so rotated restaurant walls do not
+                // create invisible solid wedges in the forecourt.
+                const glm::vec3 local_body = b.local_point(probe_centre);
+                const AABB& bounds = b.collision_bounds();
+                const float nx = clampf(local_body.x, bounds.min.x, bounds.max.x);
+                const float nz = clampf(local_body.z, bounds.min.z, bounds.max.z);
+                float dx = local_body.x - nx;
+                float dz = local_body.z - nz;
+                const float d2 = dx * dx + dz * dz;
+                BreakawayContact pole_contact;
+                if (b.breakaway_speed > 0.0f) {
+                    // Front equipment reaches the pole first: the footprint's
+                    // front face moves out by the extension, its rear stays put.
+                    const float reach=std::max(tuning.car_collision_front_extension,0.0f)*0.5f;
+                    pole_contact=breakaway_contact(
+                        body.position+body.orientation*glm::vec3{0.0f,0.0f,-reach},body.orientation,
+                        {tuning.car_collision_half_width,tuning.car_collision_half_length+reach},
+                        b.bounds.center(),std::max(b.bounds.extents().x,b.bounds.extents().z));
+                    if (!pole_contact.hit) continue;
+                } else if (d2 >= pr * pr) continue;
 
-            float push;
-            if (pole_contact.hit) {
-                const auto local=b.local_direction(pole_contact.normal);
-                dx=local.x;dz=local.z;push=pole_contact.penetration;
-            } else if (d2 > kEpsilon) {
-                const float d = std::sqrt(d2);
-                dx /= d;
-                dz /= d;
-                push = r - d;
-            } else {
-                // Centre is inside the footprint. Leave by the nearest face,
-                // which is the only exit that does not shove the car through
-                // the whole prop.
-                const float to_min_x = local_body.x - bounds.min.x;
-                const float to_max_x = bounds.max.x - local_body.x;
-                const float to_min_z = local_body.z - bounds.min.z;
-                const float to_max_z = bounds.max.z - local_body.z;
-                const float best =
-                    std::min(std::min(to_min_x, to_max_x), std::min(to_min_z, to_max_z));
-                dx = 0.0f;
-                dz = 0.0f;
-                if (best == to_min_x) dx = -1.0f;
-                else if (best == to_max_x) dx = 1.0f;
-                else if (best == to_min_z) dz = -1.0f;
-                else dz = 1.0f;
-                push = best + r;
-            }
-
-            const glm::vec3 local_normal{dx, 0.0f, dz};
-            const glm::vec3 world_normal = b.world_direction(local_normal);
-            dx = world_normal.x;
-            dz = world_normal.z;
-            const float closing = body.velocity.x * dx + body.velocity.z * dz;
-            const bool release = b.breakaway_speed > 0.0f &&
-                -closing >= b.breakaway_speed && b.breakaway_id != UINT32_MAX &&
-                next.breakaway_id == UINT32_MAX;
-            if (release) {
-                next.breakaway_id = b.breakaway_id;
-                next.breakaway_velocity = body.velocity;
-            } else {
-                body.position.x += dx * push;
-                body.position.z += dz * push;
-            }
-            if (closing < 0.0f) {
-                const float impact_speed = -closing;
-                if (b.is_vehicle)
-                    next.car_contact_speed=std::max(next.car_contact_speed,impact_speed);
-                if (impact_speed > strongest_impact_speed) {
-                    strongest_impact_speed = impact_speed;
-                    const float contact_y = clampf(
-                        body.position.y, b.bounds.min.y, b.bounds.max.y);
-                    const glm::vec3 contact_offset_world = pole_contact.hit
-                        ? glm::vec3{b.bounds.center().x-body.position.x,
-                            contact_y-body.position.y,b.bounds.center().z-body.position.z}
-                        : glm::vec3{-dx * r, contact_y - body.position.y, -dz * r};
-                    strongest_contact_local =
-                        glm::conjugate(body.orientation) * contact_offset_world;
-                    const glm::vec3 local_motion3 =
-                        glm::conjugate(body.orientation) * body.velocity;
-                    strongest_motion_local =
-                        glm::vec2{local_motion3.x, local_motion3.z};
-                    strongest_contact_height = clampf(
-                        (strongest_contact_local.y - tuning.chassis_floor) /
-                            std::max(tuning.chassis_roof -
-                                         tuning.chassis_floor,
-                                     0.01f),
-                        0.0f, 1.0f);
-                    const float box_width =
-                        std::max(bounds.max.x - bounds.min.x, 0.0f);
-                    const float box_depth =
-                        std::max(bounds.max.z - bounds.min.z, 0.0f);
-                    const float tangent_span =
-                        std::fabs(local_normal.z) * box_width +
-                        std::fabs(local_normal.x) * box_depth;
-                    strongest_contact_radius = clampf(
-                        tangent_span /
-                            std::max(2.0f * tuning.chassis_half_width, 0.01f),
-                        0.05f, 1.0f);
-                    const float horizontal = glm::length(
-                        glm::vec2{body.velocity.x, body.velocity.z});
-                    strongest_glancing = horizontal > kEpsilon
-                        ? clampf(1.0f - impact_speed / horizontal, 0.0f, 1.0f)
-                        : 0.0f;
+                float push;
+                if (pole_contact.hit) {
+                    const auto local=b.local_direction(pole_contact.normal);
+                    dx=local.x;dz=local.z;push=pole_contact.penetration;
+                } else if (d2 > kEpsilon) {
+                    const float d = std::sqrt(d2);
+                    dx /= d;
+                    dz /= d;
+                    push = pr - d;
+                } else {
+                    // Centre is inside the footprint. Leave by the nearest face,
+                    // which is the only exit that does not shove the car through
+                    // the whole prop.
+                    const float to_min_x = local_body.x - bounds.min.x;
+                    const float to_max_x = bounds.max.x - local_body.x;
+                    const float to_min_z = local_body.z - bounds.min.z;
+                    const float to_max_z = bounds.max.z - local_body.z;
+                    const float best =
+                        std::min(std::min(to_min_x, to_max_x), std::min(to_min_z, to_max_z));
+                    dx = 0.0f;
+                    dz = 0.0f;
+                    if (best == to_min_x) dx = -1.0f;
+                    else if (best == to_max_x) dx = 1.0f;
+                    else if (best == to_min_z) dz = -1.0f;
+                    else dz = 1.0f;
+                    push = best + pr;
                 }
 
-                // A sheared mounting takes a little momentum, not the whole
-                // car. Keep the usual dent/impact event for crash feedback.
-                const float response = release ? 0.18f :
-                    1.0f + clampf(tuning.collision_restitution, 0.0f, 0.5f);
-                body.velocity.x -= dx * closing * response;
-                body.velocity.z -= dz * closing * response;
+                const glm::vec3 local_normal{dx, 0.0f, dz};
+                const glm::vec3 world_normal = b.world_direction(local_normal);
+                dx = world_normal.x;
+                dz = world_normal.z;
+                const float closing = body.velocity.x * dx + body.velocity.z * dz;
+                const bool release = b.breakaway_speed > 0.0f &&
+                    -closing >= b.breakaway_speed && b.breakaway_id != UINT32_MAX &&
+                    next.breakaway_id == UINT32_MAX;
+                if (release) {
+                    next.breakaway_id = b.breakaway_id;
+                    next.breakaway_velocity = body.velocity;
+                } else {
+                    body.position.x += dx * push;
+                    body.position.z += dz * push;
+                }
+                if (closing < 0.0f) {
+                    const float impact_speed = -closing;
+                    if (b.is_vehicle)
+                        next.car_contact_speed=std::max(next.car_contact_speed,impact_speed);
+                    if (impact_speed > strongest_impact_speed) {
+                        strongest_impact_speed = impact_speed;
+                        const float contact_y = clampf(
+                            body.position.y, b.bounds.min.y, b.bounds.max.y);
+                        const glm::vec3 contact_offset_world = pole_contact.hit
+                            ? glm::vec3{b.bounds.center().x-body.position.x,
+                                contact_y-body.position.y,b.bounds.center().z-body.position.z}
+                            : glm::vec3{probe_centre.x - body.position.x - dx * pr, contact_y - body.position.y,
+                                        probe_centre.z - body.position.z - dz * pr};
+                        strongest_contact_local =
+                            glm::conjugate(body.orientation) * contact_offset_world;
+                        const glm::vec3 local_motion3 =
+                            glm::conjugate(body.orientation) * body.velocity;
+                        strongest_motion_local =
+                            glm::vec2{local_motion3.x, local_motion3.z};
+                        strongest_contact_height = clampf(
+                            (strongest_contact_local.y - tuning.chassis_floor) /
+                                std::max(tuning.chassis_roof -
+                                             tuning.chassis_floor,
+                                         0.01f),
+                            0.0f, 1.0f);
+                        const float box_width =
+                            std::max(bounds.max.x - bounds.min.x, 0.0f);
+                        const float box_depth =
+                            std::max(bounds.max.z - bounds.min.z, 0.0f);
+                        const float tangent_span =
+                            std::fabs(local_normal.z) * box_width +
+                            std::fabs(local_normal.x) * box_depth;
+                        strongest_contact_radius = clampf(
+                            tangent_span /
+                                std::max(2.0f * tuning.chassis_half_width, 0.01f),
+                            0.05f, 1.0f);
+                        const float horizontal = glm::length(
+                            glm::vec2{body.velocity.x, body.velocity.z});
+                        strongest_glancing = horizontal > kEpsilon
+                            ? clampf(1.0f - impact_speed / horizontal, 0.0f, 1.0f)
+                            : 0.0f;
+                    }
+
+                    // A sheared mounting takes a little momentum, not the whole
+                    // car. Keep the usual dent/impact event for crash feedback.
+                    const float response = release ? 0.18f :
+                        1.0f + clampf(tuning.collision_restitution, 0.0f, 0.5f);
+                    body.velocity.x -= dx * closing * response;
+                    body.velocity.z -= dz * closing * response;
+                }
             }
         }
 

@@ -190,7 +190,8 @@ Daylight and weather change the look and driving conditions of the world.
 The current weather system includes rain, storms, snow, blizzards, hail,
 heatwaves, flooding, and tornado episodes. Surface wetness and snow affect
 grip; severe conditions influence visibility and lighting. Snow has physical
-depth, shelter exclusion, and local clearing by autonomous municipal plows.
+depth, shelter exclusion with drift under open canopies, per-vehicle snow
+loads, and local clearing by autonomous municipal plows.
 Plowing leaves a driven path with improved snow conditions; it is not a
 playable snowplow job or a citywide depot schedule.
 

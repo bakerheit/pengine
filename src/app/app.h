@@ -52,7 +52,10 @@
 #include "gfx/gpu_timer.h"
 #include "game/conditions.h"
 #include "game/snowpack.h"
+#include "game/vehicle_snow_load.h"
 #include "app/snowplow_service.h"
+#include "game/plow_blade.h"
+#include "game/lot_plow.h"
 #include "physics/snow_shelter.h"
 #include "game/character.h"
 #include "game/drunk.h"
@@ -215,7 +218,14 @@ public:
     void set_weather_preset(DevWeatherPreset preset);
     void set_snow_depth_override(float depth_m);
     void set_snowplow_check(bool enabled) { snowplow_check_ = enabled; }
+    void set_plow_check(bool enabled) { plow_check_ = enabled; }
+    void set_lot_plow_check(bool enabled) { lot_plow_check_ = enabled; }
+    bool lot_plow_check_passed() const;
+    bool plow_check_passed() const { return plow_sweep_.cleared_distance_m() >= 12.0f; }
     void set_snowplow_refill_preview(float seconds) { snowplow_refill_preview_seconds_ = seconds; }
+    // QA: the snow the player car starts with, as though it had just driven
+    // in from open weather. Negative seeds it from where it stands.
+    void set_start_vehicle_snow_load(float load) { start_vehicle_snow_load_ = load; }
     void set_vehicle_preview(PlayerCarId car, bool driving) {
         start_car_=car; start_driving_=driving;
     }
@@ -293,6 +303,9 @@ private:
     void update_camera(float dt);
     void set_driving_mechanics(DrivingMechanicsStyle style);
     void update_weather(bool step_snowpack = false);
+    // Fixed-step: the snow each vehicle carries (game/vehicle_snow_load.h).
+    void step_vehicle_snow();
+    VehicleSnowWeather vehicle_snow_weather() const;
     void apply_ui_settings();
     bool place_character_next_to_car(bool require_clear = false);
     void toggle_player_mode();
@@ -666,9 +679,44 @@ private:
     SnowpackState snowpack_;
     SnowClearanceField snow_clearance_;
     SnowShelterField snow_shelter_;
+    VehicleSnowLoads traffic_snow_loads_;
+    // The player car's own snow; negative until seeded. Reseeded when the
+    // player takes a different car, unless the car brings its load along.
+    float player_snow_load_ = -1.0f;
+    PlayerCarId player_snow_car_ = PlayerCarId::LegacyCar5;
+    glm::vec3 player_snow_position_{0.0f};
+    float start_vehicle_snow_load_ = -1.0f;
+    std::vector<VehicleSnowSample> vehicle_snow_samples_;
     SnowplowService snowplow_service_;
     bool snowplow_service_active_ = false;
     bool snowplow_check_ = false;
+    // The player's plow truck: its blade, and the strips that blade clears.
+    PlowBladeState plow_blade_;
+    PlowSweep plow_sweep_;
+    PlayerCarId plow_car_ = PlayerCarId::kCount;
+    bool plow_check_ = false;
+    // --plow-check's autopilot state; advanced by the per-step input call.
+    mutable int plow_check_phase_ = 0;
+    mutable uint64_t plow_check_mark_ = 0;
+    bool lot_plow_check_ = false;
+    std::size_t lot_plow_followed_ = 0;
+    void step_player_plow(const InputFrame& input, bool first_step_of_frame);
+    // Lot plow crews: sim in game/lot_plow.h, drawn with the player car's
+    // own visual (cloned, like a parked car) so the kit is the same kit.
+    LotPlowCrew lot_plows_;
+    struct LotPlowRig {
+        PlayerCarVisual visual;
+        VehicleTuning tuning;
+        VehicleState previous;
+        VehicleState current;
+    };
+    std::vector<LotPlowRig> lot_plow_rigs_;
+    void plan_lot_plows();
+    void step_lot_plows();
+    void sync_lot_plows(float alpha, float headlight_level);
+    void clear_lot_plows();
+    InputFrame plow_check_input() const;
+    void plow_check_camera();
     float snowplow_refill_preview_seconds_ = 0.0f;
     bool snowplow_refill_preview_applied_ = false;
     glm::vec2 dev_tornado_center_m_{0.0f};

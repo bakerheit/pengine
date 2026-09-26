@@ -84,6 +84,8 @@ bool App::load_game() {
     prev_player_character_=player_character_; character_spawned_=true;
     mission_stage_=saved.mission; seed_=saved.session_seed; step_index_=saved.sim_step;
     snow_clearance_ = {};
+    traffic_snow_loads_.clear();
+    player_snow_load_ = -1.0f;
     snowplow_service_.reset();
     game_ui_.clear_waypoint();
     wanted_.reset();

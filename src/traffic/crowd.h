@@ -1255,7 +1255,8 @@ public:
                                   float player_half_width_m = kPlayerHalfWidthM,
                                   float player_half_length_m = kPlayerHalfLengthM,
                                   float player_mass_kg = 1250.0f,
-                                  float player_body_damage_gain = 1.0f);
+                                  float player_body_damage_gain = 1.0f,
+                                  float player_front_extension_m = 0.0f);
 
     // Push transforms into the scene. Creates a node for an agent that does not
     // have one and removes the nodes of agents retired since the last call.
