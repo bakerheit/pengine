@@ -116,6 +116,69 @@ void traffic_and_cruiser_reports_reach_the_dispatcher() {
     apricot_test::pass("traffic violations and cruiser impacts keep their crime kind through dispatch");
 }
 
+// The HUD meter's countdown is a promise: stay unseen and the stars are gone
+// in exactly this long. Step the real system at the sim rate and hold it to it,
+// from every level, through every star it drops on the way down.
+void cooldown_countdown_matches_the_real_escape() {
+    PoliceTuning tuning;
+    constexpr float kDt = 1.0f / 120.0f;
+    for (int level = 1; level <= 5; ++level) {
+        WantedSystem wanted;
+        wanted.set_level(level);
+        wanted.update(kDt, true, tuning);
+        REQUIRE(wanted.cooldown(tuning).phase == WantedCooldown::Phase::Seen);
+        REQUIRE(wanted.cooldown(tuning).remaining_fraction == 1.0f);
+
+        wanted.update(kDt, false, tuning);
+        const WantedCooldown start = wanted.cooldown(tuning);
+        REQUIRE(start.phase == WantedCooldown::Phase::LosingThem);
+        const float promised = start.seconds_to_clear;
+        REQUIRE_NEAR(promised, police_level_profile(level).escape_s - kDt +
+                                   wanted.heat() / tuning.heat_decay_rate, 1e-3f);
+
+        float elapsed = 0.0f;
+        float last_fraction = start.remaining_fraction;
+        bool saw_cooling = false;
+        while (wanted.level() > 0) {
+            wanted.update(kDt, false, tuning);
+            elapsed += kDt;
+            const WantedCooldown now = wanted.cooldown(tuning);
+            saw_cooling |= now.phase == WantedCooldown::Phase::Cooling;
+            REQUIRE(now.remaining_fraction <= last_fraction + 1e-6f);
+            last_fraction = now.remaining_fraction;
+            REQUIRE(elapsed < 200.0f);
+        }
+        REQUIRE(saw_cooling);
+        REQUIRE_NEAR(elapsed, promised, 0.05f);
+        REQUIRE(wanted.cooldown(tuning).phase == WantedCooldown::Phase::Clear);
+    }
+    apricot_test::pass("the cooldown countdown is exactly how long an unseen escape takes");
+}
+
+// A sighting mid-drain freezes the heat where it is; breaking contact again
+// restarts the meter full, measured from the heat that is left.
+void a_sighting_restarts_the_cooldown_meter() {
+    PoliceTuning tuning;
+    WantedSystem wanted;
+    wanted.set_level(3);
+    wanted.update(police_level_profile(3).escape_s - 0.01f, false, tuning);
+    wanted.update(0.5f, false, tuning);
+    REQUIRE(wanted.cooldown(tuning).phase == WantedCooldown::Phase::Cooling);
+    REQUIRE(wanted.cooldown(tuning).remaining_fraction < 1.0f);
+
+    wanted.update(0.1f, true, tuning);
+    REQUIRE(wanted.cooldown(tuning).phase == WantedCooldown::Phase::Seen);
+
+    wanted.update(0.1f, false, tuning);
+    const WantedCooldown again = wanted.cooldown(tuning);
+    REQUIRE(again.phase == WantedCooldown::Phase::LosingThem);
+    REQUIRE(again.remaining_fraction > 0.99f);
+
+    wanted.reset();
+    REQUIRE(wanted.cooldown(tuning).phase == WantedCooldown::Phase::Clear);
+    apricot_test::pass("a sighting holds the heat and restarts the cooldown meter");
+}
+
 }  // namespace
 
 int main() {
@@ -125,5 +188,7 @@ int main() {
     crime_report_is_one_shot_and_keeps_latest_kind();
     developer_level_setup_is_exact_and_does_not_report_a_crime();
     traffic_and_cruiser_reports_reach_the_dispatcher();
+    cooldown_countdown_matches_the_real_escape();
+    a_sighting_restarts_the_cooldown_meter();
     return apricot_test::done("wanted_system_tests");
 }

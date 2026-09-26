@@ -38,6 +38,9 @@ out vec4 v_terrain_weights;
 // Authored windshield coordinates share the otherwise unused vehicle splat
 // attribute. Negative W tags glass; XYZ are pane UV and width/height ratio.
 out vec4 v_windshield;
+// Renderable::snow_load rides in the normal matrix's spare W: negative for
+// world props, a vehicle's own [0, 1] load otherwise.
+flat out float v_snow_load;
 flat out float v_vehicle_lamp;
 flat out int v_headlight_profile;
 out vec3 v_lamp_source_position;
@@ -86,6 +89,7 @@ void unpack_dent_stamp(float packed, out vec2 contact, out float severity,
 }
 
 void main() {
+    v_snow_load = a_inst_nrm0.w;
     v_vehicle_lamp = a_inst_uv_scale.x <= -2.0 ? -a_inst_uv_scale.x - 2.0 : -1.0;
     v_headlight_profile = int(a_inst_uv_scale.y) - 1;
     v_lamp_source_position = a_pos;

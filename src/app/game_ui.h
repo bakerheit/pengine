@@ -9,6 +9,7 @@
 #include "game/ui_flow.h"
 #include "game/map_geometry.h"
 #include "game/minimap.h"
+#include "game/wanted_system.h"
 
 namespace apricot {
 
@@ -27,6 +28,9 @@ struct GameUiSnapshot {
     // the sim step so a replay pulses identically.
     bool wanted_searching = false;
     bool wanted_report_pending = false;
+    // Drawn as a bar and a countdown under the stars: spotted, losing them,
+    // cooling, and how long until the stars are gone if nobody sees you.
+    WantedCooldown wanted_cooldown{};
     const char* police_stop_prompt = "";
     int64_t step = 0;
     // [0, 1): midnight at 0, noon at 0.5. This is the visible sky clock.
@@ -53,6 +57,9 @@ struct GameUiSnapshot {
 class GameUi {
 public:
     static constexpr float kArrestedDisplaySeconds = 4.0f;
+    // How far the wanted cooldown meter pushes down whatever the HUD stacks
+    // under the stars (the on-foot health bar) while any star is lit.
+    static constexpr float kWantedMeterDrop = 32.0f;
     void draw_arrested(Hud& hud, float remaining_s, glm::vec2 vp) const;
     // The wanted stars exactly as the HUD draws them, right-aligned at `right`,
     // for panels that show them elsewhere (the respray booth).

@@ -148,6 +148,10 @@ bool App::take_nearby_vehicle(const VehicleEntryTarget& target) {
         float damage=0;for (float zone:taken.body_damage.zones) damage=std::max(damage,zone);
         car_.health=std::max(5.f,100.f-90.f*damage);
         car_visual_.select(scene_,tuning_,car_,target.model);
+        // The stolen car keeps the snow it was carrying (negative: reseed).
+        player_snow_load_=traffic_snow_loads_.load(taken.lane_key,taken.slot,taken.generation);
+        player_snow_car_=target.model;
+        player_snow_position_=car_.position;
         // The traffic material is shared by every car in that livery, so it is
         // the factory paint and never painted; a respray takes a pool slot.
         car_visual_.set_factory_paint(scene_,paint,paint_base);

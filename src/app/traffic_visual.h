@@ -16,6 +16,8 @@
 #include "gfx/lighting.h"
 #include "game/roadside_fixture_debris.h"
 #include "game/traffic_signal_damage.h"
+#include "game/vehicle_snow_load.h"
+#include "physics/snow_shelter.h"
 #include "physics/vehicle.h"
 
 namespace apricot {
@@ -43,6 +45,17 @@ public:
         vehicle_draw_distance_ = metres;
     }
     float vehicle_draw_distance() const { return vehicle_draw_distance_; }
+
+    // Snow the next sync() paints onto each car (game/vehicle_snow_load.h).
+    // Moving cars read their stepped load; an ambient parked car has stood
+    // there all along, so it wears the steady state at its roof. With no
+    // loads set, cars take the world snow path as before.
+    void set_snow(const VehicleSnowLoads* moving, const SnowShelterField* shelter,
+                  const VehicleSnowWeather& weather) {
+        snow_loads_ = moving;
+        snow_shelter_ = shelter;
+        snow_weather_ = weather;
+    }
 
     // Drop only transient traffic-car presentation. Authored roadside fixtures
     // stay resident across cutscenes and session resets.
@@ -275,6 +288,10 @@ private:
     std::array<AABB,5> signal_bounds_{};
     MaterialId signal_material_ = kInvalidId;
     CrowdTuning tuning_{};
+    float snow_load(const VehicleAgent& agent, bool parked) const;
+    const VehicleSnowLoads* snow_loads_ = nullptr;
+    const SnowShelterField* snow_shelter_ = nullptr;
+    VehicleSnowWeather snow_weather_{};
     float vehicle_draw_distance_ = kTrafficVehicleDrawDistanceM;
     std::vector<Rig> rigs_;
     // Ambient kerbside parked cars (PENG-48), keyed like rigs_ on

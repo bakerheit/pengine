@@ -52,6 +52,7 @@
 #include "gfx/gpu_timer.h"
 #include "game/conditions.h"
 #include "game/snowpack.h"
+#include "game/vehicle_snow_load.h"
 #include "app/snowplow_service.h"
 #include "physics/snow_shelter.h"
 #include "game/character.h"
@@ -216,6 +217,9 @@ public:
     void set_snow_depth_override(float depth_m);
     void set_snowplow_check(bool enabled) { snowplow_check_ = enabled; }
     void set_snowplow_refill_preview(float seconds) { snowplow_refill_preview_seconds_ = seconds; }
+    // QA: the snow the player car starts with, as though it had just driven
+    // in from open weather. Negative seeds it from where it stands.
+    void set_start_vehicle_snow_load(float load) { start_vehicle_snow_load_ = load; }
     void set_vehicle_preview(PlayerCarId car, bool driving) {
         start_car_=car; start_driving_=driving;
     }
@@ -293,6 +297,9 @@ private:
     void update_camera(float dt);
     void set_driving_mechanics(DrivingMechanicsStyle style);
     void update_weather(bool step_snowpack = false);
+    // Fixed-step: the snow each vehicle carries (game/vehicle_snow_load.h).
+    void step_vehicle_snow();
+    VehicleSnowWeather vehicle_snow_weather() const;
     void apply_ui_settings();
     bool place_character_next_to_car(bool require_clear = false);
     void toggle_player_mode();
@@ -666,6 +673,14 @@ private:
     SnowpackState snowpack_;
     SnowClearanceField snow_clearance_;
     SnowShelterField snow_shelter_;
+    VehicleSnowLoads traffic_snow_loads_;
+    // The player car's own snow; negative until seeded. Reseeded when the
+    // player takes a different car, unless the car brings its load along.
+    float player_snow_load_ = -1.0f;
+    PlayerCarId player_snow_car_ = PlayerCarId::LegacyCar5;
+    glm::vec3 player_snow_position_{0.0f};
+    float start_vehicle_snow_load_ = -1.0f;
+    std::vector<VehicleSnowSample> vehicle_snow_samples_;
     SnowplowService snowplow_service_;
     bool snowplow_service_active_ = false;
     bool snowplow_check_ = false;

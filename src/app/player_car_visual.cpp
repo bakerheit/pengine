@@ -373,7 +373,8 @@ bool PlayerCarVisual::select(Scene& scene, const VehicleTuning& tuning,
 void PlayerCarVisual::sync(Scene& scene, const VehicleTuning& tuning,
                            const VehicleState& previous,
                            const VehicleState& current, float alpha,
-                           float headlight_level, float brake_level) const {
+                           float headlight_level, float brake_level,
+                           float snow_load) const {
     const float a = std::clamp(alpha, 0.0f, 1.0f);
     const Transform chassis = chassis_pose(previous, current, a);
     scene.set_transform(body_node_, chassis * body_local_);
@@ -406,6 +407,8 @@ void PlayerCarVisual::sync(Scene& scene, const VehicleTuning& tuning,
         // Health must never recolor undamaged paint. Local surface overlays
         // are driven by the regional damage/stamps in the material shader.
         body->renderable.tint = glm::vec4{1.0f};
+        // Doors, glass and the soft top copy the body renderable below.
+        body->renderable.snow_load = snow_load;
     }
 
     plate_.sync(scene,body_node_);

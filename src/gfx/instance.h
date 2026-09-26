@@ -18,7 +18,10 @@ namespace apricot {
 // Attribute map, all divisor 1. Locations 0-2 are per-vertex and 3 is reserved
 // for a tangent, so the instance block starts at 4:
 //   4-7    model         mat4, one vec4 column per location
-//   8-10   normal_c0..2  columns of the world normal matrix (xyz used, w pad)
+//   8-10   normal_c0..2  columns of the world normal matrix (xyz used).
+//                        normal_c0.w carries Renderable::snow_load, since all
+//                        sixteen attribute locations are already taken;
+//                        c1.w and c2.w are pad
 //   11     tint          vec4, RGB multiplied into albedo, A into output alpha
 //   12     uv_scale      vec2, tiles the diffuse texture
 //   13-15  vehicle regional damage and source-mesh deformation frame
@@ -68,11 +71,12 @@ inline InstanceData make_instance(const glm::mat4& model, const glm::vec4& tint,
                                   const glm::vec2& uv_scale,
                                   const glm::vec4& body_damage0 = glm::vec4{0.0f},
                                   const glm::vec4& body_damage1 = glm::vec4{0.0f},
-                                  const glm::vec4& deform_frame = glm::vec4{0.0f}) {
+                                  const glm::vec4& deform_frame = glm::vec4{0.0f},
+                                  float snow_load = -1.0f) {
     const glm::mat3 n = glm::inverseTranspose(glm::mat3(model));
     InstanceData d;
     d.model = model;
-    d.normal_c0 = glm::vec4(n[0], 0.0f);
+    d.normal_c0 = glm::vec4(n[0], snow_load);
     d.normal_c1 = glm::vec4(n[1], 0.0f);
     d.normal_c2 = glm::vec4(n[2], 0.0f);
     d.tint = tint;
