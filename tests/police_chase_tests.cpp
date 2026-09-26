@@ -213,11 +213,14 @@ Chase run_chase(const LaneGraph& lanes, const GroundSampler& ground,
         const glm::vec2 xz{player.position.x, player.position.z};
 
         if (step % 30 == 0) crowd.refresh(step, xz);
-        // REAL line of sight, raycast against the same world the cruisers
-        // drive in — the app's own rule. Handing every unit free LOS made the
-        // sight gates generous AND hid the one that matters for free driving:
-        // a cruiser must not aim itself at a player it cannot see, because
-        // aiming is all it does and the wall does not move.
+        // REAL line of sight, against the same world the cruisers drive in,
+        // through the query the app's visible_police() makes. Handing every
+        // unit free LOS made the sight gates generous AND hid the one that
+        // matters for free driving: a cruiser must not aim itself at a player
+        // it cannot see, because aiming is all it does and the wall does not
+        // move. This used to call the contact raycast(), which the app dropped
+        // for this question; here it was about nine tenths of this suite's
+        // run time, and the pursuit metrics come out the same.
         std::vector<VisiblePoliceIdentity> visible;
         for (const VehicleAgent& a : crowd.vehicles()) {
             if (!a.police_unit) continue;
@@ -226,8 +229,7 @@ Chase run_chase(const LaneGraph& lanes, const GroundSampler& ground,
                 glm::vec3{xz.x, player.position.y + 1.05f, xz.y} - eye;
             const float d = glm::length(to);
             if (d < 0.05f) { visible.push_back({a.lane_key, a.slot}); continue; }
-            const auto hit = world.raycast(eye, to / d, d);
-            if (!hit.hit || hit.distance >= d - 0.08f)
+            if (!world.line_of_sight_blocked(eye, eye + to))
                 visible.push_back({a.lane_key, a.slot});
         }
         // SCENARIO 5: from the second corner until he doubles back, every ray
