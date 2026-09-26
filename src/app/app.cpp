@@ -3086,6 +3086,7 @@ void App::render() {
             radar.wanted_level = wanted_.level();
             radar.wanted_searching = world_.traffic().police_searching();
             radar.wanted_report_pending = wanted_report_blink_;
+            radar.wanted_cooldown = wanted_.cooldown(world_.traffic().police_tuning());
             radar.police_stop_prompt = police_stop_prompt_;
             radar.step = static_cast<int64_t>(step_index_);
             radar.time_of_day = env.time_of_day;
@@ -3473,12 +3474,15 @@ void App::render() {
                 const glm::vec4 health_color = player_vitals_.health <= 32.0f
                     ? glm::vec4{1.0f, 0.18f, 0.10f, 1.0f}
                     : glm::vec4{0.82f, 0.93f, 0.76f, 1.0f};
-                hud_.text(health, {vp.x - 216.0f, 142.0f}, 21.0f, health_color);
-                hud_.rect({vp.x - 216.0f, 171.0f}, {vp.x - 56.0f, 177.0f},
+                const float health_top = 142.0f +
+                    (wanted_.level() > 0 ? GameUi::kWantedMeterDrop : 0.0f);
+                hud_.text(health, {vp.x - 216.0f, health_top}, 21.0f, health_color);
+                hud_.rect({vp.x - 216.0f, health_top + 29.0f},
+                          {vp.x - 56.0f, health_top + 35.0f},
                           {0.04f, 0.05f, 0.05f, 0.9f});
-                hud_.rect({vp.x - 216.0f, 171.0f},
+                hud_.rect({vp.x - 216.0f, health_top + 29.0f},
                           {vp.x - 216.0f + 160.0f * player_vitals_.fraction(),
-                           177.0f}, health_color);
+                           health_top + 35.0f}, health_color);
             }
             if (player_hit_feedback_s_ > 0.0f)
                 hud_.outline({5.0f, 5.0f}, {vp.x - 5.0f, vp.y - 5.0f}, 9.0f,

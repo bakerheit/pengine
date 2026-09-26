@@ -95,6 +95,51 @@ void draw_wanted_stars(Hud& hud, int wanted_level, bool flash, int64_t step,
     }
 }
 
+// The cooldown meter under the stars, the same width as the star row. Returns
+// the height it used so whatever sits below can clear it.
+float draw_wanted_cooldown(Hud& hud, const WantedCooldown& cooldown, int64_t step,
+                           float right, float top) {
+    if (cooldown.phase == WantedCooldown::Phase::Clear) return 0.0f;
+    constexpr float kWidth = 4.0f * 26.0f + 22.0f;
+    constexpr float kLabelH = 15.0f;
+    constexpr float kBarH = 6.0f;
+    const float left = right - kWidth;
+
+    const char* label = "SPOTTED";
+    glm::vec4 color{0.95f, 0.22f, 0.18f, 1.0f};
+    if (cooldown.phase == WantedCooldown::Phase::LosingThem) {
+        label = "LOSING THEM";
+        color = kAmber;
+    } else if (cooldown.phase == WantedCooldown::Phase::Cooling) {
+        label = "COOLING";
+        color = {0.29f, 0.84f, 0.85f, 1.0f};
+    }
+    // Spotted pulses at 2 Hz on the sim clock, so a replay pulses the same.
+    if (cooldown.phase == WantedCooldown::Phase::Seen && ((step / 30) & 1) != 0)
+        color.a = 0.45f;
+
+    const glm::vec4 shadow{0.0f, 0.0f, 0.0f, 0.55f};
+    hud.text(label, {left + 1.0f, top + 1.0f}, kLabelH, shadow);
+    hud.text(label, {left, top}, kLabelH, color);
+    if (cooldown.phase != WantedCooldown::Phase::Seen) {
+        const int secs = static_cast<int>(std::ceil(cooldown.seconds_to_clear));
+        char time_text[16];
+        std::snprintf(time_text, sizeof(time_text), "%d:%02d", secs / 60, secs % 60);
+        const float w = hud.measure_text(time_text, kLabelH);
+        hud.text(time_text, {right - w + 1.0f, top + 1.0f}, kLabelH, shadow);
+        hud.text(time_text, {right - w, top}, kLabelH, kInk);
+    }
+
+    const float bar_top = top + kLabelH + 5.0f;
+    hud.rect({left - 1.0f, bar_top - 1.0f}, {right + 1.0f, bar_top + kBarH + 1.0f},
+             {0.0f, 0.0f, 0.0f, 0.6f});
+    hud.rect({left, bar_top}, {right, bar_top + kBarH}, {0.20f, 0.22f, 0.22f, 0.92f});
+    const float fill = std::clamp(cooldown.remaining_fraction, 0.0f, 1.0f);
+    if (fill > 0.0f)
+        hud.rect({left, bar_top}, {left + kWidth * fill, bar_top + kBarH}, color);
+    return kLabelH + 5.0f + kBarH + 4.0f;
+}
+
 struct MenuBox {
     float left = 0.0f;
     float top = 0.0f;
@@ -1208,9 +1253,14 @@ void GameUi::draw_minimap(Hud& hud, const UiFlow& flow,
                       snapshot.wanted_searching || snapshot.wanted_report_pending,
                       snapshot.step,
                       clock_right, clock_top + clock_height + 10.0f);
+    const float meter_h =
+        snapshot.wanted_level > 0
+            ? draw_wanted_cooldown(hud, snapshot.wanted_cooldown, snapshot.step,
+                                   clock_right, clock_top + clock_height + 40.0f)
+            : 0.0f;
     if (snapshot.police_stop_prompt && snapshot.police_stop_prompt[0]) {
         hud.text_centered(snapshot.police_stop_prompt, clock_right - clock_width * 0.5f,
-                          clock_top + clock_height + 48.0f, 18.0f,
+                          clock_top + clock_height + 48.0f + meter_h, 18.0f,
                           {1.0f, 0.68f, 0.12f, 1.0f});
     }
 
