@@ -2150,7 +2150,8 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
                 const auto index = static_cast<std::size_t>(material_index);
                 const auto& material = city::kHospitalInteriorMaterials[index];
                 r.material = materials.hospital_interior[index];
-                r.tint = {1, 1, 1, 1};
+                // Authored indirect light preserves indoor material detail at night.
+                r.tint = {1, 1, 1, 1.18f};
                 // A small authored bounce term keeps the acoustic soffit
                 // readable; downward fixtures cannot light its underside.
                 if (part_name_has(part, " ceiling tex ceiling"))
@@ -2158,7 +2159,7 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
                 if (part_name_has(part, " floor skin tex terrazzo"))
                     r.tint = {0.78f, 0.78f, 0.78f, 1.0f};
                 if (material.fitted)
-                    r.tint.a = part_name_has(part, "screen") ? 1.25f : 1.12f;
+                    r.tint.a = part_name_has(part, "screen") ? 1.45f : 1.20f;
                 if (material.fitted) {
                     r.mesh = materials.hospital_interior_face;
                     r.uv_scale = {1, 1};
