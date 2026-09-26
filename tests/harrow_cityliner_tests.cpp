@@ -110,7 +110,7 @@ int main() {
     REQUIRE_NEAR(bus.wheel_front_z+bus.wheel_rear_z,2*bus.physical_half_wheelbase,1e-5f);
     REQUIRE_NEAR(bus.wheel_x,bus.physical_half_track,1e-5f);
     const auto& brand=kPlayerCarBrands[static_cast<std::size_t>(player_car_brand_index(bus.id))];
-    REQUIRE(brand.car_count==5u);
+    REQUIRE(brand.car_count==6u);  // Cityliner, Hauler, Hookline, Parcel, Workman, Workman Plow
     REQUIRE(kPlayerCars[brand.first_car].id==bus.id);
 
     const auto tuning=player_model_tuning(DrivingMechanicsStyle::ClassicGta,bus.id);

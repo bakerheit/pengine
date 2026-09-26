@@ -20,7 +20,7 @@ namespace apricot {
 // vehicle_paint_profiles_tests joins the two headlessly; --paint-check does it
 // on the real PNGs.
 inline constexpr const char* player_car_body_texture_path(PlayerCarId id) {
-    const PlayerCarDefinition& car = player_car_definition(id);
+    const PlayerCarDefinition& car = player_car_definition(player_car_body_id(id));
     return car.id == PlayerCarId::HarrowWorkman
         ? "textures/vehicles/harrow_workman/body.png" : car.texture_path;
 }

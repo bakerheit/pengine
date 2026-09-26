@@ -206,6 +206,7 @@ void InputMapper::handle_event(const SDL_Event& e) {
             switch (e.key.keysym.sym) {
                 case SDLK_SPACE:     set_button(kBtnJump, down); break;
                 case SDLK_t:         set_button(kBtnTrailer, down); break;
+                case SDLK_v:         set_button(kBtnPlowBlade, down); break;
                 case SDLK_g:         set_button(kBtnDrink, down); break;
                 case SDLK_a:         set_button(kBtnMenuLeft, down); break;
                 case SDLK_d:         set_button(kBtnMenuRight, down); break;
@@ -350,6 +351,7 @@ void InputMapper::handle_event(const SDL_Event& e) {
                     break;
                 case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
                     set_button(kBtnMenuDown, down);
+                    set_button(kBtnPlowBlade, down);
                     break;
                 case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
                     set_button(kBtnShiftUp, down);

@@ -708,6 +708,7 @@ bool App::init() {
         AP_ERROR("world init failed; cannot continue");
         return false;
     }
+    plan_lot_plows();
 
     // So it is checked rather than commented. The drawn surface under the spawn
     // point, reconstructed from the streamer's seed, against the collider's
@@ -2442,6 +2443,20 @@ void App::teleport(glm::vec3 to, float heading_radians) {
 }
 
 void App::update_camera(float dt) {
+    if (lot_plow_check_ && lot_plows_.dispatched() &&
+        lot_plow_followed_ < lot_plows_.trucks().size()) {
+        // Off the working truck's right shoulder and above, looking at the
+        // blade, so the truck and the lanes it has cleared share the frame.
+        const LotPlowTruck& truck = lot_plows_.trucks()[lot_plow_followed_];
+        const glm::vec3 forward = truck.forward();
+        const glm::vec3 right{-forward.z, 0.0f, forward.x};
+        const glm::vec3 target = truck.position + forward * 1.5f;
+        camera_.position = truck.position - forward * 9.0f + right * 8.0f + glm::vec3{0.0f, 6.5f, 0.0f};
+        const glm::vec3 look = target - camera_.position;
+        camera_.yaw = std::atan2(look.x, -look.z);
+        camera_.pitch = std::atan2(look.y, glm::length(glm::vec2{look.x, look.z}));
+        return;
+    }
     if (snowplow_check_) {
         for (const auto& truck : world_.traffic().vehicles()) {
             if (!truck.snowplow_unit) continue;
@@ -2795,6 +2810,7 @@ void App::render() {
 
     update_camera(camera_frame_dt_);
     if (tire_track_check_) tire_track_check_camera();
+    if (plow_check_) plow_check_camera();
     camera_.fov_y = glm::radians(static_cast<float>(ui_.settings().camera_fov)) *
         (on_foot_ ? glm::mix(1.f,.8f,weapon_use_.aim_blend) : 1.f);
     if (weapon_check_ && (frames_rendered_==341 || frames_rendered_==351 || frames_rendered_==430)) {
@@ -3392,6 +3408,9 @@ void App::render() {
                     prompt += trailer_.attached ? "   T / DPAD RIGHT - DROP TRAILER" : "   T / DPAD RIGHT - COUPLE TRAILER";
                 if (!on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ && has_police_lightbar(car_visual_.active_car()))
                     prompt += "   J / L3 - SIREN + LIGHTS";
+                if (!on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ && has_plow_kit(car_visual_.active_car()))
+                    prompt += plow_blade_.lowered ? "   V / DPAD DOWN - RAISE BLADE"
+                                                  : "   V / DPAD DOWN - LOWER BLADE";
                 if (!on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ && repair_shop_ready(car_,tuning_))
                     prompt += repair_shop_visit_.serviced ? "   SERVICE COMPLETE" : "   HOLD STILL - REPAIRING";
                 if (!prompt.empty()) hud_.text_centered(prompt.c_str(),vp.x*.5f,vp.y-90,20,{1,.95f,.75f,1});
@@ -3754,6 +3773,295 @@ void App::render() {
         std::chrono::duration<double>(WallClock::now() - swap_t0).count() *
         1000.0;
     ++frames_rendered_;
+}
+
+void App::step_player_plow(const InputFrame& input, bool first_step_of_frame) {
+    const PlayerCarId car = car_visual_.active_car();
+    if (car != plow_car_) {
+        // A different truck starts with its blade down and no strip open.
+        plow_car_ = car;
+        plow_blade_ = {};
+        plow_sweep_.reset();
+    }
+    if (!has_plow_kit(car)) return;
+    const bool driving = !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_ &&
+                         !vehicle_transition_.active();
+    // Latched edges repeat on every step of a frame, so a live press is read
+    // once per frame; the scripted check sets its press on exactly one step.
+    if (driving && (first_step_of_frame || plow_check_) && was_pressed(input, kBtnPlowBlade))
+        plow_blade_.lowered = !plow_blade_.lowered;
+    plow_blade_.step(static_cast<float>(kSimDt));
+    const PlowBladeMount mount = plow_blade_mount_for(car, tuning_);
+    const glm::vec3 edge = car_.position + car_.orientation * mount.edge_local(plow_blade_.raised);
+    plow_sweep_.step(edge, vehicle_speed(car_), plow_blade_.scraping(),
+                     mount.half_width_m, snow_clearance_, conditions_.snow_depth_m);
+}
+
+namespace {
+constexpr PlayerCarId kLotPlowModels[] = {PlayerCarId::RodeoGrazerPlow,
+                                          PlayerCarId::HarrowWorkmanPlow};
+
+VehicleState lot_plow_state(const LotPlowTruck& truck, const VehicleTuning& tuning) {
+    VehicleState state;
+    state.position = truck.position;
+    state.orientation = truck.orientation();
+    state.steer_angle = truck.steer_rad;
+    state.velocity = truck.forward() * truck.speed_mps;
+    state.mechanical_key = splitmix64_mix(0x4C4F54504C4F57ull ^ truck.plan.lot_index);
+    for (auto& wheel : state.wheels) {
+        wheel.suspension_length = static_suspension_length(tuning);
+        wheel.spin = truck.wheel_spin;
+    }
+    return state;
+}
+}  // namespace
+
+bool App::lot_plow_check_passed() const {
+    float swept = 0.0f;
+    for (const auto& truck : lot_plows_.trucks()) swept += truck.sweep.cleared_distance_m();
+    return lot_plows_.dispatched() && swept >= 20.0f;
+}
+
+void App::plan_lot_plows() {
+    const auto lots = city::authored_building_access_lots();
+    std::vector<std::size_t> candidates;
+    for (std::size_t i = 0; i < lots.size(); ++i)
+        if (is_lot_plow_candidate(lots[i])) candidates.push_back(i);
+    std::vector<LotPlowTruckSpec> specs;
+    for (const PlayerCarId model : kLotPlowModels)
+        specs.push_back(lot_plow_truck_spec(model, player_model_tuning(driving_mechanics_style_, model)));
+    lot_plows_.plan(lots, candidates, seed_, specs);
+    // The QA camera follows the crew nearest the start.
+    float nearest = 1e30f;
+    for (std::size_t i = 0; i < lot_plows_.trucks().size(); ++i) {
+        const glm::vec2 at = lot_plows_.trucks()[i].plan.passes.front().start;
+        const float d = glm::distance(at, start_position_);
+        if (d < nearest) { nearest = d; lot_plow_followed_ = i; }
+    }
+    for (const auto& truck : lot_plows_.trucks())
+        AP_INFO("lot plows: %s %s works '%s', %zu passes",
+                player_car_definition(kLotPlowModels[truck.model]).brand,
+                player_car_definition(kLotPlowModels[truck.model]).model,
+                truck.plan.lot, truck.plan.passes.size());
+}
+
+void App::clear_lot_plows() {
+    for (auto& truck : lot_plows_.trucks()) {
+        if (truck.collider != static_cast<std::size_t>(-1))
+            collider_.set_kinematic_enabled(truck.collider, false);
+    }
+    for (auto& rig : lot_plow_rigs_) rig.visual.destroy(scene_);
+    lot_plow_rigs_.clear();
+    // Replan so the next storm sends fresh crews to fresh passes; kinematic
+    // slots are stable and reused.
+    std::vector<std::size_t> slots;
+    for (const auto& truck : lot_plows_.trucks()) slots.push_back(truck.collider);
+    plan_lot_plows();
+    for (std::size_t i = 0; i < lot_plows_.trucks().size() && i < slots.size(); ++i)
+        lot_plows_.trucks()[i].collider = slots[i];
+}
+
+void App::step_lot_plows() {
+    if (conditions_.snow_depth_m <= 0.0f) {
+        if (lot_plows_.dispatched()) clear_lot_plows();
+        return;
+    }
+    // Everything a truck must stop for, near enough to matter this step.
+    std::vector<LotPlowObstacle> obstacles;
+    const auto near_a_truck = [&](glm::vec3 p) {
+        for (const auto& truck : lot_plows_.trucks())
+            if (glm::distance(glm::vec2{p.x, p.z}, glm::vec2{truck.position.x, truck.position.z}) < 30.0f)
+                return true;
+        return false;
+    };
+    const auto add_body = [&](glm::vec3 centre, glm::vec3 forward, float half_width, float half_length) {
+        if (!near_a_truck(centre)) return;
+        glm::vec2 f{forward.x, forward.z};
+        const float length = glm::length(f);
+        f = length > 1e-4f ? f / length : glm::vec2{0.0f, -1.0f};
+        const float reach = std::max(0.0f, half_length - half_width);
+        for (const float t : {-1.0f, 0.0f, 1.0f})
+            obstacles.push_back({glm::vec2{centre.x, centre.z} + f * (t * reach), half_width + 0.1f});
+    };
+    if (lot_plows_.dispatched()) {
+        for (const auto& ped : world_.traffic().peds())
+            if (near_a_truck(ped.pos)) obstacles.push_back({{ped.pos.x, ped.pos.z}, 0.45f});
+        for (const auto& v : world_.traffic().vehicles()) {
+            const auto footprint = traffic_vehicle_footprint(traffic_vehicle_kind(v));
+            add_body(v.pos, v.fwd, footprint.half_width_m, footprint.half_length_m);
+        }
+        for (const auto& parked : parked_vehicles_)
+            add_body(parked.state.position, vehicle_forward(parked.state),
+                     parked.tuning.car_collision_half_width, parked.tuning.car_collision_half_length);
+        if (on_foot_ || in_aircraft_ || in_helicopter_ || in_boat_) {
+            if (near_a_truck(player_character_.position))
+                obstacles.push_back({{player_character_.position.x, player_character_.position.z}, 0.5f});
+        }
+        add_body(car_.position, vehicle_forward(car_), tuning_.car_collision_half_width,
+                 tuning_.car_collision_half_length + tuning_.car_collision_front_extension);
+    }
+    std::vector<std::pair<std::size_t, LotPlowTruck::Phase>> before;
+    for (const auto& truck : lot_plows_.trucks()) before.push_back({truck.pass, truck.phase});
+    lot_plows_.step(static_cast<float>(kSimDt), conditions_.snow_depth_m, collider_, obstacles,
+                    snow_clearance_);
+    if (!lot_plows_.dispatched()) return;
+    for (std::size_t i = 0; i < before.size() && i < lot_plows_.trucks().size(); ++i) {
+        const auto& truck = lot_plows_.trucks()[i];
+        if (truck.phase == LotPlowTruck::Phase::Done && before[i].second != LotPlowTruck::Phase::Done)
+            AP_INFO("lot plows: '%s' done after pass %zu of %zu, %.1f m of blade run",
+                    truck.plan.lot, truck.pass + 1, truck.plan.passes.size(),
+                    static_cast<double>(truck.sweep.cleared_distance_m()));
+        else if (truck.pass != before[i].first)
+            AP_DEBUG("lot plows: '%s' pass %zu of %zu", truck.plan.lot, truck.pass + 1,
+                     truck.plan.passes.size());
+    }
+    // Solid to the player: one box over the body and the blade, flagged as a
+    // vehicle so contact sounds and reads like hitting a truck.
+    for (auto& truck : lot_plows_.trucks()) {
+        const float front = truck.spec.blade.edge_forward_m + 0.3f;
+        const float rear = truck.spec.rear_m;
+        const glm::vec3 centre = truck.position + truck.forward() * (0.5f * (front - rear)) +
+                                 glm::vec3{0.0f, 0.1f, 0.0f};
+        const glm::vec3 half{std::max(truck.spec.half_width_m, truck.spec.blade.half_width_m), 0.95f,
+                             0.5f * (front + rear)};
+        if (truck.collider == static_cast<std::size_t>(-1)) {
+            truck.collider = collider_.add_kinematic_oriented_box(centre, half, truck.heading);
+            collider_.set_kinematic_vehicle(truck.collider, true);
+        } else {
+            collider_.set_kinematic_oriented_box(truck.collider, centre, half, truck.heading);
+        }
+        collider_.set_kinematic_enabled(truck.collider, true);
+    }
+}
+
+void App::sync_lot_plows(float alpha, float headlight_level) {
+    if (!lot_plows_.dispatched()) return;
+    if (lot_plow_rigs_.empty()) {
+        for (const auto& truck : lot_plows_.trucks()) {
+            LotPlowRig rig;
+            const PlayerCarId model = kLotPlowModels[truck.model];
+            rig.tuning = player_model_tuning(driving_mechanics_style_, model);
+            rig.current = rig.previous = lot_plow_state(truck, rig.tuning);
+            car_visual_.clone_parked(scene_, rig.visual);
+            if (!rig.visual.select(scene_, rig.tuning, rig.current, model)) {
+                rig.visual.destroy(scene_);
+                continue;
+            }
+            lot_plow_rigs_.push_back(std::move(rig));
+        }
+    }
+    const std::size_t count = std::min(lot_plow_rigs_.size(), lot_plows_.trucks().size());
+    for (std::size_t i = 0; i < count; ++i) {
+        LotPlowRig& rig = lot_plow_rigs_[i];
+        const LotPlowTruck& truck = lot_plows_.trucks()[i];
+        const VehicleState now = lot_plow_state(truck, rig.tuning);
+        if (glm::distance(now.position, rig.current.position) > 1e-5f ||
+            now.orientation != rig.current.orientation) {
+            rig.previous = rig.current;
+            rig.current = now;
+        }
+        rig.visual.set_plow_raised(truck.blade.raised);
+        // Slow lot work never sheds snow, so the settled load for where the
+        // truck stands is its whole state, as for a parked car.
+        const glm::vec3 roof = now.position + glm::vec3{0.0f, 1.0f, 0.0f};
+        const float snow_load = ui_.settings().weather_effects
+            ? seed_vehicle_snow_load(snow_shelter_.exposure(roof.x, roof.y, roof.z),
+                                     vehicle_snow_weather())
+            : -1.0f;
+        rig.visual.sync(scene_, rig.tuning, rig.previous, rig.current, alpha, headlight_level,
+                        std::fabs(truck.speed_mps) < 0.05f && truck.working() ? 1.0f : 0.0f,
+                        snow_load);
+        rig.visual.sync_plow_lights(scene_, step_index_ + i * 37u, truck.working(), headlight_level);
+    }
+}
+
+// --plow-check: push a pass along Cloggers' frontage with the blade down,
+// stop, lift the blade and back up the next lane over, drop it and push a
+// second pass beside the first. Closed loop on the truck's real pose (a
+// time script drove into the street the first time it was tried), and
+// deterministic: it reads nothing but sim state.
+InputFrame App::plow_check_input() const {
+    InputFrame input;
+    const auto& site = city::kFastFoodSite;
+    const glm::vec2 axis{site.cos_yaw, -site.sin_yaw};   // site +x in world
+    const glm::vec2 across{site.sin_yaw, site.cos_yaw};  // site +z in world
+    const glm::vec2 origin{site.origin.x, site.origin.z};
+    const glm::vec2 at{car_.position.x, car_.position.z};
+    const float x = glm::dot(at - origin, axis);
+    const glm::vec3 f3 = vehicle_forward(car_);
+    const glm::vec2 forward = glm::normalize(glm::vec2{f3.x, f3.z});
+    const float speed = vehicle_speed(car_);
+    // Pure pursuit on a lane at site z = lane, looking 6 m along the travel.
+    const auto steer_to = [&](float lane, bool backwards) {
+        const glm::vec2 travel = backwards ? axis : -axis;
+        const glm::vec2 target = origin + axis * (x + glm::dot(travel, axis) * 6.0f) + across * lane;
+        const glm::vec2 to = glm::normalize(target - at);
+        const glm::vec2 facing = backwards ? -forward : forward;
+        const float cross = facing.x * to.y - facing.y * to.x;
+        const float angle = std::atan2(cross, glm::dot(facing, to));
+        // Positive steer turns right; reversing, it swings the tail right.
+        return std::clamp((backwards ? -2.5f : 2.5f) * angle, -1.0f, 1.0f);
+    };
+    const auto hold_speed = [&](float want) {
+        if (std::fabs(speed) < want) input.throttle = 0.45f;
+    };
+    constexpr float kFirstLane = -12.0f, kSecondLane = -14.0f;
+    constexpr float kPushTo = -10.0f, kBackTo = 14.0f;
+    if (step_index_ < 240u) return input;  // settle on the springs
+    switch (plow_check_phase_) {
+        case 0:  // first push, west along the frontage
+            if (x <= kPushTo) { plow_check_phase_ = 1; plow_check_mark_ = step_index_; break; }
+            hold_speed(2.8f);
+            input.steer = steer_to(kFirstLane, false);
+            break;
+        case 1:  // stop on the handbrake, then lift the blade
+            input.handbrake = 1.0f;
+            if (std::fabs(speed) < 0.05f && step_index_ > plow_check_mark_ + 60u) {
+                input.pressed = kBtnPlowBlade;
+                plow_check_phase_ = 2;
+                plow_check_mark_ = step_index_;
+            }
+            break;
+        case 2:  // back up the next lane over
+            if (step_index_ < plow_check_mark_ + 120u) { input.handbrake = 1.0f; break; }
+            if (x >= kBackTo) { plow_check_phase_ = 3; plow_check_mark_ = step_index_; break; }
+            if (std::fabs(speed) < 2.2f) input.brake = 0.5f;  // the brake at a standstill is reverse
+            input.steer = steer_to(kSecondLane, true);
+            break;
+        case 3:  // stop, drop the blade
+            input.handbrake = 1.0f;
+            if (std::fabs(speed) < 0.05f && step_index_ > plow_check_mark_ + 60u) {
+                input.pressed = kBtnPlowBlade;
+                plow_check_phase_ = 4;
+                plow_check_mark_ = step_index_;
+            }
+            break;
+        case 4:  // second push beside the first
+            if (step_index_ < plow_check_mark_ + 120u) { input.handbrake = 1.0f; break; }
+            if (x <= kPushTo) { plow_check_phase_ = 5; break; }
+            hold_speed(2.8f);
+            input.steer = steer_to(kSecondLane, false);
+            break;
+        default:
+            input.handbrake = 1.0f;
+            break;
+    }
+    return input;
+}
+
+void App::plow_check_camera() {
+    glm::vec3 forward = car_.orientation * glm::vec3{0.0f, 0.0f, -1.0f};
+    forward.y = 0.0f;
+    const float length = glm::length(forward);
+    forward = length > 1e-5f ? forward / length : glm::vec3{0.0f, 0.0f, -1.0f};
+    const glm::vec3 right{-forward.z, 0.0f, forward.x};
+    // High and off the truck's right shoulder, looking back down its path so
+    // the cleared strips and the truck that cut them share the frame.
+    const glm::vec3 target = car_.position - forward * 6.0f;
+    camera_.position = car_.position + forward * 7.0f + right * 11.0f + glm::vec3{0.0f, 10.0f, 0.0f};
+    const glm::vec3 look = target - camera_.position;
+    camera_.yaw = std::atan2(look.x, -look.z);
+    camera_.pitch = std::atan2(look.y, glm::length(glm::vec2{look.x, look.z}));
 }
 
 InputFrame App::tire_track_check_input() const {
@@ -4205,7 +4513,7 @@ int App::run() {
             !weapon_wheel_.open && !weapon_input_consumed_ &&
             !paint_shop_.modal() && !paint_input_consumed_ &&
             !(lighting_benchmark_ && frames_rendered_>=300)) {
-            tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_ || paint_check_ || car_bomb_check_) ? 1.0/60.0 : dt);
+            tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_ || plow_check_ || paint_check_ || car_bomb_check_) ? 1.0/60.0 : dt);
         } else {
             // Title, pause and map are real pauses. Never let wall time from a
             // modal screen turn into a burst of vehicle steps on return.
@@ -4230,7 +4538,9 @@ int App::run() {
                         .count() * 1000.0;
         };
         for (int i = 0; i < tick.steps; ++i) {
-            const InputFrame live_input = tire_track_check_
+            const InputFrame live_input = plow_check_
+                ? plow_check_input()
+                : tire_track_check_
                 ? tire_track_check_input()
                 : (signal_check_ ? signal_check_input()
                     : (traffic_horn_check_ ? traffic_horn_check_input()
@@ -4544,6 +4854,7 @@ int App::run() {
             add_ms(sim_police_ms_, police_t1);
             snowplow_service_.step(world_.traffic().vehicles(), snow_clearance_,
                                     conditions_.snow_depth_m);
+            step_lot_plows();
             step_vehicle_snow();
             traffic_horn_audio_.update(step_index_,world_.traffic().vehicles(),
                 world_.lanes(),world_.traffic_tuning(),camera_.position);
@@ -4551,7 +4862,8 @@ int App::run() {
             world_.resolve_traffic_collision(
                 car_, tuning_.car_collision_half_width,
                 tuning_.car_collision_half_length, tuning_.mass_kg,
-                vehicle_god_mode_ ? 0.0f : tuning_.body_damage_gain);
+                vehicle_god_mode_ ? 0.0f : tuning_.body_damage_gain,
+                tuning_.car_collision_front_extension);
             add_ms(sim_traffic_ms_, traffic_t1);
             const WallClock::time_point police_t2 = WallClock::now();
             check_police_collision_offenses();
@@ -4574,6 +4886,7 @@ int App::run() {
                                   world_.traffic());
             tire_tracks_.step(car_, vehicle_input.handbrake,
                               road_conditions.snow_cover, step_index_);
+            step_player_plow(raw_input, i == 0);
             const WallClock::time_point police_t3 = WallClock::now();
             const auto current_police_visible=visible_police(player_focus_position());
             check_police_arrest(current_police_visible);
@@ -4814,6 +5127,7 @@ int App::run() {
         trailer_visual_.sync(scene_,prev_trailer_,trailer_,static_cast<float>(clock_.alpha()),visible_headlight_level,brake_level);
         // With weather effects off the world draws no snow; vehicles follow.
         const bool vehicle_snow = ui_.settings().weather_effects;
+        car_visual_.set_plow_raised(plow_blade_.raised);
         car_visual_.sync(scene_, tuning_, prev_car_, car_,
                          static_cast<float>(clock_.alpha()),
                          visible_headlight_level, brake_level,
@@ -4822,6 +5136,12 @@ int App::run() {
                                  &snow_shelter_, vehicle_snow_weather());
         car_visual_.sync_emergency(scene_,step_index_,police_emergency_enabled_ &&
             !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_);
+        // A working plow truck runs its service bar whenever someone is in
+        // the cab; it is off once the driver walks away from it.
+        car_visual_.sync_plow_lights(scene_,step_index_,
+            !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_,
+            visible_headlight_level);
+        sync_lot_plows(static_cast<float>(clock_.alpha()), visible_headlight_level);
         car_visual_.sync_soft_top(scene_,soft_top_.stowed);
         car_visual_.sync_driver_door(scene_,vehicle_transition_.active()
             ? vehicle_transition_door_open(sample_vehicle_transition(vehicle_transition_,

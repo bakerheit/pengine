@@ -47,6 +47,11 @@ enum class PlayerCarId : uint8_t {
     GlmMeridian,
     RodeoSwitchback,
     HarrowHookline,
+    // Fitted-equipment variants: the base truck's cooked body, doors, glass
+    // and seat with a front plow and a roof service light bar bolted on
+    // (app/plow_kit.h). Appended, so every checkpoint id above stays put.
+    RodeoGrazerPlow,
+    HarrowWorkmanPlow,
     kCount,
 };
 
@@ -67,6 +72,31 @@ inline constexpr std::size_t kSelectablePlayerCarCount = kPlayerCarCount - 1u;
 inline constexpr PlayerCarId canonical_player_car_id(PlayerCarId id) {
     return id == PlayerCarId::LegacyCruiser91CSlot
         ? PlayerCarId::MunicipalCruiser91C : id;
+}
+
+// THE BODY A VARIANT DRIVES. A plow truck is its base truck with equipment
+// bolted on: the same cooked shell, doors, glass, seat, lamps and plate
+// mounts. Everything keyed on that geometry asks this; the catalog row, the
+// tuning and the equipment stay keyed on the variant's own id.
+inline constexpr PlayerCarId player_car_body_id(PlayerCarId id) {
+    id = canonical_player_car_id(id);
+    if (id == PlayerCarId::RodeoGrazerPlow) return PlayerCarId::RodeoGrazer;
+    if (id == PlayerCarId::HarrowWorkmanPlow) return PlayerCarId::HarrowWorkman;
+    return id;
+}
+
+inline constexpr bool has_plow_kit(PlayerCarId id) {
+    id = canonical_player_car_id(id);
+    return id == PlayerCarId::RodeoGrazerPlow || id == PlayerCarId::HarrowWorkmanPlow;
+}
+
+// --player-car key for a variant that shares its base's model folder, or
+// nullptr when the folder name is the key.
+inline constexpr const char* player_car_variant_key(PlayerCarId id) {
+    id = canonical_player_car_id(id);
+    if (id == PlayerCarId::RodeoGrazerPlow) return "rodeo_grazer_plow";
+    if (id == PlayerCarId::HarrowWorkmanPlow) return "harrow_workman_plow";
+    return nullptr;
 }
 
 inline constexpr bool is_motorbike(PlayerCarId id) {
@@ -151,6 +181,12 @@ inline constexpr std::array<PlayerCarDefinition, kSelectablePlayerCarCount>
          "models/vehicles/harrow_workman/body_surface.emesh",
          "textures/vehicles/harrow_workman/body_surface.png",
          0.45f, 0.94f, 1.65f, 1.55f},
+        // Workman's row again, with the plow kit. The fit numbers must stay
+        // the base row's: the kit is fitted to that body and placed by them.
+        {PlayerCarId::HarrowWorkmanPlow, "HARROW", "WORKMAN PLOW",
+         "models/vehicles/harrow_workman/body_surface.emesh",
+         "textures/vehicles/harrow_workman/body_surface.png",
+         0.45f, 0.94f, 1.65f, 1.55f},
         {PlayerCarId::LegacyCar5, "LEGACY", "CAR 5",
          "models/vehicles/car5/body.emesh",
          "textures/vehicles/car5/body.png",
@@ -230,6 +266,10 @@ inline constexpr std::array<PlayerCarDefinition, kSelectablePlayerCarCount>
         {PlayerCarId::RodeoGrazer, "RODEO", "GRAZER 4X4",
          "models/vehicles/rodeo_grazer/body.emesh", "textures/vehicles/rodeo_grazer/body.png",
          .405f,.82f,1.43f,1.50f,1.465f,.82f,.405f},
+        // Grazer's row again, with the plow kit; same body, same fit numbers.
+        {PlayerCarId::RodeoGrazerPlow, "RODEO", "GRAZER 4X4 PLOW",
+         "models/vehicles/rodeo_grazer/body.emesh", "textures/vehicles/rodeo_grazer/body.png",
+         .405f,.82f,1.43f,1.50f,1.465f,.82f,.405f},
         {PlayerCarId::RodeoSwitchback, "RODEO", "SWITCHBACK",
          "models/vehicles/rodeo_switchback/body.emesh",
          "textures/vehicles/rodeo_switchback/body.png",
@@ -269,15 +309,15 @@ inline constexpr std::array<PlayerCarBrand, 15> kPlayerCarBrands{{
     {"FANG", "FANG  >", 5u, 1u},
     {"GLM", "GLM  >", 6u, 3u},
     {"HALCYON", "HALCYON  >", 9u, 2u},
-    {"HARROW", "HARROW  >", 11u, 5u},
-    {"LEGACY", "LEGACY  >", 16u, 5u},
-    {"MONTROSE", "MONTROSE  >", 21u, 1u},
-    {"MUNICIPAL", "MUNICIPAL  >", 22u, 7u},
-    {"ORISON", "ORISON  >", 29u, 1u},
-    {"RODEO", "RODEO  >", 30u, 2u},
-    {"SADDLE", "SADDLE  >", 32u, 1u},
-    {"SPAGATTI", "SPAGATTI  >", 33u, 1u},
-    {"VESPER", "VESPER  >", 34u, 3u},
+    {"HARROW", "HARROW  >", 11u, 6u},
+    {"LEGACY", "LEGACY  >", 17u, 5u},
+    {"MONTROSE", "MONTROSE  >", 22u, 1u},
+    {"MUNICIPAL", "MUNICIPAL  >", 23u, 7u},
+    {"ORISON", "ORISON  >", 30u, 1u},
+    {"RODEO", "RODEO  >", 31u, 3u},
+    {"SADDLE", "SADDLE  >", 34u, 1u},
+    {"SPAGATTI", "SPAGATTI  >", 35u, 1u},
+    {"VESPER", "VESPER  >", 36u, 3u},
 }};
 
 inline constexpr const PlayerCarDefinition& player_car_definition(

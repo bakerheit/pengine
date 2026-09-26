@@ -179,7 +179,8 @@ void every_drivable_car_has_a_profile_or_is_pending() {
 void body_texture_path_is_the_catalog_but_workman() {
     for (const PlayerCarDefinition& car : kPlayerCars) {
         const std::string_view worn = player_car_body_texture_path(car.id);
-        if (car.id == PlayerCarId::HarrowWorkman) {
+        // A plow truck wears its base truck's atlas, Workman's included.
+        if (player_car_body_id(car.id) == PlayerCarId::HarrowWorkman) {
             REQUIRE(worn == "textures/vehicles/harrow_workman/body.png");
             REQUIRE(worn != car.texture_path);
         } else {

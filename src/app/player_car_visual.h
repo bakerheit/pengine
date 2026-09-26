@@ -5,6 +5,7 @@
 #include <optional>
 
 #include "app/player_car_catalog.h"
+#include "app/plow_kit_mesh.h"
 #include "game/vehicle_paint.h"
 #include "app/vehicle_plate_visual.h"
 #include "core/transform.h"
@@ -46,6 +47,13 @@ public:
                             const VehicleState& current, float alpha,
                             float level) const;
     void sync_emergency(Scene& scene, uint64_t step, bool enabled) const;
+    // PLOW TRUCKS. The blade's lift, 0 down to 1 raised, as the sim steps it;
+    // sync() poses the kit from it. sync() leaves every lamp in the kit dark,
+    // which is what a parked copy keeps; the driven truck then lights them.
+    bool has_plow() const { return models_[static_cast<std::size_t>(active_car_)].plow; }
+    void set_plow_raised(float raised) { plow_raised_ = raised; }
+    void sync_plow_lights(Scene& scene, uint64_t step, bool light_bar,
+                          float headlight_level) const;
     void destroy(Scene& scene);
     // Clone only scene instances; immutable mesh/texture handles are shared.
     void clone_parked(Scene& scene, PlayerCarVisual& out) const;
@@ -108,10 +116,21 @@ private:
         std::array<MeshId,2> custom_wheel_meshes{kInvalidId,kInvalidId};
         std::array<AABB,2> custom_wheel_bounds{};
         std::array<float,2> custom_wheel_radii{};
+        bool plow = false;
+        std::array<MeshId, kPlowPartCount> plow_meshes{};
+        std::array<AABB, kPlowPartCount> plow_bounds{};
+        glm::vec3 plow_pivot{0.0f};
+        float plow_lift_radians = 0.0f;
+        glm::vec3 plow_paint{1.0f};
+        std::array<glm::vec3, 2> plow_lamps{};  // source space, -x then +x
     };
 
     bool load_model(Renderer& renderer, const PlayerCarDefinition& definition,
                     Model& out);
+    // Fits the plow kit to the base truck's cooked body and uploads it.
+    bool load_plow_kit(Renderer& renderer, const PlayerCarDefinition& definition,
+                       Model& out);
+    void sync_plow(Scene& scene, const Transform& body) const;
     // Every node that samples the body atlas: body, doors, soft top, the four
     // lamps and any custom wheels. Emergency nodes and glass copy the body
     // renderable in sync().
@@ -148,6 +167,10 @@ private:
     std::array<NodeId, 4> lamp_nodes_{
         kInvalidId, kInvalidId, kInvalidId, kInvalidId};
     std::array<NodeId,2> emergency_nodes_{kInvalidId,kInvalidId};
+    std::array<NodeId, kPlowPartCount> plow_nodes_{};
+    MaterialId plow_gloss_material_ = kInvalidId;
+    MaterialId plow_matte_material_ = kInvalidId;
+    float plow_raised_ = 0.0f;
 };
 
 }  // namespace apricot

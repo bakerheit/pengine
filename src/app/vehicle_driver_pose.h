@@ -26,6 +26,7 @@ inline bool shows_mistral_driver(PlayerCarId car, bool occupied) {
 }
 
 inline bool has_animated_driver(PlayerCarId car) {
+    car=player_car_body_id(car);
     return car == PlayerCarId::Bwc360 || car == PlayerCarId::VesperMistral || car == PlayerCarId::HarrowWorkman ||
         car == PlayerCarId::GlmMeridian || car == PlayerCarId::RodeoSwitchback || car == PlayerCarId::HarrowHookline ||
         car==PlayerCarId::AlderPip || car==PlayerCarId::VesperScythe ||
@@ -37,6 +38,7 @@ inline bool has_animated_driver(PlayerCarId car) {
 }
 
 inline bool has_contact_driver_entry(PlayerCarId car) {
+    car=player_car_body_id(car);
     return car==PlayerCarId::AlderPip || car==PlayerCarId::VesperScythe ||
         car==PlayerCarId::HalcyonSovereign || car==PlayerCarId::EmberGt;
 }
@@ -65,7 +67,7 @@ struct VehicleDriverLayout {
 };
 
 inline const VehicleDriverLayout& vehicle_driver_layout(PlayerCarId car) {
-    car=canonical_player_car_id(car);
+    car=player_car_body_id(car);
     static const VehicleDriverLayout mistral{
         kMistralDriverHip, {kMistralDriverWrists[0], kMistralDriverWrists[1]},
         {kMistralDriverAnkles[0], kMistralDriverAnkles[1]},
@@ -335,6 +337,7 @@ inline bool make_seated_driver_pose(const VehicleDriverLayout& layout, const Ske
 
 inline bool make_vehicle_driver_pose(PlayerCarId car,const Skeleton& skeleton,
         const AABB& bounds,const Transform& body,VehicleDriverPose& out) {
+    car=player_car_body_id(car);
     if(!has_animated_driver(car)) {out={};return false;}
     // Positive angles recline this supplied rig toward the seat back. The
     // Scythe's low canopy needs the measured rearward sports-car posture.

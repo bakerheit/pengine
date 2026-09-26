@@ -669,6 +669,7 @@ void test_the_tape_format_is_a_flat_block_of_bytes(const Recording& rec,
     REQUIRE(kBtnMenuDown == 2048u);
     REQUIRE(kBtnTrailer == 4096u);
     REQUIRE(kBtnJump == 65536u);
+    REQUIRE(kBtnPlowBlade == 131072u);
 
     // And the consequence: a tape written out as raw bytes and read back drives
     // the identical run. If InputFrame ever stops being a flat block, this is
@@ -709,7 +710,7 @@ void test_the_tape_format_is_a_flat_block_of_bytes(const Recording& rec,
 // now, next to the layout above that it versions.
 void test_the_tape_version_is_pinned(const Recording& rec,
                                      const TerrainCollider& collider) {
-    REQUIRE_MSG(kReplayTapeVersion == 8u,
+    REQUIRE_MSG(kReplayTapeVersion == 9u,
                 "kReplayTapeVersion changed; every recorded tape is now junk, "
                 "which is fine if you meant it",
                 "tape version");

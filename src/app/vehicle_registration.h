@@ -9,6 +9,8 @@ inline PlateUse player_plate_use(PlayerCarId model) {
     if (is_municipal_cruiser_91(model) || model==PlayerCarId::MunicipalAmbulance ||
         model==PlayerCarId::MunicipalFiretruck || model==PlayerCarId::LegacyCar8Ambulance ||
         model==PlayerCarId::LegacyCar5NextPolice) return PlateUse::Government;
+    // A plow truck works commercial lots for hire, whatever its base.
+    if (has_plow_kit(model)) return PlateUse::Commercial;
     if (model==PlayerCarId::HarrowCityliner || model==PlayerCarId::HarrowParcel ||
         model==PlayerCarId::HarrowWorkman || model==PlayerCarId::HarrowHauler ||
         model==PlayerCarId::HarrowHookline ||

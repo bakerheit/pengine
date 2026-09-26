@@ -2739,9 +2739,11 @@ bool World::resolve_traffic_collision(VehicleState& player,
                                       float player_half_width_m,
                                       float player_half_length_m,
                                       float player_mass_kg,
-                                      float player_body_damage_gain) {
+                                      float player_body_damage_gain,
+                                      float player_front_extension_m) {
     return crowd_.resolve_player_collision(
-        player, player_half_width_m, player_half_length_m, player_mass_kg, player_body_damage_gain);
+        player, player_half_width_m, player_half_length_m, player_mass_kg,
+        player_body_damage_gain, player_front_extension_m);
 }
 
 bool World::inside_authored_interior(glm::vec3 position, float margin_m) const {

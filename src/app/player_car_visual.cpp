@@ -9,6 +9,8 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include "app/vehicle_lamp_mesh.h"
+#include "app/plow_kit.h"
+#include "app/vehicle_model_tuning.h"
 #include "app/vehicle_registration.h"
 #include "app/vehicle_snow_mesh.h"
 #include "app/emergency_lighting.h"
@@ -31,7 +33,6 @@ namespace {
 
 constexpr const char* kWheelMeshPath = "models/vehicles/common/wheel.emesh";
 constexpr const char* kWheelTexturePath = "textures/vehicles/common/wheel.png";
-constexpr float kPi = 3.14159265358979323846f;
 
 bool front_wheel(int index) {
     return index == kWheelFrontLeft || index == kWheelFrontRight;
@@ -53,6 +54,7 @@ Transform chassis_pose(const VehicleState& previous,
 
 bool PlayerCarVisual::load_model(
     Renderer& renderer, const PlayerCarDefinition& definition, Model& out) {
+    const PlayerCarId body_id = player_car_body_id(definition.id);
     StaticEmesh body;
     if (!read_static_emesh(asset_path(definition.mesh_path), body)) {
         AP_ERROR("player car: body '%s %s' failed to load",
@@ -72,30 +74,30 @@ bool PlayerCarVisual::load_model(
         return false;
     }
 
-    if (has_animated_driver(definition.id) && !is_motorbike(definition.id)) {
+    if (has_animated_driver(body_id) && !is_motorbike(body_id)) {
         const std::string path=definition.mesh_path;
         const std::string root=path.substr(0,path.find_last_of('/')+1);
         StaticEmesh open_body, door;
-        if (!read_static_emesh(asset_path(root + (definition.id==PlayerCarId::Bwc360 ? "body_drive.emesh" : "body_open.emesh")), open_body) ||
-            !read_static_emesh(asset_path(root + (definition.id==PlayerCarId::Bwc360 ? "driver_front_door.emesh" : "driver_door.emesh")), door)) {
+        if (!read_static_emesh(asset_path(root + (body_id==PlayerCarId::Bwc360 ? "body_drive.emesh" : "body_open.emesh")), open_body) ||
+            !read_static_emesh(asset_path(root + (body_id==PlayerCarId::Bwc360 ? "driver_front_door.emesh" : "driver_door.emesh")), door)) {
             AP_ERROR("player car: %s articulated meshes missing; recook the vehicle assets", definition.model);
             return false;
         }
         out.body_mesh = renderer.add_mesh(
-            make_vehicle_snow_mesh(open_body, root + (definition.id==PlayerCarId::Bwc360 ? "body_drive.emesh" : "body_open.emesh")));
+            make_vehicle_snow_mesh(open_body, root + (body_id==PlayerCarId::Bwc360 ? "body_drive.emesh" : "body_open.emesh")));
         out.driver_door_mesh = renderer.add_mesh(door);
         out.driver_door_bounds = door.bounds;
         if (out.driver_door_mesh == kInvalidId) return false;
-        if (has_passenger_door(definition.id)) {
+        if (has_passenger_door(body_id)) {
             StaticEmesh passenger;
-            if (!read_static_emesh(asset_path(root+(definition.id==PlayerCarId::Bwc360 ? "passenger_front_door.emesh" : "passenger_door.emesh")),passenger)) return false;
+            if (!read_static_emesh(asset_path(root+(body_id==PlayerCarId::Bwc360 ? "passenger_front_door.emesh" : "passenger_door.emesh")),passenger)) return false;
             out.passenger_door_mesh=renderer.add_mesh(passenger);
             out.passenger_door_bounds=passenger.bounds;
             if (out.passenger_door_mesh==kInvalidId) return false;
         }
     } else out.body_mesh = renderer.add_mesh(
         make_vehicle_snow_mesh(body, definition.mesh_path));
-    if (is_convertible(definition.id)) {
+    if (is_convertible(body_id)) {
         const std::string path=definition.mesh_path;
         const std::string root=path.substr(0,path.find_last_of('/')+1);
         constexpr const char* names[]{"soft_top_rear.emesh","soft_top_front.emesh"};
@@ -114,25 +116,25 @@ bool PlayerCarVisual::load_model(
             if (out.soft_top_meshes[i]==kInvalidId) return false;
         }
     }
-    if (definition.id == PlayerCarId::Bwc360 || definition.id == PlayerCarId::SaddleTango || definition.id == PlayerCarId::HarrowWorkman ||
-        definition.id == PlayerCarId::GlmMeridian || definition.id == PlayerCarId::RodeoSwitchback || definition.id == PlayerCarId::HarrowHookline ||
-        definition.id == PlayerCarId::EmberGt || definition.id == PlayerCarId::RodeoGrazer ||
-        definition.id == PlayerCarId::AlderPip || definition.id == PlayerCarId::SpagattiShu ||
-        definition.id == PlayerCarId::LegacyCar5Next ||
-        definition.id == PlayerCarId::LegacyCar5NextPolice ||
-        is_municipal_cruiser_91(definition.id) ||
-        is_motorbike(definition.id)) {
+    if (body_id == PlayerCarId::Bwc360 || body_id == PlayerCarId::SaddleTango || body_id == PlayerCarId::HarrowWorkman ||
+        body_id == PlayerCarId::GlmMeridian || body_id == PlayerCarId::RodeoSwitchback || body_id == PlayerCarId::HarrowHookline ||
+        body_id == PlayerCarId::EmberGt || body_id == PlayerCarId::RodeoGrazer ||
+        body_id == PlayerCarId::AlderPip || body_id == PlayerCarId::SpagattiShu ||
+        body_id == PlayerCarId::LegacyCar5Next ||
+        body_id == PlayerCarId::LegacyCar5NextPolice ||
+        is_municipal_cruiser_91(body_id) ||
+        is_motorbike(body_id)) {
         constexpr const char* names[]{"windshield", "rear_glass", "passenger_glass", "driver_glass",
                                      "driver_rear_glass", "passenger_rear_glass"};
         const std::string body_path=definition.mesh_path;
         const std::string root=body_path.substr(0,body_path.find_last_of('/')+1);
-        const std::size_t pane_count=is_motorbike(definition.id) ? 1u :
-            (definition.id == PlayerCarId::HarrowWorkman || definition.id == PlayerCarId::HarrowHookline) ? 4u : 6u;
+        const std::size_t pane_count=is_motorbike(body_id) ? 1u :
+            (body_id == PlayerCarId::HarrowWorkman || body_id == PlayerCarId::HarrowHookline) ? 4u : 6u;
         out.glass_material = renderer.add_glass_material();
         for (std::size_t i=0;i<pane_count;++i) {
             StaticEmesh glass;
-            if (!read_static_emesh(asset_path(root+(definition.id==PlayerCarId::Bwc360 && i==2 ? "passenger_front_glass" : definition.id==PlayerCarId::Bwc360 && i==3 ? "driver_front_glass" : names[i])+".emesh"),glass)) return false;
-            out.glass_meshes[i] = i == 0u && !is_motorbike(definition.id)
+            if (!read_static_emesh(asset_path(root+(body_id==PlayerCarId::Bwc360 && i==2 ? "passenger_front_glass" : body_id==PlayerCarId::Bwc360 && i==3 ? "driver_front_glass" : names[i])+".emesh"),glass)) return false;
+            out.glass_meshes[i] = i == 0u && !is_motorbike(body_id)
                 ? renderer.add_mesh(make_windshield_snow_mesh(glass))
                 : renderer.add_mesh(glass);
             out.glass_bounds[i]=glass.bounds;
@@ -148,8 +150,8 @@ bool PlayerCarVisual::load_model(
         return false;
     }
 
-    if (is_motorbike(definition.id) || definition.id==PlayerCarId::Bwc360 || definition.id==PlayerCarId::SaddleTango || definition.id==PlayerCarId::EmberGt || definition.id==PlayerCarId::RodeoGrazer ||
-        definition.id==PlayerCarId::GlmMeridian || definition.id==PlayerCarId::RodeoSwitchback || definition.id==PlayerCarId::HarrowHookline) {
+    if (is_motorbike(body_id) || body_id==PlayerCarId::Bwc360 || body_id==PlayerCarId::SaddleTango || body_id==PlayerCarId::EmberGt || body_id==PlayerCarId::RodeoGrazer ||
+        body_id==PlayerCarId::GlmMeridian || body_id==PlayerCarId::RodeoSwitchback || body_id==PlayerCarId::HarrowHookline) {
         const std::string path=definition.mesh_path;
         const std::string root=path.substr(0,path.find_last_of('/')+1);
         constexpr const char* names[]{"front_wheel.emesh","rear_wheel.emesh"};
@@ -202,10 +204,29 @@ bool PlayerCarVisual::init(Renderer& renderer, Scene& scene,
     plate_renderer_=&renderer;
     plate_material_=load_vehicle_plate_material(renderer);
     if (plate_material_==kInvalidId) return false;
+    // The plow kit's detail atlas, twice: glossy for powder coat, steel and
+    // lenses, satin for the black frame and the rubber.
+    for (MaterialId* material : {&plow_gloss_material_, &plow_matte_material_}) {
+        Texture atlas;
+        if (!atlas.upload_rgba(256, 256, make_plow_kit_atlas(256))) return false;
+        *material = renderer.add_material(std::move(atlas), false,
+            material == &plow_gloss_material_ ? 1.15f : 0.3f);
+        if (*material == kInvalidId) return false;
+    }
     for (const auto& car : kPlayerCars) {
+        if (player_car_body_id(car.id) != car.id) continue;
         if (!load_model(renderer, car, models_[static_cast<std::size_t>(car.id)])) {
             return false;
         }
+    }
+    // Equipment variants share every uploaded handle of their base truck
+    // and add the kit fitted to its body.
+    for (const auto& car : kPlayerCars) {
+        const PlayerCarId base = player_car_body_id(car.id);
+        if (base == car.id) continue;
+        Model& model = models_[static_cast<std::size_t>(car.id)];
+        model = models_[static_cast<std::size_t>(base)];
+        if (has_plow_kit(car.id) && !load_plow_kit(renderer, car, model)) return false;
     }
 
     StaticEmesh wheel;
@@ -284,6 +305,13 @@ bool PlayerCarVisual::init(Renderer& renderer, Scene& scene,
         id=scene.create(body_renderable,Transform{},initial.body_bounds);
         scene.get(id)->visible=false;
     }
+    for (auto& id:plow_nodes_) {
+        Renderable kit;
+        kit.mesh=initial.body_mesh;  // select() points it at a kit part
+        kit.material=plow_gloss_material_;
+        id=scene.create(kit,Transform{},initial.body_bounds);
+        scene.get(id)->visible=false;
+    }
     return select(scene, tuning, state, initial_car);
 }
 
@@ -320,6 +348,17 @@ bool PlayerCarVisual::select(Scene& scene, const VehicleTuning& tuning,
         lamp->local_bounds = model.lamp_bounds[i];
         lamp_bounds_[i] = model.lamp_bounds[i];
     }
+    for (std::size_t i=0;i<plow_nodes_.size();++i) {
+        SceneNode* kit=scene.get(plow_nodes_[i]);
+        if (!kit) return false;
+        kit->visible=model.plow;
+        if (!model.plow) continue;
+        kit->renderable.mesh=model.plow_meshes[i];
+        const auto part=static_cast<PlowPart>(i);
+        kit->renderable.material=part==PlowPart::BladeFrame || part==PlowPart::BladeRubber ||
+            part==PlowPart::MountFrame ? plow_matte_material_ : plow_gloss_material_;
+        kit->local_bounds=model.plow_bounds[i];
+    }
     const bool bike=is_motorbike(car);
     for (std::size_t i=0;i<wheel_nodes_.size();++i) {
         auto* wheel=scene.get(wheel_nodes_[i]);
@@ -336,19 +375,9 @@ bool PlayerCarVisual::select(Scene& scene, const VehicleTuning& tuning,
     // Every body is independently fitted to the existing player chassis. The
     // visual changes immediately; physics, damage, wheel state and replay do
     // not change identity or dimensions.
-    const float scale_x = tuning.half_track / definition.wheel_x;
-    const float scale_z = (2.0f * tuning.half_wheelbase) /
-        (definition.wheel_front_z + definition.wheel_rear_z);
-    body_local_ = Transform{};
-    body_local_.scale = {scale_x, scale_z, scale_z};
-    body_local_.rotation =
-        glm::angleAxis(kPi, glm::vec3{0.0f, 1.0f, 0.0f});
-    body_local_.position.y =
-        -tuning.com_height_above_mount - static_suspension_length(tuning) -
-        definition.arch_centre_y * scale_z;
-    body_local_.position.z =
-        (definition.wheel_front_z - definition.wheel_rear_z) *
-        scale_z * 0.5f;
+    // app/plow_kit.h owns the formula so the kit's headless fit places the
+    // blade with the very transform this body draws with.
+    body_local_ = player_car_body_transform(definition, tuning);
     placed_body_bounds_ = model.body_bounds.transformed(body_local_.matrix());
     lamp_layout_ = make_vehicle_lamp_layout(placed_body_bounds_);
     for (std::size_t i = 0; i < 2; ++i)
@@ -478,6 +507,7 @@ void PlayerCarVisual::sync(Scene& scene, const VehicleTuning& tuning,
             node->renderable.tint = glm::vec4{color, 1.0f + power * (front ? 1.8f : 2.2f)};
         }
     }
+    sync_plow(scene, chassis * body_local_);
     sync_driver_door(scene, 0.f);
     sync_passenger_door(scene, 0.f);
     // Stowed by default, for the same reason the door closes here: select()
@@ -580,6 +610,14 @@ HeadlightRig PlayerCarVisual::headlights(const VehicleState& previous,
             placed_body_bounds_, static_cast<std::size_t>(i), damage);
         rig.position[static_cast<std::size_t>(i)] =
             chassis.position + chassis.rotation * lens.position;
+        // A plow blade stands in front of the truck's own headlamps, which is
+        // why the kit carries its own pair above the hood: the beams come
+        // from those. Source -x is the chassis' right after the body's turn.
+        const Model& model = models_[static_cast<std::size_t>(active_car_)];
+        if (model.plow) {
+            rig.position[static_cast<std::size_t>(i)] = chassis.position + chassis.rotation *
+                body_local_.transform_point(model.plow_lamps[i == 0 ? 1u : 0u]);
+        }
         rig.direction[static_cast<std::size_t>(i)] = direction;
     }
     return rig;
@@ -627,6 +665,7 @@ void PlayerCarVisual::clone_parked(Scene& scene, PlayerCarVisual& out) const {
         out.wheel_nodes_[i]=clone(wheel_nodes_[i]);
         out.lamp_nodes_[i]=clone(lamp_nodes_[i]);
     }
+    for (std::size_t i=0;i<plow_nodes_.size();++i) out.plow_nodes_[i]=clone(plow_nodes_[i]);
 }
 
 void PlayerCarVisual::point_paint_nodes(Scene& scene, MaterialId paint) {
@@ -681,6 +720,7 @@ void PlayerCarVisual::destroy(Scene& scene) {
     scene.remove(passenger_door_node_);
     passenger_door_node_=kInvalidId;
     for (auto& id:emergency_nodes_) { scene.remove(id); id=kInvalidId; }
+    for (auto& id:plow_nodes_) { scene.remove(id); id=kInvalidId; }
     scene.remove(body_node_);
     body_node_ = kInvalidId;
     for (NodeId& node : wheel_nodes_) {
@@ -698,6 +738,92 @@ void PlayerCarVisual::set_registration(Scene& scene, const VehicleRegistration& 
     plate_.set(*plate_renderer_,scene,plate_material_,
         models_[static_cast<std::size_t>(active_car_)].plate_mounts,registration);
     plate_.sync(scene,body_node_);
+}
+
+bool PlayerCarVisual::load_plow_kit(Renderer& renderer,
+                                    const PlayerCarDefinition& definition, Model& out) {
+    StaticEmesh body;
+    if (!read_static_emesh(asset_path(definition.mesh_path), body)) {
+        AP_ERROR("player car: %s body missing for the plow kit", definition.model);
+        return false;
+    }
+    // Fitted with the tune the truck drives on. Only the body scale and the
+    // wheel radius reach the fit, and no driving style changes either.
+    const VehicleTuning tuning =
+        player_model_tuning(DrivingMechanicsStyle::ClassicGta, definition.id);
+    const Transform body_local = player_car_body_transform(definition, tuning);
+    const PlowKitSpec spec = plow_kit_spec(definition.id);
+    const PlowKitMeshes kit = make_plow_kit(
+        body, player_car_source_ground_y(definition, tuning), 1.0f / body_local.scale, spec);
+    if (!kit.fit.valid) {
+        AP_ERROR("player car: the plow kit does not fit '%s'", definition.mesh_path);
+        return false;
+    }
+    for (std::size_t i = 0; i < kPlowPartCount; ++i) {
+        out.plow_meshes[i] = renderer.add_mesh(kit.parts[i]);
+        out.plow_bounds[i] = kit.parts[i].bounds;
+        if (out.plow_meshes[i] == kInvalidId) return false;
+    }
+    out.plow = true;
+    out.plow_pivot = kit.pivot;
+    out.plow_lift_radians = kit.lift_radians;
+    out.plow_paint = spec.blade_paint;
+    out.plow_lamps = kit.lamp_centres;
+    std::size_t triangles = 0;
+    for (const auto& part : kit.parts) triangles += part.indices.size() / 3u;
+    AP_INFO("player car: %s %s plow kit fitted, %zu triangles",
+            definition.brand, definition.model, triangles);
+    return true;
+}
+
+void PlayerCarVisual::sync_plow(Scene& scene, const Transform& body) const {
+    const Model& model = models_[static_cast<std::size_t>(active_car_)];
+    const SceneNode* shell = scene.get(body_node_);
+    const bool shown = model.plow && shell && shell->visible;
+    const float raised = std::clamp(plow_raised_, 0.0f, 1.0f);
+    const glm::quat lift = glm::angleAxis(model.plow_lift_radians * raised, glm::vec3{1, 0, 0});
+    Transform pivot;
+    pivot.rotation = lift;
+    pivot.position = model.plow_pivot - lift * model.plow_pivot;
+    const Transform lifted = body * pivot;
+    // Unlit colours. The driven truck relights lenses in sync_plow_lights().
+    const std::array<glm::vec4, kPlowPartCount> tints{
+        glm::vec4{model.plow_paint, 1.0f},        // BladePaint
+        glm::vec4{0.050f, 0.052f, 0.056f, 1.0f},  // BladeFrame
+        glm::vec4{0.60f, 0.61f, 0.62f, 1.0f},     // BladeSteel
+        glm::vec4{0.028f, 0.028f, 0.030f, 1.0f},  // BladeRubber
+        glm::vec4{1.0f, 0.30f, 0.025f, 1.0f},     // BladeMarker
+        glm::vec4{0.050f, 0.052f, 0.056f, 1.0f},  // MountFrame
+        glm::vec4{0.80f, 0.81f, 0.82f, 1.0f},     // MountSteel
+        glm::vec4{0.70f, 0.72f, 0.74f, 1.0f},     // LampLens
+        glm::vec4{0.52f, 0.25f, 0.02f, 1.0f},     // BarLens0..3
+        glm::vec4{0.52f, 0.25f, 0.02f, 1.0f},
+        glm::vec4{0.52f, 0.25f, 0.02f, 1.0f},
+        glm::vec4{0.52f, 0.25f, 0.02f, 1.0f}};
+    for (std::size_t i = 0; i < plow_nodes_.size(); ++i) {
+        SceneNode* node = scene.get(plow_nodes_[i]);
+        if (!node) continue;
+        node->visible = shown;
+        if (!shown) continue;
+        node->renderable.tint = tints[i];
+        scene.set_transform(plow_nodes_[i], plow_part_moves(i) ? lifted : body);
+    }
+}
+
+void PlayerCarVisual::sync_plow_lights(Scene& scene, uint64_t step, bool light_bar,
+                                       float headlight_level) const {
+    const Model& model = models_[static_cast<std::size_t>(active_car_)];
+    if (!model.plow) return;
+    const float beam = std::clamp(headlight_level, 0.0f, 1.0f);
+    if (SceneNode* lamps = scene.get(plow_nodes_[plow_part(PlowPart::LampLens)]); lamps && lamps->visible)
+        lamps->renderable.tint = {glm::mix(glm::vec3{0.70f, 0.72f, 0.74f}, glm::vec3{1.0f, 0.93f, 0.80f}, beam),
+                                  1.0f + 2.4f * beam};
+    for (std::size_t g = 0; g < kPlowBarLensGroups; ++g) {
+        SceneNode* lens = scene.get(plow_nodes_[plow_part(PlowPart::BarLens0) + g]);
+        if (!lens || !lens->visible) continue;
+        const float power = light_bar ? plow_light_bar_power(step, g) : 0.0f;
+        if (power > 0.0f) lens->renderable.tint = {1.0f, 0.40f, 0.02f, 1.0f + 2.6f * power};
+    }
 }
 
 }  // namespace apricot

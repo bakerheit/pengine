@@ -156,6 +156,11 @@ struct VehicleTuning {
     // makes ordinary terrain crests catch the car's invisible corners.
     float car_collision_half_width = 1.045f;
     float car_collision_half_length = 2.445f;
+    // Front equipment (a plow blade) reaching past the body. The footprint's
+    // front face moves forward by this much and its rear face stays put, so
+    // the box covers the body plus the equipment rather than growing at both
+    // ends. Zero for every car without any.
+    float car_collision_front_extension = 0.0f;
 
     // Multipliers on the uniform-box inertia. A uniform box makes a car far
     // too eager to roll, because real mass sits low and inboard. Raise
