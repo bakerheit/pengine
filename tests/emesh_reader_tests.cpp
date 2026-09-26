@@ -746,7 +746,7 @@ void brake_lights_follow_rear_red_cells() {
             for (const float side : {-1.0f,1.0f}) {
                 glm::vec3 p{side*(r.x0+r.x1)*.5f,(r.y0+r.y1)*.5f,0};
                 const bool hit = vehicle_body_surface_z(body,p.x,p.y,false,p.z);
-                if (!hit || p.z < r.z0 || p.z > r.z1)
+                if (!hit || !r.contains(p))
                     std::printf("rear fit: %s x %.3f y %.3f z %.3f\n",car.mesh_path,p.x,p.y,p.z);
                 REQUIRE(hit);
                 REQUIRE(r.contains(p));

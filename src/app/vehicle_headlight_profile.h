@@ -7,6 +7,14 @@
 
 namespace apricot {
 
+// The fleet cruisers' depth bands end exactly at their flat lenses, so a depth
+// sampled on a lens lands on the band's edge, and which side it rounds to
+// depends on the compiler: arm64 clang fuses the multiply-adds and lands
+// inside, x86-64 gcc does not and lands one float step out, and those cruisers
+// then refused to load on Windows. A tenth of a millimetre is far above that
+// noise and far below any band, the thinnest of which is 4 mm.
+inline constexpr float kVehicleLampBandSlack = 1e-4f;
+
 struct VehicleHeadlightRegion {
     float x0 = 0, y0 = 0, x1 = 0, y1 = 0, z0 = 0, z1 = 0;
     bool round = false;
@@ -14,7 +22,7 @@ struct VehicleHeadlightRegion {
     bool contains(glm::vec3 p) const {
         p.x = std::abs(p.x);
         if (!valid() || p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1 ||
-            p.z < z0 || p.z > z1) return false;
+            p.z < z0 - kVehicleLampBandSlack || p.z > z1 + kVehicleLampBandSlack) return false;
         const glm::vec2 q{(2*p.x-x0-x1)/(x1-x0), (2*p.y-y0-y1)/(y1-y0)};
         return !round || glm::dot(q, q) <= 1.0f;
     }
@@ -71,7 +79,7 @@ inline bool vehicle_headlight_origin(const StaticEmesh& body,
         glm::vec3 p{(side == 0 ? 1.0f : -1.0f)*(r.x0+r.x1)*0.5f,
                     (r.y0+r.y1)*0.5f, 0};
         if (!vehicle_body_surface_z(body, p.x, p.y, true, p.z) ||
-            p.z < r.z0 || p.z > r.z1) return false;
+            p.z < r.z0 - kVehicleLampBandSlack || p.z > r.z1 + kVehicleLampBandSlack) return false;
         const float area = (r.x1-r.x0)*(r.y1-r.y0)*(r.round ? 0.785398f : 1.0f);
         sum += p*area;
         total += area;
