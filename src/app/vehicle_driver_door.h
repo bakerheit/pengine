@@ -20,7 +20,7 @@ struct VehicleDriverDoor {
 inline VehicleDriverDoor vehicle_driver_door(PlayerCarId car) {
     car=canonical_player_car_id(car);
     if(car==PlayerCarId::Bwc360) return {{.864f,.28f,.861f},{.881f,.835f,.07f},-.072f,.858f,.265f,1.07f,-1.082104136f};
-    if(car==PlayerCarId::GlmMeridian) return {{.91f,.42f,1.50f},{.94f,.99f,.22f},.04f,1.50f,.33f,.81f};
+    if(car==PlayerCarId::GlmMeridian) return {{.91f,.42f,1.16f},{.94f,.99f,.22f},.04f,1.16f,.33f,.81f};
     if(car==PlayerCarId::RodeoSwitchback) return {{.92f,.48f,.76f},{.95f,.99f,-.21f},-.35f,.76f,.41f,.73f};
     if(car==PlayerCarId::HarrowHookline) return {{1.02f,.55f,2.40f},{1.05f,1.20f,.67f},.47f,2.40f,.48f,.88f};
     if(car==PlayerCarId::RodeoGrazer) return {{.90f,.43f,.92f},{.916f,1.015f,-.19f},-.28f,.92f,.43f,1.31f};

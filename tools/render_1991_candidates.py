@@ -30,13 +30,18 @@ bpy.ops.object.camera_add();cam=bpy.context.object;scene.camera=cam;cam.data.typ
 scene.view_settings.view_transform='AgX'
 scene.view_settings.exposure=-.55
 for label,loc,angle in [('front',(6,8,3.4),0),('rear',(6,-8,3.4),0),('side',(10,0,2.6),0),
+                        ('side-flat',(10,0,.95),0),('front-flat',(0,10,.95),0),
+                        ('rear-flat',(0,-10,.95),0),('top-flat',(0,0,10),0),
                         ('door-partial',(6,8,3.4),28),('door-open',(6,8,3.4),65),('door-inside',(6,-8,3.6),65)]:
     if len(args)>1 and label not in args[1:]:continue
     cam.data.lens=55 if slug=='harrow_hookline' and label in ('rear','door-inside') else 60
+    cam.data.type='ORTHO' if label.endswith('-flat') else 'PERSP'
+    cam.data.ortho_scale=5.6 if label in ('side-flat','top-flat') else 3.15
     hinge=Vector((shape['half_width'],shape['door_front'],0))
     transform=Matrix.Translation(hinge) @ Matrix.Rotation(math.radians(angle),4,'Z') @ Matrix.Translation(-hinge)
     for obj in bpy.data.objects:
         if obj.get('vehicle_group')=='driver':obj.matrix_world=transform
-    cam.location=loc;cam.rotation_euler=(Vector((0,0,1.18))-cam.location).to_track_quat('-Z','Y').to_euler()
+    target=Vector((0,0,.95 if label.endswith('-flat') else 1.18))
+    cam.location=loc;cam.rotation_euler=(target-cam.location).to_track_quat('-Z','Y').to_euler()
     scene.render.filepath=str(ROOT/'build'/f'{slug}-refined-{label}.png')
     bpy.ops.render.render(write_still=True)

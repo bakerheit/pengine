@@ -6,37 +6,19 @@ These studio images are renders of the saved Blender models. The game captures s
 
 ## GLM Meridian
 
-### Curved-edge update
+### Roof and windows matched together
 
-The latest Meridian adds a shallow curved roof with rolled eaves, rounded roof corners, softer hood shoulders, gently crowned sides and rounded bumper returns. Wheel size and axle positions are unchanged. Its opaque roof and frames share the corner shaping; the transparent glass remains tucked behind the surrounds.
+The latest cabin revision replaces the rejected roof-only rollover. It uses a narrower and shorter roof, inclined side windows, larger front-window corner curves, sloping rear-quarter glazing and gently bowed end screens. The roof, pillars and window surrounds share their boundaries.
 
-| Previous model | Current model |
-|---|---|
-| ![Meridian before curved-edge update](glm_meridian-before-curves.png) | ![Meridian with curved roof and bumper edges](glm_meridian-front.png) |
-
-[All eight Meridian reference photos](../../references/glm_meridian/README.md#reference-photo-gallery).
+[Compare the original references directly against the revised model](../meridian-cabin-reference-match/README.md).
 
 ![Refined GLM Meridian](glm_meridian-front.png)
 
-[Rear](glm_meridian-rear.png) · [Side](glm_meridian-side.png) · [Door partly open](glm_meridian-door-partial.png) · [Door open](glm_meridian-door-open.png) · [Door interior](glm_meridian-door-inside.png) · [Game capture](glm_meridian-game.png)
+![Rear cabin](glm_meridian-rear.png)
 
-### Front and rear roof roll
+[Front flat view](glm_meridian-front-flat.png) · [Rear flat view](glm_meridian-rear-flat.png) · [Side flat view](glm_meridian-side-flat.png) · [Door partly open](glm_meridian-door-partial.png) · [Door open](glm_meridian-door-open.png) · [Door interior](glm_meridian-door-inside.png) · [Game capture](glm_meridian-game.png)
 
-The follow-up corrects the sharp roof lip above the windshield and rear hatch. Both ends now roll down over 300 mm, with a 135 mm center-height change. Dense cross sections preserve that curve in the cooked model; the adjoining glass, frames, side rails and headliner follow the revised boundary.
-
-These pairs use the same studio cameras and lighting:
-
-| View | Before roof roll | Current roof roll |
-|---|---|---|
-| Front | ![Previous front roof](glm_meridian-before-roof-roll-front.png) | ![Rounded front roof](glm_meridian-front.png) |
-| Rear | ![Previous rear roof](glm_meridian-before-roof-roll-rear.png) | ![Rounded rear roof](glm_meridian-rear.png) |
-| Side | ![Previous roof profile](glm_meridian-before-roof-roll-side.png) | ![Rounded roof profile](glm_meridian-side.png) |
-
-The cooked vehicle in Apricot's driver lab, including its transparent glass and cabin:
-
-![Front roof in runtime renderer](glm_meridian-runtime-front.png)
-
-![Rear roof in runtime renderer](glm_meridian-runtime-rear.png)
+[All eight Meridian references](../../references/glm_meridian/README.md#reference-photo-gallery).
 
 ## Rodeo Switchback
 
@@ -52,12 +34,12 @@ The cooked vehicle in Apricot's driver lab, including its transparent glass and 
 
 ## Verification and limits
 
-The Meridian roof-roll revision has 56,996 body triangles, below the existing 60,000 ceiling. Its asset checks include wheel radii; the rebuilt game passed the 650-frame door/driver transition check and a fresh 180-frame daylight capture with a clean graphics error queue.
+The Meridian cabin revision remains below the existing 60,000 body-triangle ceiling; the exact reviewed count and asset hashes are in `manifest.json`. Its asset checks include wheel radii; the rebuilt game passed the 650-frame door/driver transition check and a fresh 180-frame daylight capture with a clean graphics error queue.
 
-The checks below cover the relevant geometry and entry/exit behavior. The 650-frame run had streaming spikes while other local workloads were active; it is not a frame-rate benchmark.
+The checks below cover the relevant geometry and entry/exit behavior. The bounded run is not a frame-rate benchmark.
 
 - Asset validation checks finite geometry, unit normals, nondegenerate triangles, mapped UVs, wheel openings, dimensions, atlas format and required parts.
-- `new_vehicle_models_tests` passed again for this roof revision. The earlier fleet refinement also passed `vehicle_driver_pose_tests` and `license_plate_tests`.
+- `new_vehicle_models_tests` passed again for this cabin revision. The earlier fleet refinement also passed `vehicle_driver_pose_tests` and `license_plate_tests`.
 - All three passed the actual game's driver-transition check: door sweep, entry, exit, blocked paths, cancellation, re-entry and exit-camera clearance.
 - All three completed the final 180-frame daylight game captures with a clean graphics error queue.
 - The existing `vehicle_snow_mesh_tests` failure remains on the unrelated Halcyon Sovereign windshield. The full suite is not claimed green.

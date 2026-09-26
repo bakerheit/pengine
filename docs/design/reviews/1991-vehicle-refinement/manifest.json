@@ -2,23 +2,23 @@
   "generated_at": "2026-09-26T02:23:03.222589+00:00",
   "models": {
     "glm_meridian": {
-      "body_triangles": 56996,
+      "body_triangles": 56280,
       "sha256": {
-        "assets/models/vehicles/glm_meridian/passenger_rear_glass.emesh": "fabe61fc12d1ae273b288bf6f30125ef4485153d9c88cf6edb3f818c8ec50792",
+        "assets/models/vehicles/glm_meridian/passenger_rear_glass.emesh": "acb89ea2817f6ba8128e3f073e7f7dbe6dba3880172109e16070fb2c317d2d60",
         "assets/models/vehicles/glm_meridian/front_wheel.emesh": "86dcf5b19dadf99fb0e4c5370a16f710f4e93e371ec9a19dd303d6c15fb31578",
-        "assets/models/vehicles/glm_meridian/driver_glass.emesh": "65717ec3f48b313312c12513def3c90a406d464e58ff7315c49a56edd753d37d",
-        "assets/models/vehicles/glm_meridian/rear_glass.emesh": "b4ae6e8d3f7dce26a916a33299b281868e07e3c2d09efb3ebea73953ab79650f",
-        "assets/models/vehicles/glm_meridian/windshield.emesh": "73c7aff4d63de919d087a5cdf7e19a363f426662d31b6089a74849558998e822",
-        "assets/models/vehicles/glm_meridian/driver_rear_glass.emesh": "77897805142151c539d34b053faa460316b6276a8080290769c467e4675f0857",
-        "assets/models/vehicles/glm_meridian/body_open.emesh": "577b77554a83b66efac28a2e085a8849590a84a90fc5d854b72c96129eada432",
-        "assets/models/vehicles/glm_meridian/driver_door.emesh": "5350599e16fefac1714d0d0a9d5d7320602da3c32e5eb630b7f5a82e3072f90c",
-        "assets/models/vehicles/glm_meridian/passenger_glass.emesh": "c663ec9bb3da58a92a8bfe6b90157cee63c15a2c1cf6b9c6c41e64bca40dfa86",
+        "assets/models/vehicles/glm_meridian/driver_glass.emesh": "c8eff3c03b330cd1de7ec9693174e4f4d4c81644b9b6c599c44bc99440731da7",
+        "assets/models/vehicles/glm_meridian/rear_glass.emesh": "4ea2ea7bf9940612f0c04b31b9d3a55c018ce9a3e7302950764ae54727d3f3a0",
+        "assets/models/vehicles/glm_meridian/windshield.emesh": "c059304cd2adcd975ac7f26d09f84ea0fc96749d8434b0e6e2ac525c6c88179b",
+        "assets/models/vehicles/glm_meridian/driver_rear_glass.emesh": "099fdcc252815499cf2209ed9875121c92666b677683b8242d2c61423d1004c1",
+        "assets/models/vehicles/glm_meridian/body_open.emesh": "e493337472e0eb3d2253a778523484c8154c64f9e44b51f56d2f96cd9ccd0fea",
+        "assets/models/vehicles/glm_meridian/driver_door.emesh": "6326a7a52a78145462e8ce24edf2a400d7f8f47bf66f259491a6fcb7178d4eaf",
+        "assets/models/vehicles/glm_meridian/passenger_glass.emesh": "93db1aeea969d4c155140e4f984b069539cc68de3230e6e093ea770b1bb077f9",
         "assets/models/vehicles/glm_meridian/rear_wheel.emesh": "86dcf5b19dadf99fb0e4c5370a16f710f4e93e371ec9a19dd303d6c15fb31578",
-        "assets/models/vehicles/glm_meridian/body.emesh": "9b39bb716e1af965b955e565ec62eda226590a6ddd9584daf5e573aa07cdfe43",
+        "assets/models/vehicles/glm_meridian/body.emesh": "7253edf8daa0456aa666d2c454dc2362b7259cb2192deb9e54a82bc6e741c4ec",
         "assets/textures/vehicles/glm_meridian/body.png": "95fcab1ad833bf1819ced8c2e727690ab8cbe71d45e299b134d2b0fce4ea7d11"
       },
-      "reviewed_at": "2026-09-26T03:41:12.854028+00:00",
-      "revision": "Broader front and rear roof rollover, fitted upper window edges and rain channels",
+      "reviewed_at": "2026-09-26T04:06:22.205305+00:00",
+      "revision": "Roof and windows rebuilt together against original front, rear and side references",
       "verification": {
         "asset_validation": "passed",
         "new_vehicle_models_tests": "passed",
@@ -30,7 +30,7 @@
         ],
         "game_capture": {
           "frames": 180,
-          "result": "clean GL error queue; inspected roof silhouette",
+          "result": "clean GL error queue; inspected roof and window outlines",
           "position": [
             150,
             2046
@@ -41,7 +41,13 @@
           ],
           "camera_mode": "near",
           "image": "glm_meridian-game.png"
-        }
+        },
+        "reference_comparison": "docs/design/reviews/meridian-cabin-reference-match/README.md",
+        "flat_views": [
+          "glm_meridian-front-flat.png",
+          "glm_meridian-rear-flat.png",
+          "glm_meridian-side-flat.png"
+        ]
       }
     },
     "rodeo_switchback": {

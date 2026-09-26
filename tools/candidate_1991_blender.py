@@ -240,65 +240,36 @@ def build(slug):
         for z,h,mat in ((.62,.25,'RED'),(.89,.12,'AMBER'),(1.025,.085,'LAMP')):
             box('Rear combination lens',(a,-length-.049,z),(c,-length-.037,z+h),mat,rounding=.012)
     box('Lower radiator inlet',(-.42,length+.080,.405),(.42,length+.087,.49),'DARK',rounding=.025)
-    # The Meridian's headers roll through 135 mm over 300 mm of roof length.
-    # Window tops and the lower eave share one boundary; the roof rolls above it.
-    def window_top(y):
-        if kind!='van':return roof-.045
-        stations=[(s['roof_rear'],roof-.110),(-1.14,roof-.045),
-                  (s['door_rear'],roof-.045),(s['roof_front'],roof-.110)]
-        for (a,za),(c,zc) in zip(stations,stations[1:]):
-            if y<=c:return za+(zc-za)*max(0,(y-a)/(c-a))
-        return stations[-1][1]
-    def upper_x(z):
-        return width-.04-.06*(z-belt)/(roof-.045-belt)
-
-    # Domed roof; matching lower shell supplies an intentional headliner.
-    def roof_panel(name,ya,yb,material):
-        rows=[]
-        steps=10 if kind=='van' else 16
-        ys=[ya+(yb-ya)*j/steps for j in range(steps+1)]
-        if kind=='van':
-            # Dense, explicit header stations keep the silhouette curved even
-            # after export. Include the side-window joins in the same surface.
-            ys=sorted(set([y for y in ys if ya+.30<y<yb-.30]+[ya+.30*j/10 for j in range(11)]+
-                          [yb-.30*j/10 for j in range(11)]+[-1.14,s['door_rear']]))
-        for y in ys:
-            t=(y-ya)/(yb-ya)
-            longitudinal=.022*math.sin(math.pi*t)
-            if kind=='van':
-                # Wide, shallow crown rolls into the eaves and both headers.
-                end=max(0,1-min(y-ya,yb-y)/.30)
-                eave=roof-.045-.065*end*end
-                crown=.070*(1-end*end)
-                rows.append([(upper_x(eave)*u,y,
-                              eave+crown*math.sqrt(max(0,1-u**8)))
-                             for u in [-math.cos(math.pi*i/32) for i in range(33)]])
-            else:
+    if kind=='van':
+        from meridian_cabin import build_cabin
+        build_cabin(b,s,keep,mesh,skin,panes)
+    else:
+        # Domed roof; matching lower shell supplies an intentional headliner.
+        def roof_panel(name,ya,yb,material):
+            rows=[]
+            for j in range(17):
+                t=j/16;y=ya+(yb-ya)*t
+                longitudinal=.022*math.sin(math.pi*t)
                 rows.append([((width-.10)*u,y,
                               roof-.038+.037*(1-u*u)+longitudinal*.45)
                              for u in [-1+2*i/24 for i in range(25)]])
-        skin(name,rows,material,thickness=.045)
-        skin(name+' headliner',[[(x*.97,y,z-.052) for x,y,z in row] for row in rows],'HEADLINER',thickness=.014)
-        # Header and side returns use the roof's exact boundary stations. This
-        # closes the daylight slit without filling any window aperture.
-        if kind!='van':
+            skin(name,rows,material,thickness=.045)
+            skin(name+' headliner',[[(x*.97,y,z-.052) for x,y,z in row] for row in rows],'HEADLINER',thickness=.014)
+            # Header and side returns use the roof's exact boundary stations. This
+            # closes the daylight slit without filling any window aperture.
             for edge in (rows[0],rows[-1]):
                 skin(name+' curved roof header',[[p,(p[0],p[1],roof-.045)] for p in edge],material,thickness=.022)
-        for index in (0,-1):
-            skin(name+' upper window rail',[[row[index],
-                  ((-1 if index==0 else 1)*upper_x(window_top(row[index][1])),row[index][1],window_top(row[index][1])-.012)
-                  if kind=='van' else (row[index][0],row[index][1],roof-.045)]
-                  for row in rows],material,thickness=.018)
+            for index in (0,-1):
+                skin(name+' upper window rail',[[row[index],(row[index][0],row[index][1],roof-.045)]
+                      for row in rows],material,thickness=.018)
 
-    if kind=='suv':
-        roof_panel('Cab roof',-.32,s['roof_front'],'PAINT')
-        roof_panel('Removable hardtop',s['roof_rear'],-.31,'CREAM')
-    else:roof_panel('Crowned cabin roof',s['roof_rear'],s['roof_front'],'CREAM' if kind=='wrecker' else 'PAINT')
-    front_top=window_top(s['roof_front']) if kind=='van' else roof-.043
-    front_x=upper_x(front_top) if kind=='van' else width-.10
-    wind=[(-width+.06,s['windshield_base'],belt+.012),(width-.06,s['windshield_base'],belt+.012),
-          (front_x,s['roof_front'],front_top),(-front_x,s['roof_front'],front_top)]
-    window('Windshield',wind,'windshield')
+        if kind=='suv':
+            roof_panel('Cab roof',-.32,s['roof_front'],'PAINT')
+            roof_panel('Removable hardtop',s['roof_rear'],-.31,'CREAM')
+        else:roof_panel('Crowned cabin roof',s['roof_rear'],s['roof_front'],'CREAM' if kind=='wrecker' else 'PAINT')
+        wind=[(-width+.06,s['windshield_base'],belt+.012),(width-.06,s['windshield_base'],belt+.012),
+              (width-.10,s['roof_front'],roof-.043),(-width+.10,s['roof_front'],roof-.043)]
+        window('Windshield',wind,'windshield')
     # Wipers sit on the actual sloped screen, each with a pivot and blade.
     for x in (-.41,.41):
         tube('Wiper pivot',(x,s['windshield_base']+.016,belt+.05),
@@ -307,46 +278,36 @@ def build(slug):
              (x-.15,s['windshield_base']-.035,belt+.135),.016,'DARK')
         beam('Wiper blade',(x-.34,s['windshield_base']-.036,belt+.137),
              (x+.10,s['windshield_base']-.036,belt+.137),.022,'DARK')
-    back_y=-length+.04 if kind!='wrecker' else s['roof_rear']
-    rear_top=window_top(s['roof_rear']) if kind=='van' else roof-.047
-    rear_x=upper_x(rear_top) if kind=='van' else width-.10
-    back=[(-width+.06,back_y,belt+.025),(width-.06,back_y,belt+.025),
-          (rear_x,s['roof_rear'],rear_top),(-rear_x,s['roof_rear'],rear_top)]
-    window('Rear window',back,'rear_glass','CREAM' if kind=='suv' else 'PAINT')
+    if kind!='van':
+        back_y=-length+.04 if kind!='wrecker' else s['roof_rear']
+        back=[(-width+.06,back_y,belt+.025),(width-.06,back_y,belt+.025),
+              (width-.10,s['roof_rear'],roof-.047),(-width+.10,s['roof_rear'],roof-.047)]
+        window('Rear window',back,'rear_glass','CREAM' if kind=='suv' else 'PAINT')
     for sign in (-1,1):
         group='driver' if sign>0 else 'fixed'
-        def side_corners(ya,yb):
-            if kind=='van':
-                a=max(ya,s['roof_rear']);c=min(yb,s['roof_front'])
+        if kind!='van':
+            def side_corners(ya,yb):
                 return [(sign*(width-.04),ya,belt),(sign*(width-.04),yb,belt),
-                        (sign*upper_x(window_top(c)),c,window_top(c)),
-                        (sign*upper_x(window_top(a)),a,window_top(a))]
-            return [(sign*(width-.04),ya,belt),(sign*(width-.04),yb,belt),
-                    (sign*(width-.10),min(yb,s['roof_front']),roof-.045),
-                    (sign*(width-.10),max(ya,s['roof_rear']),roof-.045)]
-        corners=side_corners(s['door_rear'],s['door_front'])
-        window('Front door',corners,'driver_glass' if sign>0 else 'passenger_glass','PAINT',group)
-        # Triangular fixed quarter panel bridges the raked windshield and door.
-        q=[(sign*(width-.04),s['door_front'],belt),
-           (sign*(width-.04),s['windshield_base'],belt),
-           (sign*front_x,s['roof_front'],front_top if kind=='van' else roof-.045),
-           (sign*front_x,min(s['door_front'],s['roof_front']),front_top if kind=='van' else roof-.045)]
-        # For the SUV, the two upper points nearly coincide; use a real triangle.
-        if abs(q[2][1]-q[3][1])<.008:q=q[:3]
-        pane('rear_glass',q)
-        for i in range(len(q)):
-            if (Vector(q[i])-Vector(q[(i+1)%len(q)])).length>.005:
-                beam('Fixed front quarter pillar',q[i],q[(i+1)%len(q)],.050,'PAINT')
-        rear_spans=[(s['roof_rear'],-1.14),(-1.14,s['door_rear'])] if kind=='van' else [(s['roof_rear'],s['door_rear'])] if kind=='suv' else []
-        for ya,yb in rear_spans:
-            window('Rear side',side_corners(ya,yb),'driver_rear_glass' if sign>0 else 'passenger_rear_glass',
-                   'CREAM' if kind=='suv' else 'DARK' if kind=='van' else 'PAINT')
-        # Fixed rail fills the roof/side boundary and carries the rain gutter.
-        if kind=='van':
-            for a,c in zip((s['roof_rear']+.06,-1.14,s['door_rear']),(-1.14,s['door_rear'],s['roof_front']-.04)):
-                beam('Roof rain channel',(sign*(upper_x(window_top(a))+.010),a,window_top(a)-.006),
-                     (sign*(upper_x(window_top(c))+.010),c,window_top(c)-.006),.028,'PAINT')
-        else:
+                        (sign*(width-.10),min(yb,s['roof_front']),roof-.045),
+                        (sign*(width-.10),max(ya,s['roof_rear']),roof-.045)]
+            corners=side_corners(s['door_rear'],s['door_front'])
+            window('Front door',corners,'driver_glass' if sign>0 else 'passenger_glass','PAINT',group)
+            # Triangular fixed quarter panel bridges the raked windshield and door.
+            q=[(sign*(width-.04),s['door_front'],belt),
+               (sign*(width-.04),s['windshield_base'],belt),
+               (sign*(width-.10),s['roof_front'],roof-.045),
+               (sign*(width-.10),min(s['door_front'],s['roof_front']),roof-.045)]
+            # For the SUV, the two upper points nearly coincide; use a real triangle.
+            if abs(q[2][1]-q[3][1])<.008:q=q[:3]
+            pane('rear_glass',q)
+            for i in range(len(q)):
+                if (Vector(q[i])-Vector(q[(i+1)%len(q)])).length>.005:
+                    beam('Fixed front quarter pillar',q[i],q[(i+1)%len(q)],.050,'PAINT')
+            rear_spans=[(s['roof_rear'],s['door_rear'])] if kind=='suv' else []
+            for ya,yb in rear_spans:
+                window('Rear side',side_corners(ya,yb),'driver_rear_glass' if sign>0 else 'passenger_rear_glass',
+                       'CREAM' if kind=='suv' else 'PAINT')
+            # Fixed rail fills the roof/side boundary and carries the rain gutter.
             beam('Roof rain channel',(sign*(width-.09),s['roof_rear']+.06,roof-.051),
                  (sign*(width-.09),s['roof_front']-.04,roof-.051),.034,'CREAM' if kind=='suv' else 'PAINT')
         def panel_seam(y,low,high):
@@ -581,6 +542,7 @@ def build(slug):
         # new curvature cannot pull independently rounded parts apart.
         glass_objects={obj for group in panes.values() for obj in group}
         for obj in b.objects:
+            if obj.get('meridian_canopy'):continue
             for vertex in obj.data.vertices:
                 x,y,z=vertex.co
                 weight=max(0,min(1,(z-(roof-.24))/.16))
