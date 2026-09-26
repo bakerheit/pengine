@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -23,6 +24,7 @@
 #include "game/weapon.h"
 #include "game/molotov.h"
 #include "game/player_economy.h"
+#include "game/pager.h"
 #include "game/fire.h"
 #include "game/wanted_system.h"
 #include "game/police_escalation.h"
@@ -187,6 +189,8 @@ public:
     }
     void set_wallet_check(bool on) { wallet_check_=on; }
     bool wallet_check_passed() const { return wallet_check_done_ && !wallet_check_failed_; }
+    void set_pager_check(bool on) { pager_check_=on; }
+    bool pager_check_passed() const { return pager_check_done_ && !pager_check_failed_; }
     void set_house_check(bool enabled) { house_check_=enabled; }
     bool house_check_passed() const { return house_check_complete_ && !house_check_failed_; }
     void set_signal_check(bool enabled) { signal_check_=enabled; }
@@ -542,6 +546,33 @@ private:
     bool wallet_check_capture_pending_=true;
     int64_t wallet_check_cash_=0;
     void tick_wallet_check();
+
+    // The pager (game/pager.h) and Lou's page after the delivery, which points
+    // the player at the nearest payphone (game/lou_page.h, game/payphones.h).
+    // src/app/pager_gameplay.cpp.
+    Pager pager_;
+    uint32_t pager_pages_beeped_=0;
+    float lou_page_wait_s_=0;
+    int payphone_target_=-1;
+    void reset_pager();
+    void step_pager_rules();
+    bool try_call_lou();
+    std::optional<glm::vec2> mission_target() const;
+    void draw_pager(glm::vec2 vp, float time_of_day, float top);
+    void draw_payphone_cue(glm::vec2 vp);
+    // --pager-check: the page, the payphone marker and the call, in the real game.
+    bool pager_check_=false;
+    bool pager_check_done_=false, pager_check_failed_=false;
+    int pager_check_stage_=0;
+    int pager_check_stage_frame_=0;
+    uint64_t pager_check_start_step_=0;
+    std::string pager_check_capture_;
+    bool pager_check_walking_=false;
+    std::size_t pager_check_leg_=0;
+    void tick_pager_check();
+    void capture_pager_check();
+    InputFrame pager_check_input() const;
+    glm::vec3 pager_check_goal() const;
 
     bool weapon_hit_check_done_=false, weapon_hit_check_failed_=false;
     uint64_t weapon_hit_check_lane_=0;

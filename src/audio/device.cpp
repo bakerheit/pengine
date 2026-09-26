@@ -198,6 +198,8 @@ float AudioDevice::bank_total_seconds_() const {
     total += bank_.wind.duration_seconds();
     total += bank_.checkpoint.duration_seconds();
     total += bank_.lap_record.duration_seconds();
+    total += bank_.pager_beep.duration_seconds();
+    total += bank_.payphone_dial.duration_seconds();
     return total;
 }
 

@@ -165,6 +165,11 @@ void every_clip_in_the_bank_is_playable() {
     check_playable("lap_record", bank.lap_record);
     check_oneshot_ends("lap_record", bank.lap_record);
 
+    check_playable("pager_beep", bank.pager_beep);
+    check_oneshot_ends("pager_beep", bank.pager_beep);
+    check_playable("payphone_dial", bank.payphone_dial);
+    check_oneshot_ends("payphone_dial", bank.payphone_dial);
+
     pass("every clip in the bank is finite, in range, non-silent and DC-free");
 }
 

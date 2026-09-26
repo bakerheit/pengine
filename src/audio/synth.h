@@ -249,6 +249,19 @@ PcmClip synth_checkpoint_stinger(uint32_t sample_rate = kDefaultSampleRate);
 PcmClip synth_lap_record_stinger(uint32_t sample_rate = kDefaultSampleRate);
 
 // ---------------------------------------------------------------------------
+//  Pager and payphone
+// ---------------------------------------------------------------------------
+
+// The pager's alert: two bursts of four short beeps from a piezo disc, 1.0 s
+// in all. The pattern is game/pager.h's (pager_beep_sounding), which the HUD
+// shakes the pager in time with; pager_tests holds the two together.
+PcmClip synth_pager_beep(uint32_t sample_rate = kDefaultSampleRate);
+
+// Seven touch-tone digits keyed by hand at a payphone, unevenly, the way a
+// thumb finds the buttons: Johnny calling Lou back.
+PcmClip synth_payphone_dial(uint32_t sample_rate = kDefaultSampleRate);
+
+// ---------------------------------------------------------------------------
 //  The bank
 // ---------------------------------------------------------------------------
 
@@ -306,6 +319,11 @@ struct SfxBank {
 
     PcmClip checkpoint;
     PcmClip lap_record;
+
+    // A page arriving, and the call back from a payphone. Non-spatial: the
+    // pager is on Johnny's belt and the handset is at his ear.
+    PcmClip pager_beep;
+    PcmClip payphone_dial;
 
     // Real recordings used only by the F1 sound lab. These intentionally have
     // no synthesised fallback: a missing audition should be silent instead of

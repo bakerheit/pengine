@@ -222,7 +222,7 @@ void the_vault_state_saves_and_the_take_does_not() {
     save.bank_restock_step = 20'000 + kBankHeistRestockSteps - 50;
     std::string bytes, error;
     REQUIRE_MSG(encode_game_save(save, bytes, error), error.c_str(), "encode");
-    REQUIRE(bytes.compare(0, 15, "APRICOT_SAVE 6\n") == 0);
+    REQUIRE(bytes.compare(0, 15, "APRICOT_SAVE 7\n") == 0);
     GameSave loaded;
     REQUIRE_MSG(decode_game_save(bytes, loaded, error), error.c_str(), "decode");
     REQUIRE(loaded.bank_loot_taken == save.bank_loot_taken);

@@ -51,8 +51,11 @@ The authored opening establishes this sequence:
    whether anyone followed Johnny, accepts the parcel, and tells him to tell
    Lou they are square.
 5. **Return to play:** completion or skipping the delivery scene marks the
-   delivery complete and returns control. No follow-on mission or payout is
-   currently established by this handoff.
+   delivery complete, pays $750 and returns control.
+6. **Lou's page:** ten seconds later Johnny's pager reads *Call me at store -
+   Lou*, and the marker moves to the nearest payphone. Calling from any
+   payphone sets up the next mission; nothing follows the call yet. See
+   [the pager](../pager.md).
 
 The scenes support pause and skip. A scene that cannot load its required cast
 or assets must not silently award mission completion. The parcel is carried
@@ -274,7 +277,7 @@ is still unresolved; an era reference on one asset does not set the whole game.
 | Opening and first delivery | Authored scenes, mission stages, contact interaction, and checkpoint integration exist. |
 | Free-roam systems | Traversal, vehicles, traffic, police, combat, map, weather, and several local interactions have runtime code. |
 | World expansion | Authored locations coexist with proposals and staged work; each location brief must be checked against current content. |
-| Campaign after Devon | Further missions, branching, failure/retry rules, and ending are not established here. |
+| Campaign after Devon | Lou pages Johnny and a payphone call answers it ([the pager](../pager.md)). What that call leads to, further missions, branching, failure/retry rules, and the ending are not established. |
 | Economy and ownership | No shared design yet for payouts, prices, wages, fines, purchasing, garages, or durable owned-vehicle collections. |
 | Recovery consequences | Current arrest and death recovery are defined above; jail and hospital gameplay remain separate design decisions. |
 | Progression | Ranks, skills, faction standing, unlocks, and campaign completion targets are not established by existing mission stages. |

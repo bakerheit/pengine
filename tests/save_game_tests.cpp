@@ -30,9 +30,9 @@ std::string v4_body_of(const std::string& bytes) {
 void paint_checkpoints() {
     GameSave stock;std::string bytes,error;
     REQUIRE(encode_game_save(stock,bytes,error));
-    REQUIRE(bytes.compare(0,15,"APRICOT_SAVE 6\n")==0);
+    REQUIRE(bytes.compare(0,15,"APRICOT_SAVE 7\n")==0);
     std::string body=body_of(bytes);
-    REQUIRE(rewrap(body,6)==bytes); // Control: the framing below is the encoder's own.
+    REQUIRE(rewrap(body,7)==bytes); // Control: the framing below is the encoder's own.
     REQUIRE(strip_row(body)==kStockedVaultRow);
     REQUIRE(strip_row(body)==kNewGameEconomyRow);
     REQUIRE(strip_row(body)=="0 0 0 0 0\n"); // Stock base, no respray.
@@ -78,7 +78,7 @@ void paint_checkpoints() {
     REQUIRE(read.car_model==static_cast<int>(PlayerCarId::MunicipalCruiser91C));
     std::string padded=rewrap(v3_body+paint_row,4);padded.insert(13,"0"); // "APRICOT_SAVE 04"
     REQUIRE(!decode_game_save(padded,read,error));REQUIRE(error=="Unsupported save version.");
-    REQUIRE(!decode_game_save(rewrap(v3_body+paint_row,7),read,error));REQUIRE(error=="Unsupported save version.");
+    REQUIRE(!decode_game_save(rewrap(v3_body+paint_row,8),read,error));REQUIRE(error=="Unsupported save version.");
 }
 // Version 5 stores the wallet, the owned weapons and the ammunition carried.
 void economy_checkpoints() {
@@ -145,6 +145,45 @@ void bank_vault_checkpoints() {
     auto invalid=robbed;invalid.bank_restock_step=0;REQUIRE(!encode_game_save(invalid,bytes,error));
     REQUIRE(error=="Invalid saved bank vault.");
     apricot_test::pass("v6 saves the emptied vault and its restock; v1-5 load it stocked");
+}
+// The body with its mission field (the fourth number on the first row) replaced.
+std::string with_mission(std::string body,int mission) {
+    std::size_t at=0;
+    for (int field=0;field<3;++field) at=body.find(' ',at)+1;
+    const auto end=body.find(' ',at);
+    return body.replace(at,end-at,std::to_string(mission));
+}
+// Version 7 adds no row. It widens the mission field to Lou's page (stage 4)
+// and the call back to him (stage 5), which no older version could hold.
+void mission_checkpoints() {
+    std::string bytes,error;GameSave read;
+    for (const MissionStage stage:{MissionStage::CallLou,MissionStage::LouCalled}) {
+        GameSave paged;paged.mission=stage;
+        REQUIRE(encode_game_save(paged,bytes,error));
+        REQUIRE(decode_game_save(bytes,read,error));REQUIRE(read.mission==stage);
+        const std::string body=body_of(bytes);
+        REQUIRE(decode_game_save(rewrap(body,7),read,error)); // Control: the framing is the encoder's own.
+        // A version 6 file claiming a stage version 6 never wrote is refused.
+        read.mission=MissionStage::Opening;
+        REQUIRE(!decode_game_save(rewrap(body,6),read,error));
+        REQUIRE(read.mission==MissionStage::Opening); // Refusals leave the output alone.
+    }
+    // Every older save still loads, the finished delivery among them: it is
+    // the one stage that now leads somewhere, because the page follows it.
+    GameSave delivered;delivered.mission=MissionStage::DeliveryComplete;
+    REQUIRE(encode_game_save(delivered,bytes,error));
+    const std::string body=body_of(bytes);
+    for (int version=6;version<=7;++version) {
+        REQUIRE(decode_game_save(rewrap(body,version),read,error));
+        REQUIRE(read.mission==MissionStage::DeliveryComplete);
+    }
+    REQUIRE(decode_game_save(rewrap(with_mission(body,3),6),read,error)); // Control: the edit is sound.
+    REQUIRE(read.mission==MissionStage::DeliveryNeedsCar);
+    REQUIRE(!decode_game_save(rewrap(with_mission(body,6),7),read,error));
+    REQUIRE(!decode_game_save(rewrap(with_mission(body,-1),7),read,error));
+    auto unknown=delivered;unknown.mission=static_cast<MissionStage>(6);
+    REQUIRE(!encode_game_save(unknown,bytes,error));REQUIRE(error=="Unknown mission progress.");
+    apricot_test::pass("v7 saves Lou's page and the call; a v6 file cannot claim either");
 }
 }
 int main() {
@@ -215,6 +254,7 @@ int main() {
     paint_checkpoints();
     economy_checkpoints();
     bank_vault_checkpoints();
+    mission_checkpoints();
     apricot_test::pass("save roundtrip, damage preservation, atomic overwrite, invalid and missing saves, v4 paint and its v1-v3 default");
     return 0;
 }

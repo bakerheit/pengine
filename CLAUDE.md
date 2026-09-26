@@ -33,11 +33,14 @@ suite. `game/climb.h` vaults the player over a wall or fence up to 1.30 m when
 it has standing room on top and somewhere to land, and the Sycamore Loop back
 gardens are fenced for it. The player has a wallet on the HUD: the delivery
 pays, an arrest fines by the star and dying bills the hospital
-(`game/wallet_rules.h`, `--wallet-check`).
+(`game/wallet_rules.h`, `--wallet-check`). After the delivery Lou pages the
+player, and the marker sends them to the nearest payphone to call him back
+(`game/pager.h`, `game/lou_page.h`, `--pager-check`).
 
 **What is still NOT there is worth naming precisely, because that is the part
 that keeps expiring.** There is no mission *campaign* — one delivery mission and
-a cutscene system, not a structure of jobs; the Sycamore Loop target house has
+a cutscene system, not a structure of jobs, and the call to Lou that follows
+the delivery leads nowhere yet; the Sycamore Loop target house has
 no scripting (`docs/neighborhood-backlog.md`); the gun store sells only the
 pistol and its ammunition (`game/gun_store_shop.h`, `--gun-store-check`), and
 the wheel equips only what you own. Check the tree before describing any of

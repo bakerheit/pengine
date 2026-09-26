@@ -6,6 +6,7 @@
 #include "app/weapon_aim.h"
 #include "game/intro_layout.h"
 #include "game/delivery_mission.h"
+#include "game/lou_page.h"
 #include "game/repair_shop.h"
 #include "game/weather_hazards.h"
 #include "city/neighborhood_bar.h"
@@ -900,6 +901,16 @@ bool App::init() {
         wanted_.add_heat(wanted_heat_for_level(start_wanted_level_));
     if (frame_limit_ > 0 || start_in_game_) ui_.enter_game();
     if (opening_preview_) { ui_.enter_game();begin_new_game(); }
+    if (pager_check_) {
+        // A delivery just completed at Devon's counter: the page is due.
+        ui_.enter_game();mission_stage_=MissionStage::DeliveryComplete;on_foot_=true;
+        const auto devon=city::devon_position();
+        player_character_=spawn_character(collider_,devon.x,devon.z-1.05f,3.14159265f);
+        prev_player_character_=player_character_;
+        reset_pager();pager_check_start_step_=step_index_;
+        world_.fill(scene_,renderer_,player_character_.position);
+        update_camera(0);
+    }
     if (delivery_preview_ || delivery_check_) {
         ui_.enter_game();mission_stage_=MissionStage::DeliveryActive;on_foot_=true;
         const auto devon=city::devon_position();
@@ -1530,6 +1541,14 @@ void App::process_ui_input(float dt) {
         mission_stage_ == MissionStage::DeliveryActive &&
         delivery_contact(player_character_.position,on_foot_)) {
         begin_delivery_cutscene();
+        input_.consume_edges();clock_.reset();return;
+    }
+    // Lou's page: calling him back from any payphone. Before the generic
+    // on-foot accept below, which would otherwise steal a car parked at the
+    // booth.
+    if (ui_.screen() == UiScreen::Driving && !dev_menu_.open() &&
+        !vehicle_transition_.active() &&
+        was_pressed(input_.frame(), kBtnAccept) && try_call_lou()) {
         input_.consume_edges();clock_.reset();return;
     }
     if (ui_.screen() == UiScreen::Driving && !dev_menu_.open() && on_foot_ && !vehicle_transition_.active() &&
@@ -3131,11 +3150,7 @@ void App::render() {
             radar.police_stop_prompt = police_stop_prompt_;
             radar.step = static_cast<int64_t>(step_index_);
             radar.time_of_day = env.time_of_day;
-            if (mission_stage_ == MissionStage::DeliveryNeedsCar)
-                radar.mission_target = glm::vec2{car_.position.x, car_.position.z};
-            else if (mission_stage_ == MissionStage::DeliveryActive)
-                radar.mission_target = glm::vec2{city::devon_position().x,
-                                                 city::devon_position().z};
+            radar.mission_target = mission_target();
             radar.perf_logging = perf_log_.enabled();
             radar.perf_log_label = perf_log_label_.c_str();
             radar.perf_marks = perf_marks_;
@@ -3175,10 +3190,18 @@ void App::render() {
                 hud_.text_centered(warning, vp.x * 0.5f, 78.0f, 21.0f,
                                    {1.0f, 0.92f, 0.72f, 1.0f});
             }
+            const char* objective=nullptr;
             if (mission_stage_ == MissionStage::DeliveryNeedsCar)
-                hud_.text("GET IN YOUR CAR", {28,32},28,{1,.90f,.65f,1});
+                objective="GET IN YOUR CAR";
             else if (mission_stage_==MissionStage::DeliveryActive)
-                hud_.text("DELIVERY: Take Lou's package to Devon at Ostend docks",{28,32},28,{1,.90f,.65f,1});
+                objective="DELIVERY: Take Lou's package to Devon at Ostend docks";
+            // Lou's page says it first; the objective takes the corner back
+            // once the pager has gone.
+            else if (mission_stage_==MissionStage::CallLou && !pager_.showing())
+                objective="PAGE: Call Lou at the store from a payphone";
+            if (objective) hud_.text(objective,{28,32},28,{1,.90f,.65f,1});
+            // A page that arrives under another objective sits below its line.
+            draw_pager(vp, env.time_of_day, objective ? 76.0f : 28.0f);
 
             if (conditions_.tornado_intensity > 0.05f) {
                 const glm::vec2 centre = conditions_.tornado_center_m;
@@ -3231,6 +3254,7 @@ void App::render() {
                                   {1,.76f,.18f,1});
                 }
             }
+            draw_payphone_cue(vp);
             if (in_boat_) {
                 char speed[128];
                 std::snprintf(speed,sizeof(speed),"MARLIN SPRINT 22   %.0f KNOTS",
@@ -3412,6 +3436,9 @@ void App::render() {
                 else if (mission_stage_==MissionStage::DeliveryActive &&
                          delivery_contact(player_character_.position,on_foot_))
                     prompt="E / A  -  Give Lou's package to Devon";
+                else if (player_vitals_.alive() &&
+                         can_call_lou(mission_stage_,player_character_.position,on_foot_))
+                    prompt="E / A  -  Call Lou at the store";
                 else if (nearby_bent_elbow())
                     prompt=drunk_.active()
                         ? "G  -  Have another drink at The Bent Elbow"
@@ -3608,11 +3635,7 @@ void App::render() {
         snapshot.save_notice=save_notice_.c_str();
             snapshot.player_position = player_focus_position();
             snapshot.player_forward = player_focus_forward();
-            if (mission_stage_ == MissionStage::DeliveryNeedsCar)
-                snapshot.mission_target = glm::vec2{car_.position.x, car_.position.z};
-            else if (mission_stage_ == MissionStage::DeliveryActive)
-                snapshot.mission_target = glm::vec2{city::devon_position().x,
-                                                    city::devon_position().z};
+            snapshot.mission_target = mission_target();
             snapshot.speed_mph = metres_per_second_to_miles_per_hour(
                 glm::length(on_foot_ ? player_character_.velocity
                                      : (in_boat_ ? boat_.velocity
@@ -3783,6 +3806,7 @@ void App::render() {
     if (paint_check_) capture_paint_check();
     if (car_bomb_check_) capture_car_bomb_check();
     if (heist_check_) capture_heist_check();
+    if (pager_check_) capture_pager_check();
     if (!screenshot_path_.empty() && frame_limit_ > 0 &&
         frames_rendered_ + 1 >= frame_limit_) {
         save_screenshot(screenshot_path_);
@@ -4384,6 +4408,9 @@ int App::run() {
             if (wallet_check_done_ || wallet_check_failed_) break;
             tick_wallet_check();
         }
+        if (pager_check_ && (pager_check_failed_ ||
+            (pager_check_done_ && pager_check_capture_.empty()))) break;
+        if (pager_check_) tick_pager_check();
         if (paint_check_ && (paint_check_failed_ || (paint_check_done_ && paint_check_capture_.empty()))) break;
         if (paint_check_) tick_paint_check();
         if (car_bomb_check_ && (car_bomb_check_failed_ ||
@@ -4569,7 +4596,7 @@ int App::run() {
             !paint_shop_.modal() && !paint_input_consumed_ &&
             !gun_store_holds_input() &&
             !(lighting_benchmark_ && frames_rendered_>=300)) {
-            tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_ || plow_check_ || paint_check_ || car_bomb_check_ || heist_check_) ? 1.0/60.0 : dt);
+            tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_ || plow_check_ || paint_check_ || car_bomb_check_ || heist_check_ || pager_check_) ? 1.0/60.0 : dt);
         } else {
             // Title, pause and map are real pauses. Never let wall time from a
             // modal screen turn into a burst of vehicle steps on return.
@@ -4776,6 +4803,7 @@ int App::run() {
                 if (i != 0) character_input.pressed = 0u;
                 if (house_check_) character_input = house_check_input();
                 if (heist_check_) character_input = heist_check_input();
+                if (pager_check_) character_input = pager_check_input();
                 if (weapon_use_.aim_blend>.01f) {
                     character_input.held &= ~kBtnShiftUp;
                     character_input.steer*=.55f;
@@ -4958,6 +4986,7 @@ int App::run() {
             step_respray_visit(i);
             step_car_bomb_rules(i);
             step_bank_heist_rules();
+            step_pager_rules();
             // The stars flash from the crime until the dispatch radio goes
             // out (PENG-46); the crowd owns that step, so the latch clears
             // on exactly the frame the callout would play.

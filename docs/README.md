@@ -68,7 +68,7 @@ update the affected summary in the same pass.
 
 | Area | References |
 | --- | --- |
-| Opening and first mission | [Johnny's opening script](design/johnny-mercer-opening.md), [New Game handoff](game-opening.md), [Devon delivery scene](mission1-delivery-cutscene.md) |
+| Opening and first mission | [Johnny's opening script](design/johnny-mercer-opening.md), [New Game handoff](game-opening.md), [Devon delivery scene](mission1-delivery-cutscene.md), [Lou's page and the payphone](pager.md) |
 | Driving and traffic | [Driving extremes](driving-extremes.md), [Traffic realism](traffic-realism.md), [Junction validation](traffic-junction-validation.md), [Headlights](traffic-headlights.md), [Horns](traffic-horns.md) |
 | Police response | [Pursuit](police-pursuit.md), [Officers](police-officers.md); current behavior is summarized in [Game design](design/README.md) |
 | Vehicles and identity | [Manufacturers](design/vehicle-brands.md), [State plates](design/license-plates.md), [Rodeo emblem implementation](assets/rodeo-grazer-emblem.md), [Tractor and trailer](tractor-trailer.md) |

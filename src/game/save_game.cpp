@@ -69,7 +69,9 @@ bool validate_game_save(const GameSave& d, std::string& error) {
     else if (d.mission != MissionStage::Opening &&
              d.mission != MissionStage::DeliveryActive &&
              d.mission != MissionStage::DeliveryComplete &&
-             d.mission != MissionStage::DeliveryNeedsCar) error = "Unknown mission progress.";
+             d.mission != MissionStage::DeliveryNeedsCar &&
+             d.mission != MissionStage::CallLou &&
+             d.mission != MissionStage::LouCalled) error = "Unknown mission progress.";
     else if (d.car_model < 0 || d.car_model >= static_cast<int>(kPlayerCarCount) || !valid_driving_mechanics_style(d.driving_style)) error = "Unknown vehicle or driving style.";
     else if (!position(d.character_position) || !position(d.car_position)) error = "Invalid saved position.";
     else if (!range(d.character_yaw,-10000,10000) || !range(d.view_yaw,-10000,10000) || !range(d.view_pitch,-1.6f,1.6f)) error = "Invalid saved facing.";
@@ -132,7 +134,7 @@ bool encode_game_save(const GameSave& d, std::string& bytes, std::string& error)
       << d.pistol_reserve << ' ' << d.molotov_stock << '\n';
     b << int(d.bank_loot_taken) << ' ' << d.bank_restock_step << '\n';
     const auto body = b.str();
-    bytes = "APRICOT_SAVE 6\n" + std::to_string(checksum(body)) + "\n" + body;
+    bytes = "APRICOT_SAVE 7\n" + std::to_string(checksum(body)) + "\n" + body;
     return true;
 }
 
@@ -143,9 +145,11 @@ bool decode_game_save(const std::string& bytes, GameSave& out, std::string& erro
     if (first == std::string::npos || second == std::string::npos) return false;
     // Each version appends one row to the one before: 2 the trailer, 3 the
     // plate, 4 the paint, 5 the wallet and ammunition, 6 the bank vault.
-    // Rows are never reordered, so older bodies still parse.
+    // Rows are never reordered, so older bodies still parse. 7 adds no row: it
+    // widens the mission field to Lou's page and call (stages 4 and 5), which
+    // no older version could have written.
     int version=0;
-    for (int v=1;v<=6;++v) if (bytes.compare(0,first,"APRICOT_SAVE "+std::to_string(v))==0) version=v;
+    for (int v=1;v<=7;++v) if (bytes.compare(0,first,"APRICOT_SAVE "+std::to_string(v))==0) version=v;
     if (version==0) { error = "Unsupported save version."; return false; }
     uint64_t expected = 0;
     std::istringstream header(bytes.substr(first+1,second-first-1));
@@ -154,8 +158,9 @@ bool decode_game_save(const std::string& bytes, GameSave& out, std::string& erro
     if (expected != checksum(body)) return false;
     std::istringstream b(body); b.imbue(std::locale::classic());
     GameSave d; int mission=0, foot=0, failed=0;
+    const int last_mission=version>=7 ? int(MissionStage::LouCalled) : int(MissionStage::DeliveryNeedsCar);
     if (!(b >> d.map_seed >> d.session_seed >> d.sim_step >> mission >> foot) ||
-        mission < 0 || mission > 3 || foot < 0 || foot > 1) return false;
+        mission < 0 || mission > last_mission || foot < 0 || foot > 1) return false;
     d.mission=static_cast<MissionStage>(mission);d.on_foot=foot!=0;
     b >> d.character_position.x >> d.character_position.y >> d.character_position.z >> d.character_yaw >> d.view_yaw >> d.view_pitch;
     b >> d.car_model >> d.driving_style >> d.car_position.x >> d.car_position.y >> d.car_position.z;

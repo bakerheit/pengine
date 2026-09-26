@@ -53,4 +53,6 @@ target_sources(apricot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/world.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/wallet_gameplay.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/wallet_check.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/pager_gameplay.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/pager_check.cpp
 )

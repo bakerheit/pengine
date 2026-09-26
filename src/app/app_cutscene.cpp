@@ -24,6 +24,7 @@ void App::begin_new_game() {
     traffic_visual_.clear_vehicles(scene_);
     delivery_cutscene_=false;
     mission_stage_=MissionStage::Opening;save_notice_.clear();
+    reset_pager();
     game_ui_.clear_waypoint();
     bank_vault_={};world_.reset_session_objects(scene_,collider_);
     reset_bank_heist({});  // New Game restocks the vault and drops any take.

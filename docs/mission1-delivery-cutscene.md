@@ -16,7 +16,9 @@ The final shot leaves Devon holding the delivery. Mission success, gameplay
 controls, ambient/vehicle audio and autosave resume on natural completion or
 skip. Progress stays active if the document, cast or referenced dialogue fails
 to load. The parcel is a cinematic prop; ordinary gameplay does not render it
-in Devon's hands after the scene. No new mission or reward amount is introduced.
+in Devon's hands after the scene. No new mission or reward amount is introduced
+by the scene; ten seconds after control returns, Lou pages Johnny
+([the pager](pager.md)).
 
 Author with `python3 tools/stage_mission1_delivery.py`. This script owns only
 this scene and its voice manifest/timing. It reads each available WAV's real

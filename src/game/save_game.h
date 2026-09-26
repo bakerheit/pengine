@@ -19,6 +19,12 @@ enum class MissionStage : uint8_t {
     DeliveryActive = 1,
     DeliveryComplete = 2,
     DeliveryNeedsCar = 3,
+    // Version 7 (game/lou_page.h). Lou has paged Johnny: call him from a
+    // payphone. A version 7 save holding DeliveryComplete is still waiting for
+    // the page, which arrives again after a load.
+    CallLou = 4,
+    // Johnny has called Lou. The next mission starts here; nothing follows yet.
+    LouCalled = 5,
 };
 
 // A stationary checkpoint, not a physics replay. Transient velocities, wheel

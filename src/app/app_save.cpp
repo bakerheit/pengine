@@ -155,6 +155,9 @@ bool App::load_game() {
     vehicle_audio_.set_model(player_car_definition(model).mesh_path);
     if (!on_foot_) vehicle_audio_.enter_vehicle(false,car_.position);
     chase_camera_.reset(); camera_obstruction_distance_=-1;
+    // After the player is placed: a load into Lou's page marks its nearest
+    // payphone at once, and a finished delivery waits the full delay again.
+    reset_pager();
     update_camera(0); clock_.reset(); input_.consume_edges();
     ui_.enter_game(); ui_.set_save_available(true);
     save_notice_="Game loaded.";

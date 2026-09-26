@@ -144,6 +144,10 @@ apricot_add_suite(player_economy_tests)
 # The wallet in play (game/wallet_rules.h): payout, fines, hospital bill, the
 # HUD flash, and the real events each charging exactly once.
 apricot_add_suite(wallet_rules_tests)
+# The pager and Lou's page after the delivery (game/pager.h, game/lou_page.h):
+# the crawl and the queue, the beep against its clip, the nearest payphone and
+# the real character reaching every real payphone footprint.
+apricot_add_suite(pager_tests)
 apricot_add_suite(construction_site_tests)
 apricot_add_suite(construction_neighbor_materials_tests)
 apricot_add_suite(construction_neighbor_equipment_tests)

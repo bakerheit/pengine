@@ -877,6 +877,104 @@ PcmClip synth_lap_record_stinger(uint32_t sample_rate) {
 }
 
 // ---------------------------------------------------------------------------
+//  Pager and payphone
+// ---------------------------------------------------------------------------
+
+PcmClip synth_pager_beep(uint32_t sample_rate) {
+    PcmClip clip;
+    clip.sample_rate = sample_rate;
+    clip.channels = 1;
+    if (sample_rate == 0) return clip;
+
+    const double sr = static_cast<double>(sample_rate);
+    const std::size_t frames = static_cast<std::size_t>(1.0 * sr);
+    std::vector<float> out(frames, 0.0f);
+
+    // game/pager.h's pattern: two bursts 0.6 s apart, four beeps 0.1 s apart
+    // in each, every beep 55 ms long.
+    constexpr int kBursts = 2;
+    constexpr int kBeepsPerBurst = 4;
+    constexpr double kBurstPeriod = 0.6;
+    constexpr double kBeepPeriod = 0.1;
+    constexpr double kBeepOn = 0.055;
+    // A piezo disc is driven with a square wave and rings near its resonance,
+    // so the tone is hard and hollow: odd harmonics only, falling off faster
+    // than a true square's so the top end does not fizz.
+    constexpr double kHz = 2900.0;
+    const std::size_t on = static_cast<std::size_t>(kBeepOn * sr);
+    const std::size_t ramp = static_cast<std::size_t>(0.003 * sr);
+    for (int burst = 0; burst < kBursts; ++burst) {
+        for (int beep = 0; beep < kBeepsPerBurst; ++beep) {
+            const double at = static_cast<double>(burst) * kBurstPeriod +
+                              static_cast<double>(beep) * kBeepPeriod;
+            const std::size_t n0 = static_cast<std::size_t>(at * sr);
+            for (std::size_t i = 0; i < on && n0 + i < frames; ++i) {
+                const double t = static_cast<double>(i) / sr;
+                double env = 1.0;
+                if (i < ramp) env = static_cast<double>(i) / static_cast<double>(ramp);
+                else if (on - i < ramp)
+                    env = static_cast<double>(on - i) / static_cast<double>(ramp);
+                const double s = std::sin(kTwoPiD * kHz * t) +
+                                 0.30 * std::sin(kTwoPiD * kHz * 3.0 * t) +
+                                 0.10 * std::sin(kTwoPiD * kHz * 5.0 * t);
+                out[n0 + i] += static_cast<float>(env * s);
+            }
+        }
+    }
+
+    clip.samples = std::move(out);
+    finish(clip.samples, 0.9);
+    fade_ends(clip.samples, static_cast<std::size_t>(0.002 * sr),
+              static_cast<std::size_t>(0.002 * sr));
+    return clip;
+}
+
+PcmClip synth_payphone_dial(uint32_t sample_rate) {
+    PcmClip clip;
+    clip.sample_rate = sample_rate;
+    clip.channels = 1;
+    if (sample_rate == 0) return clip;
+
+    const double sr = static_cast<double>(sample_rate);
+    const std::size_t frames = static_cast<std::size_t>(1.35 * sr);
+    std::vector<float> out(frames, 0.0f);
+
+    // Touch-tone: each key is one row tone plus one column tone. 555-0142,
+    // with a breath after the exchange, as a thumb dials it. The column tone
+    // runs a little hotter than the row, as the standard's "twist" allows.
+    struct Key {
+        double at, row_hz, column_hz;
+    };
+    constexpr Key kKeys[] = {
+        {0.00, 770.0, 1336.0}, {0.19, 770.0, 1336.0}, {0.36, 770.0, 1336.0},
+        {0.66, 941.0, 1336.0}, {0.83, 697.0, 1209.0}, {1.01, 770.0, 1209.0},
+        {1.17, 697.0, 1336.0},
+    };
+    constexpr double kToneSeconds = 0.095;
+    const std::size_t tone = static_cast<std::size_t>(kToneSeconds * sr);
+    const std::size_t ramp = static_cast<std::size_t>(0.004 * sr);
+    for (const Key& key : kKeys) {
+        const std::size_t n0 = static_cast<std::size_t>(key.at * sr);
+        for (std::size_t i = 0; i < tone && n0 + i < frames; ++i) {
+            const double t = static_cast<double>(i) / sr;
+            double env = 1.0;
+            if (i < ramp) env = static_cast<double>(i) / static_cast<double>(ramp);
+            else if (tone - i < ramp)
+                env = static_cast<double>(tone - i) / static_cast<double>(ramp);
+            const double s = 0.8 * std::sin(kTwoPiD * key.row_hz * t) +
+                             std::sin(kTwoPiD * key.column_hz * t);
+            out[n0 + i] += static_cast<float>(env * s);
+        }
+    }
+
+    clip.samples = std::move(out);
+    finish(clip.samples, 0.85);
+    fade_ends(clip.samples, static_cast<std::size_t>(0.002 * sr),
+              static_cast<std::size_t>(0.002 * sr));
+    return clip;
+}
+
+// ---------------------------------------------------------------------------
 //  The bank
 // ---------------------------------------------------------------------------
 
@@ -916,6 +1014,9 @@ SfxBank synth_bank(uint32_t sample_rate) {
 
     bank.checkpoint = synth_checkpoint_stinger(sample_rate);
     bank.lap_record = synth_lap_record_stinger(sample_rate);
+
+    bank.pager_beep = synth_pager_beep(sample_rate);
+    bank.payphone_dial = synth_payphone_dial(sample_rate);
 
     return bank;
 }

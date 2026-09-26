@@ -244,6 +244,18 @@ the officer — `--police-officer-check` does that. **Not there yet:** arrest
 does not jail, relocate or confiscate; Brassline Arms is the only place that
 takes the cash; not yet played by hand.
 
+**Lou pages you after the delivery.** Ten seconds after Devon has the package,
+a nineties pager slides in at the top left, beeps and crawls *Call me at store
+- Lou* across its green dot-matrix LCD. The minimap, the map and a floating tag
+then point at the nearest of the twelve payphones, and E at any of them calls
+Lou back. That call is the hook for the next mission, and nothing follows it
+yet. Details in [`docs/pager.md`](docs/pager.md); rules in `game/pager.h`,
+`game/lou_page.h` and `game/payphones.h` (`pager_tests`).
+`--pager-check --frames 3000` completes the delivery, takes the page, walks
+the real character from Devon's counter to the Ostend Docks booth and calls,
+leaving five screenshots in `build/pager-check.*.png`. **Not there yet:** what
+Lou says on the call; a way to re-read a page; a listening pass on the beep.
+
 **Rook's Auto Repair resprays cars.** Drive into a bay, stop, press R or pad X:
 the world pauses, the camera swings round to frame the car beside a paint
 picker (24 presets, or a custom hue bar and saturation/value plane), and the
@@ -429,7 +441,7 @@ The moving sun and moon light every authored model and terrain mesh. At dusk
 the player car adds two soft-edged headlights that follow its interpolated pose,
 light the road surface and fade out automatically under the visible daytime sky.
 
-There are no missions yet. The player car uses the wheel-less Car 5 body from
+The player car uses the wheel-less Car 5 body from
 the Probable Cause alpha plus four copies of its shared wheel model.
 Those wheels follow the real suspension, steer at the front and spin from the
 sim-owned wheel state. Active traffic uses the alpha's Car 5, Car 8, and

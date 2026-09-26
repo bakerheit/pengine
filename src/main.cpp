@@ -79,6 +79,8 @@ void print_usage() {
         "                  and the player dies, freezes and respawns (2400+ frames)\n"
         "  --wallet-check  pay the delivery, fine an arrest, bill a death and capture\n"
         "                  the cash counter after each (3000+ frames; stops when done)\n"
+        "  --pager-check   finish the delivery, take Lou's page, follow the marker to the\n"
+        "                  nearest payphone and call him back (3000+ frames; stops when done)\n"
         "  --house-check   walk through 102 Sycamore's push doors and both exits\n"
         "  --signal-check  crash-test signals, street lamps and stop signs (1700+ frames)\n"
         "  --character-identity-check prove a new departure at one (lane,slot) gets a fresh rig\n"
@@ -179,6 +181,7 @@ int main(int argc, char** argv) {
     bool gun_store_check=false;
     bool damage_check=false;
     bool wallet_check=false;
+    bool pager_check=false;
     bool house_check=false;
     bool signal_check=false;
     bool character_identity_check=false;
@@ -217,6 +220,7 @@ int main(int argc, char** argv) {
         if (std::strcmp(a,"--gun-store-check")==0) { gun_store_check=true;continue; }
         if (std::strcmp(a,"--damage-check")==0) { damage_check=true;continue; }
         if (std::strcmp(a,"--wallet-check")==0) { wallet_check=true;continue; }
+        if (std::strcmp(a,"--pager-check")==0) { pager_check=true;continue; }
         if (std::strcmp(a,"--house-check")==0) { house_check=true;continue; }
         if (std::strcmp(a,"--signal-check")==0) { signal_check=true;continue; }
         if (std::strcmp(a,"--character-identity-check")==0) {
@@ -824,6 +828,20 @@ int main(int argc, char** argv) {
         if (!screenshot_path) screenshot_path="build/wallet-check";
         app.set_wallet_check(true);
     }
+    if (pager_check) {
+        // It owns the mission stage, starts the player at Devon's counter and
+        // walks them to a payphone, so it runs alone.
+        if (frame_limit<3000 || wallet_check || damage_check || weapon_check || molotov_check ||
+            house_check || heist_check || signal_check || police_check || police_officer_check ||
+            traffic_horn_check || paint_check || car_bomb_check || delivery_check || gun_store_check ||
+            opening_preview || delivery_preview || lighting_benchmark || warp_every) {
+            std::fprintf(stderr,"--pager-check needs --frames 3000 or more and no other checks/previews/warps\n");
+            return 2;
+        }
+        clear_weather=true;daylight_qa=true;
+        if (!screenshot_path) screenshot_path="build/pager-check";
+        app.set_pager_check(true);
+    }
     app.set_attended(attended);
     app.set_dusk_preview(dusk_preview);
     app.set_start_in_game(bellwether_start);
@@ -939,6 +957,9 @@ int main(int argc, char** argv) {
     }
     if (wallet_check && !app.wallet_check_passed()) {
         AP_ERROR("wallet check did not complete");rc=1;
+    }
+    if (pager_check && !app.pager_check_passed()) {
+        AP_ERROR("pager check did not complete");rc=1;
     }
     if (trailer_check && !app.trailer_check_passed()) return 1;
     if (boat_check && !app.boat_check_passed()) {
