@@ -4,6 +4,7 @@
 #include "app/vehicle_model_tuning.h"
 #include "app/vehicle_registration.h"
 
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -12,8 +13,15 @@
 #include <limits>
 #include <locale>
 #include <sstream>
+#include <system_error>
 #include <vector>
+#if defined(_WIN32)
+#include <fcntl.h>
+#include <io.h>
+#include <sys/stat.h>
+#else
 #include <unistd.h>
+#endif
 
 namespace apricot {
 namespace {
@@ -23,6 +31,32 @@ uint64_t checksum(const std::string& bytes) {
     return value;
 }
 bool range(float x, float low, float high) { return std::isfinite(x) && x >= low && x <= high; }
+// The descriptor calls the save writer needs. Windows names them differently
+// and has no mkstemp, so there the temp file is made exclusive by _O_EXCL.
+#if defined(_WIN32)
+int create_temp_beside(const std::string& path, std::string& name) {
+    for (int attempt = 0; attempt < 100; ++attempt) {
+        name = path + ".tmp." + std::to_string(attempt);
+        const int fd = _open(name.c_str(), _O_CREAT | _O_EXCL | _O_WRONLY | _O_BINARY, _S_IREAD | _S_IWRITE);
+        if (fd >= 0 || errno != EEXIST) return fd;
+    }
+    return -1;
+}
+FILE* open_descriptor(int fd) { return _fdopen(fd, "wb"); }
+int sync_descriptor(int fd) { return _commit(fd); }
+void close_descriptor(int fd) { _close(fd); }
+#else
+int create_temp_beside(const std::string& path, std::string& name) {
+    const std::string temp = path + ".tmp.XXXXXX";
+    std::vector<char> buffer(temp.begin(), temp.end()); buffer.push_back('\0');
+    const int fd = mkstemp(buffer.data());
+    name = buffer.data();
+    return fd;
+}
+FILE* open_descriptor(int fd) { return fdopen(fd, "wb"); }
+int sync_descriptor(int fd) { return fsync(fd); }
+void close_descriptor(int fd) { close(fd); }
+#endif
 bool position(glm::vec3 p) {
     return range(p.x, -city::kWorldHalfMetres, city::kWorldHalfMetres) &&
            range(p.z, -city::kWorldHalfMetres, city::kWorldHalfMetres) && range(p.y,-100,3000);
@@ -196,18 +230,22 @@ bool store_game_save(const std::string& path, const GameSave& data, std::string&
     std::string bytes;
     if (!encode_game_save(data,bytes,error)) return false;
     if (path.empty()) { error="Save folder is unavailable.";return false; }
-    std::string temp=path+".tmp.XXXXXX";
-    std::vector<char> name(temp.begin(),temp.end());name.push_back('\0');
-    const int fd=mkstemp(name.data());
+    std::string name;
+    const int fd=create_temp_beside(path,name);
     if (fd < 0) { error="Could not create save file.";return false; }
-    FILE* file=fdopen(fd,"wb");
+    FILE* file=open_descriptor(fd);
     bool ok=false;
     if (file) {
         ok=std::fwrite(bytes.data(),1,bytes.size(),file)==bytes.size();
-        if (std::fflush(file)!=0 || fsync(fd)!=0) ok=false;
+        if (std::fflush(file)!=0 || sync_descriptor(fd)!=0) ok=false;
         if (std::fclose(file)!=0) ok=false;
-    } else close(fd);
-    if (ok && std::rename(name.data(),path.c_str())==0) { error.clear();return true; }
-    std::remove(name.data()); error="Could not save. Previous save kept.";return false;
+    } else close_descriptor(fd);
+    // std::filesystem::rename replaces the old save everywhere. std::rename
+    // refuses an existing target on Windows, so every save after the first
+    // there would fail with "Previous save kept".
+    std::error_code ec;
+    if (ok) std::filesystem::rename(name,path,ec);
+    if (ok && !ec) { error.clear();return true; }
+    std::remove(name.c_str()); error="Could not save. Previous save kept.";return false;
 }
 } // namespace apricot

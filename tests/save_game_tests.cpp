@@ -4,7 +4,8 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
-#include <unistd.h>
+#include <string>
+#include <system_error>
 using namespace apricot;
 namespace {
 std::string body_of(const std::string& bytes) { return bytes.substr(bytes.find('\n',bytes.find('\n')+1)+1); }
@@ -190,7 +191,15 @@ int main() {
     invalid=original;invalid.car_rotation={0,0,0,0};REQUIRE(!encode_game_save(invalid,corrupt,error));
     invalid=original;invalid.car_model=99999;REQUIRE(!encode_game_save(invalid,corrupt,error));
     invalid=original;invalid.car_mechanical.oil_remaining=-1;REQUIRE(!encode_game_save(invalid,corrupt,error));
-    char directory[]="/tmp/apricot-save-test-XXXXXX";REQUIRE(mkdtemp(directory)!=nullptr);
+    // mkdtemp's job, portably: create_directory refuses a folder that already
+    // exists, so the first one it makes is ours alone. Windows has no mkdtemp.
+    std::string directory;
+    for (int attempt=0; directory.empty() && attempt<1000; ++attempt) {
+        const auto candidate=std::filesystem::temp_directory_path()/("apricot-save-test-"+std::to_string(attempt));
+        std::error_code created;
+        if (std::filesystem::create_directory(candidate,created)) directory=candidate.string();
+    }
+    REQUIRE(!directory.empty());
     const auto path=std::string(directory)+"/checkpoint.save";
     REQUIRE(!load_game_save(path,read,error));REQUIRE(read.car_health==31.25f);
     REQUIRE(store_game_save(path,original,error));REQUIRE(load_game_save(path,read,error));
