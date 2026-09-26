@@ -6,7 +6,7 @@ Each manufacturer has a page here and a folder containing its model pages. Model
 
 ## Quality classes
 
-**[Pizaz Constant](Pizaz/Constant.md) is the user-designated Class 3 benchmark:** well designed and detailed, with good documentation and reference images. Use it as the quality reference when bringing Class 1 or Class 2 vehicles up to Class 3. [Class definitions and upgrade guide](quality-classes.md).
+**[Pizaz Constant](Pizaz/Constant.md) and [Rodeo Switchback](Rodeo/Switchback.md) are user-designated Class 3 benchmarks:** well designed and detailed, with good documentation and reference images. Use them as quality references when bringing Class 1 or Class 2 vehicles up to Class 3. [Class definitions and upgrade guide](quality-classes.md).
 
 ## Performance
 
@@ -29,7 +29,7 @@ Model pages list **top speed (mph)** and **0–60 mph (X.X s)**. [Measured roste
 | [Orison](Orison.md) | [Cinder GT](Orison/Cinder%20GT.md) |
 | [Pizaz](Pizaz.md) | [Constant](Pizaz/Constant.md) — **Class 3 benchmark** |
 | [Regalia](Regalia.md) | [Borough](Regalia/Borough.md) |
-| [Rodeo](Rodeo.md) | [Grazer 4x4](Rodeo/Grazer%204x4.md) · [Switchback](Rodeo/Switchback.md) |
+| [Rodeo](Rodeo.md) | [Grazer 4x4](Rodeo/Grazer%204x4.md) · [Switchback](Rodeo/Switchback.md) — **Class 3 benchmark** |
 | [Saddle](Saddle.md) | [Tango](Saddle/Tango.md) |
 | [Spagatti](Spagatti.md) | [Shū](Spagatti/Sh%C5%AB.md) |
 | [Vesper](Vesper.md) | [Mistral](Vesper/Mistral.md) · [Scythe](Vesper/Scythe.md) · [VX-91](Vesper/VX-91.md) |

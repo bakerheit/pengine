@@ -8,12 +8,15 @@
 
 Short-wheelbase four-wheel-drive SUV.
 
+**Class 3 — design and detail benchmark.** User-designated alongside Pizaz Constant as a reference for bringing Class 1 and Class 2 vehicles up to the same standard of design, detail, documentation and reference imagery. See [vehicle quality classes](../quality-classes.md).
+
 ## Model information
 
 | Detail | Value |
 |---|---|
 | Manufacturer | [Rodeo](../Rodeo.md) |
 | Model | Switchback |
+| Quality class | **Class 3** — user-designated benchmark |
 | Status | Selectable in the game catalog |
 | Vehicle role | short-wheelbase four-wheel-drive SUV |
 | In-game mass | 1,680 kg |

@@ -33,7 +33,7 @@ Branding-iron R, black upright/bowl and orange leg. See the [brand design record
 ## Models
 
 - [Grazer 4x4](Rodeo/Grazer%204x4.md)
-- [Switchback](Rodeo/Switchback.md)
+- [Switchback](Rodeo/Switchback.md) — **Class 3**, a design, detail and documentation benchmark.
 
 ## Sources
 
