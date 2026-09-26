@@ -13,7 +13,7 @@ inline PlateUse player_plate_use(PlayerCarId model) {
     if (has_plow_kit(model)) return PlateUse::Commercial;
     if (model==PlayerCarId::HarrowCityliner || model==PlayerCarId::HarrowParcel ||
         model==PlayerCarId::HarrowWorkman || model==PlayerCarId::HarrowHauler ||
-        model==PlayerCarId::HarrowHookline ||
+        model==PlayerCarId::HarrowHookline || model==PlayerCarId::HarrowRearloader ||
         model==PlayerCarId::LegacyCar8) return PlateUse::Commercial;
     return PlateUse::Private;
 }

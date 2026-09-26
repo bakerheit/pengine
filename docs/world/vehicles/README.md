@@ -22,7 +22,7 @@ Model pages list **top speed (mph)** and **0–60 mph (X.X s)**. [Measured roste
 | [Ember](Ember.md) | [GT](Ember/GT.md) |
 | [Fang](Fang.md) | [Venom](Fang/Venom.md) |
 | [GLM](GLM.md) | [Lunge](GLM/Lunge.md) · [Meridian](GLM/Meridian.md) · [Zip](GLM/Zip.md) |
-| [Harrow](Harrow.md) | [Cityliner Bus](Harrow/Cityliner%20Bus.md) · [Hauler Semi](Harrow/Hauler%20Semi.md) · [Hookline](Harrow/Hookline.md) — **Class 3 benchmark** · [Parcel](Harrow/Parcel.md) · [Workman](Harrow/Workman.md) |
+| [Harrow](Harrow.md) | [Cityliner Bus](Harrow/Cityliner%20Bus.md) · [Hauler Semi](Harrow/Hauler%20Semi.md) · [Hookline](Harrow/Hookline.md) — **Class 3 benchmark** · [Parcel](Harrow/Parcel.md) · [Rearloader](Harrow/Rearloader.md) · [Workman](Harrow/Workman.md) |
 | [Karlsdale](Karlsdale.md) | [Lux](Karlsdale/Lux.md) · [Regent Eight](Karlsdale/Regent%20Eight.md) · [Six Sedan](Karlsdale/Six%20Sedan.md) |
 | [Legacy](Legacy.md) | [Car 5](Legacy/Car%205.md) · [Car 5-Next](Legacy/Car%205-Next.md) · [Car 5-Next Patrol](Legacy/Car%205-Next%20Patrol.md) · [Car 8](Legacy/Car%208.md) · [Car 8 Ambulance](Legacy/Car%208%20Ambulance.md) |
 | [Municipal](Municipal.md) | [Ambulance](Municipal/Ambulance.md) · [Cruiser 91-A Square](Municipal/Cruiser%2091-A%20Square.md) · [Cruiser 91-B Aero](Municipal/Cruiser%2091-B%20Aero.md) · [Cruiser 91-C Pursuit](Municipal/Cruiser%2091-C%20Pursuit.md) · [Cruiser 91-D Metro](Municipal/Cruiser%2091-D%20Metro.md) · [Cruiser 91-E Highway](Municipal/Cruiser%2091-E%20Highway.md) · [Firetruck](Municipal/Firetruck.md) |
@@ -36,7 +36,7 @@ Model pages list **top speed (mph)** and **0–60 mph (X.X s)**. [Measured roste
 
 ## Photos
 
-All 40 model pages include saved imagery. Most show model previews or game captures; concepts and generated references are labeled separately. The Legacy Car 8 Ambulance currently has side and rear texture references only. Archived renders may predate the latest refinements.
+Model pages include saved imagery. Most show model previews or game captures; concepts and generated references are labeled separately. The Legacy Car 8 Ambulance currently has side and rear texture references only. Archived renders may predate the latest refinements.
 
 Recovered images are stored in [images/](images/) with an [origin manifest](images/sources.json), so they remain available without the local build folder.
 
@@ -47,6 +47,7 @@ Full seven-angle reference galleries:
 - [GLM Meridian — all angles](GLM/Meridian.md#reference-photos)
 - [Rodeo Switchback — all angles](Rodeo/Switchback.md#reference-photos)
 - [Harrow Hookline — all angles](Harrow/Hookline.md#reference-photos)
+- [Harrow Rearloader — all angles](Harrow/Rearloader.md#reference-photos)
 - [Saddle Tango — all angles](Saddle/Tango.md#reference-photos)
 - [Karlsdale Lux — all angles, plus matching model renders](Karlsdale/Lux.md#reference-photos)
 

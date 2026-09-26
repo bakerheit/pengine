@@ -35,3 +35,9 @@ Switchback and Hookline each include a selected concept, seven directional refer
 | [Pizaz Constant](Pizaz/Constant.md) | **Class 3** | User-designated: well designed and detailed, with good documentation and reference images. |
 | [Rodeo Switchback](Rodeo/Switchback.md) | **Class 3** | User-designated: approved design, detail, documentation and reference imagery. |
 | [Harrow Hookline](Harrow/Hookline.md) | **Class 3** | User-designated: approved design, detail, documentation and reference imagery. |
+
+## Individually reviewed models
+
+| Vehicle | Assigned class | Review |
+|---|---|---|
+| [Harrow Rearloader](Harrow/Rearloader.md) | **Class 3** | 2026-09-26 agent review against Hookline: rounded connected cab, complete inner surfaces and transparent glass, detailed rear-loading equipment, concept plus seven references, studio/runtime galleries and verified entry/exit. [Evidence](../../design/reviews/harrow-rearloader/README.md). |

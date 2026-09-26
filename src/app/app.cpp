@@ -2589,7 +2589,8 @@ void App::update_camera(float dt) {
         pose = chase_camera_.update(
             pos, forward, velocity, angular_velocity.y,
             input.look_dx + sweep, input.look_dy, is_held(input, kBtnLookBack), dt);
-        if (car_visual_.active_car()==PlayerCarId::HarrowCityliner || car_visual_.active_car()==PlayerCarId::HarrowHauler) {
+        if (car_visual_.active_car()==PlayerCarId::HarrowCityliner || car_visual_.active_car()==PlayerCarId::HarrowHauler ||
+            car_visual_.active_car()==PlayerCarId::HarrowRearloader) {
             pose.target.y+=.9f;
             pose.collision_pivot=pose.target;
             pose.desired_eye=pose.target+(pose.desired_eye-pos)*(trailer_.attached?2.7f:1.65f);

@@ -23,13 +23,19 @@ App::VehicleEntryTarget App::nearby_vehicle() const {
     VehicleEntryTarget result;
     float best=kVehicleEntryReach;
     const auto consider=[&](VehicleEntryTarget target,glm::vec3 pos,glm::quat rotation,
-                            float width,float length,float ground,float speed) {
-        const float distance=vehicle_entry_distance(player_character_.position,pos,rotation,width,length,ground,speed);
+                            float width,float length,float ground,float speed,
+                            const Transform* fitted_body=nullptr) {
+        float door_z=-length*.22f;
+        if(target.model==PlayerCarId::HarrowRearloader && fitted_body) {
+            const auto approach=fitted_body->transform_point(vehicle_driver_approach_point(target.model));
+            door_z=(glm::inverse(rotation)*(approach-pos)).z;
+        }
+        const float distance=vehicle_entry_distance_to_door(player_character_.position,pos,rotation,width,door_z,ground,speed);
         if (!(distance<best)) return;
         // Test the route to the nearest door at chest height. A thin wall
         // between the player and a car must block entry too.
         const auto local=glm::inverse(rotation)*(player_character_.position-pos);
-        glm::vec3 door=pos+rotation*glm::vec3{(local.x<0?-1.f:1.f)*(width+.4f),0,-length*.22f};
+        glm::vec3 door=pos+rotation*glm::vec3{(local.x<0?-1.f:1.f)*(width+.4f),0,door_z};
         const glm::vec3 from=player_character_.position+glm::vec3{0,.85f,0};
         door.y=from.y;
         const auto delta=door-from;
@@ -41,17 +47,19 @@ App::VehicleEntryTarget App::nearby_vehicle() const {
         result=target;best=distance;
     };
     // A car a bomb has burnt out is scenery: nobody gets back into one.
+    const auto current_body=car_visual_.fitted_body_transform(car_);
     if (!vehicle_burnt(respray_vehicle_identity()))
         consider({VehicleEntryTarget::Kind::Current,0,0,0,car_visual_.active_car()},car_.position,car_.orientation,
             tuning_.car_collision_half_width,tuning_.car_collision_half_length,
             car_.position.y-tuning_.wheel_radius-static_suspension_length(tuning_)-tuning_.com_height_above_mount,
-            glm::length(car_.velocity));
+            glm::length(car_.velocity),&current_body);
     for (std::size_t i=0;i<parked_vehicles_.size();++i) {
         if (vehicle_burnt(parked_vehicle_identity(i))) continue;
         const auto& p=parked_vehicles_[i];
+        const auto parked_body=p.visual.fitted_body_transform(p.state);
         consider({VehicleEntryTarget::Kind::Parked,i,0,0,p.visual.active_car()},p.state.position,p.state.orientation,
             p.tuning.car_collision_half_width,p.tuning.car_collision_half_length,
-            p.state.position.y-p.tuning.wheel_radius-static_suspension_length(p.tuning)-p.tuning.com_height_above_mount,0);
+            p.state.position.y-p.tuning.wheel_radius-static_suspension_length(p.tuning)-p.tuning.com_height_above_mount,0,&parked_body);
     }
     for (const auto& v:world_.traffic().vehicles()) {
         if (v.snowplow_unit) continue;
@@ -245,7 +253,7 @@ bool App::begin_vehicle_transition(const VehicleEntryTarget& target, bool enteri
     const glm::vec3 driver_side=body.rotation*glm::vec3{1,0,0};
     const glm::vec3 facing=entering ? -driver_side : driver_side;
     const float yaw=std::atan2(facing.x,-facing.z);
-    const auto side=body.transform_point({layout.approach_x,0,layout.hip.z})+
+    const auto side=body.transform_point(vehicle_driver_approach_point(visual->active_car()))+
         driver_side*(motorbike?.20f:.55f);
     const bool enabled=obstacle<collider_.static_boxes().size() && collider_.static_boxes()[obstacle].enabled;
     collider_.set_kinematic_enabled(obstacle,false);
@@ -382,7 +390,6 @@ void App::step_vehicle_transition() {
 void App::run_driver_transition_check() {
     if (step_index_<30 || driver_check_stage_>=6) return;
     const auto model=car_visual_.active_car();
-    const auto& layout=vehicle_driver_layout(model);
     const auto fail=[&](const char* reason) {
         AP_ERROR("%s transition regression: %s",player_car_definition(model).model,reason);
         driver_check_stage_=7;
@@ -402,7 +409,7 @@ void App::run_driver_transition_check() {
     if (driver_check_stage_==0) {
         const auto body=car_visual_.fitted_body_transform(car_);
         const auto side=body.rotation*glm::vec3{1,0,0};
-        const auto p=body.transform_point({layout.approach_x,0,layout.hip.z})+side*.8f;
+        const auto p=body.transform_point(vehicle_driver_approach_point(model))+side*.8f;
         player_character_=spawn_character(collider_,p.x,p.z,std::atan2(-side.x,side.z));
         prev_player_character_=player_character_;
         driver_check_starts_=vehicle_audio_.startup_count();

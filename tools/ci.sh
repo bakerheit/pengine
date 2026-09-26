@@ -19,6 +19,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BUILD_DIR="${BUILD_DIR:-build}"
+# Bare -j launches every compiler at once. A version bump recompiles the whole
+# tree and can exhaust a developer's Mac while other agents are building too.
+BUILD_JOBS="${CMAKE_BUILD_PARALLEL_LEVEL:-4}"
+if [[ ! "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "CMAKE_BUILD_PARALLEL_LEVEL must be a positive integer" >&2
+    exit 2
+fi
 
 # Not a gate step: makes sure this clone runs the version hooks in .githooks/
 # (docs/versioning.md). Idempotent, and silent once it is set.
@@ -44,8 +51,8 @@ python3 tools/guard_lightbar_profiles.py
 echo ">> [3/5] configure"
 cmake -S . -B "$BUILD_DIR"
 
-echo ">> [4/5] build (-Werror)"
-cmake --build "$BUILD_DIR" -j
+echo ">> [4/5] build (-Werror, $BUILD_JOBS jobs)"
+cmake --build "$BUILD_DIR" --parallel "$BUILD_JOBS"
 
 echo ">> [5/5] headless tests"
 ctest --test-dir "$BUILD_DIR" --output-on-failure

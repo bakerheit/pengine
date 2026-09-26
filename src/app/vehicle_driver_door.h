@@ -23,6 +23,7 @@ inline VehicleDriverDoor vehicle_driver_door(PlayerCarId car) {
     if(car==PlayerCarId::PizazConstant) return {{.85441452f,.57f,.835f},{.86f,.785f,-.105f},-.205f,.84f,.267f,.603f,-1.04f};
     if(car==PlayerCarId::GlmMeridian) return {{.91f,.42f,1.16f},{.94f,.99f,.22f},.04f,1.16f,.33f,.81f};
     if(car==PlayerCarId::RodeoSwitchback) return {{.92f,.48f,.76f},{.95f,.99f,-.21f},-.35f,.76f,.41f,.73f};
+    if(car==PlayerCarId::HarrowRearloader) return {{1.155f,2.04f,3.22f},{1.195f,1.735f,1.88f},1.653f,3.217f,.935f,2.112f};
     if(car==PlayerCarId::HarrowHookline) return {{1.02f,.55f,2.40f},{1.05f,1.20f,.67f},.47f,2.40f,.48f,.88f};
     if(car==PlayerCarId::RodeoGrazer) return {{.90f,.43f,.92f},{.916f,1.015f,-.19f},-.28f,.92f,.43f,1.31f};
     if(car==PlayerCarId::EmberGt) return {{.93f,.32f,.86f},{.953f,.757f,-.41f},-.60f,.86f,.24f,.96f};

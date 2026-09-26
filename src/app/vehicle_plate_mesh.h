@@ -27,6 +27,8 @@ inline VehiclePlateMounts vehicle_plate_mounts(const StaticEmesh& body, std::str
         return {{{0,.48f,2.545f},{0,0,1}},{{0,.48f,-2.555f},{0,0,-1}}};
     if (path.find("rodeo_switchback/")!=std::string_view::npos)
         return {{{0,.48f,2.405f},{0,0,1}},{{0,.48f,-2.415f},{0,0,-1}}};
+    if (path.find("harrow_rearloader/")!=std::string_view::npos)
+        return {{{0,.790f,3.850f},{0,0,1}},{{0,.790f,-3.840f},{0,0,-1}}};
     if (path.find("harrow_hookline/")!=std::string_view::npos)
         return {{{0,.48f,2.815f},{0,0,1}},{{0,.48f,-2.825f},{0,0,-1}}};
     if (path.find("fang_venom_v2/")!=std::string_view::npos)

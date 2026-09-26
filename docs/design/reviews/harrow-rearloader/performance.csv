@@ -1,0 +1,2 @@
+brand,model,mesh,texture,top_speed_mph,zero_to_60_s,peak_speed_mph,run_seconds,settled
+HARROW,REARLOADER,models/vehicles/harrow_rearloader/body.emesh,textures/vehicles/harrow_rearloader/body.png,69.234,21.4127,69.243,50.0,true

@@ -54,6 +54,7 @@ enum class PlayerCarId : uint8_t {
     HarrowWorkmanPlow,
     // Appended after the plow variants, whose ids are already in saves.
     PizazConstant,
+    HarrowRearloader,  // appended: preserve all existing checkpoint ids
     kCount,
 };
 
@@ -179,6 +180,10 @@ inline constexpr std::array<PlayerCarDefinition, kSelectablePlayerCarCount>
          "models/vehicles/harrow_parcel/body.emesh",
          "textures/vehicles/harrow_parcel/body.png",
          .43f, .99f, 1.62f, 1.48f},
+        {PlayerCarId::HarrowRearloader, "HARROW", "REARLOADER",
+         "models/vehicles/harrow_rearloader/body.emesh",
+         "textures/vehicles/harrow_rearloader/body.png",
+         .60f,1.00f,2.27f,1.53f,1.90f,1.00f,.60f},
         {PlayerCarId::HarrowWorkman, "HARROW", "WORKMAN",
          "models/vehicles/harrow_workman/body_surface.emesh",
          "textures/vehicles/harrow_workman/body_surface.png",
@@ -315,16 +320,16 @@ inline constexpr std::array<PlayerCarBrand, 16> kPlayerCarBrands{{
     {"FANG", "FANG  >", 5u, 1u},
     {"GLM", "GLM  >", 6u, 3u},
     {"HALCYON", "HALCYON  >", 9u, 2u},
-    {"HARROW", "HARROW  >", 11u, 6u},
-    {"LEGACY", "LEGACY  >", 17u, 5u},
-    {"MONTROSE", "MONTROSE  >", 22u, 1u},
-    {"MUNICIPAL", "MUNICIPAL  >", 23u, 7u},
-    {"ORISON", "ORISON  >", 30u, 1u},
-    {"PIZAZ", "PIZAZ  >", 31u, 1u},
-    {"RODEO", "RODEO  >", 32u, 3u},
-    {"SADDLE", "SADDLE  >", 35u, 1u},
-    {"SPAGATTI", "SPAGATTI  >", 36u, 1u},
-    {"VESPER", "VESPER  >", 37u, 3u},
+    {"HARROW", "HARROW  >", 11u, 7u},
+    {"LEGACY", "LEGACY  >", 18u, 5u},
+    {"MONTROSE", "MONTROSE  >", 23u, 1u},
+    {"MUNICIPAL", "MUNICIPAL  >", 24u, 7u},
+    {"ORISON", "ORISON  >", 31u, 1u},
+    {"PIZAZ", "PIZAZ  >", 32u, 1u},
+    {"RODEO", "RODEO  >", 33u, 3u},
+    {"SADDLE", "SADDLE  >", 36u, 1u},
+    {"SPAGATTI", "SPAGATTI  >", 37u, 1u},
+    {"VESPER", "VESPER  >", 38u, 3u},
 }};
 
 inline constexpr const PlayerCarDefinition& player_car_definition(

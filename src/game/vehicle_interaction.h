@@ -23,17 +23,26 @@ inline VehicleState step_unoccupied_vehicle(const VehicleState& state,
 }
 // Door distance, not a centre-radius test: long vans cannot be entered from
 // the bonnet, roof, or the other side of the street. Both front doors work.
-inline float vehicle_entry_distance(glm::vec3 person, glm::vec3 centre,
-                                    glm::quat rotation, float half_width,
-                                    float half_length, float ground_y,
-                                    float speed) {
+inline float vehicle_entry_distance_to_door(glm::vec3 person, glm::vec3 centre,
+                                           glm::quat rotation, float half_width,
+                                           float door_z, float ground_y,
+                                           float speed) {
     if (speed > kVehicleEntryMaxSpeed || !std::isfinite(speed) ||
         person.y < ground_y-.55f || person.y > ground_y+.85f ||
         (rotation*glm::vec3{0,1,0}).y < .5f) return std::numeric_limits<float>::infinity();
     const glm::vec3 local=glm::inverse(rotation)*(person-centre);
     if (std::fabs(local.x)<half_width+.05f) return std::numeric_limits<float>::infinity();
     const float side=std::fabs(local.x)-(half_width+.35f);
-    const float along=local.z+half_length*.22f;
+    const float along=local.z-door_z;
     return std::sqrt(side*side+along*along);
+}
+// Legacy/traffic shells use the established front-door estimate. Authored
+// cab-over vehicles supply their fitted access-step station to the same gate.
+inline float vehicle_entry_distance(glm::vec3 person, glm::vec3 centre,
+                                    glm::quat rotation, float half_width,
+                                    float half_length, float ground_y,
+                                    float speed) {
+    return vehicle_entry_distance_to_door(person,centre,rotation,half_width,
+        -half_length*.22f,ground_y,speed);
 }
 } // namespace apricot

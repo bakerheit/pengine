@@ -1,0 +1,68 @@
+{
+  "date": "2026-09-26",
+  "vehicle": "harrow_rearloader",
+  "game_transition": {
+    "command": "build/bin/apricot --player-car harrow_rearloader --driver-transition-check --frames 650 --save-file /tmp/apricot-rearloader-entry-check.save --daylight --clear --screenshot build/rearloader-entry-check.bmp",
+    "exit_code": 0,
+    "evidence": [
+      "[   14.833] INFO  [app     ] vehicle_interaction.cpp:485  REARLOADER exit camera PASSED: minimum distance 4.150 m, largest frame step 0.093 m",
+      "[   18.146] INFO  [app     ] vehicle_interaction.cpp:458  REARLOADER transition regression PASSED: door sweep clearance, staged entry, repeated input, blocked exit, blocked entry/exit cancellation, safe exit, re-entry, parked ignition once per entry",
+      "[   19.935] INFO  [app     ] app.cpp:5407  GL error queue clean for the whole session"
+    ]
+  },
+  "game_visual": {
+    "command": "build/bin/apricot --player-car harrow_rearloader --start-driving --frames 300 --start-at 150 2046 --road-start --daylight --clear --camera-mode far --camera-orbit 140 12 --save-file /tmp/apricot-rearloader-game.save --screenshot build/rearloader-game.bmp",
+    "exit_code": 0,
+    "capture": "game.png",
+    "evidence": [
+      "[   12.603] INFO  [app     ] app.cpp:5296  quit after 431 sim steps (3.59 s of sim time), 300 frames",
+      "[   12.603] INFO  [app     ] app.cpp:5407  GL error queue clean for the whole session"
+    ]
+  },
+  "renderer_inspection": {
+    "executable": "build/bin/apricot_mistral_driver_lab",
+    "views": [
+      "front",
+      "rear",
+      "side",
+      "cockpit",
+      "inside"
+    ],
+    "full_lock_checks": [
+      {
+        "steer": 1,
+        "suspension": 0,
+        "capture": "runtime-steer-compressed.png"
+      },
+      {
+        "steer": -1,
+        "suspension": 1,
+        "capture": "runtime-steer-extended.png"
+      }
+    ],
+    "suspension_mapping": "suspension_rest - (1 - normalized) * suspension_travel",
+    "door_states": [
+      0,
+      0.45,
+      1
+    ],
+    "exit_sequence": "Midpoint inspected in local build/rearloader-exit-sequence/frame-0030.png"
+  },
+  "focused_suites": {
+    "passed": [
+      "new_vehicle_models_tests",
+      "vehicle_driver_pose_tests",
+      "vehicle_interaction_tests",
+      "ui_flow_tests",
+      "license_plate_tests",
+      "vehicle_model_tuning_tests",
+      "vehicle_snow_mesh_tests"
+    ]
+  },
+  "limitations": [
+    "Static packer and hydraulics; no refuse collection gameplay",
+    "No ambient refuse-service traffic",
+    "Cabin and concealed chassis inferred",
+    "Game logs also contain existing optional-audio and streaming-budget warnings; GL checks are clean"
+  ]
+}

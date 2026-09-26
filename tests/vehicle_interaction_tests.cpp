@@ -4,6 +4,8 @@
 #include "game/character.h"
 #include "physics/terrain_collider.h"
 #include "app/driving_mechanics.h"
+#include "app/vehicle_model_tuning.h"
+#include "app/vehicle_driver_pose.h"
 #include "test_assert.h"
 using namespace apricot;
 int main() {
@@ -25,6 +27,31 @@ int main() {
     const auto rotated=glm::angleAxis(1.1f,glm::vec3{0,1,0});
     REQUIRE_NEAR(vehicle_entry_distance(rotated*glm::vec3{-1.8f,0,-.55f},
         {0,.6f,0},rotated,1,2.5f,0,0),distance({-1.8f,0,-.55f}),1e-5f);
+    // Cab-over truck access is ahead of its front wheel. The sedan estimate
+    // lies behind the cab and rejected the exact point used by entry staging.
+    const auto truck=PlayerCarId::HarrowRearloader;
+    const auto truck_tuning=player_model_tuning(DrivingMechanicsStyle::ClassicGta,truck);
+    const auto truck_fit=player_car_body_transform(player_car_definition(truck),truck_tuning);
+    const auto access=truck_fit.transform_point(vehicle_driver_approach_point(truck));
+    const auto staged=access+truck_fit.rotate({.8f,0,0});
+    for(float yaw:{0.f,1.1f,3.0f}) {
+        const auto orientation=glm::angleAxis(yaw,glm::vec3{0,1,0});
+        const glm::vec3 centre{17.f,.9f,-31.f};
+        auto person=centre+orientation*staged;person.y=0.f;
+        REQUIRE(vehicle_entry_distance(person,centre,orientation,
+            truck_tuning.car_collision_half_width,truck_tuning.car_collision_half_length,0.f,0.f)>kVehicleEntryReach);
+        REQUIRE(vehicle_entry_distance_to_door(person,centre,orientation,
+            truck_tuning.car_collision_half_width,access.z,0.f,0.f)<kVehicleEntryReach);
+        // The new station keeps the same speed, height and side exclusions.
+        REQUIRE(!std::isfinite(vehicle_entry_distance_to_door(person,centre,orientation,
+            truck_tuning.car_collision_half_width,access.z,0.f,8.f)));
+        REQUIRE(!std::isfinite(vehicle_entry_distance_to_door(person+glm::vec3{0,3,0},centre,orientation,
+            truck_tuning.car_collision_half_width,access.z,0.f,0.f)));
+        const auto rear=centre+orientation*glm::vec3{staged.x,-centre.y,truck_tuning.car_collision_half_length};
+        REQUIRE(vehicle_entry_distance_to_door(rear,centre,orientation,
+            truck_tuning.car_collision_half_width,access.z,0.f,0.f)>kVehicleEntryReach);
+    }
+    apricot_test::pass("cab-over entry targets its fitted front steps across vehicle headings");
     TerrainCollider collider{42};
     const auto id=collider.add_kinematic_oriented_box({0,200,0},{1,1,2.5f},0);
     REQUIRE(collider.raycast({-4,200,0},{1,0,0},8).hit);

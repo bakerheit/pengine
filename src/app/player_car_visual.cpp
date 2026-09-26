@@ -119,7 +119,7 @@ bool PlayerCarVisual::load_model(
         }
     }
     if (body_id == PlayerCarId::Bwc360 || body_id == PlayerCarId::PizazConstant || body_id == PlayerCarId::SaddleTango || body_id == PlayerCarId::HarrowWorkman ||
-        body_id == PlayerCarId::GlmMeridian || body_id == PlayerCarId::RodeoSwitchback || body_id == PlayerCarId::HarrowHookline ||
+        body_id == PlayerCarId::GlmMeridian || body_id == PlayerCarId::RodeoSwitchback || body_id == PlayerCarId::HarrowHookline || body_id == PlayerCarId::HarrowRearloader ||
         body_id == PlayerCarId::EmberGt || body_id == PlayerCarId::RodeoGrazer ||
         body_id == PlayerCarId::AlderPip || body_id == PlayerCarId::SpagattiShu ||
         body_id == PlayerCarId::LegacyCar5Next ||
@@ -131,7 +131,7 @@ bool PlayerCarVisual::load_model(
         const std::string body_path=definition.mesh_path;
         const std::string root=body_path.substr(0,body_path.find_last_of('/')+1);
         const std::size_t pane_count=is_motorbike(body_id) ? 1u :
-            (body_id == PlayerCarId::HarrowWorkman || body_id == PlayerCarId::HarrowHookline) ? 4u : 6u;
+            (body_id == PlayerCarId::HarrowWorkman || body_id == PlayerCarId::HarrowHookline || body_id == PlayerCarId::HarrowRearloader) ? 4u : 6u;
         out.glass_material = renderer.add_glass_material();
         for (std::size_t i=0;i<pane_count;++i) {
             StaticEmesh glass;
@@ -153,7 +153,7 @@ bool PlayerCarVisual::load_model(
     }
 
     if (is_motorbike(body_id) || body_id==PlayerCarId::Bwc360 || body_id==PlayerCarId::PizazConstant || body_id==PlayerCarId::SaddleTango || body_id==PlayerCarId::EmberGt || body_id==PlayerCarId::RodeoGrazer ||
-        body_id==PlayerCarId::GlmMeridian || body_id==PlayerCarId::RodeoSwitchback || body_id==PlayerCarId::HarrowHookline) {
+        body_id==PlayerCarId::GlmMeridian || body_id==PlayerCarId::RodeoSwitchback || body_id==PlayerCarId::HarrowHookline || body_id==PlayerCarId::HarrowRearloader) {
         const std::string path=definition.mesh_path;
         const std::string root=path.substr(0,path.find_last_of('/')+1);
         constexpr const char* names[]{"front_wheel.emesh","rear_wheel.emesh"};

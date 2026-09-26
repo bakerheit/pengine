@@ -381,6 +381,7 @@ void fitted_driver(PlayerCarId model, const SkinnedEmesh& mesh, const Skeleton& 
                     const Transform& car) {
     const auto& layout=vehicle_driver_layout(model);
     const bool workman=model==PlayerCarId::HarrowWorkman;
+    const bool rearloader=model==PlayerCarId::HarrowRearloader;
     const bool pizaz=model==PlayerCarId::PizazConstant;
     const bool pip=model==PlayerCarId::AlderPip;
     const bool cruiser=is_municipal_cruiser_91(model);
@@ -421,7 +422,10 @@ void fitted_driver(PlayerCarId model, const SkinnedEmesh& mesh, const Skeleton& 
             static_cast<double>(knee_car.x),static_cast<double>(knee_car.y),static_cast<double>(knee_car.z));
         REQUIRE(wrist_error < .025f);
         REQUIRE(foot_error < .025f);
-        if(cruiser || pizaz) {
+        if(rearloader) {
+            REQUIRE(knee_car.y>1.65f && knee_car.y<2.20f);
+            REQUIRE(knee_car.z>2.40f && knee_car.z<2.95f);
+        } else if(cruiser || pizaz) {
             REQUIRE(knee_car.y>.50f && knee_car.y<1.20f);
             REQUIRE(knee_car.z>std::min(layout.hip.z,layout.ankles[side].z)-.05f &&
                     knee_car.z<std::max(layout.hip.z,layout.ankles[side].z)+.05f);
@@ -446,8 +450,8 @@ void fitted_driver(PlayerCarId model, const SkinnedEmesh& mesh, const Skeleton& 
         low = std::min(low,point.y); high = std::max(high,point.y);
     }
     std::printf("      skinned source height %.3f .. %.3f\n",static_cast<double>(low),static_cast<double>(high));
-    REQUIRE(low > (pizaz?.28f:workman?.52f:pip?.29f:cruiser?.30f:scythe?.24f:limo?.35f:.40f));
-    REQUIRE(high > (workman?1.50f:scythe?1.05f:1.20f) && high < (pizaz?1.30f:workman?1.93f:pip?1.48f:scythe?1.13f:limo?1.64f:1.70f));
+    REQUIRE(low > (rearloader?1.15f:pizaz?.28f:workman?.52f:pip?.29f:cruiser?.30f:scythe?.24f:limo?.35f:.40f));
+    REQUIRE(high > (rearloader?2.40f:workman?1.50f:scythe?1.05f:1.20f) && high < (rearloader?3.02f:pizaz?1.30f:workman?1.93f:pip?1.48f:scythe?1.13f:limo?1.64f:1.70f));
 }
 
 }  // namespace
@@ -458,6 +462,7 @@ int main() {
     transition_clock();
     hinged_door(PlayerCarId::VesperMistral);
     hinged_door(PlayerCarId::PizazConstant);
+    hinged_door(PlayerCarId::HarrowRearloader);
     hinged_door(PlayerCarId::HarrowWorkman);
     hinged_door(PlayerCarId::AlderPip);
     hinged_door(PlayerCarId::VesperScythe);
@@ -541,7 +546,7 @@ int main() {
                     PlayerCarId::MunicipalCruiser91C,
                     PlayerCarId::MunicipalCruiser91D,
                     PlayerCarId::MunicipalCruiser91E,
-                    PlayerCarId::PizazConstant})
+                    PlayerCarId::PizazConstant,PlayerCarId::HarrowRearloader})
       for (int i = 0; i < 3; ++i) {
         Transform car;
         car.scale=fitted_body_scale(model);

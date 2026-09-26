@@ -44,6 +44,7 @@ int main(int argc,char** argv) {
     int plate_design=-1;
     bool plate_check=false;
     float snow_cover=0.0f;
+    float steering=0.0f,suspension=-1.0f;
     float passenger_open=0.0f,driver_open=-1.0f;
     PlayerCarId model=PlayerCarId::VesperMistral;
     VehicleTransitionDirection transition=VehicleTransitionDirection::None;
@@ -65,6 +66,13 @@ int main(int argc,char** argv) {
             const float amount=std::strtof(value,&end);
             if (end==value || *end!='\0' || !std::isfinite(amount) || amount<0.f || amount>1.f) return 2;
             (arg=="--passenger-door"?passenger_open:driver_open)=amount;
+        }
+        else if (i+1<argc && (arg=="--steer" || arg=="--suspension")) {
+            char* end=nullptr;const char* value=argv[++i];
+            const float parsed=std::strtof(value,&end);
+            if (end==value || *end!='\0' || !std::isfinite(parsed) ||
+                parsed>(1.f) || parsed<(arg=="--steer"?-1.f:0.f)) return 2;
+            (arg=="--steer"?steering:suspension)=parsed;
         }
         else if (i+1<argc && arg=="--snow-cover") {
             char* end=nullptr;
@@ -94,7 +102,7 @@ int main(int argc,char** argv) {
         }
         else if (i+1<argc && arg=="--view") view=argv[++i];
         else if (i+1<argc && arg=="--frames") frames=std::max(1,std::atoi(argv[++i]));
-        else { std::fprintf(stderr,"--car MODEL_FOLDER --player-car --snow-cover 0..1 --driver-door 0..1 --passenger-door 0..1 --plate-design 0..7 --plate-check --view front|windshield|rear|side|passenger|cockpit|inside|controls|plate-front|plate-rear --screenshot PNG --sequence DIR --sequence-step N --transition enter|exit --frames N --on-foot --other-car\n");return 2; }
+        else { std::fprintf(stderr,"--car MODEL_FOLDER --player-car --snow-cover 0..1 --steer -1..1 --suspension 0..1 --driver-door 0..1 --passenger-door 0..1 --plate-design 0..7 --plate-check --view front|windshield|rear|side|passenger|cockpit|inside|controls|plate-front|plate-rear --screenshot PNG --sequence DIR --sequence-step N --transition enter|exit --frames N --on-foot --other-car\n");return 2; }
     }
     if (!production_car && !has_animated_driver(model)) return 2;
     if (view!="front" && view!="windshield" && view!="rear" && view!="side" &&
@@ -130,7 +138,10 @@ int main(int argc,char** argv) {
             static_suspension_length(vehicle_tuning)+definition.arch_centre_y*length_scale;
         vehicle.position.z=(definition.wheel_front_z-definition.wheel_rear_z)*length_scale*.5f;
         for (auto& wheel_state:vehicle.wheels)
-            wheel_state.suspension_length=static_suspension_length(vehicle_tuning);
+            wheel_state.suspension_length=suspension>=0.f
+                ? vehicle_tuning.suspension_rest-(1.f-suspension)*vehicle_tuning.suspension_travel
+                : static_suspension_length(vehicle_tuning);
+        vehicle.steer_angle=steering*vehicle_tuning.max_steer;
         if (!player_car.init(renderer,scene,vehicle_tuning,vehicle,model)) return 1;
         if (plate_check) {
             const auto original=player_car.registration();
@@ -201,7 +212,7 @@ int main(int argc,char** argv) {
     scene.update();
     PlayerCharacterState player;player.position={1.5f,0,0};
     if (transition!=VehicleTransitionDirection::None) {
-        player.position=body.transform_point({layout.approach_x,0,layout.hip.z})+glm::vec3{.55f,0,0};
+        player.position=body.transform_point(vehicle_driver_approach_point(model))+glm::vec3{.55f,0,0};
         player.facing_yaw=transition==VehicleTransitionDirection::Exit ? 1.57079632679f : -1.57079632679f;
     }
     Crowd crowd;CharacterVisual characters;
@@ -233,6 +244,21 @@ int main(int argc,char** argv) {
         camera.position=body.transform_point(layout.hip+glm::vec3{0,.50f,-.04f});
         target=body.transform_point((layout.wrists[0]+layout.wrists[1]+
                                     layout.ankles[0]+layout.ankles[1])*.25f);
+    }
+    if (root=="harrow_rearloader") {
+        // Frame the full tall cab-over truck and inspect its actual cabin.
+        const Transform fitted=player_car.fitted_body_transform(vehicle);
+        if (view=="front" || view=="rear" || view=="side" || view=="passenger") {
+            target=fitted.transform_point({0,1.75f,0});
+            const glm::vec3 offset=view=="front"?glm::vec3{5.3f,2.4f,7.5f}:
+                view=="rear"?glm::vec3{5.3f,2.4f,-7.5f}:
+                glm::vec3{view=="side"?8.f:-8.f,.2f,0};
+            camera.position=target+fitted.rotation*offset;
+        } else if (view=="inside" || view=="cockpit") {
+            target=fitted.transform_point({.58f,1.95f,2.62f});
+            camera.position=fitted.transform_point(view=="inside"?
+                glm::vec3{-.15f,2.62f,1.79f}:glm::vec3{3.8f,2.70f,1.30f});
+        }
     }
     const glm::vec3 d=glm::normalize(target-camera.position);
     camera.yaw=std::atan2(d.x,-d.z);camera.pitch=std::asin(d.y);

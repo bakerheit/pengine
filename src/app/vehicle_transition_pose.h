@@ -31,6 +31,7 @@ inline void exit_pose(PlayerCarId car, const Skeleton& skeleton, const Transform
     const float u = 1.f - std::clamp(sample.traverse, 0.f, 1.f);
     const auto& layout = vehicle_driver_layout(car);
     const auto door = vehicle_driver_door(car);
+    const bool high_cab=car==PlayerCarId::HarrowRearloader;
     const bool low_sports_cabin=car==PlayerCarId::VesperScythe || car==PlayerCarId::EmberGt;
     const int hips = skeleton.find_bone("mixamorig:Hips");
     const auto point = [&](const VehicleDriverPose& pose, int bone) {
@@ -70,6 +71,12 @@ inline void exit_pose(PlayerCarId car, const Skeleton& skeleton, const Transform
     }
     if(car==PlayerCarId::HalcyonSovereign)
         hip+=outward*(.10f*ramp(u,.20f,.40f)*(1.f-ramp(u,.65f,.90f)));
+    if(high_cab) {
+        // Clear the front wheelhouse first, then descend beside the two steps.
+        const auto doorway=body.transform_point({1.18f,1.78f,2.98f});
+        hip=u<.42f ? glm::mix(seat_hip,doorway,ramp(u,.06f,.42f))
+                    : glm::mix(doorway,stand_hip,ramp(u,.42f,.95f));
+    }
     out.world.position = hip - out.world.rotation *
         (out.world.scale * glm::vec3{out.joints[static_cast<std::size_t>(hips)][3]});
     if(low_sports_cabin) {
@@ -109,8 +116,23 @@ inline void exit_pose(PlayerCarId car, const Skeleton& skeleton, const Transform
         auto sill = body.transform_point({door.hinge.x+.16f,door.sill_y+foot_lift,
                                           layout.hip.z+(side==1?.16f:-.06f)});
         // Two eased arcs lift the sole above the sill before lowering it.
-        const auto target = u < crest ? glm::mix(start,sill,ramp(u,begin,crest))
-                                      : glm::mix(sill,finish,ramp(u,crest,plant));
+        auto target = u < crest ? glm::mix(start,sill,ramp(u,begin,crest))
+                                : glm::mix(sill,finish,ramp(u,crest,plant));
+        if(high_cab) {
+            // Feet use the authored front access steps; the door centre is
+            // occupied by a .60 m tire, so it is not a usable stepping route.
+            const auto upper_step=body.transform_point({1.19f,.94f,3.06f});
+            const auto lower_step=body.transform_point({1.23f,.64f,3.08f});
+            const float upper=side==1?.30f:.58f;
+            const float lower=side==1?.52f:.75f;
+            const float ground=side==1?.73f:.94f;
+            const auto over_sill=body.transform_point({1.13f,1.17f,3.06f});
+            const float over=side==1?.18f:.47f;
+            target=u<over ? glm::mix(start,over_sill,ramp(u,begin,over)) :
+                u<upper ? glm::mix(over_sill,upper_step,ramp(u,over,upper)) :
+                u<lower ? glm::mix(upper_step,lower_step,ramp(u,upper,lower)) :
+                glm::mix(lower_step,finish,ramp(u,lower,ground));
+        }
         const int upper = skeleton.find_bone(std::string{"mixamorig:"}+name+"UpLeg");
         const auto thigh = point(out,upper);
         const auto hinge = body.rotate({0,0,-1});
@@ -276,6 +298,7 @@ inline bool make_vehicle_transition_pose(
     // a fleet cruiser's does, and pulling that inside the short reach window
     // moves the hand faster than the rest of the body can follow.
     const bool long_door = is_municipal_cruiser_91(car) || car==PlayerCarId::EmberGt ||
+        car==PlayerCarId::HarrowRearloader ||
         car == PlayerCarId::LegacyCar5Next ||
         car == PlayerCarId::LegacyCar5NextPolice;
     // Release long truck/fleet-sedan doors before they reach the stop, keeping

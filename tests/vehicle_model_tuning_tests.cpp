@@ -119,10 +119,10 @@ void catalog_has_one_distinct_tune_per_model() {
 
         const auto profile = player_car_performance_profile(model.id);
         REQUIRE(profile.mass_kg >= (is_motorbike(model.id)?200.f:900.f) &&
-                profile.mass_kg <= 10000.f);
+                profile.mass_kg <= (model.id==PlayerCarId::HarrowRearloader?10500.f:10000.f));
         REQUIRE(profile.engine_torque_scale >= (is_motorbike(model.id)?.50f:.60f) &&
                 profile.engine_torque_scale <= 4.5f);
-        REQUIRE(profile.top_speed_scale >= .35f &&
+        REQUIRE(profile.top_speed_scale >= (model.id==PlayerCarId::HarrowRearloader?.23f:.35f) &&
                 profile.top_speed_scale <= 1.25f);
         REQUIRE(profile.brake_scale >= .70f && profile.brake_scale <= 1.20f);
         // apply_vehicle_impact clamps this to [0, 1], so a row above 1 is data
@@ -234,11 +234,36 @@ void cinder_native_fit_and_driving() {
     apricot_test::pass("Cinder native dimensions, Ackermann clearance, acceleration, braking and steering");
 }
 
+void rearloader_has_heavy_truck_performance() {
+    auto ground=flat_ground();
+    const auto tuning=player_model_tuning(DrivingMechanicsStyle::ClassicGta,PlayerCarId::HarrowRearloader);
+    auto car=road_speed_car(tuning,ground,0.f);
+    InputFrame input;input.brake=1.f;
+    for(int step=0;step<240;++step) car=step_vehicle(car,tuning,input,ground,kDt);
+    input.brake=0.f;input.throttle=1.f;
+    float zero_to_sixty=0.f,top=0.f;
+    for(int step=0;step<60*120;++step) {
+        car=step_vehicle(car,tuning,input,ground,kDt);
+        const float mph=vehicle_forward_speed(car)/.44704f;
+        if(zero_to_sixty==0.f && mph>=60.f) zero_to_sixty=static_cast<float>(step+1)*kDt;
+        top=std::max(top,mph);
+        REQUIRE(vehicle_up(car).y>.85f);
+    }
+    std::printf("  REARLOADER peak=%.2f mph 0-60=%.2f s\n",top,zero_to_sixty);
+    // The first integration accelerated like a sports sedan. Pin the intended
+    // municipal truck range with actual simulation rather than profile values.
+    REQUIRE(top>=65.f && top<=75.f);
+    REQUIRE(zero_to_sixty>=18.f && zero_to_sixty<=30.f);
+    REQUIRE(measure_stop_distance(PlayerCarId::HarrowRearloader,25.f)<100.f);
+    apricot_test::pass("Rearloader accelerates, brakes and remains upright as a heavy municipal truck");
+}
+
 }  // namespace
 
 int main() {
     catalog_has_one_distinct_tune_per_model();
     measured_class_differences_are_real();
     cinder_native_fit_and_driving();
+    rearloader_has_heavy_truck_performance();
     return apricot_test::done("vehicle_model_tuning_tests");
 }

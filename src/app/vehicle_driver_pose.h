@@ -28,7 +28,7 @@ inline bool shows_mistral_driver(PlayerCarId car, bool occupied) {
 inline bool has_animated_driver(PlayerCarId car) {
     car=player_car_body_id(car);
     return car == PlayerCarId::Bwc360 || car == PlayerCarId::PizazConstant || car == PlayerCarId::VesperMistral || car == PlayerCarId::HarrowWorkman ||
-        car == PlayerCarId::GlmMeridian || car == PlayerCarId::RodeoSwitchback || car == PlayerCarId::HarrowHookline ||
+        car == PlayerCarId::GlmMeridian || car == PlayerCarId::RodeoSwitchback || car == PlayerCarId::HarrowHookline || car == PlayerCarId::HarrowRearloader ||
         car==PlayerCarId::AlderPip || car==PlayerCarId::VesperScythe ||
         car==PlayerCarId::FangVenom || car==PlayerCarId::EmberGt || car==PlayerCarId::RodeoGrazer ||
         car==PlayerCarId::HalcyonSovereign ||
@@ -40,7 +40,8 @@ inline bool has_animated_driver(PlayerCarId car) {
 inline bool has_contact_driver_entry(PlayerCarId car) {
     car=player_car_body_id(car);
     return car==PlayerCarId::AlderPip || car==PlayerCarId::VesperScythe ||
-        car==PlayerCarId::HalcyonSovereign || car==PlayerCarId::EmberGt;
+        car==PlayerCarId::HalcyonSovereign || car==PlayerCarId::EmberGt ||
+        car==PlayerCarId::HarrowRearloader;
 }
 
 inline bool shows_vehicle_driver(PlayerCarId car, bool occupied) {
@@ -172,6 +173,13 @@ inline const VehicleDriverLayout& vehicle_driver_layout(PlayerCarId car) {
         {{.33f,.61f,2.02f},{.53f,.61f,2.02f}},
         {{.33f,1.26f,1.48f},{.53f,1.26f,1.48f}},
         {{.11f,1.14f,1.12f},{.76f,1.14f,1.12f}},{1.52f,1.23f,.75f},1.15f};
+    // Hip sits on the high cab cushion; feet land ahead of the wheelhouse.
+    static const VehicleDriverLayout rearloader{
+        {.58f,1.69f,2.31f},{{.42f,2.00f,2.71f},{.74f,2.00f,2.71f}},
+        {{.48f,1.36f,2.94f},{.69f,1.36f,2.94f}},
+        {{.48f,1.98f,2.61f},{.69f,1.98f,2.61f}},
+        {{.22f,1.80f,2.25f},{.94f,1.80f,2.25f}},{1.58f,1.80f,2.32f},1.52f};
+    if(car==PlayerCarId::HarrowRearloader) return rearloader;
     if(car==PlayerCarId::Bwc360) return bwc;
     if(car==PlayerCarId::PizazConstant) return pizaz;
     if(car==PlayerCarId::GlmMeridian) return meridian;
@@ -191,6 +199,13 @@ inline const VehicleDriverLayout& vehicle_driver_layout(PlayerCarId car) {
     if(car==PlayerCarId::LegacyCar5Next ||
        car==PlayerCarId::LegacyCar5NextPolice) return car5Next;
     return car == PlayerCarId::HarrowWorkman ? workman : mistral;
+}
+
+// Cab-over entry uses steps ahead of the wheel, not a line through its axle.
+inline glm::vec3 vehicle_driver_approach_point(PlayerCarId car) {
+    const auto& layout=vehicle_driver_layout(car);
+    return {layout.approach_x,0.f,
+        player_car_body_id(car)==PlayerCarId::HarrowRearloader ? 3.10f : layout.hip.z};
 }
 
 struct VehicleDriverPose {
@@ -352,6 +367,7 @@ inline bool make_vehicle_driver_pose(PlayerCarId car,const Skeleton& skeleton,
         car==PlayerCarId::LegacyCar5Next ||
             car==PlayerCarId::LegacyCar5NextPolice?kCar5NextRecline:
         car==PlayerCarId::FangVenom?-18.f:
+        car==PlayerCarId::HarrowRearloader?0.f:
         car==PlayerCarId::PizazConstant?10.f:-12.f);
 }
 

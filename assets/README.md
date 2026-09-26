@@ -475,3 +475,19 @@ back-face culling.
 verified through `apricot_asset_lab`; nothing loads them at runtime. At 2.0 m
 they are deliberately above `ClimbTuning::max_height_m`, so they are a barrier
 rather than something to climb — see `src/game/climb.h`.
+
+## Harrow Rearloader
+
+The 1991 rear-loading municipal truck is selectable as `harrow_rearloader`.
+Its reproducible source, 256px atlas, all-angle references, measured performance
+and runtime review are documented in [the model page](../docs/world/vehicles/Harrow/Rearloader.md).
+
+```sh
+python3 tools/make_harrow_rearloader_assets.py
+```
+
+The cooker creates the private editable Blender source, opaque body, open body,
+solid driver door, four pane categories and separate front-single/rear-dual wheel
+meshes under ignored `assets/models/vehicles/harrow_rearloader/`. It also checks
+finite geometry, UVs, budgets, wheel openings and real cabin apertures. Cook this
+asset before launching a checkout that contains its catalog entry.

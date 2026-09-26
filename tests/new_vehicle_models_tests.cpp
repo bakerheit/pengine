@@ -2,6 +2,10 @@
 #include <cstddef>
 #include "app/player_car_catalog.h"
 #include "app/vehicle_model_tuning.h"
+#include "app/vehicle_driver_door.h"
+#include "app/vehicle_driver_pose.h"
+#include "app/vehicle_plate_mesh.h"
+#include "app/vehicle_registration.h"
 #include "app/vehicle_headlight_profile.h"
 #include "app/vehicle_snow_mesh.h"
 #include "audio/vehicle_sound_profile.h"
@@ -116,12 +120,50 @@ void pizaz_component_meshes_are_ready_for_the_runtime_loader() {
     apricot_test::pass("PIZAZ runtime body, six panes, two doors and custom wheels are present");
 }
 
+void rearloader_runtime_contract() {
+    const auto id=PlayerCarId::HarrowRearloader;
+    const auto& definition=player_car_definition(id);
+    const auto tuning=player_model_tuning(DrivingMechanicsStyle::ClassicGta,id);
+    // Saved ids are append-only; a municipal body must never shift old saves.
+    REQUIRE(static_cast<unsigned>(id)==static_cast<unsigned>(PlayerCarId::PizazConstant)+1u);
+    REQUIRE_NEAR(tuning.half_wheelbase,1.90f,1e-6f);
+    REQUIRE_NEAR(tuning.half_track,1.f,1e-6f);
+    REQUIRE_NEAR(tuning.front_drive_bias,0.f,1e-6f);
+    REQUIRE(has_animated_driver(id));
+    const auto door=vehicle_driver_door(id);
+    REQUIRE_NEAR(door.hinge.z,3.22f,.001f);
+    const auto approach=vehicle_driver_approach_point(id);
+    REQUIRE(approach.z>definition.wheel_front_z+tuning.wheel_radius);
+    StaticEmesh body,front,rear;
+    REQUIRE(read_static_emesh(asset_path(definition.mesh_path),body));
+    REQUIRE(read_static_emesh(asset_path("models/vehicles/harrow_rearloader/front_wheel.emesh"),front));
+    REQUIRE(read_static_emesh(asset_path("models/vehicles/harrow_rearloader/rear_wheel.emesh"),rear));
+    REQUIRE(rear.bounds.size().x>front.bounds.size().x*1.6f);
+    REQUIRE_NEAR(std::max(front.bounds.size().y,front.bounds.size().z)*.5f,tuning.wheel_radius,.003f);
+    REQUIRE_NEAR(std::max(rear.bounds.size().y,rear.bounds.size().z)*.5f,tuning.wheel_radius,.003f);
+    const float axle_midpoint=(definition.wheel_front_z-definition.wheel_rear_z)*.5f;
+    REQUIRE(tuning.car_collision_half_length>=body.bounds.max.z-axle_midpoint);
+    REQUIRE(tuning.car_collision_half_length>=axle_midpoint-body.bounds.min.z);
+    REQUIRE(player_plate_use(id)==PlateUse::Commercial);
+    const auto mounts=vehicle_plate_mounts(body,definition.mesh_path);
+    REQUIRE(mounts.size()==2u);
+    // Plate centres must sit just ahead of their dedicated backing, not inside it.
+    for(const auto& mount:mounts) {
+        float surface=0.f;
+        REQUIRE(vehicle_body_surface_z(body,mount.centre.x,mount.centre.y,mount.normal.z>0.f,surface));
+        const float clearance=(mount.centre.z-surface)*mount.normal.z;
+        REQUIRE(clearance>=.004f && clearance<.012f);
+    }
+    apricot_test::pass("Rearloader preserves saved ids, heavy rear-drive fit, dual rear tires, access steps and exposed plates");
+}
+
 void selected_1991_candidates_are_playable_models() {
     struct Expected { PlayerCarId id; float mass; float radius; int panes; };
     for (const Expected expected : {
              Expected{PlayerCarId::GlmMeridian,1750.f,.365f,6},
              Expected{PlayerCarId::RodeoSwitchback,1680.f,.46f,6},
-             Expected{PlayerCarId::HarrowHookline,4200.f,.46f,4}}) {
+             Expected{PlayerCarId::HarrowHookline,4200.f,.46f,4},
+             Expected{PlayerCarId::HarrowRearloader,10500.f,.60f,4}}) {
         const auto& car=player_car_definition(expected.id);
         const auto tuning=player_model_tuning(DrivingMechanicsStyle::ClassicGta,expected.id);
         REQUIRE_NEAR(tuning.mass_kg,expected.mass,.001f);
@@ -178,7 +220,7 @@ void selected_1991_candidates_are_playable_models() {
         }
         REQUIRE(vehicle_speed(state)>4.f);
     }
-    apricot_test::pass("1991 Meridian, Switchback and Hookline have complete assets and drivable tuning");
+    apricot_test::pass("1991 candidates and Rearloader have complete assets and drivable tuning");
 }
 }
 int main() {
@@ -187,6 +229,7 @@ int main() {
     model_contract(PlayerCarId::PizazConstant,4.683288f,2.014016f,1510.f,-.250751f,.837f,
                    {30000u,40000u,32000u,2500u});
     pizaz_component_meshes_are_ready_for_the_runtime_loader();
+    rearloader_runtime_contract();
     selected_1991_candidates_are_playable_models();
     REQUIRE(player_model_tuning(DrivingMechanicsStyle::ClassicGta,PlayerCarId::HarrowCityliner).mass_kg==9000.f);
     REQUIRE(player_model_tuning(DrivingMechanicsStyle::ClassicGta,PlayerCarId::AlderPip).mass_kg==1050.f);

@@ -1,0 +1,13 @@
+{
+  "Connected rounded cab shell": {
+    "boundary_edges": 0,
+    "nonmanifold_edges": 0,
+    "connected_components": 1
+  },
+  "Driver connected door": {
+    "boundary_edges": 0,
+    "nonmanifold_edges": 0,
+    "connected_components": 1
+  },
+  "aperture_rays": "pass: both windshield openings and open door frame show actual cabin"
+}

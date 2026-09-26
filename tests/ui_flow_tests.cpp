@@ -792,7 +792,7 @@ void developer_menu_navigates_and_returns_a_teleport() {
     menu.set_selection(player_car_brand_index(PlayerCarId::HarrowWorkman));
     menu.update(kBtnAccept);
     REQUIRE(std::strcmp(menu.title(), "HARROW") == 0);
-    REQUIRE(menu.item_count() == 6);
+    REQUIRE(menu.item_count() == 7);
     REQUIRE(std::strcmp(menu.item_label(0), "CITYLINER BUS") == 0);
     REQUIRE(menu.update(kBtnAccept).player_car == PlayerCarId::HarrowCityliner);
     menu.set_selection(1);
@@ -805,17 +805,20 @@ void developer_menu_navigates_and_returns_a_teleport() {
     REQUIRE(std::strcmp(menu.item_label(3), "PARCEL") == 0);
     REQUIRE(menu.update(kBtnAccept).player_car == PlayerCarId::HarrowParcel);
     menu.set_selection(4);
-    REQUIRE(std::strcmp(menu.item_label(4), "WORKMAN") == 0);
+    REQUIRE(std::strcmp(menu.item_label(4), "REARLOADER") == 0);
+    REQUIRE(menu.update(kBtnAccept).player_car == PlayerCarId::HarrowRearloader);
+    menu.set_selection(5);
+    REQUIRE(std::strcmp(menu.item_label(5), "WORKMAN") == 0);
     const DevMenuAction choose_pickup = menu.update(kBtnAccept);
     REQUIRE(choose_pickup.kind == DevMenuActionKind::SetPlayerCar);
     REQUIRE(choose_pickup.player_car == PlayerCarId::HarrowWorkman);
     REQUIRE(menu.player_car() == PlayerCarId::HarrowWorkman);
-    REQUIRE(std::strcmp(menu.item_value(4), "ACTIVE") == 0);
+    REQUIRE(std::strcmp(menu.item_value(5), "ACTIVE") == 0);
     // The plow truck sorts straight after the truck it is built on.
-    menu.set_selection(5);
-    REQUIRE(std::strcmp(menu.item_label(5), "WORKMAN PLOW") == 0);
+    menu.set_selection(6);
+    REQUIRE(std::strcmp(menu.item_label(6), "WORKMAN PLOW") == 0);
     REQUIRE(menu.update(kBtnAccept).player_car == PlayerCarId::HarrowWorkmanPlow);
-    menu.set_selection(4);
+    menu.set_selection(5);
     REQUIRE(menu.update(kBtnAccept).player_car == PlayerCarId::HarrowWorkman);
 
     menu.update(kBtnBack);

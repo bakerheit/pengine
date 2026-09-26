@@ -1,0 +1,10 @@
+{
+  "slug": "harrow_rearloader",
+  "grade": "exact",
+  "stock": "harrow_rearloader/body.png",
+  "coverage": [["harrow_rearloader", []]],
+  "refs": [{"rgb": [67, 94, 74]}, {"rgb": [88, 112, 92]}],
+  "tol": {"c": 0.02, "dark": 0.03, "fc": 0.01, "fl": 0.01, "light": 0.03},
+  "include": [[0, 0, 127, 63]],
+  "clean": 0
+}

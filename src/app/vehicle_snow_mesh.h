@@ -26,7 +26,7 @@ struct VehicleWindshieldProfile {
 // those profiles allow the measured receiver offset; UV atlas coordinates are
 // intentionally absent because the surface bake repacks those charts.
 // Coordinates are Apricot source XYZ (+Z forward), after Blender export.
-inline constexpr std::array<VehicleWindshieldProfile,36> kVehicleWindshields{{
+inline constexpr std::array<VehicleWindshieldProfile,37> kVehicleWindshields{{
     {"bwc_360",.786f,.947f,1.310f,.923f,.384f,.045f},
     {"rodeo_grazer",.858f,1.10f,1.70f,.927f,.431f,.04f},
     {"ember_gt",.753f,.762f,1.224f,.910f,.289f,.06f},
@@ -64,6 +64,7 @@ inline constexpr std::array<VehicleWindshieldProfile,36> kVehicleWindshields{{
     {"saddle_tango",.83f,1.00f,1.45f,.57f,.07f,.04f},
     {"glm_meridian",0.76500f,1.18425f,1.76475f,1.68500f,1.05500f},
     {"rodeo_switchback",0.77400f,1.18525f,1.78375f,1.12850f,0.74150f},
+    {"harrow_rearloader",1.018f,2.058f,3.010f,3.578f,3.362f},
     {"harrow_hookline",0.86400f,1.40825f,2.06075f,2.64150f,2.30850f}
 }};
 

@@ -17,6 +17,8 @@ The saved run contains **38 catalog vehicles**: 37 settled top speeds and 38 mea
 
 These results come from the local working tree, including ongoing vehicle work. [Raw measurements](performance.csv) and the [source snapshot](performance-snapshot.json) preserve the conditions and input hashes. This benchmark measures straight-line physics; it does not certify the current rendered model, handling on a city route or integration status.
 
+The Rearloader was measured separately on 2026-09-26 using the same conditions: [raw result](../../design/reviews/harrow-rearloader/performance.csv) and [source snapshot](../../design/reviews/harrow-rearloader/performance-snapshot.json). Its row supplements the earlier 38-vehicle snapshot.
+
 ## Roster
 
 | Vehicle | Top speed | 0–60 mph |
@@ -35,6 +37,7 @@ These results come from the local working tree, including ongoing vehicle work. 
 | [Harrow Hauler Semi](Harrow/Hauler%20Semi.md) | 105.4 mph | 3.9 s |
 | [Harrow Hookline](Harrow/Hookline.md) | 138.5 mph | 5.0 s |
 | [Harrow Parcel](Harrow/Parcel.md) | 115.6 mph | 4.3 s |
+| [Harrow Rearloader](Harrow/Rearloader.md) | 69.2 mph | 21.4 s |
 | [Harrow Workman](Harrow/Workman.md) | 125.2 mph | 4.2 s |
 | [Karlsdale Lux](Karlsdale/Lux.md) | 126.4 mph | 4.4 s |
 | [Karlsdale Regent Eight](Karlsdale/Regent%20Eight.md) | 83.5 mph | 6.2 s |

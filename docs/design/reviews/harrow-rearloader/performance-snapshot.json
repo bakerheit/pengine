@@ -1,0 +1,25 @@
+{
+  "date": "2026-09-26",
+  "preset": "Classic GTA",
+  "surface": "flat dry Rock",
+  "rate_hz": 120,
+  "source_sha256": {
+    "tools/vehicle_performance.cpp": "5fec386e20da13b94df4894fb8cda5f8f72200dcbb0a683be9b58d11950d2da6",
+    "src/app/vehicle_model_tuning.h": "29d7377884a0ffbec860ee1e41fefabe4759d90c69edb4242ea696bcc89907d5",
+    "src/app/player_car_catalog.h": "4992050c863f9a33806b365d5a245a95141816fee0a89194c808e2b3b2ff051d",
+    "src/app/driving_mechanics.h": "243e53e8d32b5e3c62b5385a58f80d0f757307e5ce83e6b303aca24318d07b72",
+    "src/physics/vehicle.cpp": "abb55d5b82d672635d18193d9eddcca6658f2c61f54f961a92286d7cab5ae9c7",
+    "src/physics/vehicle.h": "d6db39d89227bdbda723f4e0cb8d46b8668ccf9a23c8964a0c21e81930f75814"
+  },
+  "measurement": {
+    "brand": "HARROW",
+    "model": "REARLOADER",
+    "mesh": "models/vehicles/harrow_rearloader/body.emesh",
+    "texture": "textures/vehicles/harrow_rearloader/body.png",
+    "top_speed_mph": "69.234",
+    "zero_to_60_s": "21.4127",
+    "peak_speed_mph": "69.243",
+    "run_seconds": "50.0",
+    "settled": "true"
+  }
+}

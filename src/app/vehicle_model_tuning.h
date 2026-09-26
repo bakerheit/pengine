@@ -76,6 +76,9 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
         case PlayerCarId::HarrowHookline: // city recovery truck
             return {4200.f,2.25f,.60f,.98f,.83f,.73f,1.18f,.85f,1.06f,
                     .80f,1.35f,.115f,1.40f,1.38f,-.10f,2.05f,1.f};
+        case PlayerCarId::HarrowRearloader: // two-axle municipal refuse truck, unladen
+            return {10500.f,1.10f,.23f,.95f,.72f,.60f,1.25f,.86f,1.08f,
+                    .96f,1.55f,.120f,1.65f,1.55f,-.25f,4.40f,.45f};
         case PlayerCarId::HarrowParcel: // commercial panel van
             return {2200.f,1.34f,.72f,.98f,.91f,.82f,1.15f,.88f,.94f,
                     .84f,.92f,.075f,1.28f,1.30f,.10f,1.42f,1.f};
@@ -348,6 +351,14 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.car_collision_half_width=1.15f;tuning.car_collision_half_length=2.82f;
         tuning.chassis_floor=.35f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
         tuning.chassis_roof=2.74f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
+    } else if (body == PlayerCarId::HarrowRearloader) {
+        tuning.front_drive_bias=0.f;
+        tuning.max_steer=std::min(tuning.max_steer,.42f);
+        tuning.chassis_half_width=1.20f;tuning.chassis_half_length=4.21f;
+        // Rear axle pair carries dual tires; mirrors stay outside the solid cab.
+        tuning.car_collision_half_width=1.39f;tuning.car_collision_half_length=4.21f;
+        tuning.chassis_floor=.32f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
+        tuning.chassis_roof=3.585f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
     } else if (body == PlayerCarId::RodeoGrazer) {
         tuning.front_drive_bias=.50f;
         tuning.suspension_travel=std::max(tuning.suspension_travel,.20f);

@@ -14,6 +14,7 @@ Steel-beam H. See the [brand design record](../../design/vehicle-brands.md#emble
 - [Hauler Semi](Harrow/Hauler%20Semi.md)
 - [Hookline](Harrow/Hookline.md) — **Class 3**, a design, detail and documentation benchmark.
 - [Parcel](Harrow/Parcel.md)
+- [Rearloader](Harrow/Rearloader.md) — **Class 3**, individually reviewed 1991 municipal refuse truck.
 - [Workman](Harrow/Workman.md)
 
 ## Sources

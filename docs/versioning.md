@@ -105,3 +105,7 @@ What it costs: a push to main whose tree has not been gated waits for a full
 build and every suite, several minutes. The stamp does not cover the
 gitignored models, so a green stamp stays green if the models change under it.
 
+The gate limits builds to **four jobs** by default. A version change rebuilds
+the full tree; unlimited compiler jobs exhausted the local Mac during the
+Rearloader landing. Set `CMAKE_BUILD_PARALLEL_LEVEL` to a positive integer to
+choose a different limit. Tests remain sequential by default.

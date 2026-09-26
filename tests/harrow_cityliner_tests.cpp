@@ -60,8 +60,12 @@ void bus_dents_build_gradually_through_real_collisions() {
     const auto bus=player_model_tuning(DrivingMechanicsStyle::ClassicGta,PlayerCarId::HarrowCityliner);
     auto previous_bus=bus;previous_bus.body_damage_gain=1.f;
     REQUIRE_NEAR(bus.body_damage_gain,.25f,1e-6f);
-    for (const auto& model:kPlayerCars) if (model.id!=PlayerCarId::HarrowCityliner)
-        REQUIRE_NEAR(player_model_tuning(DrivingMechanicsStyle::ClassicGta,model.id).body_damage_gain,1.f,1e-6f);
+    for (const auto& model:kPlayerCars) if (model.id!=PlayerCarId::HarrowCityliner) {
+        // The later municipal refuse truck also has reinforced bodywork.
+        // Preserve the original fleet's full dent gain while checking its tune.
+        const float expected=model.id==PlayerCarId::HarrowRearloader?.45f:1.f;
+        REQUIRE_NEAR(player_model_tuning(DrivingMechanicsStyle::ClassicGta,model.id).body_damage_gain,expected,1e-6f);
+    }
 
     const auto tap=wall_hit(bus,2.f);
     REQUIRE(tap.impact_count==0u);
@@ -110,7 +114,7 @@ int main() {
     REQUIRE_NEAR(bus.wheel_front_z+bus.wheel_rear_z,2*bus.physical_half_wheelbase,1e-5f);
     REQUIRE_NEAR(bus.wheel_x,bus.physical_half_track,1e-5f);
     const auto& brand=kPlayerCarBrands[static_cast<std::size_t>(player_car_brand_index(bus.id))];
-    REQUIRE(brand.car_count==6u);  // Cityliner, Hauler, Hookline, Parcel, Workman, Workman Plow
+    REQUIRE(brand.car_count==7u);  // Cityliner, Hauler, Hookline, Parcel, Rearloader, Workman, Workman Plow
     REQUIRE(kPlayerCars[brand.first_car].id==bus.id);
 
     const auto tuning=player_model_tuning(DrivingMechanicsStyle::ClassicGta,bus.id);
