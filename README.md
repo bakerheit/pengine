@@ -649,6 +649,7 @@ CMakeLists.txt   three targets, pinned dependencies, strict-warning flags.
                  Declares no sources — the modules do that.
 VERSION          semver, single source of truth. Flows into project() and
                  the APRICOT_VERSION macro logged on the first line of output.
+                 Every commit on main bumps it: docs/versioning.md.
 
 src/
   core/          InputFrame and the ReplayTape that carries it (the replay

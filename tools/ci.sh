@@ -20,6 +20,10 @@ cd "$(dirname "$0")/.."
 
 BUILD_DIR="${BUILD_DIR:-build}"
 
+# Not a gate step: makes sure this clone runs the version hooks in .githooks/
+# (docs/versioning.md). Idempotent, and silent once it is set.
+tools/version.sh install
+
 echo ">> [1/5] sim purity guard"
 tools/guard_sim_purity.sh
 

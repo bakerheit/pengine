@@ -44,7 +44,8 @@ PENG-23. If you find a reference to a route, a gate, a lap, a split, a best lap
 or a ghost anywhere in this tree, it is a leftover: it is not a feature, and it
 is not a plan.
 
-This file loads into every session and subagent. It is the rules of the road;
+This file loads into every session and subagent, and `AGENTS.md` is a symlink
+to it so Codex and other agents read the same rules. It is the rules of the road;
 it links out to the detail rather than restating it.
 
 Read [`docs/architecture.md`](docs/architecture.md) before your first
@@ -95,6 +96,26 @@ Registering a test is one line in `tests/CMakeLists.txt`:
 is a no-op — a suite using it does not fail, it *lies*. Use `REQUIRE`,
 `REQUIRE_MSG` and `REQUIRE_NEAR` from `tests/test_assert.h`. There is no
 `<cassert>` in the test tree and there should never be one.
+
+---
+
+## Versioning
+
+**Every commit on main bumps `VERSION`, and you pick the level.** The
+pre-commit hook in `.githooks/` bumps a patch by default; `tools/ci.sh`
+installs the hooks. Say what the change *means*, not how big it is:
+
+```sh
+git commit -m "..."                  # patch: fixes, tuning, docs, tooling, refactors
+BUMP=minor git commit -m "..."       # minor: something new a player can see, hear or do
+```
+
+**major** is the human's call until 1.0. Changing `kReplayTapeVersion` forces
+at least a minor, and the hook raises it for you. Worktree branches do not bump
+per commit; they take one bump when they land, and a plain `git merge` into
+main is refused, so land with `git merge --no-ff --no-commit <branch>` then
+`git commit`. Never `--no-verify` past it. The levels, the landing recipes and
+what each hook does are in [`docs/versioning.md`](docs/versioning.md).
 
 ---
 

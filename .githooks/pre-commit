@@ -1,0 +1,5 @@
+#!/bin/sh
+# Installed by tools/version.sh install (tools/ci.sh runs it). The rules live
+# in tools/version.sh; exec keeps git as the parent process, which is how the
+# pre-commit hook tells an --amend apart.
+exec "$(git rev-parse --show-toplevel)/tools/version.sh" hook pre-commit "$@"

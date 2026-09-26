@@ -369,3 +369,7 @@ apricot_add_suite(vehicle_paint_profiles_tests)
 # The respray booth's picker model (game/paint_picker.h): presets, layout and
 # hit-testing at 1x and 2x DPI, focus, repeat timing and the confirm rules.
 apricot_add_suite(paint_picker_tests)
+# The version hooks (tools/version.sh, .githooks/): real git driven through
+# commits, --amend, merges and a push in a throwaway repo. A shell script, not
+# a C++ suite, so it is registered directly rather than via apricot_add_suite.
+add_test(NAME version_hook_tests COMMAND bash ${CMAKE_SOURCE_DIR}/tools/test_version.sh)
