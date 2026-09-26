@@ -24,7 +24,6 @@ namespace apricot {
 
 struct AircraftState;
 struct HelicopterState;
-class WreckExplosion;
 
 // Render-only handle for one authored window pane. The address is stable city
 // data; NodeId is only its current scene slot. lod keeps the last near pattern
@@ -135,9 +134,6 @@ public:
     void sync_helicopter(Scene& scene, TerrainCollider& collider,
                          const struct HelicopterState& state);
     void enable_helicopter_collision(TerrainCollider& collider, bool enabled);
-    // The wreck's fireball. The pool is fixed and always resident, so a blast
-    // never allocates on the frame the player is watching it happen.
-    void sync_wreck_explosion(Scene& scene, const WreckExplosion& blast);
     void sync_boat(Scene& scene, TerrainCollider& collider, const struct BoatState& state);
     void enable_boat_collision(TerrainCollider& collider, bool enabled);
     const Transform* rendered_boat_transform(const Scene& scene) const {
@@ -310,9 +306,6 @@ private:
     NodeId halberd_helicopter_rotor_node_ = kInvalidId;
     std::vector<std::size_t> halberd_helicopter_colliders_;
     bool halberd_helicopter_collision_enabled_ = true;
-    MeshId wreck_particle_mesh_ = kInvalidId;
-    MaterialId wreck_particle_material_ = kInvalidId;
-    std::vector<NodeId> wreck_particle_nodes_;
     std::vector<NodeId> start_nodes_;
     std::vector<SkyscraperWindowRuntime> skyscraper_windows_;
     SkyscraperWindowStats skyscraper_window_stats_;

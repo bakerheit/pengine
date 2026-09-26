@@ -8,6 +8,7 @@
 #include "app/fire_sprite_sheet.h"
 #include "game/fire.h"
 #include "game/molotov.h"
+#include "game/wreck_explosion.h"
 #include "scene/scene.h"
 
 namespace apricot {
@@ -157,6 +158,40 @@ private:
     const FireSprites* sprites_ = nullptr;
     std::vector<NodeId> cards_;
     std::size_t visible_cards_ = 0;
+};
+
+// The fireball a wreck throws — a helicopter's, or a car bomb's — drawn off the
+// same flame atlas as the burning ground. game/wreck_explosion.h decides where
+// every particle is; this only decides what it looks like.
+//
+// It used to be lit cubes with an orange tint, one per particle, drawn by
+// World. From a distance that passed; up close, and a car bomb puts the player
+// up close, the burst was a stack of translucent orange boxes. Fire and smoke
+// are cards now. Debris stays a small dark box, because a tumbling chunk of
+// bodywork is a box.
+class WreckBlastVisual {
+public:
+    // Flames run faster than the burning ground's: a fireball is a flash, and
+    // at the ground's rate a half-second flame would barely change frame.
+    static constexpr float kFlameFramesPerSecond = 40.0f;
+    static constexpr float kSmokeFramesPerSecond = 9.0f;
+
+    bool init(Renderer& renderer, Scene& scene, const FireSprites& sprites);
+    void destroy(Scene& scene);
+    void sync(Scene& scene, const WreckExplosion& blast, glm::vec3 eye);
+
+    std::size_t visible_card_count() const { return visible_cards_; }
+    std::size_t visible_debris_count() const { return visible_debris_; }
+
+private:
+    Renderer* renderer_ = nullptr;
+    const FireSprites* sprites_ = nullptr;
+    MeshId chunk_mesh_ = kInvalidId;
+    MaterialId chunk_material_ = kInvalidId;
+    // One card and one chunk per pool slot; a slot shows whichever its
+    // particle's kind wants and hides the other.
+    std::vector<NodeId> cards_, chunks_;
+    std::size_t visible_cards_ = 0, visible_debris_ = 0;
 };
 
 }  // namespace apricot

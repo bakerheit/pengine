@@ -10,16 +10,16 @@
 
 namespace apricot {
 
-// The fireball a wrecked vehicle throws, as a bounded pool of billboarded
-// cubes. Shaped after game/blood_particles.h, for the same reason that one is
+// The fireball a wrecked vehicle throws, as a bounded pool of particles.
+// Shaped after game/blood_particles.h, for the same reason that one is
 // shaped the way it is: a fixed pool with event-keyed variation costs nothing
 // to reason about, cannot leak, and replays identically.
 //
-// Sizes are deliberately modest. There is no unlit or additive material in
-// this renderer, so these are lit boxes with an alpha tint: scaled up far
-// enough to fill the screen they stop reading as fire and start reading as
-// orange cubes, and they hide the wreck that is the actual subject of the
-// shot. Keep the burst smaller than the machine it came off.
+// Sizes are deliberately modest. These began as lit boxes with an alpha tint,
+// and scaled up far enough to fill the screen they read as orange cubes; fire
+// and smoke are flame-atlas cards now (app/molotov_visual.h, WreckBlastVisual)
+// and debris is still a box. The rule outlived the boxes: a burst bigger than
+// the machine it came off hides the wreck that is the subject of the shot.
 //
 // Three kinds of particle, because an explosion that is only a fireball reads
 // as a flashbulb. The fire is gone in half a second, the debris arcs away
@@ -43,6 +43,10 @@ struct WreckParticleDraw {
     glm::vec3 scale{0.f};
     glm::vec4 tint{0.f};
     float spin = 0.f;
+    // Which kind, and how far through its life, so a presentation that draws
+    // fire and smoke off a sprite atlas can pick the card and the frame.
+    WreckParticleKind kind = WreckParticleKind::Fire;
+    float age = 0.f;
     bool visible = false;
 };
 
@@ -100,6 +104,8 @@ public:
         if (!p.live || p.lifetime <= 0.f) return out;
         const float t = std::clamp(p.age / p.lifetime, 0.f, 1.f);
         out.visible = true;
+        out.kind = p.kind;
+        out.age = p.age;
         out.position = p.position;
         out.spin = p.spin * p.age;
         switch (p.kind) {

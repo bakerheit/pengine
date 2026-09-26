@@ -826,6 +826,7 @@ bool App::init() {
     }
     if (!molotov_visual_.init(renderer_,scene_,fire_sprites_)) return false;
     if (!fire_visual_.init(renderer_,scene_,fire_sprites_)) return false;
+    if (!wreck_visual_.init(renderer_,scene_,fire_sprites_)) return false;
     // RECORDED ONLY, with no synthesised fallback, for the same reason
     // footsteps and the city bed have none: a generated pane of glass is a
     // burst of noise and a generated fire is a hiss, and the ear knows. A
@@ -966,6 +967,7 @@ void App::shutdown() {
     weapon_visual_.destroy(scene_);
     molotov_visual_.destroy(scene_);
     fire_visual_.destroy(scene_);
+    wreck_visual_.destroy(scene_);
     fire_sprites_.destroy();
     character_visual_.destroy();
     vehicle_effects_.destroy(scene_);
@@ -4289,7 +4291,6 @@ int App::run() {
             // The smoke outlives the crash, and it outlives R as well, so this
             // runs every step rather than only while something is burning.
             wreck_blast_.step(static_cast<float>(kSimDt));
-            world_.sync_wreck_explosion(scene_,wreck_blast_);
 
             // Conditions are a pure function of (seed, ABSOLUTE step), never an
             // accumulator, so a tape replayed from any point in the session
@@ -4812,6 +4813,7 @@ int App::run() {
             has_weapon_hand ? &weapon_hand:nullptr,molotov_use_,camera_.position);
         molotov_visual_.sync_projectiles(scene_,molotov_shots_,camera_.position);
         fire_visual_.sync(scene_,fire_,camera_.position);
+        wreck_visual_.sync(scene_,wreck_blast_,camera_.position);
         weapon_socket_player_position_=glm::mix(prev_player_character_.position,
             player_character_.position,static_cast<float>(clock_.alpha()));
         weapon_socket_player_yaw_=interpolate_camera_yaw(prev_player_character_.facing_yaw,

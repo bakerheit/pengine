@@ -228,8 +228,9 @@ side in `app/car_bomb_gameplay.cpp`. `--car-bomb-check --frames 3600` runs both
 detonations in the real game, leaves nine screenshots in
 `build/car-bomb-check.*.png`, and lights a fire under a real pedestrian and
 requires it to bite them. **Not there yet:** there is no money in the game,
-so the bomb is free; there is no pad binding; the blast reuses the helicopter
-wreck's lit-cube fireball, which reads as orange boxes up close; no explosion
+so the bomb is free; there is no pad binding; the fireball's flames and smoke
+are cards off the molotov's flame atlas (smoke is that take tinted to soot, as
+there is no smoke sheet yet) and its debris is still small boxes; no explosion
 recording ships (it layers the crash, glass and molotov whoosh, and plays
 `assets/audio/weapons/runtime/car_bomb_blast.wav` if one appears); the blast
 does not touch traffic or parked cars; and none of it has been played by hand.
