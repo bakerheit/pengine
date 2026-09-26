@@ -11,6 +11,13 @@ export interface PizazMaterials {
   amber: THREE.Material;
   red: THREE.Material;
   upholstery: THREE.Material;
+  carpet: THREE.Material;
+  leather: THREE.Material;
+  instruments: THREE.Material;
+  radio: THREE.Material;
+  hvac: THREE.Material;
+  speaker: THREE.Material;
+  selector: THREE.Material;
 }
 
 export const PIZAZ_SHAPE = {

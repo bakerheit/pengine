@@ -374,50 +374,50 @@
     "page": "Pizaz/Constant.md",
     "image": "images/pizaz-constant-model-three-quarter.png",
     "source": "build/pizaz-constant-img2threejs/model-three-quarter.png",
-    "kind": "Archived model render — Front three-quarter",
-    "sha256": "add921beae1c97d1202bba9891e8cb8f7d00bad55263a7f2c4f23f53939a6335"
+    "kind": "Editable model render — three-quarter; interior repair 2026-09-26",
+    "sha256": "2fe60b2d688083752351a6bd666991e7a488e695ad025db429da2138a573a82e"
   },
   {
     "page": "Pizaz/Constant.md",
     "image": "images/pizaz-constant-model-rear-three-quarter.png",
     "source": "build/pizaz-constant-img2threejs/model-rear-three-quarter.png",
-    "kind": "Archived model render — Rear three-quarter",
-    "sha256": "8b721524e63fbbb68b97b05be2ec0eb5480dde86c57512d32e19c3299a673b58"
+    "kind": "Editable model render — rear-three-quarter; interior repair 2026-09-26",
+    "sha256": "d3dc79a4c7f6727eff065ac83021cf39fa20e7bee1a5542d3aa2bb4fa8f6cfd8"
   },
   {
     "page": "Pizaz/Constant.md",
     "image": "images/pizaz-constant-model-front.png",
     "source": "build/pizaz-constant-img2threejs/model-front.png",
-    "kind": "Archived model render — Front",
-    "sha256": "afada7f1cf7d2f70b6f60b73ec1fddf5aa98fa0d1b54e1380b1d3b1e096a7631"
+    "kind": "Editable model render — front; interior repair 2026-09-26",
+    "sha256": "82cdd2a360d1fec315b6886f978e019b067dc6f56f4dcdbe7656a33bb679c869"
   },
   {
     "page": "Pizaz/Constant.md",
     "image": "images/pizaz-constant-model-rear.png",
     "source": "build/pizaz-constant-img2threejs/model-rear.png",
-    "kind": "Archived model render — Rear",
-    "sha256": "7e298554e2f0f0bf6401a21cc448fcf87395e03af2eded3299c0b34b0742fd0c"
+    "kind": "Editable model render — rear; interior repair 2026-09-26",
+    "sha256": "88f9ad396a89364a6cecc5667a2d4f6901c62d55c6e50b8f41b8b5040dbd3168"
   },
   {
     "page": "Pizaz/Constant.md",
     "image": "images/pizaz-constant-model-side.png",
     "source": "build/pizaz-constant-img2threejs/model-side.png",
-    "kind": "Archived model render — Side",
-    "sha256": "e4a35a36d2009baf7abf7b8b599ace9a81cb006256207d711b452f16ab899f03"
+    "kind": "Editable model render — side; interior repair 2026-09-26",
+    "sha256": "53e4ec58bbc646a715458ee96692ccf7d3c9f664bc90fcd46d378c34f43c7405"
   },
   {
     "page": "Pizaz/Constant.md",
     "image": "images/pizaz-constant-model-top.png",
     "source": "build/pizaz-constant-img2threejs/model-top.png",
-    "kind": "Archived model render — Top",
-    "sha256": "1e0df86be122105e0c0a51c4ae4a3a81f941abf8c9e8a2c5d515827ec20a00f6"
+    "kind": "Editable model render — top; interior repair 2026-09-26",
+    "sha256": "4736fc94323499f47a3617351704664e6f35311753a0454bb665a6ccf8d6cd02"
   },
   {
     "page": "Pizaz/Constant.md",
     "image": "images/pizaz-constant-model-doors-open.png",
     "source": "build/pizaz-constant-img2threejs/model-doors-open.png",
-    "kind": "Archived model render — Doors open",
-    "sha256": "6a125c527d378fbcb4ae632d278c348c0f1840a2c89b30533b0704c7dc96c107"
+    "kind": "Editable model render — doors-open; interior repair 2026-09-26",
+    "sha256": "2b68763ffceff364da5acc96b4e2da70c98d84c857942754353dfb1688e67801"
   },
   {
     "page": "Alder/Pip.md",
@@ -502,5 +502,47 @@
     "source": "build/ember-ground-side-fixed.png",
     "kind": "Archived model view — Side — archived game screenshot",
     "sha256": "2ce4cd630adaed34a87f5aece12463f5556f821634ddf4499107cb2d6c036205"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-interior-inside.png",
+    "source": "build/pizaz-final/inside.png",
+    "kind": "Production renderer capture — inside; 2026-09-26",
+    "sha256": "af37939637879101649a7476354c1cb440b8edcd118f27bd8a42d29f914b9b91"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-interior-cockpit.png",
+    "source": "build/pizaz-final/cockpit.png",
+    "kind": "Production renderer capture — cockpit; 2026-09-26",
+    "sha256": "56f51ced16952cd295a4edb92f4641a4e7f1c940e01f1943cd6c0e374844f499"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-interior-controls.png",
+    "source": "build/pizaz-final/controls.png",
+    "kind": "Production renderer capture — controls; 2026-09-26",
+    "sha256": "c83a8d8fa94a32f095508963e45251745b88465585be0af9407d3236ee9f2fb5"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-interior-occupied.png",
+    "source": "build/pizaz-final/occupied.png",
+    "kind": "Production renderer capture — occupied; 2026-09-26",
+    "sha256": "a11252b8568aec11a3d2bd3933067807ac93ba45ee68f891cdbc1a1031ca998d"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-interior-passenger.png",
+    "source": "build/pizaz-final/passenger.png",
+    "kind": "Production renderer capture — passenger; 2026-09-26",
+    "sha256": "a577229d5a2b4dee059272fc401dc3e7475e13b933cf603ec388dfff1466e2a6"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-interior-game.png",
+    "source": "build/pizaz-final/game.png",
+    "kind": "Production renderer capture — game; 2026-09-26",
+    "sha256": "94b28bbf9521452761fe2b6aef8338620f9f48e218e5b53055e484cb7b61b999"
   }
 ]

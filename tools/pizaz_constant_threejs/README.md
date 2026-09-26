@@ -31,7 +31,7 @@ The rejected pass had oversized rear doors, floating window pieces, flat skins, 
 
 `surface.ts` now owns the shared side contours. Door skins and fixed quarters sample the same curved surface, using a regular grid clipped to their outlines. Door shells are 47 mm deep, window frames have 25 mm returns, and the rear quarter glass stays on the fixed cabin. The rear door slopes forward toward its lower corner and ends ahead of the rear wheel opening. The roof, beltline and seams were remeasured from the side reference. The bumper module uses wraps around the corners.
 
-The source is split into `bodyModule.ts` (hood, deck, sides, fenders, wheel openings and rockers), `cabinModule.ts` (roof, glass, interior, mirrors and four hinged doors), and `fasciaWheelModule.ts` (front/rear fascia and four wheels). `createPizazConstant.ts` joins them and defines materials. The GLB keeps named parts and an `open_four_doors` demonstration animation.
+The source is split into `bodyModule.ts` (hood, deck, sides, fenders, wheel openings and rockers), `cabinModule.ts` (roof, glass, interior, mirrors and four hinged doors), `interiorModule.ts` (sealed cabin, seats, dashboard and inner door hardware), and `fasciaWheelModule.ts` (front/rear fascia and four wheels). `createPizazConstant.ts` joins them and defines materials. The GLB keeps named parts and an `open_four_doors` demonstration animation.
 
 Export checks reject non-finite vertex positions, missing doors/wheels, a rear door extending into the fixed quarter, or loss of the specified door depth. Blender renders true orthographic front/rear/side views, top, front/rear three-quarter and open-door views. The Blender import report records the current mesh/triangle counts; these checks do not establish visual acceptance.
 
@@ -41,8 +41,31 @@ The older sculpt-spec and review reports in the build directory describe earlier
 
 From the repository root, run `python3 tools/make_pizaz_constant_assets.py` after installing this folder's npm dependencies. `--skip-source` reuses the existing GLB. The cooker imports the approved geometry, removes redundant tessellation, creates a 256×256 semantic atlas, and writes runtime `.emesh` parts plus `runtime.blend` beside the editable source. It does not overwrite the approved FBX or Blender handoff.
 
-The body is about 37,400 triangles. Wheels, front doors and six glass groups remain separate; rear doors stay closed in the current game rig. Both sides of each custom wheel have rim faces because the runtime shares axle meshes without mirroring them. Paint occupies the upper atlas half, away from glass, trim and lamps.
+The repaired body is 35,284 triangles; each wheel is 2,816 triangles. Wheels, front doors and six glass groups remain separate; rear doors stay closed in the current game rig. Both sides of each custom wheel have rim faces because the runtime shares axle meshes without mirroring them. Paint occupies the upper atlas half, away from glass, trim and lamps.
 
 `python3 tools/validate_pizaz_constant_assets.py` checks format, finite geometry, UVs, bounds, wheel centering, outer wheel-opening samples and the 40,000-triangle body ceiling. Reports are written to `build/pizaz-constant-cook.json` and `build/pizaz-constant-fit-report.json`.
 
 The car is registered as **PIZAZ → CONSTANT**. The game CLI key is `pizaz_constant`. Runtime integration uses the native four-wheel rig and animated front doors; the four-door demonstration remains available in the editable GLB.
+
+## Interior repair contract (2026-09-26)
+
+Keep the approved exterior silhouette, wheelbase, glazing, hinges and driver anchors.
+Seal the cabin from the road and wheel cavities: a floor from Z -0.94 to +0.95 m,
+full-height front firewall at +0.94 m, rear bulkhead at -0.96 m, and sill/quarter
+returns must meet. Preserve the front tire steering envelope and door sweep.
+A padded dashboard meets the cowl, with hooded analog instruments, cassette radio,
+manual heater controls, glovebox and vents. Add cloth seat inserts, carpet, belt
+buckles, pedals, shifter, sun visors and inner door hardware. These interior
+details are inferred period design; the existing references remain authoritative
+for the exterior. The runtime atlas remains 256x256 and paint stays in its
+existing regions. Keep the opaque body below 40,000 triangles.
+
+Remove overlapping seal/frame and bumper/fender surface layers. Check the cooked
+car through a slow camera orbit, with moving wheels, and inspect both open doors
+and the cabin before calling the flicker or missing surfaces fixed.
+
+`new_vehicle_models_tests` also fires 50 front-facing rays through each of the
+closed, open and driving shells. These reject missing floors, sills, front
+firewalls and rear bulkheads. The old model fails the firewall check.
+See the [interior repair review](../../docs/design/reviews/pizaz-constant-interior/README.md)
+for runtime images, moving-wheel captures and verification limits.

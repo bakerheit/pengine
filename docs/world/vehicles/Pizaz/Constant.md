@@ -10,7 +10,33 @@ Calm, front-biased early-90s sedan.
 
 **Class 3 — design and detail benchmark.** User-designated reference for bringing Class 1 and Class 2 vehicles up to the same standard of design, model detail, documentation and reference imagery. See [vehicle quality classes](../quality-classes.md).
 
-## Images
+## Current interior and game model
+
+September 26, 2026 repair: a sealed floor, front firewall, rear bulkhead and inner
+sills close the views into the road and wheel cavities. The cabin now includes
+analog instruments, cassette radio, heater controls, vents, a glovebox, carpet,
+cloth seat inserts, a rear bench, belts, pedals, an automatic shifter and detailed
+inner doors. These are inferred 1991 interior details. The approved exterior
+references remain the design source.
+
+![Constant — open driver door and finished cabin](../images/pizaz-constant-interior-cockpit.png)
+
+![Constant — dashboard and center controls](../images/pizaz-constant-interior-inside.png)
+
+![Constant — driver fit](../images/pizaz-constant-interior-occupied.png)
+
+![Constant — passenger door open](../images/pizaz-constant-interior-passenger.png)
+
+![Constant — in-game road check](../images/pizaz-constant-interior-game.png)
+
+Painted window frames and rubber seals meet edge-to-edge. Lower fenders end at
+the bumper corners. Wheel rims use an open ring with separated recesses, spokes
+and hub layers. These remove the overlapping surfaces found during the repair.
+
+See the [before/after review and moving captures](../../../design/reviews/pizaz-constant-interior/README.md)
+for checks and their limits.
+
+## Earlier game image
 
 ![Pizaz Constant — game screenshot from the local model work](../images/pizaz-constant.png)
 
@@ -27,7 +53,7 @@ Image origins are recorded in the [source manifest](../images/sources.json).
 | Manufacturer | [Pizaz](../Pizaz.md) |
 | Model | Constant |
 | Quality class | **Class 3** — user-designated benchmark |
-| Status | Present in the local working catalog; integration is still in progress |
+| Status | Playable in the vehicle catalog; interior and surface repair verified in the production renderer |
 | Vehicle role | calm, front-biased early-90s sedan |
 | In-game mass | 1,510 kg |
 | Authored wheelbase | 2.760 m |
@@ -64,7 +90,7 @@ Generated design references: front, rear, one side and top, plus the selected th
 
 ## Model angles
 
-Archived studio renders from the local Constant modeling work. These show the authored model and may predate later game refinements.
+Updated September 26, 2026 from the editable source with the repaired interior. These studio renders use source materials; the runtime captures above show the game atlas.
 
 ### Constant model — Front three-quarter
 

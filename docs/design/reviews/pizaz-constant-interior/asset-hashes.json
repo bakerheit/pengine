@@ -1,0 +1,19 @@
+{
+  "assets/models/vehicles/pizaz_constant/body.emesh": "f459195580a5dceb4a03fe2a3728ecd2da7a672424b5aaf4ca8e4ec240b6f680",
+  "assets/models/vehicles/pizaz_constant/body_drive.emesh": "c6ab77ac6e1adc2ae5d90bad914efb11d32512c83c1c5931ad6b612f4830f91a",
+  "assets/models/vehicles/pizaz_constant/body_open.emesh": "754f834f617661250311ee6f73a92bb5e994020944e36de709268ba311fe50af",
+  "assets/models/vehicles/pizaz_constant/driver_door.emesh": "c609aaea5316ae01c8d5ff6d8b4f3a02869ac0851527ded6cac289b9d4b69e99",
+  "assets/models/vehicles/pizaz_constant/driver_glass.emesh": "b16eec383f8846a3d5d07cdcd665c0d9843abfae0e1f89e5c497b7265dd8f59e",
+  "assets/models/vehicles/pizaz_constant/driver_rear_glass.emesh": "f3da97cc7352569050371ac91e8f8f86383a63112cf592f2f12d1969141df02d",
+  "assets/models/vehicles/pizaz_constant/front_wheel.emesh": "a3ca162cc630b32e3758b68464eba97b893a243406d42498541f9a164f5f5002",
+  "assets/models/vehicles/pizaz_constant/passenger_door.emesh": "1ee274afdcb399de70b56591f68b4b5de0f776db8c7f5ca0d246ea1a1137225e",
+  "assets/models/vehicles/pizaz_constant/passenger_glass.emesh": "042ac85b3165284c22b50a796aa0b71c0847803690b97a220210732e57f70c62",
+  "assets/models/vehicles/pizaz_constant/passenger_rear_glass.emesh": "b8a0f298fb7307444c08c7e58e4de407fc522440b12c498f7d8992a62cf79533",
+  "assets/models/vehicles/pizaz_constant/rear_glass.emesh": "dae04288f7edb75e9fddb3740636234915f4fc1a487f5c7f5b8356e593e3af3c",
+  "assets/models/vehicles/pizaz_constant/rear_wheel.emesh": "a3ca162cc630b32e3758b68464eba97b893a243406d42498541f9a164f5f5002",
+  "assets/models/vehicles/pizaz_constant/windshield.emesh": "7d2dbf301fb58a63b40df7d654774327eddf95fad3db51e44be64bc751470ce7",
+  "assets/models/vehicles/pizaz_constant/pizaz_constant.glb": "fbc2c4c66b303509c98995f3f298080551870acaaa454ed4d6c59ac46d44e194",
+  "assets/models/vehicles/pizaz_constant/pizaz_constant.blend": "cd9d1b4c4c6d2fabfa435153c1235e61d7189c0a4a1ac911cba2643b9dd1849f",
+  "assets/models/vehicles/pizaz_constant/pizaz_constant.fbx": "f8cd1a00a01183aa031357b5122bd44e968384887aeed0d8d46e1843549246fe",
+  "assets/textures/vehicles/pizaz_constant/body.png": "af29a8dff775f9f80256d016c9300c29bd17ce27909c2ccaf60b7f09dc76e929"
+}

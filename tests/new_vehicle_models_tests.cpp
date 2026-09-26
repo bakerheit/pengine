@@ -87,6 +87,45 @@ void model_contract(PlayerCarId id,float length,float width,float mass,float doo
     REQUIRE(stopped);
 }
 
+bool opaque_surface_before(const StaticEmesh& mesh,glm::vec3 origin,
+                           glm::vec3 direction,float limit) {
+    // Ray/triangle intersection with the same front-face culling as the game.
+    // A reversed floor or a distant bumper must not conceal a missing firewall.
+    const auto position=[](const auto& v){return glm::vec3{v.px,v.py,v.pz};};
+    for(std::size_t i=0;i<mesh.indices.size();i+=3u) {
+        const auto a=position(mesh.vertices[mesh.indices[i]]);
+        const auto b=position(mesh.vertices[mesh.indices[i+1u]]);
+        const auto c=position(mesh.vertices[mesh.indices[i+2u]]);
+        const auto e1=b-a,e2=c-a,p=glm::cross(direction,e2);
+        const float det=glm::dot(e1,p);
+        if(det<=1e-9f) continue;
+        const auto t=origin-a;
+        const float u=glm::dot(t,p)/det;
+        if(u<0.f || u>1.f) continue;
+        const auto q=glm::cross(t,e1);
+        const float v=glm::dot(direction,q)/det;
+        if(v<0.f || u+v>1.f) continue;
+        const float distance=glm::dot(e2,q)/det;
+        if(distance>0.f && distance<limit) return true;
+    }
+    return false;
+}
+
+void pizaz_cabin_blocks_road_and_wheel_cavities(const StaticEmesh& mesh) {
+    for(float x:{-.68f,-.4f,0.f,.4f,.68f})
+        for(float y:{.36f,.50f,.63f,.82f})
+            REQUIRE_MSG(opaque_surface_before(mesh,{x,y,.81f},{0,0,1},.17f),
+                        "front wheel cavity shows under dashboard","PIZAZ firewall");
+    for(float x:{-.765f,-.64f,-.4f,.4f,.64f,.765f})
+        for(float z:{-.88f,-.35f,.45f,.87f})
+            REQUIRE_MSG(opaque_surface_before(mesh,{x,.37f,z},{0,-1,0},.16f),
+                        "road shows through cabin","PIZAZ floor and sills");
+    for(float x:{-.66f,.66f})
+        for(float y:{.34f,.60f,.79f})
+            REQUIRE_MSG(opaque_surface_before(mesh,{x,y,-.89f},{0,0,-1},.12f),
+                        "rear wheel cavity shows beside bench","PIZAZ rear bulkhead");
+}
+
 void pizaz_component_meshes_are_ready_for_the_runtime_loader() {
     const auto& definition=player_car_definition(PlayerCarId::PizazConstant);
     const std::string body_path=definition.mesh_path;
@@ -97,6 +136,8 @@ void pizaz_component_meshes_are_ready_for_the_runtime_loader() {
     REQUIRE(read_static_emesh(asset_path(body_path),closed));
     REQUIRE(drive.indices.size()>open.indices.size());
     REQUIRE(closed.indices.size()>drive.indices.size());
+    for(const auto* shell:{&closed,&open,&drive})
+        pizaz_cabin_blocks_road_and_wheel_cavities(*shell);
     for(const char* name:{"driver_door","passenger_door","windshield","rear_glass",
             "driver_glass","passenger_glass","driver_rear_glass","passenger_rear_glass"}) {
         StaticEmesh part;

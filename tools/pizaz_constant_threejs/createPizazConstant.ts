@@ -32,6 +32,13 @@ function makeMaterials(): PizazMaterials {
     amber: new THREE.MeshPhysicalMaterial({ color: 0xd58a38, metalness: 0, roughness: 0.28, side: THREE.DoubleSide }),
     red: new THREE.MeshPhysicalMaterial({ color: 0xa9182a, metalness: 0, roughness: 0.22, side: THREE.DoubleSide }),
     upholstery: new THREE.MeshStandardMaterial({ color: 0x303236, metalness: 0, roughness: 0.87 }),
+    carpet: new THREE.MeshStandardMaterial({color:0x272b30,roughness:1}),
+    leather: new THREE.MeshStandardMaterial({color:0x454951,roughness:.84}),
+    instruments: new THREE.MeshStandardMaterial({color:0x171b20,roughness:.7}),
+    radio: new THREE.MeshStandardMaterial({color:0x24292d,roughness:.7}),
+    hvac: new THREE.MeshStandardMaterial({color:0x282c30,roughness:.7}),
+    speaker: new THREE.MeshStandardMaterial({color:0x20252a,roughness:.9}),
+    selector: new THREE.MeshStandardMaterial({color:0x30373b,roughness:.7}),
   };
   for (const [name, material] of Object.entries(materials)) material.name = `pizaz_${name}`;
   return materials;

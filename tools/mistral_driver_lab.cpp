@@ -44,7 +44,7 @@ int main(int argc,char** argv) {
     int plate_design=-1;
     bool plate_check=false;
     float snow_cover=0.0f;
-    float steering=0.0f,suspension=-1.0f;
+    float steering=0.0f,suspension=-1.0f,orbit_degrees=0.0f,wheel_spin_degrees=0.0f;
     float passenger_open=0.0f,driver_open=-1.0f;
     PlayerCarId model=PlayerCarId::VesperMistral;
     VehicleTransitionDirection transition=VehicleTransitionDirection::None;
@@ -66,6 +66,13 @@ int main(int argc,char** argv) {
             const float amount=std::strtof(value,&end);
             if (end==value || *end!='\0' || !std::isfinite(amount) || amount<0.f || amount>1.f) return 2;
             (arg=="--passenger-door"?passenger_open:driver_open)=amount;
+        }
+        else if (i+1<argc && (arg=="--orbit-degrees" || arg=="--wheel-spin-degrees")) {
+            char* end=nullptr;const char* value=argv[++i];
+            const float degrees=std::strtof(value,&end);
+            if (end==value || *end!='\0' || !std::isfinite(degrees) ||
+                std::fabs(degrees)>360.f) return 2;
+            (arg=="--orbit-degrees"?orbit_degrees:wheel_spin_degrees)=degrees;
         }
         else if (i+1<argc && (arg=="--steer" || arg=="--suspension")) {
             char* end=nullptr;const char* value=argv[++i];
@@ -102,7 +109,7 @@ int main(int argc,char** argv) {
         }
         else if (i+1<argc && arg=="--view") view=argv[++i];
         else if (i+1<argc && arg=="--frames") frames=std::max(1,std::atoi(argv[++i]));
-        else { std::fprintf(stderr,"--car MODEL_FOLDER --player-car --snow-cover 0..1 --steer -1..1 --suspension 0..1 --driver-door 0..1 --passenger-door 0..1 --plate-design 0..7 --plate-check --view front|windshield|rear|side|passenger|cockpit|inside|controls|plate-front|plate-rear --screenshot PNG --sequence DIR --sequence-step N --transition enter|exit --frames N --on-foot --other-car\n");return 2; }
+        else { std::fprintf(stderr,"--car MODEL_FOLDER --player-car --snow-cover 0..1 --steer -1..1 --suspension 0..1 --orbit-degrees -360..360 --wheel-spin-degrees -360..360 --driver-door 0..1 --passenger-door 0..1 --plate-design 0..7 --plate-check --view front|windshield|rear|side|passenger|cockpit|inside|controls|plate-front|plate-rear --screenshot PNG --sequence DIR --sequence-step N --transition enter|exit --frames N --on-foot --other-car\n");return 2; }
     }
     if (!production_car && !has_animated_driver(model)) return 2;
     if (view!="front" && view!="windshield" && view!="rear" && view!="side" &&
@@ -260,6 +267,18 @@ int main(int argc,char** argv) {
                 glm::vec3{-.15f,2.62f,1.79f}:glm::vec3{3.8f,2.70f,1.30f});
         }
     }
+    if (root=="pizaz_constant") {
+        if (view=="inside" || view=="controls") {
+            camera.position=body.transform_point(view=="controls"?
+                glm::vec3{.38f,1.13f,.11f}:glm::vec3{.0f,1.13f,-.45f});
+            target=body.transform_point(view=="controls"?
+                glm::vec3{.20f,.62f,.69f}:glm::vec3{.0f,.64f,.67f});
+        } else if (view=="cockpit") {
+            camera.position=body.transform_point({1.80f,1.44f,-.03f});
+            target=body.transform_point({.04f,.59f,.15f});
+        }
+    }
+    const glm::vec3 orbit_offset=camera.position-target;
     const glm::vec3 d=glm::normalize(target-camera.position);
     camera.yaw=std::atan2(d.x,-d.z);camera.pitch=std::asin(d.y);
     SkyEnv env=compute_sky_env(.48f);env.ambient=glm::vec3{.42f};env.light_color=glm::vec3{.92f};
@@ -269,11 +288,21 @@ int main(int argc,char** argv) {
     Renderer::Options options;int errors=0,draws=0;
     for (int frame=0;frame<frames;++frame) {
         SDL_Event event;while (SDL_PollEvent(&event)) {if (event.type==SDL_QUIT) return 1;}
+        if (orbit_degrees!=0.f) {
+            const float angle=glm::radians(orbit_degrees)*static_cast<float>(frame)/
+                static_cast<float>(std::max(1,frames-1));
+            camera.position=target+glm::angleAxis(angle,glm::vec3{0,1,0})*orbit_offset;
+            const auto direction=glm::normalize(target-camera.position);
+            camera.yaw=std::atan2(direction.x,-direction.z);camera.pitch=std::asin(direction.y);
+        }
         // Exercise entry, a frame of exit/other-car suppression, then return.
         // Final image always shows the state selected by command-line flags.
         characters.sync(crowd,player,player,.5f,frame,!occupied,player.position);
-        if (production_car)
+        if (production_car) {
+            for (auto& wheel:vehicle.wheels) wheel.spin=glm::radians(wheel_spin_degrees)*
+                static_cast<float>(frame)/static_cast<float>(std::max(1,frames-1));
             player_car.sync(scene,vehicle_tuning,vehicle,vehicle,1.0f,0.0f,0.0f);
+        }
         if (transition!=VehicleTransitionDirection::None) {
             const auto tick=static_cast<uint32_t>(static_cast<uint64_t>(frame)*kVehicleTransitionTicks/
                 static_cast<uint64_t>(std::max(1,frames-1)));

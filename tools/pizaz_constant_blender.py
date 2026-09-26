@@ -49,7 +49,10 @@ for obj in list(scene.objects):
     if len(copy.data.polygons)>800:
         dec=copy.modifiers.new('Runtime surface reduction','DECIMATE');dec.ratio=.35
         bpy.ops.object.modifier_apply(modifier=dec.name)
-    # Shared atlas projection uses the vehicle's global heights, not each panel's bounds.
+    # Keep authored planar UVs for control graphics; broad exterior paint still
+    # shares vehicle-space projection so adjacent panels keep the same gradient.
+    graphic=key in ('instruments','radio','hvac','speaker','selector')
+    native_uv=[tuple(loop.uv) for loop in copy.data.uv_layers.active.data] if graphic else []
     for layer in list(copy.data.uv_layers):copy.data.uv_layers.remove(layer)
     uv=copy.data.uv_layers.new(name='RuntimeAtlas')
     x0,y0,x1,y1=REGIONS[key]
@@ -65,6 +68,11 @@ for obj in list(scene.objects):
                 a=0 if abs(face.normal.y)>abs(face.normal.x) else 1
                 u=(v[a]-bounds[a][0])/max(1e-6,bounds[a][1]-bounds[a][0])
                 h=(v.z-bounds[2][0])/max(1e-6,bounds[2][1]-bounds[2][0])
+            if key in ('upholstery','carpet','leather'):
+                a=0 if abs(face.normal.y)>abs(face.normal.x) else 1
+                u=(v[a]-bounds[a][0])/max(1e-6,bounds[a][1]-bounds[a][0])
+                h=(v.z-bounds[2][0])/max(1e-6,bounds[2][1]-bounds[2][0])
+            if graphic:u,h=native_uv[li][0],1-native_uv[li][1]
             uv.data[li].uv=((x0+2+u*(x1-x0-4))/256,1-(y1-2-h*(y1-y0-4))/256)
     # Shared exporter swaps Blender Y/Z and reverses winding. Reflect Y first
     # to convert GLB's Blender -Y nose back to runtime +Z without mirroring X.

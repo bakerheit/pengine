@@ -336,7 +336,7 @@ function addWheel(parent: THREE.Object3D, side: -1 | 1, axle: 'front' | 'rear', 
 
   // A lathed cross-section gives the tire a rounded shoulder and a real sidewall.
   const tireProfile = [
-    new THREE.Vector2(0.264, -0.0925),
+    new THREE.Vector2(0.228, -0.0925),
     new THREE.Vector2(0.292, -0.0925),
     new THREE.Vector2(0.310, -0.084),
     new THREE.Vector2(0.319, -0.066),
@@ -345,9 +345,9 @@ function addWheel(parent: THREE.Object3D, side: -1 | 1, axle: 'front' | 'rear', 
     new THREE.Vector2(0.319, 0.066),
     new THREE.Vector2(0.310, 0.084),
     new THREE.Vector2(0.292, 0.0925),
-    new THREE.Vector2(0.264, 0.0925),
-    new THREE.Vector2(0.258, 0.078),
-    new THREE.Vector2(0.258, -0.078),
+    new THREE.Vector2(0.228, 0.0925),
+    new THREE.Vector2(0.224, 0.078),
+    new THREE.Vector2(0.224, -0.078),
   ];
   const tire = addMesh(wheel, 'profiled_tire', new THREE.LatheGeometry(tireProfile, 28), materials.rubber);
   tire.rotation.z = Math.PI / 2;
@@ -359,19 +359,24 @@ function addWheel(parent: THREE.Object3D, side: -1 | 1, axle: 'front' | 'rear', 
     ring.rotation.y = sidewall * Math.PI / 2;
   }
 
-  const rim = addMesh(wheel, 'silver_rim_face', new THREE.CylinderGeometry(0.228, 0.228, 0.012, 24),
-    materials.silver, [side * 0.087, 0, 0]);
-  rim.rotation.z = Math.PI / 2;
-  const inset = addMesh(wheel, 'dark_spoke_recess', new THREE.CylinderGeometry(0.195, 0.195, 0.006, 24),
-    materials.trim, [side * 0.092, 0, 0]);
+  // A real annulus replaces the full silver disk under the spokes. The old
+  // disk, spoke backs and hub caps shared planes and flashed during rotation.
+  const annulus=new THREE.Shape();annulus.absarc(0,0,.228,0,Math.PI*2,false);
+  const hole=new THREE.Path();hole.absarc(0,0,.210,0,Math.PI*2,true);annulus.holes.push(hole);
+  const rim = addMesh(wheel, 'silver_rim_barrel', new THREE.ExtrudeGeometry(annulus,
+    {depth:.016,bevelEnabled:false,steps:1,curveSegments:12}),
+    materials.silver, [side * 0.076, 0, 0]);
+  rim.rotation.y = side*Math.PI / 2;
+  const inset = addMesh(wheel, 'dark_spoke_recess', new THREE.CylinderGeometry(0.210, 0.210, 0.008, 24),
+    materials.trim, [side * 0.078, 0, 0]);
   inset.rotation.z = Math.PI / 2;
   const lip = addMesh(wheel, 'polished_rim_lip', new THREE.TorusGeometry(0.219, 0.005, 4, 24),
-    materials.silver, [side * 0.096, 0, 0]);
+    materials.silver, [side * 0.093, 0, 0]);
   lip.rotation.y = side * Math.PI / 2;
 
   for (let index = 0; index < 5; index++) {
     const geometry = new THREE.ExtrudeGeometry(wheelSpokeShape(index * Math.PI * 2 / 5), {
-      depth: 0.007,
+      depth: 0.014,
       bevelEnabled: true,
       bevelSegments: 1,
       bevelSize: 0.001,
@@ -379,26 +384,26 @@ function addWheel(parent: THREE.Object3D, side: -1 | 1, axle: 'front' | 'rear', 
       steps: 1,
     });
     const spoke = addMesh(wheel, 'five_spoke_alloy_' + (index + 1), geometry, materials.silver,
-      [side * 0.094, 0, 0]);
+      [side * 0.087, 0, 0]);
     spoke.rotation.y = side * Math.PI / 2;
   }
 
-  const hub = addMesh(wheel, 'silver_hub_cap', new THREE.CylinderGeometry(0.051, 0.051, 0.012, 16),
-    materials.silver, [side * 0.095, 0, 0]);
+  const hub = addMesh(wheel, 'silver_hub_cap', new THREE.CylinderGeometry(0.054, 0.054, 0.008, 16),
+    materials.silver, [side * 0.101, 0, 0]);
   hub.rotation.z = Math.PI / 2;
   const cap = addMesh(wheel, 'dark_P_hub', new THREE.CylinderGeometry(0.030, 0.030, 0.004, 12),
-    materials.trim, [side * 0.102, 0, 0]);
+    materials.trim, [side * 0.106, 0, 0]);
   cap.rotation.z = Math.PI / 2;
 
   for (let lug = 0; lug < 5; lug++) {
     const angle = lug * Math.PI * 2 / 5;
     const bolt = addMesh(wheel, 'alloy_lug_' + (lug + 1), new THREE.CylinderGeometry(0.007, 0.007, 0.003, 8),
-      materials.silver, [side * 0.098, Math.cos(angle) * 0.148, Math.sin(angle) * 0.148]);
+      materials.silver, [side * 0.104, Math.sin(angle) * 0.070, -side*Math.cos(angle) * 0.070]);
     bolt.rotation.z = Math.PI / 2;
   }
 
   // Mirror the small cap mark on the far side so it reads upright from both sides.
-  const pCenter = side * 0.105;
+  const pCenter = side * 0.110;
   addMesh(wheel, 'P_hub_mark_stem', new THREE.BoxGeometry(0.002, 0.024, 0.005),
     materials.silver, [pCenter, -0.001, 0]);
   addMesh(wheel, 'P_hub_mark_top', new THREE.BoxGeometry(0.002, 0.005, 0.017),

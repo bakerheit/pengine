@@ -4,13 +4,15 @@ import {BELT,FRONT_SEAM,B_FRONT,B_REAR,rearDoorEdge,topAt,sideX,grid,polygon,ler
 const UP=new THREE.Vector3(0,1,0);
 function lowerEdge(start:number,end:number):P2[]{
   const bottom=(z:number)=>interp([[-2.31,.29],[-1.745,.21],[1.745,.21],[2.31,.235]],z);
-  const pts:P2[]=[[start,bottom(start)]];
+  // The bumper owns the lower corner. Never lay a second fender skin beneath it.
+  const pts:P2[]=start< -1.79?[[start,.514],[-1.788,.514],[-1.788,.215]]:[[start,bottom(start)]];
   for(const axle of [-1.38,1.38])if(axle-.365>start&&axle+.365<end){
     pts.push([axle-.365,.21]);
     for(let i=0;i<=32;i++){const a=Math.PI-i*Math.PI/32;pts.push([axle+.365*Math.cos(a),.32+.365*Math.sin(a)]);}
     pts.push([axle+.365,.21]);
   }
-  pts.push([end,bottom(end)]);return pts;
+  if(end>1.79)pts.push([1.788,.215],[1.788,.504],[end,.504]);
+  else pts.push([end,bottom(end)]);return pts;
 }
 function topEdge(start:number,end:number):P2[]{return Array.from({length:26},(_,i)=>{const z=lerp(start,end,i/25);return [z,topAt(z)];});}
 function upper(parent:THREE.Group,name:string,start:number,end:number,m:PizazMaterials):void{
@@ -45,5 +47,4 @@ export function addPizazBody(parent:THREE.Group,m:PizazMaterials):void{
    const pts=Array.from({length:18},(_,i)=>{const z=lerp(a,b,i/17);return map(z,.55).add(new THREE.Vector3(side*.0015,0,0));});tube(shell,`${label}_body_molding_${a}`,pts,.004,m.darkPaint);
   }
  }
- const floor=new THREE.Mesh(new THREE.BoxGeometry(1.44,.045,2.13),m.trim);floor.name='interior_floor';floor.position.set(0,.24,-.04);shell.add(floor);
 }
