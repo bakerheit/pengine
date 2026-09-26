@@ -32,6 +32,7 @@
 #include "game/police_visibility.h"
 #include "game/repair_shop.h"
 #include "game/respray_shop.h"
+#include "app/gun_store_counter.h"
 #include "app/paint_shop_interaction.h"
 #include "app/respray_audio.h"
 #include "app/respray_camera.h"
@@ -173,6 +174,8 @@ public:
     bool weapon_check_passed() const {
         return weapon_check_captures_==255 && weapon_hit_check_done_ && !weapon_hit_check_failed_;
     }
+    void set_gun_store_check(bool on) { gun_store_.check=on; }
+    bool gun_store_check_passed() const { return gun_store_.check_done && !gun_store_.check_failed; }
     void set_damage_check(bool on) { damage_check_=on; }
     bool damage_check_passed() const {
         return damage_check_done_ && !damage_check_failed_;
@@ -595,6 +598,15 @@ private:
     void draw_respray_prompt(glm::vec2 vp);
     void draw_respray_booth(glm::vec2 vp);
     void draw_respray_card(glm::vec2 vp);
+    // Brassline Arms' counter: rules in game/gun_store_shop.h, the App glue
+    // and --gun-store-check in src/app/gun_store_counter.cpp.
+    GunStoreCounter gun_store_;
+    bool gun_store_holds_input() const { return gun_store_.menu.open || gun_store_.input_consumed; }
+    bool route_gun_store_event(const SDL_Event& e);
+    bool process_gun_store_input();
+    void draw_gun_store(glm::vec2 vp);
+    void tick_gun_store_check();
+    void capture_gun_store_check();
     // The car bomb at Rook's: rules in game/car_bomb.h, the App glue in
     // src/app/car_bomb_gameplay.cpp.
     CarBomb car_bomb_;

@@ -69,6 +69,7 @@ void print_usage() {
         "  --road-start    settle --start-at after authored road collision loads\n"
         "  --weapon-check  check aim, fire, reload, NPC blood hits and input guards (900+ frames)\n"
         "  --molotov-check throw one molotov and watch the fire spread and die back (1300+ frames)\n"
+        "  --gun-store-check buy the pistol and a box of rounds at Brassline Arms, then equip it (480+ frames)\n"
         "  --car-bomb-check fit a bomb at Rook's, set it off from the street, then from the\n"
         "                  driver's seat, respawn clear of the fire, and set a pedestrian alight (3600+ frames)\n"
         "  --attended      drive a --frames run by hand: let the window take focus and the cursor\n"
@@ -170,6 +171,7 @@ int main(int argc, char** argv) {
     int start_wanted=0;
     bool weapon_check=false;
     bool molotov_check=false;
+    bool gun_store_check=false;
     bool damage_check=false;
     bool house_check=false;
     bool signal_check=false;
@@ -206,6 +208,7 @@ int main(int argc, char** argv) {
         }
         if (std::strcmp(a,"--weapon-check")==0) { weapon_check=true;continue; }
         if (std::strcmp(a,"--molotov-check")==0) { molotov_check=true;continue; }
+        if (std::strcmp(a,"--gun-store-check")==0) { gun_store_check=true;continue; }
         if (std::strcmp(a,"--damage-check")==0) { damage_check=true;continue; }
         if (std::strcmp(a,"--house-check")==0) { house_check=true;continue; }
         if (std::strcmp(a,"--signal-check")==0) { signal_check=true;continue; }
@@ -756,6 +759,25 @@ int main(int argc, char** argv) {
         if (!screenshot_path) screenshot_path="build/damage-check";
         app.set_damage_check(true);
     }
+    if (gun_store_check) {
+        // On foot at the counter, and alone: it owns the wallet and the wheel.
+        if (frame_limit<480 || start_driving || weapon_check || molotov_check || damage_check ||
+            house_check || signal_check || police_check || police_officer_check || paint_check ||
+            car_bomb_check || lighting_benchmark || warp_every || delivery_check) {
+            std::fprintf(stderr,"--gun-store-check needs --frames 480 or more, on foot, and no other checks/warps\n");
+            return 2;
+        }
+        clear_weather=true;
+        if (!lighting_night) daylight_qa=true;
+        if (!start_player_position_set) {
+            // The customer side of the counter, where the walk test stands.
+            const glm::vec3 counter=apricot::gun_store_world({0.0f,-4.7f});
+            start_player_position={counter.x,counter.z};
+            start_player_position_set=true;
+        }
+        if (!screenshot_path) screenshot_path="build/gun-store-check";
+        app.set_gun_store_check(true);
+    }
     app.set_attended(attended);
     app.set_dusk_preview(dusk_preview);
     app.set_start_in_game(bellwether_start);
@@ -859,6 +881,9 @@ int main(int argc, char** argv) {
     }
     if (molotov_check && !app.molotov_check_passed()) {
         AP_ERROR("molotov and fire regression did not complete");rc=1;
+    }
+    if (gun_store_check && !app.gun_store_check_passed()) {
+        AP_ERROR("gun store purchase check did not complete");rc=1;
     }
     if (damage_check && !app.damage_check_passed()) {
         AP_ERROR("damage and death check did not complete");rc=1;

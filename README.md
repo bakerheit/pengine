@@ -150,7 +150,10 @@ for static meshes and textures.
 
 **The weapon wheel has three slots**: unarmed straight up, the pistol down and
 to the right, the molotov down and to the left. Keys `1`, `2` and `3` pick them
-without the mouse. It feeds a timed weapon-use state and an upper-body pose layer.
+without the mouse. **It equips only what you own:** a new game has bare hands and
+molotovs, and the pistol shows `LOCKED` until you buy it at Brassline Arms on
+Sixth Street ($500, plus $50 boxes of 24 rounds up to 240 spare; see
+[the gun store](docs/design/gun-store.md)). It feeds a timed weapon-use state and an upper-body pose layer.
 Hold Tab/LB, select the pistol, then hold RMB/LT or toggle Q to aim, LMB/RT to fire one shot
 per press, and R/X to reload. The first uncaptured left click captures the
 mouse. While armed, the controller's left stick moves the player; the triggers
@@ -178,7 +181,9 @@ an officer is permanent too, and his cruiser is abandoned where he parked it.
 Dying is a state the player spends three seconds in: control is frozen, the
 body plays the same authored fall a shot pedestrian does, WASTED holds for the
 whole of it, and the respawn puts you beside your car at full health with the
-pursuit cleared and the pistol holstered. Ammo and player health are not saved;
+pursuit cleared and the pistol holstered. You keep the weapons you own and the
+pistol keeps the rounds it had, so bought ammunition is not refilled by dying;
+molotovs, which nobody sells, come back full. Player health is not saved;
 the current checkpoint does preserve vehicle damage and mechanical condition
 (see [Saved games](docs/save-games.md)). A respawn is always beside the current
 vehicle — there is no hospital routing yet. World hits show brief surface sparks.

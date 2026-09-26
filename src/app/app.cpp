@@ -1231,6 +1231,7 @@ void App::poll_events() {
     bank_input_consumed_ = false;
     weapon_input_consumed_=false;
     paint_input_consumed_=false;
+    gun_store_.input_consumed=false;
 
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
@@ -1268,7 +1269,7 @@ void App::poll_events() {
             ui_.screen()==UiScreen::Driving && !dev_menu_.open() && !bug_report_.open &&
             !bank_interaction_.modal() && !bank_input_consumed_ && !opening_cutscene_.active() &&
             !vehicle_transition_.active() && !boat_transition_.active() &&
-            !weapon_wheel_.open && !weapon_input_consumed_ &&
+            !weapon_wheel_.open && !weapon_input_consumed_ && !gun_store_holds_input() &&
             (weapon_wheel_.equipped==WeaponId::Pistol ||
              weapon_wheel_.equipped==WeaponId::Molotov);
         if (weapon_available && e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_q &&
@@ -1326,6 +1327,7 @@ void App::poll_events() {
             continue;
         }
         if (route_paint_shop_event(e)) continue;
+        if (route_gun_store_event(e)) continue;
 
         const bool wheel_down=(e.type==SDL_KEYDOWN && e.key.repeat==0 && e.key.keysym.sym==SDLK_TAB) ||
             (e.type==SDL_CONTROLLERBUTTONDOWN && e.cbutton.button==SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
@@ -1346,7 +1348,7 @@ void App::poll_events() {
                 (e.type==SDL_KEYDOWN && e.key.keysym.sym==SDLK_ESCAPE) ||
                 (e.type==SDL_CONTROLLERBUTTONDOWN && e.cbutton.button==SDL_CONTROLLER_BUTTON_B);
             if (wheel_up || cancel) {
-                weapon_wheel_.close(!cancel);input_.set_ui_mode(ui_.modal());
+                close_weapon_wheel(weapon_wheel_,economy_,!cancel);input_.set_ui_mode(ui_.modal());
                 if (weapon_restore_mouse_ && !focus_lost) input_.set_mouse_look(true);
                 input_.consume_edges();clock_.reset();
                 continue;
@@ -1489,6 +1491,8 @@ void App::poll_events() {
         input_.handle_event(e);
     }
 
+    // You hold only what you own, whatever wrote `equipped` (weapon_ownership.h).
+    enforce_weapon_ownership(weapon_wheel_,economy_);
     input_.set_weapon_controls(on_foot_ && weapon_wheel_.equipped!=WeaponId::Unarmed);
     input_.end_frame();
 }
@@ -1518,6 +1522,7 @@ void App::process_ui_input(float dt) {
         return;
     }
     if (process_paint_shop_input(dt)) return;
+    if (process_gun_store_input()) return;
     if (ui_.screen() == UiScreen::Driving && !dev_menu_.open() &&
         !vehicle_transition_.active() &&
         was_pressed(input_.frame(), kBtnAccept) &&
@@ -3531,7 +3536,7 @@ void App::render() {
                 hud_.title_text_centered("WASTED", vp.x * 0.5f, 116.0f, 58.0f,
                                          {0.92f, 0.08f, 0.05f, 1.0f});
             }
-            draw_weapon_wheel(hud_,weapon_wheel_,vp);
+            draw_weapon_wheel(hud_,weapon_wheel_,vp,economy_.owned_weapons);
             if(repair_shop_feedback_s_>0 && respray_feedback_s_<=0)
                 hud_.text_centered("CAR REPAIRED",vp.x*.5f,vp.y*.25f,30,{.65f,1,.65f,1});
             draw_respray_card(vp);
@@ -3575,6 +3580,7 @@ void App::render() {
                                    {1.0f, 0.72f, 0.30f, alpha});
             }
             if (!dev_menu_.open()) draw_respray_booth(vp);
+            if (!dev_menu_.open()) draw_gun_store(vp);
             if (!dev_menu_.open()) bank_interaction_.draw(hud_, vp,
                 bank_target(city::bank_local_position(player_character_.position), on_foot_),
                 bank_vault_);
@@ -3718,6 +3724,7 @@ void App::render() {
 
     }
     if (molotov_check_) capture_molotov_check();
+    if (gun_store_.check) capture_gun_store_check();
 
     if(lighting_benchmark_ && !screenshot_path_.empty() &&
         (frames_rendered_==419 || frames_rendered_==539)) {
@@ -4348,8 +4355,11 @@ int App::run() {
             (police_officer_check_done_ && police_officer_check_capture_.empty())))break;
         if(traffic_horn_check_ && (traffic_horn_check_failed_ ||
             (traffic_horn_check_done_ && traffic_horn_check_capture_.empty())))break;
+        if(gun_store_.check && (gun_store_.check_failed ||
+            (gun_store_.check_done && gun_store_.check_capture.empty())))break;
         if (delivery_check_) tick_delivery_check();
         if (molotov_check_) tick_molotov_check();
+        if (gun_store_.check) tick_gun_store_check();
         if (damage_check_) { tick_damage_check(); capture_damage_check(); }
         if (paint_check_ && (paint_check_failed_ || (paint_check_done_ && paint_check_capture_.empty()))) break;
         if (paint_check_) tick_paint_check();
@@ -4357,6 +4367,9 @@ int App::run() {
             (car_bomb_check_done_ && car_bomb_check_capture_.empty()))) break;
         if (car_bomb_check_) tick_car_bomb_check();
         if (weapon_check_) {
+            // The check is about aim, fire and reload, not the shop: it owns
+            // the pistol (the gun store's own check proves buying one).
+            economy_.owned_weapons=kAllWeaponBits;
             tick_weapon_hit_check();
             const auto key=[&](SDL_Keycode code,bool down) {
                 SDL_Event event{};event.type=down ? SDL_KEYDOWN:SDL_KEYUP;
@@ -4502,7 +4515,8 @@ int App::run() {
         impact_feedback_seconds_ =
             std::max(0.0f, impact_feedback_seconds_ - camera_frame_dt_);
         if (ui_.screen() == UiScreen::Driving && on_foot_ && !vehicle_transition_.active() &&
-            !bank_interaction_.modal() && !bank_input_consumed_ && !weapon_wheel_.open && !weapon_input_consumed_) {
+            !bank_interaction_.modal() && !bank_input_consumed_ && !weapon_wheel_.open && !weapon_input_consumed_ &&
+            !gun_store_holds_input()) {
             // A 144 Hz render frame can owe zero 120 Hz sim steps. Keep look
             // deltas until one real character step consumes them.
             character_look_dx_pending_ += input_.frame().look_dx;
@@ -4512,6 +4526,7 @@ int App::run() {
         const bool weapon_available=weapon_focus_ && ui_.screen()==UiScreen::Driving &&
             !dev_menu_.open() && !bug_report_.open && !bank_interaction_.modal() &&
             !bank_input_consumed_ && !weapon_wheel_.open && !weapon_input_consumed_ &&
+            !gun_store_holds_input() &&
             on_foot_ && !vehicle_transition_.active() && !boat_transition_.active();
         if (!weapon_available) {
             weapon_fire_pending_=weapon_reload_pending_=false;
@@ -4525,6 +4540,7 @@ int App::run() {
             !dev_menu_.open() && !bank_interaction_.modal() && !bank_input_consumed_ &&
             !weapon_wheel_.open && !weapon_input_consumed_ &&
             !paint_shop_.modal() && !paint_input_consumed_ &&
+            !gun_store_holds_input() &&
             !(lighting_benchmark_ && frames_rendered_>=300)) {
             tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_ || plow_check_ || paint_check_ || car_bomb_check_) ? 1.0/60.0 : dt);
         } else {

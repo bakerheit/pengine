@@ -9,6 +9,7 @@
 #include "city/roads.h"
 #include "city/spines.h"
 #include "game/character.h"
+#include "game/gun_store_shop.h"
 #include "physics/vehicle.h"
 #include "test_assert.h"
 
@@ -88,12 +89,17 @@ void walk_customer_and_staff_routes(const Fixture& f) {
                         {-2,-4.7f},{-2,-1},{0,-1},{4,-1},{4,-4.7f},{0,-4.7f}})
         player=walk(player,f.collider,stop);
     REQUIRE_NEAR(player.position.y,12.2f,.001f);
+    // The real walk ends where the counter serves (game/gun_store_shop.h)...
+    REQUIRE(at_gun_store_counter(player.position,true));
     auto blocked=walk(player,f.collider,{0,-8},false);
     REQUIRE(local(blocked.position).y>-5.65f);
+    REQUIRE(at_gun_store_counter(blocked.position,true));  // ...up against the counter too
     player=walk(player,f.collider,{5.8f,-4.7f});
+    REQUIRE(!at_gun_store_counter(player.position,true));  // the staff passage does not
     player=walk(player,f.collider,{5.8f,-7.1f});
     player=walk(player,f.collider,{0,-8});
     REQUIRE_NEAR(player.position.y,12.2f,.001f);
+    REQUIRE(!at_gun_store_counter(player.position,true));  // nor the clerk's side
     player=walk(player,f.collider,{-5.8f,-8});
     player=walk(player,f.collider,{-5.8f,-4.7f});
     player=walk(player,f.collider,{-2,-4.7f});

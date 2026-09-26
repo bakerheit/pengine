@@ -35,6 +35,7 @@ target_sources(apricot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/police_gameplay.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/police_pursuit_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/respray_booth.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/gun_store_counter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/traffic_visual.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/character_identity_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/vehicle_effects.cpp

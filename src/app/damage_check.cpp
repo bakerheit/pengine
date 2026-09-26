@@ -87,6 +87,8 @@ void App::tick_damage_check() {
         }
         damage_check_lane_ = chosen->lane_key;
         damage_check_slot_ = chosen->slot;
+        // QA hands itself the pistol; buying one is --gun-store-check's job.
+        economy_.owned_weapons |= weapon_bit(WeaponId::Pistol);
         weapon_wheel_.equipped = WeaponId::Pistol;
         weapon_aim_toggle_ = true;
         damage_check_stage_ = 1;

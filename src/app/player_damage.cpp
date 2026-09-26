@@ -50,12 +50,14 @@ void App::begin_player_death(const char* cause) {
     police_arrest_.reset();
     world_.set_police_context(0, player_focus_position());
     weapon_wheel_.equipped = WeaponId::Unarmed;
-    weapon_use_ = WeaponUseState{};
-    // The bottles come back with the magazine, on the same argument: the
-    // respawn hands the player a working loadout rather than the wreckage of
-    // the one that got them killed. The FIRE does not reset — it is world
-    // state, it goes on burning where it was lit, and a player who respawns
-    // into their own blaze can walk out of it.
+    // The pistol keeps what it was carrying and you keep what you bought:
+    // refilling it here would make dying the cheapest box of rounds in town
+    // (game/weapon_ownership.h). Only the draw and any reload are dropped.
+    weapon_use_ = respawn_weapon_use(weapon_use_);
+    // The bottles DO come back full. Nobody sells them, so a respawn that
+    // kept an empty stock would take the molotov away for good. The FIRE
+    // does not reset — it is world state, it goes on burning where it was
+    // lit, and a player who respawns into their own blaze can walk out of it.
     molotov_use_ = MolotovUseState{};
     molotov_shots_.clear();
     fire_player_damage_timer_ = 0.0f;
