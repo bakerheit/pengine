@@ -8,7 +8,8 @@
 using namespace apricot;
 namespace {
 std::string body_of(const std::string& bytes) { return bytes.substr(bytes.find('\n',bytes.find('\n')+1)+1); }
-constexpr const char* kNewGameEconomyRow="100 5 12 48 5\n";
+// Cash leads the row: kNewGameCash, $250 (game/wallet_rules.h has the scale).
+constexpr const char* kNewGameEconomyRow="250 5 12 48 5\n";
 std::string rewrap(const std::string& body,int version) {
     uint64_t hash=14695981039346656037ull;
     for (const char c:body) { hash^=static_cast<unsigned char>(c);hash*=1099511628211ull; }

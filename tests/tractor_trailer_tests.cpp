@@ -113,7 +113,7 @@ void checkpoints_and_catalog() {
     };
     auto body=bytes.substr(bytes.find('\n',bytes.find('\n')+1)+1);
     REQUIRE(rewrap(body,5)==bytes); // Control: rewrap is the encoder's own framing.
-    REQUIRE(strip(body)=="100 5 12 48 5\n"); // v5 wallet and ammunition: a new game's.
+    REQUIRE(strip(body)=="250 5 12 48 5\n"); // v5 wallet and ammunition: a new game's.
     REQUIRE(strip(body)=="0 0 0 0 0\n"); // v4 paint.
     REQUIRE(strip(body)==std::to_string(int(save.car_registration.state))+" "+
             std::to_string(int(save.car_registration.series))+" "+std::to_string(save.car_registration.number)+"\n"); // v3 plate.

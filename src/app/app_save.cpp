@@ -91,6 +91,7 @@ bool App::load_game() {
     // The wallet and the ammunition come back; the draw does not. A load
     // starts holstered, like a new game, so nothing fires on the first step.
     economy_=saved.economy;
+    wallet_=WalletNotices{};wallet_.flash.resync(economy_.cash);
     weapon_wheel_={}; weapon_use_={}; molotov_use_={};
     weapon_use_.magazine=saved.pistol_magazine; weapon_use_.reserve=saved.pistol_reserve;
     molotov_use_.stock=saved.molotov_stock;

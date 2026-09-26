@@ -684,13 +684,14 @@ void developer_menu_navigates_and_returns_a_teleport() {
     REQUIRE(menu.page() == DevMenuPage::Vehicle);
     // The two god-mode toggles are APPENDED below WANTED LEVEL rather than
     // inserted, so rows 0-3 keep the indices this test and others navigate by.
-    REQUIRE(menu.item_count() == 6);
+    REQUIRE(menu.item_count() == 7);
     REQUIRE(std::strcmp(menu.item_label(0), "CHOOSE CAR  >") == 0);
     REQUIRE(std::strcmp(menu.item_label(1), "REPAIR") == 0);
     REQUIRE(std::strcmp(menu.item_label(2), "COPY POSITION") == 0);
     REQUIRE(std::strcmp(menu.item_label(3), "WANTED LEVEL  >") == 0);
     REQUIRE(std::strcmp(menu.item_label(4), "GOD MODE") == 0);
     REQUIRE(std::strcmp(menu.item_label(5), "VEHICLE GOD MODE") == 0);
+    REQUIRE(std::strcmp(menu.item_label(6), "ADD $1,000 CASH") == 0);
     REQUIRE(std::strcmp(menu.item_value(0), "CAR 5") == 0);
 
     for (std::size_t brand = 1; brand < kPlayerCarBrands.size(); ++brand) {

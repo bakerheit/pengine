@@ -28,7 +28,7 @@ Version 4 adds the car's paint, as three `GameSave` fields written as the body's
 
 Version 5 appends one row, `cash owned_weapons pistol_magazine pistol_reserve molotov_stock`, from `GameSave::economy` (a `PlayerEconomy`, `game/player_economy.h`) and the three ammunition counts. Cash is whole dollars from 0 to 999,999,999; `owned_weapons` is a bitmask over `WeaponId` that must include bare hands; the pistol magazine holds 0–12, the reserve 0–9999 and the molotov stock 0–99. A load restores all five and starts holstered.
 
-**A save from before version 5 owns every weapon.** Until the economy existed, the weapon wheel offered the pistol and the molotov to everyone, so a v1–v4 save loads with a new game's cash (`kNewGameCash`, $100) and all three weapons, not with the pistol taken away. A new game owns bare hands and molotovs only; the pistol is the gun store's to sell.
+**A save from before version 5 owns every weapon.** Until the economy existed, the weapon wheel offered the pistol and the molotov to everyone, so a v1–v4 save loads with a new game's cash (`kNewGameCash`, $250) and all three weapons, not with the pistol taken away. A new game owns bare hands and molotovs only; the pistol is the gun store's to sell.
 
 **Cash changes only through the functions in `player_economy.h`.** A purchase is `buy_weapon` or `spend_cash`, all or nothing. A payout is `earn_cash`, clamped at the cap. A penalty is `charge_cash`, which stops at zero. They return what actually moved, so a banner never shows a figure the wallet did not see.
 

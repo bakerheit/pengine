@@ -206,7 +206,11 @@ enum class DevMenuActionKind : uint8_t {
     SetCameraMode,
     SetCameraAutoRecenter,
     AuditionCarSound,
+    // Wallet QA: earn_cash(kDevMenuCashGrant), clamped like any payout.
+    AddCash,
 };
+
+inline constexpr int64_t kDevMenuCashGrant = 1000;
 
 struct DevMenuAction {
     DevMenuActionKind kind = DevMenuActionKind::None;
@@ -324,7 +328,7 @@ public:
         if (page_ == DevMenuPage::DrivingMechanics) {
             return static_cast<int>(kDrivingMechanicsStyleCount);
         }
-        if (page_ == DevMenuPage::Vehicle) return 6;
+        if (page_ == DevMenuPage::Vehicle) return 7;
         if (page_ == DevMenuPage::WeatherTime) return 3;
         if (page_ == DevMenuPage::Weather) {
             return static_cast<int>(DevWeatherPreset::kCount);
@@ -418,7 +422,8 @@ public:
             if (index == 2) return "COPY POSITION";
             if (index == 3) return "WANTED LEVEL  >";
             if (index == 4) return "GOD MODE";
-            return "VEHICLE GOD MODE";
+            if (index == 5) return "VEHICLE GOD MODE";
+            return "ADD $1,000 CASH";
         }
         if (page_ == DevMenuPage::WeatherTime) {
             if (index == 0) return "WEATHER  >";
@@ -678,7 +683,9 @@ public:
                 return toggled;
             }
             DevMenuAction action;
-            if (selection_ == 1) {
+            if (selection_ == 6) {
+                action.kind = DevMenuActionKind::AddCash;
+            } else if (selection_ == 1) {
                 action.kind = DevMenuActionKind::RepairVehicle;
             } else if (selection_ == 2) {
                 action.kind = DevMenuActionKind::CopyPlayerPosition;

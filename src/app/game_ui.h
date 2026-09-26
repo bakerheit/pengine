@@ -60,7 +60,9 @@ public:
     // How far the wanted cooldown meter pushes down whatever the HUD stacks
     // under the stars (the on-foot health bar) while any star is lit.
     static constexpr float kWantedMeterDrop = 32.0f;
-    void draw_arrested(Hud& hud, float remaining_s, glm::vec2 vp) const;
+    // `detail` is an optional line under the banner (the fine).
+    void draw_arrested(Hud& hud, float remaining_s, glm::vec2 vp,
+                       const char* detail = nullptr) const;
     // The wanted stars exactly as the HUD draws them, right-aligned at `right`,
     // for panels that show them elsewhere (the respray booth).
     void draw_wanted_badge(Hud& hud, int wanted_level, bool flash, int64_t step,

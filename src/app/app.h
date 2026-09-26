@@ -29,6 +29,7 @@
 #include "game/police_offenses.h"
 #include "game/player_vitals.h"
 #include "game/police_arrest.h"
+#include "game/wallet_rules.h"
 #include "game/police_visibility.h"
 #include "game/repair_shop.h"
 #include "game/respray_shop.h"
@@ -180,6 +181,8 @@ public:
     bool damage_check_passed() const {
         return damage_check_done_ && !damage_check_failed_;
     }
+    void set_wallet_check(bool on) { wallet_check_=on; }
+    bool wallet_check_passed() const { return wallet_check_done_ && !wallet_check_failed_; }
     void set_house_check(bool enabled) { house_check_=enabled; }
     bool house_check_passed() const { return house_check_complete_ && !house_check_failed_; }
     void set_signal_check(bool enabled) { signal_check_=enabled; }
@@ -517,6 +520,24 @@ private:
     glm::vec3 damage_check_death_position_{0.f};
     void tick_damage_check();
     void capture_damage_check();
+    // The wallet's gameplay: payouts, fines, the hospital bill and the HUD
+    // counter. src/app/wallet_gameplay.cpp; amounts in game/wallet_rules.h.
+    WalletNotices wallet_;
+    void pay_delivery();
+    void arrest_player();
+    void charge_hospital_bill();
+    void draw_wallet_hud(glm::vec2 vp);
+    void draw_wasted_bill(glm::vec2 vp);
+    std::string arrest_fine_line() const;
+    // --wallet-check: payout, fine and hospital bill in the real game.
+    bool wallet_check_=false;
+    bool wallet_check_done_=false, wallet_check_failed_=false;
+    int wallet_check_stage_=0;
+    int wallet_check_stage_frame_=0;
+    bool wallet_check_acted_=false;
+    bool wallet_check_capture_pending_=true;
+    int64_t wallet_check_cash_=0;
+    void tick_wallet_check();
 
     bool weapon_hit_check_done_=false, weapon_hit_check_failed_=false;
     uint64_t weapon_hit_check_lane_=0;

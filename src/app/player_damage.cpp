@@ -62,6 +62,7 @@ void App::begin_player_death(const char* cause) {
     molotov_shots_.clear();
     fire_player_damage_timer_ = 0.0f;
     player_hit_feedback_s_ = 0.0f;
+    charge_hospital_bill();
     ++player_death_reports_;
     AP_INFO("player killed by %s; wasted", cause);
 }

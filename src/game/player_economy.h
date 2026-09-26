@@ -15,7 +15,7 @@ namespace apricot {
 // functions below, so there is exactly one place a balance can go wrong.
 
 inline constexpr int64_t kMaxCash = 999'999'999;  // nine digits: the HUD's width
-inline constexpr int64_t kNewGameCash = 100;      // placeholder until earning is tuned
+inline constexpr int64_t kNewGameCash = 250;      // short of a pistol; see game/wallet_rules.h
 
 inline constexpr uint8_t weapon_bit(WeaponId id) {
     return static_cast<uint8_t>(1u << static_cast<unsigned>(id));

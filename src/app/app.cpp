@@ -1626,6 +1626,11 @@ void App::process_ui_input(float dt) {
                 dev_menu_.set_player_car(car_visual_.active_car());
                 AP_ERROR("developer vehicle selection failed");
             }
+        } else if (dev_action.kind == DevMenuActionKind::AddCash) {
+            const int64_t added = earn_cash(economy_, kDevMenuCashGrant);
+            AP_INFO("developer cash: +$%lld, cash $%lld",
+                    static_cast<long long>(added),
+                    static_cast<long long>(economy_.cash));
         } else if (dev_action.kind == DevMenuActionKind::RepairVehicle) {
             repair_vehicle(car_);
             prev_car_ = car_;
@@ -3137,6 +3142,7 @@ void App::render() {
             // through GameUi::draw, so the badge is drawn here beside it and
             // not in that switch.
             game_ui_.draw_perf_recorder(hud_, radar, vp);
+            draw_wallet_hud(vp);
             const glm::vec3 focus = player_focus_position();
             const auto snow_contact = collider_.probe_down(
                 focus + glm::vec3{0.0f, 0.5f, 0.0f}, 4.0f,
@@ -3535,6 +3541,7 @@ void App::render() {
                                         0.0f, 1.0f)});
                 hud_.title_text_centered("WASTED", vp.x * 0.5f, 116.0f, 58.0f,
                                          {0.92f, 0.08f, 0.05f, 1.0f});
+                draw_wasted_bill(vp);
             }
             draw_weapon_wheel(hud_,weapon_wheel_,vp,economy_.owned_weapons);
             if(repair_shop_feedback_s_>0 && respray_feedback_s_<=0)
@@ -3575,7 +3582,13 @@ void App::render() {
                 hud_.title_text_centered("Mission Success", centre_x,
                                          top + 10.0f, title_h,
                                          {0.94f, 0.91f, 0.82f, alpha});
-                hud_.text_centered("PACKAGE DELIVERED", centre_x,
+                char paid[48] = "PACKAGE DELIVERED";
+                if (wallet_.delivery_paid > 0) {
+                    char amount[32];
+                    format_cash(amount, sizeof(amount), wallet_.delivery_paid, true);
+                    std::snprintf(paid, sizeof(paid), "PACKAGE DELIVERED   %s", amount);
+                }
+                hud_.text_centered(paid, centre_x,
                                    top + 137.0f, 17.0f,
                                    {1.0f, 0.72f, 0.30f, alpha});
             }
@@ -3584,7 +3597,8 @@ void App::render() {
             if (!dev_menu_.open()) bank_interaction_.draw(hud_, vp,
                 bank_target(city::bank_local_position(player_character_.position), on_foot_),
                 bank_vault_);
-            game_ui_.draw_arrested(hud_, arrested_feedback_s_, vp);
+            game_ui_.draw_arrested(hud_, arrested_feedback_s_, vp,
+                                   arrest_fine_line().c_str());
         } else {
             GameUiSnapshot snapshot;
         snapshot.save_notice=save_notice_.c_str();
@@ -4361,6 +4375,10 @@ int App::run() {
         if (molotov_check_) tick_molotov_check();
         if (gun_store_.check) tick_gun_store_check();
         if (damage_check_) { tick_damage_check(); capture_damage_check(); }
+        if (wallet_check_) {
+            if (wallet_check_done_ || wallet_check_failed_) break;
+            tick_wallet_check();
+        }
         if (paint_check_ && (paint_check_failed_ || (paint_check_done_ && paint_check_capture_.empty()))) break;
         if (paint_check_) tick_paint_check();
         if (car_bomb_check_ && (car_bomb_check_failed_ ||
@@ -4509,6 +4527,7 @@ int App::run() {
         respray_camera_hold_s_=std::max(0.f,respray_camera_hold_s_-camera_frame_dt_);
         mission_success_feedback_s_=std::max(
             0.f,mission_success_feedback_s_-camera_frame_dt_);
+        wallet_.flash.observe(economy_.cash,camera_frame_dt_);
         if (ui_.screen()==UiScreen::Driving)
             arrested_feedback_s_=std::max(0.f,arrested_feedback_s_-camera_frame_dt_);
 
