@@ -34,7 +34,7 @@ not engineering drawings. Rebuild the playable model with
 
 ## Curved-edge revision
 
-The roof now has a broad shallow crown, rolled eaves and shared rounded corners across the roof and window frames, with transparent glass tucked behind the surrounds. The hood has softer shoulders, the side panels have a gentler crown, and the bumpers have rounded upper and lower returns. The wheelbase, wheel size, driving position, opening front door and transparent windows keep their existing fit.
+The roof has a broad shallow crown, rolled eaves and shared rounded corners across the roof and window frames, with transparent glass tucked behind the surrounds. The front and rear transitions now extend 300 mm inward and drop 135 mm from the center crown to the header. These rolls follow the three-quarter references; fitted window tops and rain channels meet the revised roof. The hood has softer shoulders, the side panels have a gentler crown, and the bumpers have rounded upper and lower returns. The wheelbase, wheel size, driving position, opening front door and transparent windows keep their existing fit.
 
 [See the updated playable model](../../reviews/1991-vehicle-refinement/README.md#glm-meridian).
 

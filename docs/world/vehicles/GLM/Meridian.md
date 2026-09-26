@@ -25,7 +25,7 @@ Dimensions and mass describe the game model and handling setup. Prices, producti
 
 ## Design and construction
 
-1991 family minivan in pale seafoam with charcoal bumpers, dark window pillars, rectangular twin-optic lamps and sliding-door tracks. The model has three seat rows, transparent glass, a mapped cabin and a hinged driver door. The latest pass rounds the roof corners, rolls the roof and bumper edges, and softens the hood shoulders and side panels.
+1991 family minivan in pale seafoam with charcoal bumpers, dark window pillars, rectangular twin-optic lamps and sliding-door tracks. The model has three seat rows, transparent glass, a mapped cabin and a hinged driver door. The roof has a broad rounded transition above both the windshield and rear hatch. Each end rolls through 135 mm of height over 300 mm of roof length, with fitted upper window edges, side rails and headliner. The hood shoulders, side panels and bumper edges retain their softer curves.
 
 [Detailed reference and construction notes](../../../design/references/glm_meridian/README.md).
 
@@ -66,6 +66,8 @@ Generated design references, shown here as the visual target.
 ![GLM Meridian model render](../../../design/reviews/1991-vehicle-refinement/glm_meridian-front.png)
 
 ![GLM Meridian in game](../../../design/reviews/1991-vehicle-refinement/glm_meridian-game.png)
+
+[Front/rear roof before-and-after comparison](../../../design/reviews/1991-vehicle-refinement/README.md#front-and-rear-roof-roll).
 
 [More model angles and door views](../../../design/reviews/1991-vehicle-refinement/README.md#glm-meridian).
 

@@ -2,20 +2,46 @@
   "generated_at": "2026-09-26T02:23:03.222589+00:00",
   "models": {
     "glm_meridian": {
-      "body_triangles": 54436,
+      "body_triangles": 56996,
       "sha256": {
-        "assets/models/vehicles/glm_meridian/passenger_rear_glass.emesh": "7d136710d78d44fdbfc0c08659b625184a6e72263b7d66f5b4ce8de26690feeb",
+        "assets/models/vehicles/glm_meridian/passenger_rear_glass.emesh": "fabe61fc12d1ae273b288bf6f30125ef4485153d9c88cf6edb3f818c8ec50792",
         "assets/models/vehicles/glm_meridian/front_wheel.emesh": "86dcf5b19dadf99fb0e4c5370a16f710f4e93e371ec9a19dd303d6c15fb31578",
-        "assets/models/vehicles/glm_meridian/driver_glass.emesh": "81b46226257f67de6e93c88e1cf4f9951c4bb301c0f341b0d9bda5b6e1667134",
-        "assets/models/vehicles/glm_meridian/rear_glass.emesh": "d8b2cffa0088f90b31350a381078b1c090ed2eca0a5962433b9d1ba13936b536",
-        "assets/models/vehicles/glm_meridian/windshield.emesh": "15c79864639e92c8088002b31ff21bc1707937eb22c50088f6b2b191c78bd5ef",
-        "assets/models/vehicles/glm_meridian/driver_rear_glass.emesh": "776997dd09e02c74d594e55d71e547ffee224afed086d155adb6b4087be26799",
-        "assets/models/vehicles/glm_meridian/body_open.emesh": "46d63cea6352db83850d265321d062e518a6dc64dcfc5471f862ed9f72d1c6de",
-        "assets/models/vehicles/glm_meridian/driver_door.emesh": "5363ec25c7947b5300e6695bf15859672a1c31b26434a113d1e513f7c664bf21",
-        "assets/models/vehicles/glm_meridian/passenger_glass.emesh": "726ec14abd5cde7a969762aa5b3371c8cbb6e0b52a591fcc70ab9e069a333dc6",
+        "assets/models/vehicles/glm_meridian/driver_glass.emesh": "65717ec3f48b313312c12513def3c90a406d464e58ff7315c49a56edd753d37d",
+        "assets/models/vehicles/glm_meridian/rear_glass.emesh": "b4ae6e8d3f7dce26a916a33299b281868e07e3c2d09efb3ebea73953ab79650f",
+        "assets/models/vehicles/glm_meridian/windshield.emesh": "73c7aff4d63de919d087a5cdf7e19a363f426662d31b6089a74849558998e822",
+        "assets/models/vehicles/glm_meridian/driver_rear_glass.emesh": "77897805142151c539d34b053faa460316b6276a8080290769c467e4675f0857",
+        "assets/models/vehicles/glm_meridian/body_open.emesh": "577b77554a83b66efac28a2e085a8849590a84a90fc5d854b72c96129eada432",
+        "assets/models/vehicles/glm_meridian/driver_door.emesh": "5350599e16fefac1714d0d0a9d5d7320602da3c32e5eb630b7f5a82e3072f90c",
+        "assets/models/vehicles/glm_meridian/passenger_glass.emesh": "c663ec9bb3da58a92a8bfe6b90157cee63c15a2c1cf6b9c6c41e64bca40dfa86",
         "assets/models/vehicles/glm_meridian/rear_wheel.emesh": "86dcf5b19dadf99fb0e4c5370a16f710f4e93e371ec9a19dd303d6c15fb31578",
-        "assets/models/vehicles/glm_meridian/body.emesh": "200d0a9c6905244dfaff038f4d33a306d9e0eed5ccb1bbbbfbb68afc214a1f46",
+        "assets/models/vehicles/glm_meridian/body.emesh": "9b39bb716e1af965b955e565ec62eda226590a6ddd9584daf5e573aa07cdfe43",
         "assets/textures/vehicles/glm_meridian/body.png": "95fcab1ad833bf1819ced8c2e727690ab8cbe71d45e299b134d2b0fce4ea7d11"
+      },
+      "reviewed_at": "2026-09-26T03:41:12.854028+00:00",
+      "revision": "Broader front and rear roof rollover, fitted upper window edges and rain channels",
+      "verification": {
+        "asset_validation": "passed",
+        "new_vehicle_models_tests": "passed",
+        "driver_transition_frames": 650,
+        "driver_transition_result": "passed; clean GL error queue",
+        "runtime_views": [
+          "glm_meridian-runtime-front.png",
+          "glm_meridian-runtime-rear.png"
+        ],
+        "game_capture": {
+          "frames": 180,
+          "result": "clean GL error queue; inspected roof silhouette",
+          "position": [
+            150,
+            2046
+          ],
+          "camera_orbit": [
+            140,
+            12
+          ],
+          "camera_mode": "near",
+          "image": "glm_meridian-game.png"
+        }
       }
     },
     "rodeo_switchback": {
