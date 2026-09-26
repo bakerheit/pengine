@@ -505,6 +505,19 @@ void TrafficVisual::destroy_rig(Scene& scene, Rig& rig) const {
     }
 }
 
+float TrafficVisual::snow_load(const VehicleAgent& agent, bool parked) const {
+    if (!snow_loads_) return -1.0f;
+    if (!parked) {
+        const float load = snow_loads_->load(agent.lane_key, agent.slot, agent.generation);
+        if (load >= 0.0f) return load;
+        // A car that appeared this frame is stepped from the next sim step;
+        // until then it wears what it will be seeded with.
+    }
+    const float exposure = snow_shelter_ ? snow_shelter_->exposure(
+        agent.pos.x, agent.pos.y + kVehicleSnowRoofAboveGroundM, agent.pos.z) : 1.0f;
+    return seed_vehicle_snow_load(exposure, snow_weather_);
+}
+
 void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
                              const VehicleAgent& agent,
                              const LaneGraph& lanes, int64_t step,
@@ -562,6 +575,13 @@ void TrafficVisual::sync_rig(Scene& scene, Rig& rig,
             glass->renderable.deform_frame=deform_frame;
         }
     }
+    const float snow = snow_load(agent, parked);
+    for (NodeId id : rig.snowplow_details)
+        if (SceneNode* node = scene.get(id)) node->renderable.snow_load = snow;
+    for (NodeId id : rig.glass)
+        if (SceneNode* node = scene.get(id)) node->renderable.snow_load = snow;
+    for (NodeId id : {rig.body, rig.driver_door})
+        if (SceneNode* node = scene.get(id)) node->renderable.snow_load = snow;
 
     float steer = agent.turn_from_lane != kInvalidLane
         ? agent.turn_steer_rad : 0.0f;

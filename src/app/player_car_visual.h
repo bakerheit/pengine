@@ -30,9 +30,12 @@ public:
     PlayerCarId active_car() const { return active_car_; }
     const VehicleRegistration& registration() const { return plate_.registration; }
     void set_registration(Scene& scene, const VehicleRegistration& registration);
+    // snow_load: the car's own snow (game/vehicle_snow_load.h). Negative keeps
+    // the world snow path, which is what the tool labs use.
     void sync(Scene& scene, const VehicleTuning& tuning,
               const VehicleState& previous, const VehicleState& current,
-              float alpha, float headlight_level, float brake_level) const;
+              float alpha, float headlight_level, float brake_level,
+              float snow_load = -1.0f) const;
     // Apply after sync; fraction is already eased by the transition owner.
     void sync_driver_door(Scene& scene, float open_fraction) const;
     void sync_passenger_door(Scene& scene, float open_fraction) const;

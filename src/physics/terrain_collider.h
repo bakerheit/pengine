@@ -60,6 +60,10 @@ struct StaticBox {
     // Stable kinematic slots may be disabled while their car is player-driven.
     bool enabled = true;
     bool is_vehicle = false;  // parked vehicle, not a wall or other world prop
+    // Precipitation cover only (SnowShelterField): a roof with no walls under
+    // it, such as a fuel canopy, so wind drifts snow in from its edges. Every
+    // other cover is treated as enclosed and stays bare beneath.
+    bool open_sided = false;
     // Breakaway props report a hit through VehicleState. The owner disables
     // this stable slot BETWEEN steps; step_vehicle remains const in the world.
     float breakaway_speed = 0.0f;
