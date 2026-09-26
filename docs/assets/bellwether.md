@@ -31,6 +31,10 @@ checkout. `manifest.json` records counts, and `parts.txt` lists the named meshes
 
 ## Character
 
+The trench coat is a future purchasable outerwear item, not the starting outfit.
+The game currently loads `player_male_01`; the coat assets and generator remain
+available for the later clothing system. See the [clothing plan](../design/clothing.md).
+
 `tools/make_trench_detective.py` authors the coat shell, split tails, sleeves,
 lapels, tie, belt, storm flap and cloth texture patches. It reuses the existing
 private PSX Character 01 head, hands, trousers, shoes and 28-bone skeleton.
@@ -47,7 +51,7 @@ python3 tools/make_bellwether_assets.py
 python3 tools/make_trench_detective.py
 ```
 
-The second command requires an already cooked
+The second command is optional for normal play and requires an already cooked
 `assets/models/characters/psx_pack/player_male_01/`.
 
 ## Sky

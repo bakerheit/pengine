@@ -295,10 +295,12 @@ prove every detail looks right under every possible dent.
 
 ## Player and pedestrian characters
 
-The live player wears the original Bellwether trench coat over Character 01's
-head, hands, trousers, shoes and rig from the supplied
-`Characters_psx_1.1.zip`. Run `python3 tools/make_trench_detective.py` after the
-base character cook. See [Bellwether asset provenance](../docs/assets/bellwether.md).
+The live player uses Character 01's regular outfit from the supplied
+`Characters_psx_1.1.zip`. The Bellwether trench coat is retained as a future
+clothing-store purchase; it is not equipped or loaded by default.
+`python3 tools/make_trench_detective.py` optionally builds that outfit prototype
+after the base character cook. See [Bellwether asset provenance](../docs/assets/bellwether.md)
+and the [clothing plan](../docs/design/clothing.md).
 Ambient pedestrians use eight more civilians from
 that pack. A pedestrian's selected look is stable for its `(lane key, slot)`
 simulation identity.

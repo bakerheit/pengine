@@ -8,7 +8,6 @@ From the repository root, with the existing private game assets installed:
 
 ```sh
 python3 tools/make_bellwether_assets.py
-python3 tools/make_trench_detective.py
 cmake --build build --target apricot -j 4
 build/bin/apricot --bellwether --save-file build/bellwether-visit.save
 ```
@@ -30,8 +29,8 @@ Controls: WASD move, Shift sprint, E enter/exit vehicles, M map, P pause.
 - A period service station with two pumps, canopy, warm lighting, a clear
   driveway, open store entrance, counter and shelves.
 - Three brick storefront shells, benches, street lamps and bare trees.
-- An original olive-brown trench outfit on the existing player rig: lapels,
-  shirt/tie, belt, storm flap and articulated split tails.
+- Johnny's regular starting outfit. The olive-brown trench coat model is saved
+  for a future clothing-store purchase; see the [clothing plan](clothing.md).
 - A blue-hour sky with layered clouds, a muted warm western horizon and
   warm local lamps. It holds the time at 18:36 in this preview.
 
@@ -67,7 +66,9 @@ The [approved image](references/bellwether/approved-town.jpg) remains the target
 The town generator produces visible models, collision/support manifests and
 an original material atlas from one source. `src/app/bellwether.cpp` places them.
 The trench generator reuses the supplied private character rig and authors a
-new skinned outfit. The sky uses shader code rather than a flat panorama.
+new skinned outfit prototype. Its reference art and generated assets are kept,
+but it is no longer the default player model. The sky uses shader code rather
+than a flat panorama.
 
 This is a first playable art pass. The store furnishing and ground wear still
 need detail, the shop row is exterior-only, and there are no new town missions
@@ -75,6 +76,9 @@ or shop interactions. Coat movement uses bone weights, not cloth simulation;
 seated and extreme action poses have not had a full outfit review.
 
 ## Observed runtime results
+
+These results and captures document the original art pass, before the trench
+coat was reserved for a future store purchase.
 
 Built the `apricot` target from this working tree. The isolated 300-frame town
 capture completed with a clean GL error queue, about 119 FPS mean on this
@@ -98,6 +102,9 @@ Logs, movement traces and intermediate captures live in `build/bellwether/`.
 No automated test suite was run for this change.
 
 ## Captures
+
+Historical art previews below show the trench coat. Current gameplay starts in
+the regular outfit.
 
 ### Forecourt and skyline
 

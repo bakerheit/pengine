@@ -13,7 +13,7 @@ current systems so new content has a shared direction.
 
 [Documentation home](../README.md) · [Lore and world](../lore/README.md) ·
 [Vehicle brands](vehicle-brands.md) · [Vehicle reference photos](references/1991-selected-vehicles.md) ·
-[Bellwether dusk town](bellwether.md)
+[Bellwether dusk town](bellwether.md) · [Clothing and accessories](clothing.md)
 
 ## What the player should feel
 
