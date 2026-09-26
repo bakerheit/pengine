@@ -81,8 +81,8 @@ build/bin/apricot --frames 240 --start-driving --start-at 9.84 -12.15 \
   --vehicle-snow-load 1 --screenshot build/qa/snow-shelter/after-canopy-car.png
 ```
 
-This is an autonomous traffic service. The trucks cannot be entered by the
-player. The active fleet follows the existing traffic streaming area; it does
+The municipal fleet is an autonomous traffic service; those trucks cannot be
+entered by the player (the Grazer and Workman plow trucks below can). The active fleet follows the existing traffic streaming area; it does
 not simulate a citywide depot or route schedule. Clearance is session state,
 bounded to 128 strips of up to 96 m each, with oldest strips replaced when
 full. Loading a checkpoint or starting a new game clears this history.
