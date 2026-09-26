@@ -215,10 +215,14 @@ if(APPLE)
     )
 endif()
 
-if(MSVC)
+if(WIN32)
     # Our TUs pull in <SDL.h> -> <windows.h>; PUBLIC so consumers get them too.
+    # SDL_MAIN_HANDLED stops SDL_main.h renaming main() to SDL_main, which only
+    # SDL2main's WinMain would call: without it the MinGW link finds no entry
+    # point. Win32 SDL needs no SDL_SetMainReady() (SDL_MAIN_NEEDED is unset).
     target_compile_definitions(apricot_host PUBLIC
-        NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES)
+        NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS _USE_MATH_DEFINES
+        SDL_MAIN_HANDLED)
 endif()
 
 # --- apricot: the executable. ------------------------------------------------

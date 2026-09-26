@@ -22,3 +22,6 @@ __pycache__/
 /assets/models/
 /tools/pizaz_constant_threejs/node_modules/
 .worktree-rescue/
+
+# The Windows test PC for tools/build_windows.sh --push (user@host, per machine).
+/tools/.pc_host

@@ -1092,7 +1092,7 @@ void App::capture_and_submit_bug_report() {
         vehicle_interaction_notice_ = "BUG REPORT CAPTURE FAILED";
         vehicle_notice_until_ = step_index_ + 300;
         AP_ERROR("bug report: capture failed; partial report kept at '%s'",
-                 directory.c_str());
+                 directory.string().c_str());
         return;
     }
 
@@ -1103,10 +1103,11 @@ void App::capture_and_submit_bug_report() {
         : "BUG REPORT SAVED - CODEX UNAVAILABLE";
     vehicle_notice_until_ = step_index_ + 360;
     if (launched) {
-        AP_INFO("bug report sent to Codex; files: '%s'", directory.c_str());
+        AP_INFO("bug report sent to Codex; files: '%s'",
+                directory.string().c_str());
     } else {
         AP_WARN("bug report saved at '%s', but Codex could not be launched",
-                directory.c_str());
+                directory.string().c_str());
     }
 }
 

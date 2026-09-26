@@ -138,7 +138,13 @@ inline void close_log_file() {
     }
 }
 
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(__MINGW32__)
+// MinGW's gcc reads a plain `printf` archetype as Microsoft's old dialect,
+// which has no %zu, and rejects every size_t line in the tree. The runtime is
+// fine: libstdc++ switches MinGW to its C99 printf. <cstdio> names whichever
+// dialect is actually in use, so the check matches what vsnprintf will do.
+__attribute__((format(__MINGW_PRINTF_FORMAT, 4, 5)))
+#elif defined(__GNUC__) || defined(__clang__)
 __attribute__((format(printf, 4, 5)))
 #endif
 inline void emit(Level l, const char* file, int line, const char* fmt, ...) {

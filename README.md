@@ -71,6 +71,31 @@ cmake --build build -j     # build (-Werror is on for our targets)
 The first configure takes a few minutes because it clones SDL2. Subsequent ones
 are seconds.
 
+### Windows
+
+Windows builds are cross-compiled here with MinGW-w64 (`brew install
+mingw-w64`); the Windows machine needs no toolchain.
+
+```sh
+tools/build_windows.sh          # build-win/dist/ProbableCause-<VERSION>-Windows-x64.zip
+tools/build_windows.sh --push   # ...and unpack it on the Windows test PC's Desktop
+tools/build_windows.sh --test   # run every headless suite on that PC
+```
+
+The package is `apricot.exe`, static and needing no DLLs, beside a copy of
+`assets/`, so packaging needs the gitignored `assets/models/` here. The PC is
+reached over SSH at `$PC_HOST` or the gitignored `tools/.pc_host`, with the key
+`~/.ssh/pcgame_winbox`; the script's header has the rest.
+
+**What has run on Windows** (Windows 10, Radeon RX 580): the exe starts and
+reports its version, and 219 of the 220 suites `--test` sends pass. The one
+that fails is `vehicle_driver_pose_tests`: cruiser 91-C's exit pops the right
+hand 7.6 cm in one tick. The Mac passes it only because Apple clang fuses
+multiply-adds and x86-64 gcc does not; a Mac tree configured with
+`-DCMAKE_CXX_FLAGS=-ffp-contract=off` reproduces the Windows numbers exactly,
+which is the quick way to chase a Windows-only failure. **Nobody has played the
+game on Windows yet:** its window, rendering, input and audio are unseen there.
+
 ### Asset labs
 
 The **Marlin Sprint 22** is a fictional cream/seafoam speedboat moored at the

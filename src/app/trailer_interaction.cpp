@@ -2,7 +2,11 @@
 #include "app/vehicle_model_tuning.h"
 #include "core/log.h"
 #include <cstdio>
+#include <filesystem>
+#include <string>
+#include <system_error>
 #include <unistd.h>
+#include <vector>
 
 namespace apricot {
 void App::enable_trailer_collision(bool enabled) {
@@ -152,9 +156,12 @@ void App::run_trailer_check() {
     toggle_trailer();
     // Exercise the actual host save/load wiring without touching the user's
     // checkpoint. The temp file is removed even if a check fails.
-    char checkpoint[]="/tmp/apricot-trailer-check-XXXXXX";
-    const int fd=mkstemp(checkpoint);if(fd<0){fail("cannot create temporary checkpoint");return;}close(fd);
-    const auto original_path=save_path_;save_path_=checkpoint;
+    // The OS temp folder rather than /tmp, which Windows does not have.
+    std::error_code temp_error;
+    const std::string pattern=(std::filesystem::temp_directory_path(temp_error)/"apricot-trailer-check-XXXXXX").string();
+    std::vector<char> checkpoint(pattern.begin(),pattern.end());checkpoint.push_back('\0');
+    const int fd=temp_error?-1:mkstemp(checkpoint.data());if(fd<0){fail("cannot create temporary checkpoint");return;}close(fd);
+    const auto original_path=save_path_;save_path_=checkpoint.data();
     const auto saved_pose=trailer_.position;
     bool restored=save_game();
     if(restored) {drop_trailer();car_.position.x+=20;restored=load_game();}
@@ -164,7 +171,7 @@ void App::run_trailer_check() {
         if(restored){trailer_.position.x+=20;restored=load_game();}
         restored=restored && !trailer_.attached && glm::distance(saved_pose,trailer_.position)<.001f;
     }
-    save_path_=original_path;std::remove(checkpoint);
+    save_path_=original_path;std::remove(checkpoint.data());
     if(!restored){fail("attached/dropped checkpoint restore failed");return;}
     toggle_trailer();
     prev_car_=car_;prev_trailer_=trailer_;world_.fill(scene_,renderer_,car_.position);

@@ -226,7 +226,11 @@ void loader_reads_the_cooked_layout() {
 int main() {
     // Before anything resolves the asset root, which caches for the process.
     const fs::path assets = fs::temp_directory_path() / "apricot_ferrone_mast_tests";
+#if defined(_WIN32)
+    _putenv_s("APRICOT_ASSETS", assets.string().c_str());
+#else
     setenv("APRICOT_ASSETS", assets.string().c_str(), 1);
+#endif
     mast_is_the_landmark();
     pad_meets_the_real_summit();
     pad_is_deterministic();
