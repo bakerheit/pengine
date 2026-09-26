@@ -58,6 +58,15 @@ inline std::vector<StartPart> bake_hospital_overhaul_logistics() {
             StartFinish::White, false, 42.0f);
     };
 
+    const auto add_north_arrow = [&](const char* name, float x, float z) {
+        add(name, x, z, 0.205f, 0.20f, 0.025f, 2.5f,
+            StartFinish::White);
+        add(name, x - 0.42f, z - 0.88f, 0.206f, 0.18f, 0.025f, 1.25f,
+            StartFinish::White, false, 42.0f);
+        add(name, x + 0.42f, z - 0.88f, 0.206f, 0.18f, 0.025f, 1.25f,
+            StartFinish::White, false, -42.0f);
+    };
+
     // ------------------------------------------------------------------
     // Juniper-side emergency receiving
     // ------------------------------------------------------------------
@@ -240,6 +249,17 @@ inline std::vector<StartPart> bake_hospital_overhaul_logistics() {
             0.16f, 0.025f, 4.0f, StartFinish::Yellow);
     }
 
+    // Flush wheel guides show the three northbound reverse approaches to the
+    // docks. They sit inside the truck-sweep box as paint only, leaving the
+    // full maneuver envelope free of posts, curbs, and collision geometry.
+    for (float x : {158.0f, 174.0f, 190.0f}) {
+        for (float side : {-1.05f, 1.05f}) {
+            add("hospital overhaul loading dock reverse guide", x + side,
+                153.0f, 0.215f, 0.10f, 0.025f, 10.0f,
+                StartFinish::Yellow);
+        }
+    }
+
     // Three raised docks meet the south face of the surgery/support bar.
     // Dock shelters are wall-supported, so no canopy column lands in a truck
     // reverse envelope. Doors are visual opening targets for the massing pass.
@@ -276,6 +296,16 @@ inline std::vector<StartPart> bake_hospital_overhaul_logistics() {
         8.0f, 0.24f, 5.8f, StartFinish::WarmWall, true);
     add("hospital arrival canopy light lens", 135.0f, 141.6f, 3.92f,
         0.58f, 0.05f, 0.40f, StartFinish::White);
+    // Edge lines and northbound arrows keep the separate staff route legible
+    // through the yard without introducing any raised pedestrian barriers.
+    for (float x : {133.65f, 136.35f}) {
+        add("hospital overhaul staff receiving walk edge line", x, 149.0f,
+            0.205f, 0.08f, 0.025f, 17.4f, StartFinish::Yellow);
+    }
+    add_north_arrow("hospital overhaul staff receiving walk direction arrow",
+                    135.0f, 146.5f);
+    add_north_arrow("hospital overhaul staff receiving walk direction arrow",
+                    135.0f, 154.0f);
     for (float x : {131.8f, 138.2f}) {
         add_bollard("hospital overhaul staff receiving crash bollard", x,
                     143.7f, StartFinish::Steel);
@@ -334,7 +364,7 @@ inline std::vector<StartPart> bake_hospital_overhaul_logistics() {
     }
     add("hospital overhaul generator exhaust stack", 134.1f, 176.2f, 3.0f,
         0.34f, 2.4f, 0.34f, StartFinish::Steel, true);
-    add("hospital overhaul plant switchgear", 135.0f, 186.3f, 0.27f,
+    add("hospital overhaul plant switchgear", 135.0f, 185.8f, 0.27f,
         4.8f, 2.2f, 0.82f, StartFinish::Steel, true);
     for (float x : {130.2f, 139.8f}) {
         add_bollard("hospital overhaul generator crash bollard", x, 181.0f);
@@ -361,6 +391,15 @@ inline std::vector<StartPart> bake_hospital_overhaul_logistics() {
         0.35f, 3.2f, 1.65f, 2.1f, StartFinish::DarkRoof, true);
     add("hospital overhaul cardboard container", 212.8f, 199.0f, 0.35f,
         3.2f, 1.65f, 2.1f, StartFinish::TealDoor, true);
+    // Colored flush pads reserve a clear west-side stance for servicing each
+    // bin from the open gate, without putting carts or people in a vehicle
+    // route. Each pad stops at the container face and stays inside the walls.
+    add("hospital overhaul clinical waste service stance", 210.45f, 189.0f,
+        0.235f, 1.5f, 0.025f, 2.6f, StartFinish::Yellow);
+    add("hospital overhaul general waste service stance", 210.45f, 194.0f,
+        0.235f, 1.5f, 0.025f, 2.6f, StartFinish::DarkRoof);
+    add("hospital overhaul cardboard service stance", 210.45f, 199.0f,
+        0.235f, 1.5f, 0.025f, 2.6f, StartFinish::TealDoor);
     add("hospital overhaul waste hose cabinet", 216.95f, 199.8f, 0.55f,
         0.42f, 1.1f, 0.72f, StartFinish::Steel, true);
     add("hospital overhaul waste enclosure drain", 208.0f, 200.8f, 0.245f,

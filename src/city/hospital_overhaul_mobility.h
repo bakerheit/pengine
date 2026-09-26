@@ -217,6 +217,21 @@ inline std::vector<StartPart> bake_hospital_overhaul_mobility() {
         0.105f, 5.2f, 0.055f, 1.60f, StartFinish::Concrete);
     add("hospital mobility lobby flush curb ramp", 0.0f, -10.55f, 0.105f,
         5.2f, 0.055f, 1.60f, StartFinish::Concrete);
+    // Paired edge inlays keep the full protected width visually obvious from
+    // the lot landing, across the arrival lane, and through the lobby landing.
+    // They are flush paint; tactile warning pads remain at both curb lines.
+    for (float x : {-2.55f, 2.55f}) {
+        add("hospital mobility protected lobby walk edge inlay", x, -16.4f,
+            0.205f, 0.10f, 0.025f, 16.8f, StartFinish::TealDoor);
+    }
+    // A material-built destination mark makes the lobby threshold legible
+    // from the crossing without putting a post or sign in the door approach.
+    add("hospital mobility lobby threshold hospital cross field", 0.0f,
+        -8.9f, 0.205f, 1.60f, 0.025f, 1.60f, StartFinish::TealDoor);
+    add("hospital mobility lobby threshold hospital cross", 0.0f, -8.9f,
+        0.218f, 0.92f, 0.025f, 0.18f, StartFinish::White);
+    add("hospital mobility lobby threshold hospital cross", 0.0f, -8.9f,
+        0.218f, 0.18f, 0.025f, 0.92f, StartFinish::White);
     for (float x : {-3.5f, 3.5f}) {
         add_bollard("hospital mobility north crossing guard bollard", x,
                     -19.35f, StartFinish::TealDoor);
@@ -308,16 +323,34 @@ inline std::vector<StartPart> bake_hospital_overhaul_mobility() {
         add("hospital mobility transit shelter column", -30.35f, z, 0.16f,
             0.34f, 3.14f, 0.34f, StartFinish::Steel, true);
     }
-    add("hospital mobility transit shelter bench seat", -28.2f, 50.0f,
-        0.54f, 0.70f, 0.16f, 6.8f, StartFinish::WarmWall, true);
-    add("hospital mobility transit shelter bench back", -27.88f, 50.0f,
-        0.70f, 0.14f, 0.86f, 6.8f, StartFinish::WarmWall, true);
+    // Keep the solid bench at the north end so the transverse accessible
+    // connector at z=50 passes the shelter without a collision pinch point.
+    add("hospital mobility transit shelter bench seat", -28.2f, 46.0f,
+        0.54f, 0.70f, 0.16f, 3.2f, StartFinish::WarmWall, true);
+    add("hospital mobility transit shelter bench back", -27.88f, 46.0f,
+        0.70f, 0.14f, 0.86f, 3.2f, StartFinish::WarmWall, true);
     add("hospital mobility transit stop pole", -33.2f, 42.6f, 0.16f,
         0.18f, 3.5f, 0.18f, StartFinish::Steel, true);
     add("hospital mobility transit stop marker", -33.2f, 42.6f, 2.90f,
         0.75f, 0.75f, 0.12f, StartFinish::TealDoor);
+    // A compact, high-contrast bus pictogram identifies the boarding pole at
+    // street distance without adding a new fitted texture receiver.
+    add("hospital mobility transit bus pictogram body", -33.2f, 42.53f,
+        3.17f, 0.38f, 0.33f, 0.035f, StartFinish::White);
+    add("hospital mobility transit bus pictogram windows", -33.2f, 42.505f,
+        3.34f, 0.25f, 0.08f, 0.015f, StartFinish::Steel);
+    for (float x : {-33.32f, -33.08f}) {
+        add("hospital mobility transit bus pictogram wheel", x, 42.505f,
+            3.11f, 0.08f, 0.12f, 0.02f, StartFinish::Steel);
+    }
     add("hospital mobility transit tactile boarding strip", -33.7f, 50.0f,
         0.205f, 0.72f, 0.025f, 12.0f, StartFinish::Yellow);
+    for (float z : {48.56f, 51.44f}) {
+        add("hospital mobility transit connector edge inlay", -24.6f, z,
+            0.205f, 9.4f, 0.025f, 0.10f, StartFinish::TealDoor);
+    }
+    add_east_arrow("hospital mobility transit clinic direction arrow",
+                   -24.6f, 50.0f);
 
     // Four inverted-U stands sit on a dedicated west-side pad. Bikes never
     // narrow the lobby route, transit boarding strip, or arrival lane.
@@ -328,8 +361,9 @@ inline std::vector<StartPart> bake_hospital_overhaul_mobility() {
     }
 
     // Material-built pylons reuse the same family at the arrival, transit,
-    // and garage decision points. Their positions are outside travel sweeps.
-    add_wayfinding_pylon(8.0f, -21.2f, 0.0f, StartFinish::TealDoor);
+    // and garage decision points. The arrival marker sits beside the crossing
+    // on the forecourt apron, clear of the refuge island's planted soil.
+    add_wayfinding_pylon(3.85f, -23.65f, 0.0f, StartFinish::TealDoor);
     add_wayfinding_pylon(-22.4f, 29.0f, 90.0f, StartFinish::TealDoor);
     add_wayfinding_pylon(39.5f, 145.5f, 0.0f, StartFinish::Yellow);
 

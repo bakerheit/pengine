@@ -13,7 +13,7 @@ namespace apricot::city {
 // depth, exterior fixtures, supported paving skins, and honest prop colliders.
 inline std::vector<StartPart> bake_hospital_overhaul_public_realm() {
     std::vector<StartPart> out;
-    out.reserve(420);
+    out.reserve(480);
 
     const auto add = [&](const char* name, float x, float z, float bottom,
                          float width, float height, float depth,
@@ -141,6 +141,22 @@ inline std::vector<StartPart> bake_hospital_overhaul_public_realm() {
             StartFinish::Steel);
     }
 
+    // Carry the north facade's measured window rhythm around the west
+    // inpatient frontage. The fitted west-return art and Bellweather portal
+    // each keep a full mullion-free bay; the thin fins stay outside glazing.
+    constexpr float kWestFacadeLength = 146.0f;
+    constexpr int kWestFacadeBayCount = 19;
+    for (int bay = 1; bay < kWestFacadeBayCount; ++bay) {
+        const float z = -8.0f +
+                        kWestFacadeLength * static_cast<float>(bay) /
+                            static_cast<float>(kWestFacadeBayCount);
+        if ((z > 13.0f && z < 21.0f) || (z > 53.0f && z < 62.0f)) {
+            continue;
+        }
+        add("hospital west inpatient facade vertical mullion", -15.43f, z,
+            0.86f, 0.18f, 12.30f, 0.18f, StartFinish::Steel);
+    }
+
     // Independent projecting shades make the window cadence read from the
     // street. The pieces stop at department seams instead of one repeated
     // strip stretched across the full 219 m facade.
@@ -165,6 +181,16 @@ inline std::vector<StartPart> bake_hospital_overhaul_public_realm() {
         0.30f, 0.52f, 13.68f, 1.42f, StartFinish::RedTrim);
     add("hospital emergency roofline accent", 174.0f, -8.54f, 13.72f,
         59.0f, 0.48f, 0.86f, StartFinish::RedTrim);
+
+    // A compact red wayfinding panel with three bright locator bars gives the
+    // ED a street-level landmark without borrowing a protected emblem. Its
+    // sign field fits between the entry head and first-floor glazing.
+    add("hospital emergency walk-in sign field", 180.0f, -8.48f, 3.94f,
+        6.20f, 0.40f, 0.12f, StartFinish::RedTrim);
+    for (float x : {179.0f, 180.0f, 181.0f}) {
+        add("hospital emergency walk-in sign locator bar", x, -8.57f,
+            3.98f, 0.18f, 0.28f, 0.05f, StartFinish::White);
+    }
 
     // Main lobby. The existing north-lot spine is x=0; both vestibule door
     // lines retain a 3.2 m clear centre opening. The mobility layer owns the
@@ -224,6 +250,33 @@ inline std::vector<StartPart> bake_hospital_overhaul_public_realm() {
         }
         add("hospital north roof plant screen cap", centre_x, 0.2f, 16.43f,
             24.0f, 0.18f, 0.52f, StartFinish::Steel, true);
+    }
+
+    // Small, paired roof screens continue the north-bar plant language over
+    // the inpatient and support wings. They stay within their own roof plates
+    // and top out at the same 16.61 m silhouette as the north screens; the
+    // east roof stays open for the helipad.
+    for (const Vec2 centre : {Vec2{14.0f, 56.0f}, Vec2{14.0f, 111.0f}}) {
+        add("hospital inpatient roof plant screen sill", centre.x, centre.z,
+            14.10f, 18.0f, 0.20f, 0.42f, StartFinish::Steel, true, 90.0f);
+        for (float offset : {-7.2f, -3.6f, 0.0f, 3.6f, 7.2f}) {
+            add("hospital inpatient roof vertical louver", centre.x,
+                centre.z + offset, 14.28f, 0.28f, 2.18f, 0.66f,
+                StartFinish::TealDoor, true, 90.0f);
+        }
+        add("hospital inpatient roof plant screen cap", centre.x, centre.z,
+            16.43f, 18.0f, 0.18f, 0.52f, StartFinish::Steel, true, 90.0f);
+    }
+    for (const float centre_x : {70.0f, 120.0f}) {
+        add("hospital support roof plant screen sill", centre_x, 119.0f,
+            14.10f, 22.0f, 0.20f, 0.42f, StartFinish::Steel, true);
+        for (float offset : {-9.0f, -5.4f, -1.8f, 1.8f, 5.4f, 9.0f}) {
+            add("hospital support roof vertical louver", centre_x + offset,
+                119.0f, 14.28f, 0.28f, 2.18f, 0.66f,
+                StartFinish::TealDoor, true);
+        }
+        add("hospital support roof plant screen cap", centre_x, 119.0f,
+            16.43f, 22.0f, 0.18f, 0.52f, StartFinish::Steel, true);
     }
 
     // Court-facing shades and mullions continue the exterior hierarchy into

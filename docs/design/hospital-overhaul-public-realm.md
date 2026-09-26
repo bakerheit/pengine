@@ -8,7 +8,7 @@
 inline std::vector<StartPart> bake_hospital_overhaul_public_realm();
 ```
 
-The integrated sidecar contains 393 `StartPart` records in `kHospitalSite`-local
+The integrated sidecar contains 442 `StartPart` records in `kHospitalSite`-local
 coordinates. It is matched to the ring-and-spine shell in
 `hospital-overhaul-master.md`; it does not recreate shell walls, floors,
 garage pieces, the north visitor lot, road ribbons, or access logic. It reuses
@@ -27,6 +27,13 @@ Four floor bands, independent projecting sunshades, vertical mullions, base
 courses, and grouped roof louvers break the 219 m frontage into readable
 departments. The roof screens top out at `16.61 m`; they screen plant and do
 not read as a fifth occupied floor.
+
+The west inpatient facade now carries fifteen additional mullions on its
+7.5 m room cadence. They skip both the fitted art wall and Bellweather entry.
+The north ED walk-in portal has a compact red sign field with three white
+locator bars. Thirty additional louvers form four short roof-screen groups on
+the west inpatient and south support wings; each stays within its roof plate,
+matches the north-bar screen top, and leaves the east helipad roof open.
 
 The main lobby axis is fixed at local `x = 0`, matching the existing protected
 pedestrian spine and crosswalk from the north visitor lot. The mobility layer's
@@ -115,8 +122,9 @@ before collision/GPU upload. Do not append the superseded
 `bake_hospital_exterior_facade()` or `bake_hospital_exterior_grounds()` streams,
 or their old receivers and fixtures will duplicate this overhaul.
 
-The sidecar was checked directly with Clang in C++17 mode. A compiled contract
-probe reported:
+Before the additional facade and roof details below, a C++17 header check and
+compiled contract probe reported 393 parts and the following fitted-receiver,
+light, and clearance results:
 
 ```text
 parts=393
@@ -129,8 +137,8 @@ invalid=0
 east_operational_solids=0
 ```
 
-Parent integration completed the focused hospital geometry/map tests and the
-day/night runtime pass. The north-lot crossing-to-vestibule alignment,
-unobstructed court loops, three one-shot art mappings, ED/service sight lines,
-and real dusk coverage from both named light sets were checked in the
-integrated campus.
+The parent integration previously completed focused hospital geometry/map
+tests and a day/night runtime pass for that 393-part snapshot. This detail pass
+adds 49 pieces. The revised sidecar has not had a fresh build, test run, or
+integrated visual check, so the earlier result does not cover the new mullions,
+ED sign, or west/south roof screens.

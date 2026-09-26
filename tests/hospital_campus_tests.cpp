@@ -147,9 +147,9 @@ void campus_has_professional_hospital_layout() {
     REQUIRE(named_count(parts, "hospital facade wall light lens") == 12u);
     REQUIRE(named_count(parts,
                         "hospital northwest healing art glass face") == 1u);
-    REQUIRE(city::bake_hospital_overhaul_logistics().size() == 236u);
-    REQUIRE(city::bake_hospital_overhaul_mobility().size() == 162u);
-    REQUIRE(city::bake_hospital_overhaul_public_realm().size() == 393u);
+    REQUIRE(city::bake_hospital_overhaul_logistics().size() == 253u);
+    REQUIRE(city::bake_hospital_overhaul_mobility().size() == 176u);
+    REQUIRE(city::bake_hospital_overhaul_public_realm().size() == 442u);
     REQUIRE(named_count(parts, "hospital arrival canopy light lens") >= 20u);
     REQUIRE(named_count(parts, "hospital grounds path light lens") >= 25u);
     REQUIRE(named_count(

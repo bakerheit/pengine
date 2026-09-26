@@ -41,6 +41,9 @@ The trauma vestibule is represented by two non-solid glass leaves and a flush
 3.6 m approach. The massing layer must preserve a real opening in the east wall
 at `z[76.6,81.4]`; these visual leaves do not cut a solid wall by themselves.
 
+Three pairs of flush yellow reverse guides lead trucks toward the loading dock
+faces. They sit inside the maneuver box as paint and add no collision.
+
 ## Emergency props and fitted art
 
 - Four shallow shore-power cabinets sit against the ED facade, outside the
@@ -96,6 +99,12 @@ across the receiving threshold. Screening walls on the west and east edges hide
 plant and waste from the garage and street while leaving the Sixth Street throat
 open.
 
+The staff walk has paired flush edge lines and two northbound arrows from its
+Sixth Street end toward the separate receiving door. The three waste-bin
+service stances are color-coded flush pads west of their containers. The
+plant switchgear was shifted north to keep its full footprint on the equipment
+housekeeping slab.
+
 ## Parent integration checklist
 
 - Append `bake_hospital_overhaul_logistics()` once and remove the superseded
@@ -121,10 +130,13 @@ open.
 - Standalone C++17 syntax check:
   `c++ -std=c++17 -Isrc -x c++ -fsyntax-only -include city/hospital_overhaul_logistics.h /dev/null`
 - Header syntax passed on 2026-09-05.
-- A compiled geometry check baked 236 parts and passed: four bay boundaries
-  and stop bars, a 16 m emergency/service gap, one Bay 2 fitted face, one
-  shore-power fitted face, 22 runtime light receivers, zero low solid parts in
-  the ambulance bypass, and zero low solid parts in the box-truck sweep.
-- Full integration, collision registration, road-ribbon cuts, runtime driving,
-  and day/night visual checks remain parent-owned because this fork may edit
-  only the logistics header and this note.
+- An earlier compiled geometry check baked 236 parts and passed: four bay
+  boundaries and stop bars, a 16 m emergency/service gap, one Bay 2 fitted
+  face, one shore-power fitted face, 22 runtime light receivers, zero low
+  solid parts in the ambulance bypass, and zero low solid parts in the
+  box-truck sweep.
+- This detail pass adds 17 parts, bringing the current authored stream to 253.
+  The new paint and service pads have not been built or visually checked in the
+  integrated campus yet.
+- Recheck full integration, collision registration, road-ribbon cuts, runtime
+  driving, and day/night visuals after the detail pass.

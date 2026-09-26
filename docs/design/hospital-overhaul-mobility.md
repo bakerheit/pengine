@@ -38,6 +38,12 @@ texture. The teal and yellow curb bands distinguish short-stay and taxi use.
 The entry uses nine overlapping 18-sided paving sections to form one smooth
 7.5 m-wide quarter-circle instead of a square throat-to-lane intersection.
 
+Paired teal inlays trace the protected walk from the north-lot landing through
+the vehicle crossing to the lobby threshold. A flush teal destination tile
+marks the door landing. The arrival wayfinding pylon stands beside the
+crossing on the forecourt apron, outside both refuge planters and the public
+vehicle sweep.
+
 ## Walking, transit, and bicycles
 
 A connected 3.2 m public path follows the north and west clinical faces, wraps
@@ -52,10 +58,17 @@ arrival sight triangle. It has a 6.8 m boarding pad, tactile boarding edge,
 step-free transverse connector, shelter, seating, and stop marker. A separate
 four-stand bicycle pad sits north of it beside the west perimeter path. Neither
 facility narrows a vehicle lane or the protected pedestrian route.
+The accessible connector has paired teal edge inlays and a flush clinic arrow.
+The shelter bench sits at its north end so its solid base clears the `z=50`
+connector. A small bus pictogram tops the existing stop pole.
 
 Three material-built wayfinding pylons mark the arrival, transit/bicycle, and
 garage decisions. Their hospital crosses and color bands use existing
 `StartFinish` materials; no new or repeated image texture is introduced.
+
+This pass adds fourteen details, bringing the sidecar from 162 to 176 parts.
+The edited pylon and bench positions received a static geometry review, but
+the revised layer has not been built or checked in the running game.
 
 ## Integration notes
 
