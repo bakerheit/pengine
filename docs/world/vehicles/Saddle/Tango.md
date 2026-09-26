@@ -1,5 +1,9 @@
 # Saddle Tango
 
+![Saddle Tango — selected concept](../../../design/references/saddle_tango/concept-selected.png)
+
+*Selected concept — generated design reference.*
+
 [Vehicles](../README.md) · [Saddle](../Saddle.md)
 
 Balanced 1991 sport sedan.
@@ -28,10 +32,6 @@ Dimensions and mass describe the game model and handling setup. Prices, producti
 ## Reference photos
 
 Generated design references, shown here as the visual target.
-
-### Selected concept
-
-![Saddle Tango — selected concept](../../../design/references/saddle_tango/concept-selected.png)
 
 ### Front three-quarter
 

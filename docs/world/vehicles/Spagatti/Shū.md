@@ -33,6 +33,18 @@ Dimensions and mass describe the game model and handling setup. Prices, producti
 
 [Detailed model notes and prior validation](../../../assets/spagatti-shu.md).
 
+## Additional model views
+
+Saved renders and captures from earlier model work; these are not generated concept references or a complete all-angle set.
+
+### Side — body-only asset-lab capture, wheels omitted
+
+![Side — body-only asset-lab capture, wheels omitted](../images/spagatti-shu-body-side.png)
+
+### Rear three-quarter — body-only asset-lab capture, wheels omitted
+
+![Rear three-quarter — body-only asset-lab capture, wheels omitted](../images/spagatti-shu-body-rear.png)
+
 ## Game files
 
 - Model key: `spagatti_shu`.

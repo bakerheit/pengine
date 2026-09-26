@@ -1,5 +1,9 @@
 # Rodeo Switchback
 
+![Rodeo Switchback — selected concept](../../../design/references/rodeo_switchback/concept-selected.png)
+
+*Selected concept — generated design reference.*
+
 [Vehicles](../README.md) · [Rodeo](../Rodeo.md)
 
 Short-wheelbase four-wheel-drive SUV.
@@ -28,10 +32,6 @@ Dimensions and mass describe the game model and handling setup. Prices, producti
 ## Reference photos
 
 Generated design references, shown here as the visual target.
-
-### Selected concept
-
-![Rodeo Switchback — selected concept](../../../design/references/rodeo_switchback/concept-selected.png)
 
 ### Front three-quarter
 
@@ -68,6 +68,28 @@ Generated design references, shown here as the visual target.
 ![Rodeo Switchback in game](../../../design/reviews/1991-vehicle-refinement/rodeo_switchback-game.png)
 
 [More model angles and door views](../../../design/reviews/1991-vehicle-refinement/README.md#rodeo-switchback).
+
+## Additional model and door views
+
+### Rear three-quarter
+
+![Rear three-quarter](../../../design/reviews/1991-vehicle-refinement/rodeo_switchback-rear.png)
+
+### Side
+
+![Side](../../../design/reviews/1991-vehicle-refinement/rodeo_switchback-side.png)
+
+### Door partly open
+
+![Door partly open](../../../design/reviews/1991-vehicle-refinement/rodeo_switchback-door-partial.png)
+
+### Door open
+
+![Door open](../../../design/reviews/1991-vehicle-refinement/rodeo_switchback-door-open.png)
+
+### Door interior
+
+![Door interior](../../../design/reviews/1991-vehicle-refinement/rodeo_switchback-door-inside.png)
 
 ## Game files
 

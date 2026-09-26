@@ -32,11 +32,22 @@ All 40 model pages include saved imagery. Most show model previews or game captu
 
 Recovered images are stored in [images/](images/) with an [origin manifest](images/sources.json), so they remain available without the local build folder.
 
-Full directional reference galleries:
+The selected concept is the showcase directly below each model title wherever one exists. Multi-view preview sheets on older model pages show several angles in one image; they do not establish complete directional reference coverage.
+
+Full seven-angle reference galleries:
 
 - [GLM Meridian — all angles](GLM/Meridian.md#reference-photos)
 - [Rodeo Switchback — all angles](Rodeo/Switchback.md#reference-photos)
 - [Harrow Hookline — all angles](Harrow/Hookline.md#reference-photos)
 - [Saddle Tango — all angles](Saddle/Tango.md#reference-photos)
+- [Karlsdale Lux — all angles, plus matching model renders](Karlsdale/Lux.md#reference-photos)
+
+Additional recovered galleries:
+
+- [Pizaz Constant — five reference views and seven model/door renders](Pizaz/Constant.md#reference-photos)
+- [BWC 360 — front, side and rear model views](BWC/360.md#additional-model-views)
+- [Rodeo Grazer — front, side and rear model views](Rodeo/Grazer%204x4.md#additional-model-views)
+
+Meridian, Switchback and Hookline also embed their saved rear, side and door-interior model views directly on their pages. All-angle coverage remains incomplete for other models; no missing views are implied by the presence of a showcase image.
 
 Ashworth Vale and Regalia Borough remain concept-only. Municipal is the city fleet label.

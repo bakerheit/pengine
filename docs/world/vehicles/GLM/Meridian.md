@@ -1,5 +1,9 @@
 # GLM Meridian
 
+![GLM Meridian — selected concept](../../../design/references/glm_meridian/concept-selected.png)
+
+*Selected concept — generated design reference.*
+
 [Vehicles](../README.md) · [GLM](../GLM.md)
 
 Seven-seat family minivan.
@@ -28,10 +32,6 @@ Dimensions and mass describe the game model and handling setup. Prices, producti
 ## Reference photos
 
 Generated design references, shown here as the visual target.
-
-### Selected concept
-
-![GLM Meridian — selected concept](../../../design/references/glm_meridian/concept-selected.png)
 
 ### Front three-quarter
 
@@ -68,6 +68,28 @@ Generated design references, shown here as the visual target.
 ![GLM Meridian in game](../../../design/reviews/1991-vehicle-refinement/glm_meridian-game.png)
 
 [More model angles and door views](../../../design/reviews/1991-vehicle-refinement/README.md#glm-meridian).
+
+## Additional model and door views
+
+### Rear three-quarter
+
+![Rear three-quarter](../../../design/reviews/1991-vehicle-refinement/glm_meridian-rear.png)
+
+### Side
+
+![Side](../../../design/reviews/1991-vehicle-refinement/glm_meridian-side.png)
+
+### Door partly open
+
+![Door partly open](../../../design/reviews/1991-vehicle-refinement/glm_meridian-door-partial.png)
+
+### Door open
+
+![Door open](../../../design/reviews/1991-vehicle-refinement/glm_meridian-door-open.png)
+
+### Door interior
+
+![Door interior](../../../design/reviews/1991-vehicle-refinement/glm_meridian-door-inside.png)
 
 ## Game files
 

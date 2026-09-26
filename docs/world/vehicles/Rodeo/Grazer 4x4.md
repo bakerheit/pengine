@@ -33,6 +33,22 @@ Dimensions and mass describe the game model and handling setup. Prices, producti
 
 [Detailed model notes and prior validation](../../../assets/rodeo-grazer-emblem.md).
 
+## Additional model views
+
+Saved renders and captures from earlier model work; these are not generated concept references or a complete all-angle set.
+
+### Front three-quarter
+
+![Front three-quarter](../images/rodeo-grazer-model-front.png)
+
+### Side
+
+![Side](../images/rodeo-grazer-model-side.png)
+
+### Rear three-quarter
+
+![Rear three-quarter](../images/rodeo-grazer-model-rear.png)
+
 ## Game files
 
 - Model key: `rodeo_grazer`.

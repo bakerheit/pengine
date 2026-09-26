@@ -257,5 +257,250 @@
     "source": "build/vesper-vx91-blender-preview.png",
     "kind": "Model preview sheet",
     "sha256": "b93bb74137b098af0c5adef8c409fa86ce4f93e8950ca3b84c68f2aad80a7101"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-reference-rear-three-quarter.png",
+    "source": "docs/design/references/karlsdale_lux/rear-three-quarter.png",
+    "kind": "Generated design reference — Rear three-quarter",
+    "sha256": "5a6386b0daa2270d3ecfea69b4d8968fdad58042b600d9cbe9a13e9d7765b55e"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-reference-front.png",
+    "source": "docs/design/references/karlsdale_lux/front.png",
+    "kind": "Generated design reference — Front",
+    "sha256": "250f1cadcee00fc0aa15b4d78acf84c2ce2f3646777cd5d10c39916736ed185d"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-reference-rear.png",
+    "source": "docs/design/references/karlsdale_lux/rear.png",
+    "kind": "Generated design reference — Rear",
+    "sha256": "341b236bb99e22f2eb0f3485a20dbb89562a4423c60023dd9e6e780f6018831d"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-reference-left.png",
+    "source": "docs/design/references/karlsdale_lux/left.png",
+    "kind": "Generated design reference — Left side",
+    "sha256": "0a139992c059df612936d70b4493dd038c7169590ace76d5d00fd8ff404b25a2"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-reference-right.png",
+    "source": "docs/design/references/karlsdale_lux/right.png",
+    "kind": "Generated design reference — Right side",
+    "sha256": "8ea339ff867fed39d10e05b7091bb1cee6ac300ea34af518eacb3846669389d2"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-reference-top.png",
+    "source": "docs/design/references/karlsdale_lux/top.png",
+    "kind": "Generated design reference — Top",
+    "sha256": "3a2abfdcdfc0f5b2bfd298199757d4458c706264cb64eeb101ff97876b9d2c2b"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-model-rear-three-quarter.png",
+    "source": "docs/design/references/karlsdale_lux/model/rear-three-quarter.png",
+    "kind": "Archived model render — Rear three-quarter",
+    "sha256": "35aa5956d07b5e2aba2923ee47f9df0cc01dc493468458c459b3559093865ab0"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-model-front.png",
+    "source": "docs/design/references/karlsdale_lux/model/front.png",
+    "kind": "Archived model render — Front",
+    "sha256": "6724da69546b3216de7201494ca10a6988aa8f4107e3c6977b505c97c0765ac9"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-model-rear.png",
+    "source": "docs/design/references/karlsdale_lux/model/rear.png",
+    "kind": "Archived model render — Rear",
+    "sha256": "06b43b44b26d5ddbcc288506c46da03584e967fc88c5227293407bd630e41c26"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-model-left.png",
+    "source": "docs/design/references/karlsdale_lux/model/left.png",
+    "kind": "Archived model render — Left side",
+    "sha256": "62d8c65eb775c4926b3c4c1f3ef8bbdac34c674610bc99010f502584959faedf"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-model-right.png",
+    "source": "docs/design/references/karlsdale_lux/model/right.png",
+    "kind": "Archived model render — Right side",
+    "sha256": "8ea12a3f24c81fe20c6bf4c4914ef18b182473b34683e80462bec1d915f8a301"
+  },
+  {
+    "page": "Karlsdale/Lux.md",
+    "image": "images/karlsdale-lux-model-top.png",
+    "source": "docs/design/references/karlsdale_lux/model/top.png",
+    "kind": "Archived model render — Top",
+    "sha256": "71bc3cdb298d6446e3d5d56193ac18c9047baab2ea1539e164cc431aba58d90b"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-reference-front.png",
+    "source": "docs/design/references/pizaz-constant-front.png",
+    "kind": "Generated design reference — front",
+    "sha256": "d4ceb0dc61377cff5be3d03986780a87ea7995b0f2ef422e4c25bb55d6df4ff0"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-reference-rear.png",
+    "source": "docs/design/references/pizaz-constant-rear.png",
+    "kind": "Generated design reference — rear",
+    "sha256": "d6431549840e22a121f71a5046580193e51b076836fc77ce339d7d1d58ac6d36"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-reference-side.png",
+    "source": "docs/design/references/pizaz-constant-side.png",
+    "kind": "Generated design reference — side",
+    "sha256": "940bfaf5547703b5fe1b5fb398207a498cadfd2dc3b6fa632ec4d378746bcc94"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-reference-top.png",
+    "source": "docs/design/references/pizaz-constant-top.png",
+    "kind": "Generated design reference — top",
+    "sha256": "7cf8e31ff4ca4c6b80180e180b5fec3bfeba630f45be04963acf6f4c38e2f997"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-model-three-quarter.png",
+    "source": "build/pizaz-constant-img2threejs/model-three-quarter.png",
+    "kind": "Archived model render — Front three-quarter",
+    "sha256": "add921beae1c97d1202bba9891e8cb8f7d00bad55263a7f2c4f23f53939a6335"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-model-rear-three-quarter.png",
+    "source": "build/pizaz-constant-img2threejs/model-rear-three-quarter.png",
+    "kind": "Archived model render — Rear three-quarter",
+    "sha256": "8b721524e63fbbb68b97b05be2ec0eb5480dde86c57512d32e19c3299a673b58"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-model-front.png",
+    "source": "build/pizaz-constant-img2threejs/model-front.png",
+    "kind": "Archived model render — Front",
+    "sha256": "afada7f1cf7d2f70b6f60b73ec1fddf5aa98fa0d1b54e1380b1d3b1e096a7631"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-model-rear.png",
+    "source": "build/pizaz-constant-img2threejs/model-rear.png",
+    "kind": "Archived model render — Rear",
+    "sha256": "7e298554e2f0f0bf6401a21cc448fcf87395e03af2eded3299c0b34b0742fd0c"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-model-side.png",
+    "source": "build/pizaz-constant-img2threejs/model-side.png",
+    "kind": "Archived model render — Side",
+    "sha256": "e4a35a36d2009baf7abf7b8b599ace9a81cb006256207d711b452f16ab899f03"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-model-top.png",
+    "source": "build/pizaz-constant-img2threejs/model-top.png",
+    "kind": "Archived model render — Top",
+    "sha256": "1e0df86be122105e0c0a51c4ae4a3a81f941abf8c9e8a2c5d515827ec20a00f6"
+  },
+  {
+    "page": "Pizaz/Constant.md",
+    "image": "images/pizaz-constant-model-doors-open.png",
+    "source": "build/pizaz-constant-img2threejs/model-doors-open.png",
+    "kind": "Archived model render — Doors open",
+    "sha256": "6a125c527d378fbcb4ae632d278c348c0f1840a2c89b30533b0704c7dc96c107"
+  },
+  {
+    "page": "Alder/Pip.md",
+    "image": "images/alder-pip-angles.png",
+    "source": "build/alder_pip-preview.png",
+    "kind": "Archived model view — Six-view model preview sheet",
+    "sha256": "8a20e95c75edb71ab77eed9c50887c1c9381989a52cf2d8f5b52ac613569a9f7"
+  },
+  {
+    "page": "BWC/360.md",
+    "image": "images/bwc-360-model-front.png",
+    "source": "build/bwc-360-front.png",
+    "kind": "Archived model view — Front three-quarter",
+    "sha256": "b5491a0af0dbddb5e3a9c01bae8fb983a43a2832f10ceeed4b3b0c65be9dd1b5"
+  },
+  {
+    "page": "BWC/360.md",
+    "image": "images/bwc-360-model-side.png",
+    "source": "build/bwc-360-side.png",
+    "kind": "Archived model view — Side",
+    "sha256": "f15dc2be6aee258c3b7aae0c673b83bfb3b7052a8647a06d56a7a9f02ec30dcf"
+  },
+  {
+    "page": "BWC/360.md",
+    "image": "images/bwc-360-model-rear.png",
+    "source": "build/bwc-360-rear.png",
+    "kind": "Archived model view — Rear three-quarter",
+    "sha256": "5bb047f30dd159f6815ccaee280df6fe8a7fcfe3b8e0ee4c8ad741803964a25c"
+  },
+  {
+    "page": "Rodeo/Grazer 4x4.md",
+    "image": "images/rodeo-grazer-model-front.png",
+    "source": "build/grazer-rounding-front.png",
+    "kind": "Archived model view — Front three-quarter",
+    "sha256": "a4b2d7d7d8f3e2980f9d8e6d2b870aba37a76637a766f3b25c1b6809b8157990"
+  },
+  {
+    "page": "Rodeo/Grazer 4x4.md",
+    "image": "images/rodeo-grazer-model-side.png",
+    "source": "build/grazer-rounding-side.png",
+    "kind": "Archived model view — Side",
+    "sha256": "24df86ef3bd58579eab168327e13595aedf226a000392fef0c52bbdc3340909b"
+  },
+  {
+    "page": "Rodeo/Grazer 4x4.md",
+    "image": "images/rodeo-grazer-model-rear.png",
+    "source": "build/grazer-rounding-rear.png",
+    "kind": "Archived model view — Rear three-quarter",
+    "sha256": "2bbfa2547dbc940dca14e0eb5d046cd073b6c9b6bbf5666bb4a866313dd017d4"
+  },
+  {
+    "page": "Spagatti/Shū.md",
+    "image": "images/spagatti-shu-body-side.png",
+    "source": "build/spagatti-shu-glass-side.png",
+    "kind": "Archived model view — Side — body-only asset-lab capture, wheels omitted",
+    "sha256": "ed6a465993be41f63d694d96f7bc1f6e1e0de5f092e2b32f495ebdf3e0758e54"
+  },
+  {
+    "page": "Spagatti/Shū.md",
+    "image": "images/spagatti-shu-body-rear.png",
+    "source": "build/spagatti-shu-glass-rear.png",
+    "kind": "Archived model view — Rear three-quarter — body-only asset-lab capture, wheels omitted",
+    "sha256": "a599709bdd33760d128ebd999d6dcedaa40334bd4467c05dbedd8d15c4fe832c"
+  },
+  {
+    "page": "Karlsdale/Six Sedan.md",
+    "image": "images/karlsdale-six-front.png",
+    "source": "build/halcyon-six-preview.png",
+    "kind": "Archived model view — Front three-quarter — body only, wheels omitted",
+    "sha256": "a62e3712c8343af005edd97a3cd2d4b424c3abb02e707813fff28f8af89ee40a"
+  },
+  {
+    "page": "Karlsdale/Six Sedan.md",
+    "image": "images/karlsdale-six-rear.png",
+    "source": "build/halcyon-six-rear-qa.png",
+    "kind": "Archived model view — Rear three-quarter — body only, wheels omitted",
+    "sha256": "65b57eb149a64da00369605fb9092ed61f0bc519c8618b4a5a1e8e7a3b3331e3"
+  },
+  {
+    "page": "Ember/GT.md",
+    "image": "images/ember-gt-game-side.png",
+    "source": "build/ember-ground-side-fixed.png",
+    "kind": "Archived model view — Side — archived game screenshot",
+    "sha256": "2ce4cd630adaed34a87f5aece12463f5556f821634ddf4499107cb2d6c036205"
   }
 ]

@@ -1,5 +1,9 @@
 # Harrow Hookline
 
+![Harrow Hookline — selected concept](../../../design/references/harrow_hookline/concept-selected.png)
+
+*Selected concept — generated design reference.*
+
 [Vehicles](../README.md) · [Harrow](../Harrow.md)
 
 City recovery truck.
@@ -28,10 +32,6 @@ Dimensions and mass describe the game model and handling setup. Prices, producti
 ## Reference photos
 
 Generated design references, shown here as the visual target.
-
-### Selected concept
-
-![Harrow Hookline — selected concept](../../../design/references/harrow_hookline/concept-selected.png)
 
 ### Front three-quarter
 
@@ -68,6 +68,28 @@ Generated design references, shown here as the visual target.
 ![Harrow Hookline in game](../../../design/reviews/1991-vehicle-refinement/harrow_hookline-game.png)
 
 [More model angles and door views](../../../design/reviews/1991-vehicle-refinement/README.md#harrow-hookline).
+
+## Additional model and door views
+
+### Rear three-quarter
+
+![Rear three-quarter](../../../design/reviews/1991-vehicle-refinement/harrow_hookline-rear.png)
+
+### Side
+
+![Side](../../../design/reviews/1991-vehicle-refinement/harrow_hookline-side.png)
+
+### Door partly open
+
+![Door partly open](../../../design/reviews/1991-vehicle-refinement/harrow_hookline-door-partial.png)
+
+### Door open
+
+![Door open](../../../design/reviews/1991-vehicle-refinement/harrow_hookline-door-open.png)
+
+### Door interior
+
+![Door interior](../../../design/reviews/1991-vehicle-refinement/harrow_hookline-door-inside.png)
 
 ## Game files
 

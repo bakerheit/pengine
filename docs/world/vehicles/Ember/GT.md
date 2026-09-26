@@ -29,6 +29,14 @@ Image origins are recorded in the [source manifest](../images/sources.json).
 
 Dimensions and mass describe the game model and handling setup. Prices, production figures and unrecorded history remain undefined.
 
+## Additional model views
+
+Saved renders and captures from earlier model work; these are not generated concept references or a complete all-angle set.
+
+### Side — archived game screenshot
+
+![Side — archived game screenshot](../images/ember-gt-game-side.png)
+
 ## Game files
 
 - Model key: `ember_gt`.

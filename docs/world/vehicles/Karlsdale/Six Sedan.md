@@ -30,6 +30,18 @@ Dimensions and mass describe the game model and handling setup. Prices, producti
 
 The current working catalog groups this car under Karlsdale. Its older Halcyon or Montrose identifiers remain in the saved-game and asset paths for compatibility.
 
+## Additional model views
+
+Saved renders and captures from earlier model work; these are not generated concept references or a complete all-angle set.
+
+### Front three-quarter — body only, wheels omitted
+
+![Front three-quarter — body only, wheels omitted](../images/karlsdale-six-front.png)
+
+### Rear three-quarter — body only, wheels omitted
+
+![Rear three-quarter — body only, wheels omitted](../images/karlsdale-six-rear.png)
+
 ## Game files
 
 - Model key: `halcyon_six`.
