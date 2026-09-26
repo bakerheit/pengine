@@ -45,14 +45,7 @@ inline std::vector<StartPart> bake_hospital_detail_reception() {
         }
     }
 
-    // A short back-office partition sits behind the file cabinets. It makes
-    // a real backing for the sign while preserving 1.7 m clear side routes
-    // inside the assigned x[-14,-5] bay.
-    add("hospital detail reception registration backing partition tex wallpaint",
-        -9.50f, 17.88f, 0.315f, 5.60f, 2.85f, 0.16f, StartFinish::White,
-        true);
-
-    // Lockable records cabinets stand in front of the new partition. Their
+    // Lockable records cabinets stand against the registration room wall. Their
     // solid cabinet boxes supply collision; doors, label tabs, and handles
     // are shallow visual details on their north faces.
     for (int cabinet = 0; cabinet < 3; ++cabinet) {
@@ -75,7 +68,7 @@ inline std::vector<StartPart> bake_hospital_detail_reception() {
     // One 4:1 image sign is mounted on the partition's north face, above the
     // storage cabinets. Its top stays below the 3.43 m ceiling fixture limit.
     add("hospital detail reception registration sign tex reception-sign",
-        -9.50f, 17.785f, 2.40f, 2.80f, 0.70f, 0.035f, StartFinish::White);
+        -9.50f, 18.065f, 2.40f, 2.80f, 0.70f, 0.035f, StartFinish::White);
 
     // A period-appropriate desk telephone rests on the credenza. The receiver
     // and dial are separate nonsolid pieces and touch the phone body.

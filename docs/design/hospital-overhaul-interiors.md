@@ -1,36 +1,62 @@
-# Pinatty Regional Hospital public interior detail
+# Pinatty Regional Hospital ground-floor rooms
 
-`src/city/hospital_overhaul_interiors.h` adds fine-grain public-facing fixtures
-to the north ground floor. The layer is baked into the integrated hospital part
-stream after the shell, access systems, and public realm. All coordinates are
-local to `kHospitalSite`; no new image assets or material finishes are used.
+The ground floor has 58 enclosed rooms joined by public, ward, clinical and
+service corridors. The room plan lives in `src/city/hospital_rooms.h`.
 
-## Main lobby
+![Ground-floor room and corridor plan](hospital-ground-floor.svg)
 
-- A staffed reception counter and three terminals sit west of the front-door
-  axis. Its east end has a lower accessible counter section.
-- Three self check-in kiosks sit on the east side of the room.
-- Two short waiting rows include six individual chairs, two long benches, and
-  two marked wheelchair spaces.
-- Pharmacy pick-up and a water-refill station sit against the east edge.
-- A suspended directory marks Emergency, Clinics, and Elevators over the rear
-  hall with a 3 m clear underside.
+## Layout
 
-The straight 9 m lobby aisle around local `x=0` stays clear from the north
-entrance to the rear hall. Reception furniture ends west of `x=-4.8`; other
-fixtures stay east of `x=10`.
+- **Public entrance:** a clear central lobby leads past an enclosed registration
+  office and separate public waiting room. Registration serves the lobby through
+  a broad counter window; staff enter from the side hall.
+- **Pharmacy:** a separate dispensary serves its own waiting room through a
+  south-facing service window. Shelves, preparation bench and pickup counter
+  face the same way and fit inside the room.
+- **Diagnostics:** registration, waiting, imaging and examination are separate
+  rooms. The two clinical rooms are 10 by 11 metres, with individual doors onto
+  the connecting hall. Each has an exam couch, privacy screen and wall-backed
+  handwash station; imaging also contains the ultrasound cart.
+- **Emergency:** three 10 by 10 metre treatment rooms flank the trauma corridor.
+  Beds, medical rails, monitors and privacy curtains sit inside those rooms.
+  Triage, preparation, recovery, utility, receiving and stores have their own
+  enclosures and doors.
+- **Ward:** four 6.5 by 8 metre single-bed rooms open onto a continuous four-metre
+  corridor. Each has full-height side and head walls, a framed doorway, an open
+  door leaf, bedside storage, monitor, visitor chair and IV stand. The nurses
+  station, utility, linen, day room and staff rooms sit alongside the ward.
+- **Support areas:** consultation rooms, offices, rehabilitation, changing,
+  stores and staff rooms occupy the west wing, clinical spine and south bar.
+  Their furnishings are anchored to room bounds rather than world-space spots.
 
-## Diagnostics check-in and waiting
+The two courtyards stay open to the sky. The main entrance axis at `x=0`,
+diagnostic approach at `x=60`, court portals at `x=72/118`, trauma route at
+`z=74..84`, and garage approach at `x=45..51` remain connected to the halls.
 
-The diagnostic doorway at local `x=60` keeps an 8 m clear approach. Registration
-is placed east of that route, with three terminal screens, a separate sign
-band, eight waiting chairs, two benches, and two marked wheelchair spaces.
-Fixtures stay on the ground floor and use solid collision only for furniture
-bases and seat frames.
+## Construction
 
-## Integration
+Walls run from the finished floor at local height 0.315 m to the ceiling at
+3.43 m. Shared collinear runs are merged before baking so adjoining rooms do
+not add overlapping walls or fill each other's doors. Each partition uses the
+building creator's wall-and-opening system: rendered wall pieces and collision
+come from the same geometry.
 
-`bake_polished_hospital_campus()` appends this stream once. It introduces no
-new map entries, fitted texture receivers, runtime light names, road geometry,
-or changes to the hospital shell. The sidecar remains separate so its furniture
-can be adjusted without changing massing and circulation contracts.
+Door openings are 1.8 to 2.4 m wide and 2.4 m high before trim. Patient doors
+are permanently open leaves parked inside the jamb; these doors are not animated.
+Reception and pharmacy windows use raised-sill openings. Skirting and protective
+rails follow the solid wall pieces and stop at doorways.
+
+The former freestanding ward, emergency, registration and imaging backdrops
+have been removed. Medical fittings and signs now attach to actual room walls.
+
+## Finishes and integration
+
+The existing 17 hospital textures supply terrazzo, wall paint, acoustic ceiling,
+upholstery, laminate, curtain fabric, steel, fitted department signs and screens.
+Ceiling fixtures follow the furnished rooms and connecting corridors. Existing
+hospital runtime lighting handles their day and night illumination.
+
+`bake_hospital_overhaul_interiors()` appends the room plan, room-bound support
+fixtures and detailed clinical furnishings to the integrated hospital stream.
+This interior plan is for the ground floor; the upper floors retain the existing
+shell layout.

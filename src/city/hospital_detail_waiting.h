@@ -41,7 +41,7 @@ inline std::vector<StartPart> bake_hospital_detail_waiting() {
 
     // Add simple end arms to the two existing long benches without splitting
     // their seating area or extending into the adjacent route.
-    for (float z : {13.2f, 20.2f}) {
+    for (float z : {17.2f, 23.2f}) {
         for (float side : {-1.0f, 1.0f}) {
             const float arm_x = 34.0f + side * 3.48f;
             add("hospital detail waiting bench arm frame tex steel", arm_x,

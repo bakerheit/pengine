@@ -24,13 +24,12 @@ inline std::vector<StartPart> bake_hospital_detail_diagnostics() {
         out.push_back(part);
     };
 
-    // A low partition gives the department marker a real, floor-supported
-    // backing. Six-metre openings remain clear on both ends.
-    add("hospital detail diagnostics sign backing partition tex wallpaint",
-        80.0f, 30.55f, 0.315f, 8.0f, 2.65f, 0.16f, StartFinish::White, true);
+    // The imaging room's south wall carries the department marker.
     add("hospital detail diagnostics department sign tex diagnostics-sign",
-        80.0f, 30.46f, 2.08f, 3.20f, 0.80f, 0.025f,
+        75.0f, 26.865f, 2.08f, 3.20f, 0.80f, 0.025f,
         StartFinish::White);
+
+    const auto couch_first = out.size();
 
     // A 2.15 m exam couch faces the ultrasound cart. Its solid frame carries
     // collision while the padding, controls and four casters stay distinct.
@@ -68,6 +67,7 @@ inline std::vector<StartPart> bake_hospital_detail_diagnostics() {
     }
     add("hospital detail diagnostics couch pendant lead", 78.02f, 24.82f,
         0.82f, 0.025f, 0.025f, 0.28f, StartFinish::Steel, false, 18.0f);
+    const auto couch_end = out.size();
 
     // The partial privacy curtain stands on two weighted feet and casters, so
     // the fabric and top rail do not float from an assumed ceiling anchor.
@@ -93,6 +93,7 @@ inline std::vector<StartPart> bake_hospital_detail_diagnostics() {
         StartFinish::White);
     add("hospital detail diagnostics curtain tie strap", curtain_x + 0.04f,
         25.90f, 1.42f, 0.055f, 0.09f, 0.34f, StartFinish::TealDoor);
+    const auto curtain_end = out.size();
 
     // A compact mobile ultrasound unit has a readable north-facing 4:3 CRT
     // scan, an operator shelf, controls, a docked probe and a short cable.
@@ -163,13 +164,9 @@ inline std::vector<StartPart> bake_hospital_detail_diagnostics() {
     add("hospital detail diagnostics ultrasound image film tray", 81.72f,
         cart_z - 0.32f, 0.99f, 0.28f, 0.025f, 0.15f,
         StartFinish::Steel);
+    const auto cart_end = out.size();
 
-    // The scrub sink and storage cabinet back directly onto a real partition.
-    // Its north/south ends leave over 2.9 m of open passage.
-    const float sink_wall_x = 88.82f;
-    add("hospital detail diagnostics handwash backing partition tex wallpaint",
-        sink_wall_x, 23.40f, 0.315f, 0.16f, 2.65f, 8.8f,
-        StartFinish::White, true);
+    // The scrub sink and storage cabinet back onto the east room wall.
     add("hospital detail diagnostics handwash cabinet tex laminate", 88.40f,
         23.30f, 0.315f, 1.30f, 0.76f, 0.60f,
         StartFinish::White, true, 90.0f);
@@ -225,6 +222,31 @@ inline std::vector<StartPart> bake_hospital_detail_diagnostics() {
     add("hospital detail diagnostics gauze packet", 88.41f, 23.72f,
         1.145f, 0.22f, 0.045f, 0.15f, StartFinish::White);
 
+    // Place the complete fixture groups inside the 10 x 11 m imaging room.
+    // Copy the examination couch and wash station into its adjoining room.
+    const auto sink_end = out.size();
+    for (auto i = couch_first; i < sink_end; ++i) {
+        auto& part = out[i];
+        if (i < couch_end) {
+            part.centre.x -= 4.3f;
+            part.centre.z -= 2.7f;
+        } else if (i < curtain_end) {
+            part.centre.x -= 3.35f;
+            part.centre.z -= 2.7f;
+        } else if (i < cart_end) {
+            part.centre.x -= 6.2f;
+            part.centre.z -= 0.5f;
+        } else {
+            part.centre.x -= 8.85f;
+            part.centre.z -= 1.3f;
+        }
+    }
+    for (auto i = couch_first; i < sink_end; ++i) {
+        if (i >= curtain_end && i < cart_end) continue;
+        auto copy = out[i];
+        copy.centre.x += 10.0f;
+        out.push_back(copy);
+    }
     return out;
 }
 

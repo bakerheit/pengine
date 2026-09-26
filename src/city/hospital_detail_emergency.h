@@ -6,9 +6,8 @@
 
 namespace apricot::city {
 
-// Three furnished emergency treatment bays sit on either side of the clear
-// trauma spine. Each monitor, outlet and curtain track is attached to a
-// purpose-built freestanding headwall rather than an assumed room wall.
+// Three enclosed treatment rooms open onto the trauma corridor. Their
+// monitors and service rails attach to the actual room walls.
 inline std::vector<StartPart> bake_hospital_detail_emergency() {
     std::vector<StartPart> out;
     out.reserve(109);
@@ -23,25 +22,23 @@ inline std::vector<StartPart> bake_hospital_detail_emergency() {
     struct Station {
         float x;
         float z;
+        bool face_south;
     };
     // The first two bays serve the north resuscitation area. The third is a
     // matching overflow bay south of the trauma corridor.
     constexpr Station stations[] = {
-        {161.0f, 59.0f},
-        {184.0f, 59.0f},
-        {172.0f, 98.5f},
+        {159.0f, 66.2f, true},
+        {169.0f, 66.2f, true},
+        {159.0f, 91.8f, false},
     };
 
     for (const Station& station : stations) {
+        const auto first = out.size();
         const float x = station.x;
         const float z = station.z;
-        const float headwall_z = z + 1.19f;
+        const float headwall_z = z + 2.18f;
 
-        // Floor-supported service backing: the outlet plates and monitor
-        // attach to this physical panel, which stands behind the stretcher.
-        add("hospital detail emergency freestanding headwall backing tex wallpaint",
-            x, headwall_z, 0.315f, 3.50f, 2.38f, 0.16f,
-            StartFinish::White, true);
+        // Room wall faces are z=64.11 for the north pair, z=93.89 for room 3.
         add("hospital detail emergency headwall service rail tex steel", x,
             headwall_z - 0.095f, 1.43f, 2.30f, 0.10f, 0.055f,
             StartFinish::White);
@@ -133,15 +130,27 @@ inline std::vector<StartPart> bake_hospital_detail_emergency() {
             add("hospital detail emergency curtain track ceiling hanger",
                 x + dx, z - 1.18f, 2.66f, 0.035f, 0.77f, 0.035f,
                 StartFinish::Steel);
+            add("hospital detail emergency curtain track ceiling hanger",
+                x + dx, z + 1.08f, 2.66f, 0.035f, 0.77f, 0.035f,
+                StartFinish::Steel);
             add("hospital detail emergency privacy curtain tex curtain",
                 x + dx, z - 0.12f, 0.38f, 0.055f, 2.23f, 1.78f,
                 StartFinish::White);
         }
+        if (station.face_south) {
+            for (auto i = first; i < out.size(); ++i) {
+                auto& part = out[i];
+                part.centre = {2.0f * x - part.centre.x,
+                               2.0f * z - part.centre.z};
+                part.yaw_deg += 180.0f;
+            }
+        }
     }
 
     add("hospital detail emergency station sign tex emergency-sign",
-        161.0f, 60.085f, 2.09f, 2.40f, 0.60f, 0.025f,
+        158.0f, 74.135f, 2.70f, 2.40f, 0.60f, 0.025f,
         StartFinish::White);
+    out.back().yaw_deg = 180.0f;
     return out;
 }
 

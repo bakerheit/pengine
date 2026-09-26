@@ -7,8 +7,8 @@
 
 namespace apricot::city {
 
-// Back-of-counter pharmacy fixtures. The north side of the pickup counter
-// stays empty; staff have a 1.8 m aisle between its rear edge and the worktop.
+// Dispensary fixtures turn together to face the south service window. The
+// shelving, preparation bench and pickup desk leave a clear staff aisle.
 inline std::vector<StartPart> bake_hospital_detail_pharmacy() {
     std::vector<StartPart> out;
     out.reserve(80);
@@ -153,6 +153,11 @@ inline std::vector<StartPart> bake_hospital_detail_pharmacy() {
             0.04f, 0.15f, StartFinish::TealDoor);
     }
 
+    for (auto& part : out) {
+        part.centre.x = 71.0f - part.centre.x;
+        part.centre.z = 16.0f - part.centre.z;
+        part.yaw_deg += 180.0f;
+    }
     return out;
 }
 

@@ -7,9 +7,8 @@
 
 namespace apricot::city {
 
-// Four compact inpatient bays fit inside the west clinical wing. Each bed has
-// its own headwall, bedside storage, visitor chair, IV stand and partial
-// privacy curtain; the central floor stays open for staff circulation.
+// Four enclosed single-bed rooms open onto the ward corridor at z=112..116.
+// Their medical fittings attach to the real north walls at z=104.
 inline std::vector<StartPart> bake_hospital_detail_ward() {
     std::vector<StartPart> out;
     out.reserve(110);
@@ -24,16 +23,12 @@ inline std::vector<StartPart> bake_hospital_detail_ward() {
         out.push_back(part);
     };
 
-    // A compact entry pier carries a legible fitted sign without closing
-    // either approach. The shared surfaces module supplies the ward floor.
-    add("hospital detail ward entry sign pier tex wallpaint", -7.2f, 96.1f,
-        0.315f, 4.4f, 2.65f, 0.22f, StartFinish::White, true);
-    add("hospital detail ward sign tex ward-sign", -7.2f, 96.0f, 1.92f,
-        3.60f, 0.90f, 0.035f, StartFinish::White);
+    add("hospital detail ward sign tex ward-sign", 19.5f, 112.135f, 2.70f,
+        2.40f, 0.60f, 0.035f, StartFinish::White, false, 180.0f);
 
-    constexpr float bed_z = 108.60f;
-    constexpr float headwall_z = 106.65f;
-    constexpr float bay_centres[] = {-6.25f, 3.25f, 12.75f, 22.25f};
+    constexpr float bed_z = 106.20f;
+    constexpr float headwall_z = 104.025f;
+    constexpr float bay_centres[] = {-6.75f, -0.25f, 6.25f, 12.75f};
 
     for (const float cx : bay_centres) {
         // A real 1.0 x 2.2 m mattress sits on a low steel frame. The rails
@@ -52,11 +47,7 @@ inline std::vector<StartPart> bake_hospital_detail_ward() {
         add("hospital detail ward bed side rail tex steel", cx - 0.59f,
             bed_z, 0.66f, 0.045f, 0.20f, 1.68f, StartFinish::White);
 
-        // The freestanding headwall is part of each bay, so its medical gear
-        // does not rely on shell walls at a guessed location.
-        add("hospital detail ward headwall panel tex wallpaint", cx,
-            headwall_z, 0.315f, 4.30f, 2.45f, 0.18f,
-            StartFinish::White, true);
+        // Gas, call button and monitor mount directly on the room's north wall.
         add("hospital detail ward medical gas outlet", cx - 1.15f,
             headwall_z + 0.105f, 1.23f, 0.16f, 0.12f, 0.035f,
             StartFinish::TealDoor);
