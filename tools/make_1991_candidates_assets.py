@@ -95,6 +95,10 @@ def validate(slug):
         tri=v[ids.reshape(-1,3),:3]
         area=np.linalg.norm(np.cross(tri[:,1]-tri[:,0],tri[:,2]-tri[:,0]),axis=1)
         assert (area>1e-10).all(),(slug,name,'degenerate',int((area<=1e-10).sum()))
+        if name in ('front_wheel','rear_wheel'):
+            # Detail radii must never overwrite the shared running-wheel size.
+            measured=np.max(np.abs(v[:,1:3]),axis=0)
+            assert np.all(np.abs(measured-s['wheel_radius'])<.012), (slug,name,'wheel radius',measured)
         metrics[name]={'vertices':len(v),'triangles':len(tri)}
     body_v,body_i=read_emesh(folder/'body.emesh')
     body=np.asarray(body_v,dtype=float)

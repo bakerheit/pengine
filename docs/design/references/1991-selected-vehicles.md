@@ -1,9 +1,36 @@
 # Selected 1991 vehicle reference photos
 
+[World vehicle directory](../../world/vehicles/README.md) — manufacturer and model pages.
+
 All source concepts and directional reference photos are stored in the docs tree.
 The images guide the models; they are generated design references, not measured engineering drawings.
 
 [Original five concepts](../concepts/1991-car-candidates/README.md)
+
+## Photo galleries
+
+Open a model for all eight reference photos, displayed inline.
+
+### GLM Meridian — family minivan
+
+![GLM Meridian design reference](glm_meridian/front-three-quarter.png)
+
+[View every Meridian reference photo](glm_meridian/README.md) · [Current model renders](../reviews/1991-vehicle-refinement/README.md#glm-meridian)
+
+### Rodeo Switchback — two-door SUV
+
+![Rodeo Switchback design reference](rodeo_switchback/front-three-quarter.png)
+
+[View every Switchback reference photo](rodeo_switchback/README.md) · [Current model renders](../reviews/1991-vehicle-refinement/README.md#rodeo-switchback)
+
+### Harrow Hookline — recovery truck
+
+![Harrow Hookline design reference](harrow_hookline/front-three-quarter.png)
+
+[View every Hookline reference photo](harrow_hookline/README.md) · [Current model renders](../reviews/1991-vehicle-refinement/README.md#harrow-hookline)
+
+## View index
+
 
 | View | GLM Meridian | Rodeo Switchback | Harrow Hookline |
 |---|---|---|---|

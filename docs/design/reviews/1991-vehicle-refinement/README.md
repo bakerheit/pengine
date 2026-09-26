@@ -6,6 +6,16 @@ These studio images are renders of the saved Blender models. The game captures s
 
 ## GLM Meridian
 
+### Curved-edge update
+
+The latest Meridian adds a shallow curved roof with rolled eaves, rounded roof corners, softer hood shoulders, gently crowned sides and rounded bumper returns. Wheel size and axle positions are unchanged. Its opaque roof and frames share the corner shaping; the transparent glass remains tucked behind the surrounds.
+
+| Previous model | Current model |
+|---|---|
+| ![Meridian before curved-edge update](glm_meridian-before-curves.png) | ![Meridian with curved roof and bumper edges](glm_meridian-front.png) |
+
+[All eight Meridian reference photos](../../references/glm_meridian/README.md#reference-photo-gallery).
+
 ![Refined GLM Meridian](glm_meridian-front.png)
 
 [Rear](glm_meridian-rear.png) · [Side](glm_meridian-side.png) · [Door partly open](glm_meridian-door-partial.png) · [Door open](glm_meridian-door-open.png) · [Door interior](glm_meridian-door-inside.png) · [Game capture](glm_meridian-game.png)
@@ -23,6 +33,8 @@ These studio images are renders of the saved Blender models. The game captures s
 [Rear](harrow_hookline-rear.png) · [Side](harrow_hookline-side.png) · [Door partly open](harrow_hookline-door-partial.png) · [Door open](harrow_hookline-door-open.png) · [Door interior](harrow_hookline-door-inside.png) · [Game capture](harrow_hookline-game.png)
 
 ## Verification and limits
+
+The Meridian curved-edge revision has 54,436 body triangles, below the existing 60,000 ceiling. Its asset checks include wheel radii; the rebuilt game passed the 650-frame door/driver transition check and a fresh 180-frame daylight capture with a clean graphics error queue.
 
 - Asset validation checks finite geometry, unit normals, nondegenerate triangles, mapped UVs, wheel openings, dimensions, atlas format and required parts.
 - `new_vehicle_models_tests`, `vehicle_driver_pose_tests` and `license_plate_tests` pass with the refined assets.

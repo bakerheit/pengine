@@ -1,5 +1,7 @@
 # 1991 Rodeo Switchback references
 
+[Manufacturer and model page](../../../world/vehicles/Rodeo/Switchback.md)
+
 Selected from [candidate 2](concept-selected.png): a short-wheelbase, two-door
 4x4, separate from Rodeo's Grazer pickup. These seven images are the modeling
 reference set. All images depict the same burnt-orange lower body, cream
@@ -26,3 +28,39 @@ drawing. Rebuild the playable model with
 `python3 tools/make_1991_candidates_assets.py rodeo_switchback`.
 
 [Complete three-vehicle reference index](../1991-selected-vehicles.md).
+
+## Reference photo gallery
+
+These are the generated design references used to shape the playable vehicle.
+
+### Selected concept
+
+![1991 Rodeo Switchback — selected concept](concept-selected.png)
+
+### Front three-quarter
+
+![1991 Rodeo Switchback — front three-quarter](front-three-quarter.png)
+
+### Rear three-quarter
+
+![1991 Rodeo Switchback — rear three-quarter](rear-three-quarter.png)
+
+### Front
+
+![1991 Rodeo Switchback — front](front.png)
+
+### Rear
+
+![1991 Rodeo Switchback — rear](rear.png)
+
+### Left side
+
+![1991 Rodeo Switchback — left side](left.png)
+
+### Right side
+
+![1991 Rodeo Switchback — right side](right.png)
+
+### Top
+
+![1991 Rodeo Switchback — top](top.png)

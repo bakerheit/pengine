@@ -57,17 +57,21 @@ def build(slug):
         n=len(loop);verts=[tuple(Vector(p)+normal) for p in loop]+[tuple(Vector(p)-normal) for p in loop]
         faces=[tuple(range(n)),tuple(reversed(range(n,2*n)))]+[(i,(i+1)%n,(i+1)%n+n,i+n) for i in range(n)]
         obj=b.add_mesh(name,verts,faces,'WINDOW')
+        obj['surface_normal']=tuple(normal.normalized())
         obj['vehicle_group']='driver' if name=='driver_glass' else 'fixed'
         panes[name].append(obj);return obj
     def window(name,corners,category,material='PAINT',group='fixed'):
         border=.045 if name in ('Windshield','Rear window') else .055
         ring,_=surround(b,name+' body surround',corners,material,border,.024,.009)
         keep(ring,group)
+        surface_normal=(Vector(corners[1])-Vector(corners[0])).cross(Vector(corners[2])-Vector(corners[0])).normalized()
+        ring['surface_normal']=tuple(surface_normal)
         inset=rounded_loop(corners,border-.009,.070)
         # A continuous rubber seal borders the clear opening.
         n=len(inset)
         inner=rounded_loop(corners,border+.008,.061)
-        mesh(name+' rubber seal',inset+inner,[(i,(i+1)%n,(i+1)%n+n,i+n) for i in range(n)],'DARK',group)
+        seal=mesh(name+' rubber seal',inset+inner,[(i,(i+1)%n,(i+1)%n+n,i+n) for i in range(n)],'DARK',group)
+        seal['surface_normal']=tuple(surface_normal)
         pane(category,rounded_loop(corners,border+.005,.064))
     width=s['half_width'];length=s['half_length'];belt=s['belt'];roof=s['roof']
     radius=s['wheel_radius'];arch=s['arch_radius']
@@ -86,12 +90,13 @@ def build(slug):
             if abs(d)<arch:base=max(base,radius+.035+math.sqrt(max(0,arch*arch-d*d)))
         return base
     fractions=(0,.07,.24,.52,.78,.94,1)
-    bulges=(-.045,-.015,.008,.018,.012,-.013,-.02)
+    bulges=(-.045,-.020,.015,.035,.028,-.008,-.02) if kind=='van' else (-.045,-.015,.008,.018,.012,-.013,-.02)
     def side_x(y,t):
         # Shared by the body, trim and solid inner door surface.
         for i in range(len(fractions)-1):
             if t<=fractions[i+1]:
                 u=(t-fractions[i])/(fractions[i+1]-fractions[i])
+                if kind=='van':u=u*u*(3-2*u)
                 return plan_width(y)+bulges[i]*(1-u)+bulges[i+1]*u
         return plan_width(y)+bulges[-1]
     box('Chassis floor',(-width*.68,-length+.19,.30),(width*.68,length-.20,s['cab_floor']),'CLAD')
@@ -113,7 +118,7 @@ def build(slug):
             for y in ys:
                 low=arch_bottom(y);top=side_top(y)
                 row=[]
-                for t in fractions:
+                for t in ([i/10 for i in range(11)] if kind=='van' else fractions):
                     z=low+(top-low)*t
                     global_t=max(0,min(1,(z-sill)/(top-sill)))
                     row.append((sign*side_x(y,global_t),y,z))
@@ -164,7 +169,8 @@ def build(slug):
             row=[]
             for i in range(25):
                 u=-1+2*i/24;yy=y-.14*abs(u)**8*(j/12)**6
-                row.append((side_x(yy,1)*u,yy,side_top(yy)+.065*(1-u*u)))
+                crown=.085*(1-u**4) if kind=='van' else .065*(1-u*u)
+                row.append((side_x(yy,1)*u,yy,side_top(yy)+crown))
             rows.append(row)
         skin('Crowned sloping hood',rows,'PAINT',thickness=.045)
     # Wrap-around fascia and bumpers have authored rounded corner sections.
@@ -177,9 +183,20 @@ def build(slug):
             y=end*(length+projection-wrap)
             w=(width+.04) if bumper else plan_width(y)-.02
             x=u*w
-            top=zhi if bumper or end<0 else side_top(y)+.065*(1-u*u)
-            rows.append([(x,y-end*.025,zlo+.018),(x,y,zlo+.055),
-                         (x,y,top-.036),(x,y-end*.004,top)])
+            top=zhi if bumper or end<0 else side_top(y)+(.085*(1-u**4) if kind=='van' else .065*(1-u*u))
+            if kind=='van' and bumper:
+                # Rolled bumper edges: a broad flat face with circular returns.
+                r=.065
+                rows.append([(x,y-end*r,zlo),
+                             (x,y-end*r*(1-.5),zlo+r*(1-.866)),
+                             (x,y-end*r*(1-.866),zlo+r*.5),
+                             (x,y,zlo+r), (x,y,top-r),
+                             (x,y-end*r*(1-.866),top-r*.5),
+                             (x,y-end*r*(1-.5),top-r*(1-.866)),
+                             (x,y-end*r,top)])
+            else:
+                rows.append([(x,y-end*.025,zlo+.018),(x,y,zlo+.055),
+                             (x,y,top-.036),(x,y-end*.004,top)])
         skin(name,rows,material,thickness=thickness)
     fascia_top=side_top(length)+.02
     end_panel('Sculpted front valance',1,.50,fascia_top,'PAINT',-.004)
@@ -226,12 +243,21 @@ def build(slug):
     # Domed roof; matching lower shell supplies an intentional headliner.
     def roof_panel(name,ya,yb,material):
         rows=[]
-        for j in range(17):
-            t=j/16;y=ya+(yb-ya)*t
+        steps=24 if kind=='van' else 16
+        for j in range(steps+1):
+            t=j/steps;y=ya+(yb-ya)*t
             longitudinal=.022*math.sin(math.pi*t)
-            rows.append([((width-.10)*u,y,
-                          roof-.038+.037*(1-u*u)+longitudinal*.45)
-                         for u in [-1+2*i/24 for i in range(25)]])
+            if kind=='van':
+                # Wide, shallow crown rolls into the eaves and both headers.
+                end=max(0,1-min(y-ya,yb-y)/.24)
+                crown=.070*(.35+.65*math.sqrt(max(0,1-end*end)))
+                rows.append([((width-.10)*u,y,
+                              roof-.045+crown*math.sqrt(max(0,1-u**8)))
+                             for u in [-math.cos(math.pi*i/32) for i in range(33)]])
+            else:
+                rows.append([((width-.10)*u,y,
+                              roof-.038+.037*(1-u*u)+longitudinal*.45)
+                             for u in [-1+2*i/24 for i in range(25)]])
         skin(name,rows,material,thickness=.045)
         skin(name+' headliner',[[(x*.97,y,z-.052) for x,y,z in row] for row in rows],'HEADLINER',thickness=.014)
         # Header and side returns use the roof's exact boundary stations. This
@@ -513,9 +539,41 @@ def build(slug):
                 vertex.co.y-=.14*min(1,abs(vertex.co.x)/(width-.02))**8
             finish(obj)
 
+    if kind=='van':
+        # A shared plan fillet rounds the roof's four corners, including the
+        # adjoining frames, seals and glazing. Deform their joins together so the
+        # new curvature cannot pull independently rounded parts apart.
+        glass_objects={obj for group in panes.values() for obj in group}
+        for obj in b.objects:
+            for vertex in obj.data.vertices:
+                x,y,z=vertex.co
+                weight=max(0,min(1,(z-(roof-.24))/.16))
+                weight=weight*weight*(3-2*weight)
+                if weight==0:continue
+                corner_radius=.18;cx=width-.10-corner_radius
+                cy=s['roof_front']-corner_radius if y>0 else s['roof_rear']+corner_radius
+                dx=max(0,abs(x)-cx)
+                dy=max(0,y-cy) if y>0 else max(0,cy-y)
+                distance=math.hypot(dx,dy)
+                if dx>0 and dy>0 and distance>corner_radius:
+                    factor=corner_radius/distance
+                    vertex.co.x=x-math.copysign(dx*(1-factor)*weight,x)
+                    vertex.co.y=y-math.copysign(dy*(1-factor)*weight,y)
+                    if 'surface_normal' in obj:
+                        # Keep each pane and its surround in their shared plane;
+                        # bending only a few corners makes n-gon glass sparkle.
+                        normal=Vector(obj['surface_normal'])
+                        delta=vertex.co-Vector((x,y,z))
+                        vertex.co-=normal*delta.dot(normal)
+            finish(obj,smooth=obj not in glass_objects)
+
     # UV every visible object, including inner skins and the pane backs.
     def uvmap(obj):
         layer=obj.data.uv_layers.new(name='Atlas')
+        # Projection bounds are constant for every face of this object.
+        all_points=[v.co for v in obj.data.vertices]
+        minimum=[min(p[a] for p in all_points) for a in range(3)]
+        maximum=[max(p[a] for p in all_points) for a in range(3)]
         for poly in obj.data.polygons:
             name=obj.data.materials[poly.material_index].name
             x0,y0,x1,y1=REGIONS[name]
@@ -523,9 +581,8 @@ def build(slug):
                     for i in poly.loop_indices]
             normal=poly.normal
             axes=(1,2) if abs(normal.x)>.60 else (0,2) if abs(normal.y)>.60 else (0,1)
-            all_points=[v.co for v in obj.data.vertices]
-            low=[min(p[a] for p in all_points) for a in axes]
-            high=[max(p[a] for p in all_points) for a in axes]
+            low=[minimum[a] for a in axes]
+            high=[maximum[a] for a in axes]
             if name in ('PAINT','TOP','CREAM','CLAD'):
                 low=[(-width,-length,0)[a] for a in axes]
                 high=[(width,length,roof+.3)[a] for a in axes]

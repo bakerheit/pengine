@@ -1,0 +1,29 @@
+# Harrow Cityliner Bus
+
+[Vehicles](../README.md) · [Harrow](../Harrow.md)
+
+Full-size coach.
+
+## Model information
+
+| Detail | Value |
+|---|---|
+| Manufacturer | [Harrow](../Harrow.md) |
+| Model | Cityliner Bus |
+| Status | Selectable in the game catalog |
+| Vehicle role | full-size coach |
+| In-game mass | 9,000 kg |
+| Authored wheelbase | 5.600 m |
+| Authored track | 2.240 m |
+| Tire radius | 0.480 m |
+
+Dimensions and mass describe the game model and handling setup. Prices, production figures and unrecorded history remain undefined.
+
+## Game files
+
+- Model key: `harrow_cityliner`.
+- Body: `assets/models/vehicles/harrow_cityliner/body.emesh`.
+- Texture: `assets/textures/vehicles/harrow_cityliner/body.png`.
+- Selection: **F1 → Vehicle → Choose Car → Harrow → Cityliner Bus**.
+
+Sources: [vehicle catalog](../../../../src/app/player_car_catalog.h), [handling setup](../../../../src/app/vehicle_model_tuning.h).

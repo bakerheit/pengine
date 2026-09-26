@@ -1,5 +1,7 @@
 # 1991 Harrow Hookline references
 
+[Manufacturer and model page](../../../world/vehicles/Harrow/Hookline.md)
+
 Selected from [candidate 4](concept-selected.png): a compact cab-over city
 recovery truck. These seven images are the modeling reference set. The same
 mustard-yellow cab and service bed, cream roof, amber lightbar, rear dual
@@ -29,3 +31,39 @@ recovered engineering drawing. Rebuild the playable model with
 `python3 tools/make_1991_candidates_assets.py harrow_hookline`.
 
 [Complete three-vehicle reference index](../1991-selected-vehicles.md).
+
+## Reference photo gallery
+
+These are the generated design references used to shape the playable vehicle.
+
+### Selected concept
+
+![1991 Harrow Hookline — selected concept](concept-selected.png)
+
+### Front three-quarter
+
+![1991 Harrow Hookline — front three-quarter](front-three-quarter.png)
+
+### Rear three-quarter
+
+![1991 Harrow Hookline — rear three-quarter](rear-three-quarter.png)
+
+### Front
+
+![1991 Harrow Hookline — front](front.png)
+
+### Rear
+
+![1991 Harrow Hookline — rear](rear.png)
+
+### Left side
+
+![1991 Harrow Hookline — left side](left.png)
+
+### Right side
+
+![1991 Harrow Hookline — right side](right.png)
+
+### Top
+
+![1991 Harrow Hookline — top](top.png)

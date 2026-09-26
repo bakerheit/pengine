@@ -1,20 +1,20 @@
 {
-  "generated_at": "2026-09-26T01:41:03.569983+00:00",
+  "generated_at": "2026-09-26T02:23:03.222589+00:00",
   "models": {
     "glm_meridian": {
-      "body_triangles": 44646,
+      "body_triangles": 54436,
       "sha256": {
-        "assets/models/vehicles/glm_meridian/passenger_rear_glass.emesh": "5d962f73467c98d9d0bdfbb43af4567add12193e53e9e803a615948f3bd2e7e1",
+        "assets/models/vehicles/glm_meridian/passenger_rear_glass.emesh": "7d136710d78d44fdbfc0c08659b625184a6e72263b7d66f5b4ce8de26690feeb",
         "assets/models/vehicles/glm_meridian/front_wheel.emesh": "86dcf5b19dadf99fb0e4c5370a16f710f4e93e371ec9a19dd303d6c15fb31578",
-        "assets/models/vehicles/glm_meridian/driver_glass.emesh": "2a3a4c0f4861c639f9ed188d4250a63e0f2dbc727e9f22d951f6afc8724bd496",
-        "assets/models/vehicles/glm_meridian/rear_glass.emesh": "dff9f7ca4eaaf0704d40cfe0c28530850233ee39bf2922626ee95084dd9a1dd9",
-        "assets/models/vehicles/glm_meridian/windshield.emesh": "a863d042999c8629f2bb6a47a307f8d94573f387708cd15228b14581a42b1e2b",
-        "assets/models/vehicles/glm_meridian/driver_rear_glass.emesh": "bc4178c62896845b609c4e87be26898a4122ab52d6daa580698efd670ba46b3c",
-        "assets/models/vehicles/glm_meridian/body_open.emesh": "d05d24cd3191726be7229e62d83bb211c6dbb178adb7ebdd3047fadc133f3436",
-        "assets/models/vehicles/glm_meridian/driver_door.emesh": "edaf8557a631c22fc6506d6b707cf86cc4ae85ab5de0c3f1b568c2a90c8e37ee",
-        "assets/models/vehicles/glm_meridian/passenger_glass.emesh": "3ea8410ac37487b044b247a6b8a56e3a8376255a368815dcffeb2602124aa1d0",
+        "assets/models/vehicles/glm_meridian/driver_glass.emesh": "81b46226257f67de6e93c88e1cf4f9951c4bb301c0f341b0d9bda5b6e1667134",
+        "assets/models/vehicles/glm_meridian/rear_glass.emesh": "d8b2cffa0088f90b31350a381078b1c090ed2eca0a5962433b9d1ba13936b536",
+        "assets/models/vehicles/glm_meridian/windshield.emesh": "15c79864639e92c8088002b31ff21bc1707937eb22c50088f6b2b191c78bd5ef",
+        "assets/models/vehicles/glm_meridian/driver_rear_glass.emesh": "776997dd09e02c74d594e55d71e547ffee224afed086d155adb6b4087be26799",
+        "assets/models/vehicles/glm_meridian/body_open.emesh": "46d63cea6352db83850d265321d062e518a6dc64dcfc5471f862ed9f72d1c6de",
+        "assets/models/vehicles/glm_meridian/driver_door.emesh": "5363ec25c7947b5300e6695bf15859672a1c31b26434a113d1e513f7c664bf21",
+        "assets/models/vehicles/glm_meridian/passenger_glass.emesh": "726ec14abd5cde7a969762aa5b3371c8cbb6e0b52a591fcc70ab9e069a333dc6",
         "assets/models/vehicles/glm_meridian/rear_wheel.emesh": "86dcf5b19dadf99fb0e4c5370a16f710f4e93e371ec9a19dd303d6c15fb31578",
-        "assets/models/vehicles/glm_meridian/body.emesh": "3450d70d089be4af234269282b923e3d44506561b6c66fd69fb0f75da6730c23",
+        "assets/models/vehicles/glm_meridian/body.emesh": "200d0a9c6905244dfaff038f4d33a306d9e0eed5ccb1bbbbfbb68afc214a1f46",
         "assets/textures/vehicles/glm_meridian/body.png": "95fcab1ad833bf1819ced8c2e727690ab8cbe71d45e299b134d2b0fce4ea7d11"
       }
     },

@@ -7,6 +7,18 @@ This reference brings together the current source and authored direction as
 of **2026-09-12**. It is a documentation pass, not a new gameplay QA report.
 Detailed feature pages retain their own dated validation evidence.
 
+## World
+
+[World documentation](world/README.md) · [Vehicle manufacturers and models](world/vehicles/README.md)
+
+## Vehicle photos and models
+
+[**Open World → Vehicles**](world/vehicles/README.md) — Meridian, Switchback and Hookline, with front, rear, both sides, top and three-quarter views.
+
+![GLM Meridian design reference](design/references/glm_meridian/front-three-quarter.png)
+
+[Meridian](world/vehicles/GLM/Meridian.md) · [Switchback](world/vehicles/Rodeo/Switchback.md) · [Hookline](world/vehicles/Harrow/Hookline.md) · [Playable model renders and game captures](design/reviews/1991-vehicle-refinement/README.md)
+
 ## Start with the question
 
 | I need to know… | Read |
