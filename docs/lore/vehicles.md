@@ -13,7 +13,7 @@ catalog, model names, and badge-production status, see
 | BWC — Belgium Working Coach | 1879 | Belgium | Sturdy family and fleet machinery with more pride than glamour | 360 compact sedan |
 | GLM — General Lifetime Motors | 1925 | United States | A vast, dull-sounding corporation that occasionally builds something ridiculous | Lunge, Meridian and Zip |
 | Spagatti | 1950 | Italy | Grand-touring theatre: speed, polish, and a name that tries very hard | Shū |
-| Rodeo | 1965 | United States | Straightforward pickups and 4x4s for work, dirt roads, and people who want to look capable | Grazer 4x4 and Switchback |
+| Rodeo | 1965 | United States | Straightforward pickups and 4x4s for work, dirt roads, and people who want to look capable | Grazer 4x4, Grazer 4x4 Plow and Switchback |
 
 ## BWC — Belgium Working Coach
 
@@ -114,6 +114,16 @@ work-ready, and happy to look slightly too tough in a grocery-store parking
 lot. Its black-and-orange branding-iron R is fitted to the grille and tailgate.
 See the [Grazer emblem record](../assets/rodeo-grazer-emblem.md) for the
 implemented badge and evidence.
+
+Come the first real snow, a lot of Grazers stop being grocery-store trucks.
+The **Grazer 4x4 Plow** is the contractor's version: a 7'6" red straight blade
+on a black A-frame and headgear with its own pair of plow lamps, and an amber
+service bar on the cab roof. Small outfits hang them off the Grazer because it
+is short enough to turn in a gas-station forecourt and cheap enough to park
+all summer. The bigger Harrow Workman carries the same kind of kit with an 8'
+blade in the fleet yellow the lot contractors paint everything; in Pinatty the
+two are what clear the forecourts and restaurant lots while the municipal
+plows keep the streets.
 
 ## Still open
 

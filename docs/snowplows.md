@@ -84,8 +84,76 @@ build/bin/apricot --frames 240 --start-driving --start-at 9.84 -12.15 \
 This is an autonomous traffic service. The trucks cannot be entered by the
 player. The active fleet follows the existing traffic streaming area; it does
 not simulate a citywide depot or route schedule. Clearance is session state,
-bounded to 128 merged strips of up to 96 m each, with oldest strips replaced
-when full. Loading a checkpoint or starting a new game clears this history.
+bounded to 128 strips of up to 96 m each, with oldest strips replaced when
+full. Loading a checkpoint or starting a new game clears this history.
+
+Every blade lays its strips through `PlowSweep` (`game/plow_blade.h`): one live
+strip, extended each step while the path the blade actually scraped stays
+within 4 cm of its centre line, and a new strip where it would not. A straight
+pass is one strip; a turn is a chord every metre or so. Before this the
+municipal fleet submitted a segment per step and the field merged only runs
+straight to a degree, so every junction turn cost dozens of strips: a snow run
+at the default start filled all 128 in 20 s. The same run now holds 44 after
+33 s, with more road swept.
+
+## Plow trucks
+
+Two drivable plow trucks: **RODEO → GRAZER 4X4 PLOW** and **HARROW → WORKMAN
+PLOW** in the dev menu, or `--player-car rodeo_grazer_plow` /
+`harrow_workman_plow`. Each is its base truck (same body, doors, glass, seat,
+paint and plate mounts) carrying a plow kit and a roof service light bar, with
+its own heavier, front-loaded tune.
+
+The kit is procedural geometry in `app/plow_kit_mesh.h`, fitted at load to the
+truck's real cooked body: the receivers come out under the bumper and run back
+to the first body part behind it, the headgear stands clear of the grille and
+bumper at every height, the plow lamps sit above the hood line, and the bar's
+feet rest on the roof skin under each foot. The moldboard is a curved sheet
+with ribs, back channels, a bolted cutting edge on the road, a rubber
+deflector, trip springs, angle rams and blade guides. `V` / D-pad down raises
+and lowers it. The bar double-flashes left and right on the sim step whenever
+someone is in the cab; the plow lamps glow with the headlights.
+
+The blade the sim scrapes with and collides with is the drawn blade:
+`app/plow_kit.h` pins the edge position, width, lift and reach, and
+`plow_kit_tests` rebuilds the kit on the real bodies and fails if they drift by
+a centimetre. The car-car footprint grows forward by the blade's reach
+(`VehicleTuning::car_collision_front_extension`), and three discs along the
+blade face stop the truck at a wall instead of letting the blade sink into it.
+
+`--plow-check` drives a Grazer plow down Cloggers' frontage with the blade
+down, lifts it, backs up the next lane and pushes a second pass; it fails if
+the blade cleared less than 12 m.
+
+```sh
+build/bin/apricot --frames 2200 --seed 7 --plow-check \
+  --screenshot build/qa/plow-trucks/plow-check.bmp
+```
+
+## Lot plow crews
+
+Once 3 cm of snow is down, three crews (Grazer and Workman plows, chosen per
+session seed with `hash_coord`) work downtown commercial lots: the gas, motel,
+apartment, Cloggers, bank, laundry, pawn, bar and gun-store lots are the
+candidates. `game/lot_plow.h` plans the biggest clear rectangle of each lot
+from its authored parts (walls, pumps and columns, and kerbs such as the pump
+islands, which are authored walkable), plows it in adjacent lanes, lifting and
+backing up to the next lane between pushes, and parks with the blade down when
+the lot is done or the snow is gone. A truck stops for any person, car or the
+player in the box its blade or tailgate is about to sweep, and abandons a pass
+after 8 s blocked rather than push through. Trucks are kinematic: solid to the
+player, but they do not react to being rammed, the cab has no driver, and a
+lot finished in a session is not replowed until the snow melts away and a new
+storm arrives.
+
+`lot_plow_tests` plans every candidate lot and runs three crews through a real
+clearance field on the map terrain. `--lot-plow-check` follows the crew nearest
+the start and fails if the crews swept less than 20 m:
+
+```sh
+build/bin/apricot --frames 1800 --seed 7 --lot-plow-check \
+  --screenshot build/qa/plow-trucks/lot-plow-check.bmp
+```
 
 ## Checks
 
