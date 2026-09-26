@@ -150,7 +150,10 @@ inline constexpr const city::BuildingWall* kDivider =
     repair_wall("repair office divider");
 inline constexpr const city::BuildingRoof* kRoof =
     repair_roof("Rook's garage roof");
-static_assert(kWest != nullptr && kDivider != nullptr && kRoof != nullptr,
+// Through a function, because gcc's -Waddress sees a pointer into a constexpr
+// array compared with nullptr directly and calls the test pointless.
+constexpr bool respray_found(const void* p) { return p != nullptr; }
+static_assert(respray_found(kWest) && respray_found(kDivider) && respray_found(kRoof),
               "respray_camera.h reads Rook's walls and roof by name; "
               "rename them here too");
 static_assert(kWest->a.x == kWest->b.x && kDivider->a.x == kDivider->b.x,

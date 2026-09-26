@@ -51,7 +51,8 @@ bool CutscenePlayer::advance(float dt) {
     if (!active()) return false;
     const bool finished=impl_->playback.advance(dt);
     impl_->audio.update(impl_->doc,time(),active()&&!paused(),false,impl_->status);
-    if (finished) stop();return finished;
+    if (finished) stop();
+    return finished;
 }
 bool CutscenePlayer::skip() {
     if (!active()) return false;

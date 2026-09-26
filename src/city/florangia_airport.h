@@ -119,7 +119,7 @@ inline std::vector<StartPart> bake_florangia_airport() {
 
     for (int i = 0; i < 19; ++i) {
         parts.push_back({"Florangia runway centreline dash",
-                         {-405.0f + i * 45.0f, -105.0f},
+                         {-405.0f + static_cast<float>(i) * 45.0f, -105.0f},
                          kFlorangiaAirportPavingTopM, 22.0f,
                          kFlorangiaAirportPaintLiftM, 0.72f,
                          StartFinish::White, false});
@@ -128,7 +128,7 @@ inline std::vector<StartPart> bake_florangia_airport() {
         for (int row = 0; row < 6; ++row) {
             parts.push_back({"Florangia runway threshold bar",
                              {static_cast<float>(end) * 455.0f,
-                              -122.5f + row * 7.0f},
+                              -122.5f + static_cast<float>(row) * 7.0f},
                              kFlorangiaAirportPavingTopM, 30.0f,
                              kFlorangiaAirportPaintLiftM, 1.8f,
                              StartFinish::White, false});
@@ -137,7 +137,7 @@ inline std::vector<StartPart> bake_florangia_airport() {
     for (int row = 0; row < 2; ++row) {
         const float z = row == 0 ? 169.0f : 193.0f;
         for (int i = 0; i < 35; ++i) {
-            const float x = -132.0f + i * 7.0f;
+            const float x = -132.0f + static_cast<float>(i) * 7.0f;
             if (std::fabs(x) < 9.0f) continue;  // access-road throat
             parts.push_back({"Florangia parking stripe", {x, z},
                              kFlorangiaAirportPavingTopM, 0.12f,

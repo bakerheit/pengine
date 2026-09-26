@@ -557,7 +557,7 @@ void the_shipped_footstep_assets_load_and_are_usable() {
             REQUIRE_MSG(peak > 0.05f && peak < 0.95f,
                         "a take is audible and leaves headroom",
                         footstep_surface_name(surface));
-            const double rms = std::sqrt(energy / clip.samples.size());
+            const double rms = std::sqrt(energy / static_cast<double>(clip.samples.size()));
             REQUIRE(rms > 0.005);
             // No click at either end: a footstep is triggered ON the footfall,
             // so a non-zero first sample is an audible tick before the step.

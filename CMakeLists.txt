@@ -84,6 +84,11 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(glm)
+# SYSTEM, like imgui below: glm's own headers trip -Wsign-conversion under gcc,
+# and the strict flags are for OUR code. (FetchContent's SYSTEM needs 3.25.)
+get_target_property(_glm_includes glm-header-only INTERFACE_INCLUDE_DIRECTORIES)
+set_target_properties(glm-header-only PROPERTIES
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_glm_includes}")
 
 # --- glad2 (GL 3.3 core loader, generated at configure time) ----------------
 FetchContent_Declare(
@@ -154,8 +159,18 @@ else()
     set(APRICOT_STRICT_FLAGS
         -Wall -Wextra -Wpedantic -Werror
         -Wshadow -Wconversion -Wsign-conversion
-        -Wnon-virtual-dtor
+        $<$<COMPILE_LANGUAGE:CXX>:-Wnon-virtual-dtor>
     )
+    # The compiled world tables (city/roads.h, districts.h, terrain_ops.h, ...)
+    # use designated initialisers on purpose, so a renamed field fails to
+    # compile (docs/design/pinatty.md). Both compilers accept them in C++17;
+    # -Wpedantic calls them a C++20 extension, and that one note is all this
+    # silences. Clang's flag is exactly the designator; gcc has no finer one.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        list(APPEND APRICOT_STRICT_FLAGS $<$<COMPILE_LANGUAGE:CXX>:-Wno-c++20-extensions>)
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        list(APPEND APRICOT_STRICT_FLAGS $<$<COMPILE_LANGUAGE:CXX>:-Wno-c++20-designator>)
+    endif()
 endif()
 
 # ----------------------------------------------------------------------------

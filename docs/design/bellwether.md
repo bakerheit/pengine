@@ -26,16 +26,26 @@ Controls: WASD move, Shift sprint, E enter/exit vehicles, M map, P pause.
 - A brick church with a pointed steeple, stone trim, amber lancet windows,
   open entrance, supported steps, pews, aisle, altar and interior roof faces.
 - Timber utility poles, insulators, transformers and four sagging wire runs.
-- A period service station with two pumps, canopy, warm lighting, a clear
-  driveway, open store entrance, counter and shelves.
+- A period service station. The canopy has a red-and-cream fascia on all
+  four sides, a brand board front and back, and eight recessed lamps. Each
+  pump island carries a dispenser with a readout face and hose to both lanes,
+  yellow bollards, a bin and a squeegee bucket. A roadside price board faces
+  Main Street traffic. The forecourt has oil drips at the pump bays and lanes,
+  an air post, and an apron by the door with party ice, an oil rack and a
+  payphone. The lit display windows are solid, so the sill can't be vaulted.
+- The store sells nothing yet, but it is stocked: linoleum floor, painted
+  walls and ceiling, six fluorescent strips, a lit reach-in cooler bank,
+  three gondolas, wall shelving, a register counter with a candy rack, a
+  coffee counter and an ice-cream chest. The centre aisle from the door is
+  clear.
 - Three brick storefront shells, benches, street lamps and bare trees.
 - Johnny's regular starting outfit. The olive-brown trench coat model is saved
   for a future clothing-store purchase; see the [clothing plan](clothing.md).
 - A blue-hour sky with layered clouds, a muted warm western horizon and
   warm local lamps. It holds the time at 18:36 in this preview.
 
-There are 12 town mesh groups (32,360 triangles), 96 collision boxes,
-16 ground surfaces, 17 local lights and six precipitation covers. Terrain
+There are 14 town mesh groups (35,366 triangles), 117 collision boxes,
+17 ground surfaces, 19 local lights and six precipitation covers. Terrain
 support and scatter exclusion cover the developed parcel. Main Street uses
 the normal road graph, sidewalks, traffic and pedestrian systems.
 
@@ -70,9 +80,11 @@ new skinned outfit prototype. Its reference art and generated assets are kept,
 but it is no longer the default player model. The sky uses shader code rather
 than a flat panorama.
 
-This is a first playable art pass. The store furnishing and ground wear still
-need detail, the shop row is exterior-only, and there are no new town missions
-or shop interactions. Coat movement uses bone weights, not cloth simulation;
+This is a first playable art pass. The service station has had a second
+detail pass (September 26, 2026), but that pass has only been checked in the
+generator's output, not yet walked in the game; the results below predate
+it. The shop row is exterior-only, and there are no new town missions or shop
+interactions. Coat movement uses bone weights, not cloth simulation;
 seated and extreme action poses have not had a full outfit review.
 
 ## Observed runtime results

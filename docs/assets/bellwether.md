@@ -20,9 +20,10 @@ runtime textures or automatically reconstructed meshes.
 ## Town models
 
 `tools/make_bellwether_assets.py` authors original mesh topology, a deterministic
-1024-square material atlas, collision boxes, ground support, lights and rain
+1024 x 2048 material atlas (27 tiles of 256 px), collision boxes, ground support, lights and rain
 covers. It uses Python 3, NumPy and Pillow. No downloaded model contributes to
-the town geometry. The sign uses a locally available bold font with a fallback.
+the town geometry. The brand board, pump faces, price board and window posters
+use a locally available bold font with a fallback.
 
 Tracked source atlas: `assets/textures/world/bellwether/town-atlas.png`.
 Cooked outputs: `assets/models/world/bellwether/`. The repository ignores cooked

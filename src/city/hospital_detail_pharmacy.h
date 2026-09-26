@@ -67,15 +67,15 @@ inline std::vector<StartPart> bake_hospital_detail_pharmacy() {
             const int package_count = full_group ? 4 : 3;
             for (int package = 0; package < package_count; ++package) {
                 const float offset = full_group
-                                         ? -1.35f + 0.90f * package
-                                         : -0.95f + 0.95f * package;
+                                         ? -1.35f + 0.90f * static_cast<float>(package)
+                                         : -0.95f + 0.95f * static_cast<float>(package);
                 const float height = row == 0
-                                         ? 0.24f + 0.02f * (package % 2)
+                                         ? 0.24f + 0.02f * static_cast<float>(package % 2)
                                          : row == 1
                                                ? 0.27f +
-                                                     0.02f * (package % 2)
+                                                     0.02f * static_cast<float>(package % 2)
                                                : 0.29f +
-                                                     0.02f * (package % 2);
+                                                     0.02f * static_cast<float>(package % 2);
                 add(carton_names[bay], bay_centres[bay] + offset, 10.36f,
                     shelf_tops[row], 0.46f, height, 0.28f,
                     carton_finishes[(package + row) % 4]);

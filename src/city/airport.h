@@ -269,7 +269,7 @@ inline void append_airport_terminal_details(std::vector<StartPart>& parts) {
              FacadeRun{11.0f, 9, 146.34f, 6.5f}}) {
         for (int i=0;i<run.bays;++i) {
             parts.push_back({"terminal architectural facade fin",
-                             {run.first_x+8.0f*i,run.z},4.90f,
+                             {run.first_x+8.0f*static_cast<float>(i),run.z},4.90f,
                              .22f,run.height,.28f,StartFinish::White,false});
         }
     }
@@ -353,7 +353,7 @@ inline std::vector<StartPart> bake_airport() {
     // Seventeen long centre dashes keep the runway readable from the tower and
     // at 200 km/h without turning it into one solid stripe.
     for (int i = 0; i < 17; ++i) {
-        parts.push_back({"runway centreline dash", {-360.0f + i * 45.0f, -94.0f},
+        parts.push_back({"runway centreline dash", {-360.0f + static_cast<float>(i) * 45.0f, -94.0f},
                          kAirportPavingTopM, 22.0f, kAirportPaintLiftM, 0.72f,
                          StartFinish::White, false});
     }
@@ -363,14 +363,14 @@ inline std::vector<StartPart> bake_airport() {
         for (int row = 0; row < 6; ++row) {
             parts.push_back({"runway threshold bar",
                              {static_cast<float>(end) * 410.0f,
-                              -111.5f + row * 7.0f},
+                              -111.5f + static_cast<float>(row) * 7.0f},
                              kAirportPavingTopM, 28.0f, kAirportPaintLiftM, 2.0f,
                              StartFinish::White, false});
         }
         for (int side = -1; side <= 1; side += 2) {
             parts.push_back({"runway touchdown bar",
                              {static_cast<float>(end) * 335.0f,
-                              -94.0f + side * 10.0f},
+                              -94.0f + static_cast<float>(side) * 10.0f},
                              kAirportPavingTopM, 28.0f, kAirportPaintLiftM, 1.4f,
                              StartFinish::White, false});
         }
@@ -379,14 +379,14 @@ inline std::vector<StartPart> bake_airport() {
     // Edge lights and a taxiway centreline are modeled, not painted into the
     // generated texture, so their spacing remains crisp and deterministic.
     for (int i = 0; i < 19; ++i) {
-        const float x = -432.0f + i * 48.0f;
+        const float x = -432.0f + static_cast<float>(i) * 48.0f;
         parts.push_back({"runway edge light north", {x, -120.0f}, 0.12f,
                          0.38f, 0.28f, 0.38f, StartFinish::White, false});
         parts.push_back({"runway edge light south", {x, -68.0f}, 0.12f,
                          0.38f, 0.28f, 0.38f, StartFinish::White, false});
     }
     for (int i = 0; i < 6; ++i) {
-        const float z = -66.0f + i * 24.0f;
+        const float z = -66.0f + static_cast<float>(i) * 24.0f;
         parts.push_back({"taxiway alpha centreline", {315.0f, z},
                          kAirportPavingTopM, 0.32f, kAirportPaintLiftM, 12.0f,
                          StartFinish::Yellow, false});
@@ -434,7 +434,7 @@ inline std::vector<StartPart> bake_airport() {
     parts.push_back({"baggage tug cab", {6.8f, 4.0f}, 1.25f,
                      1.8f, 1.35f, 2.2f, StartFinish::White, false});
     for (int i = 0; i < 3; ++i) {
-        parts.push_back({"baggage cart", {14.0f + i * 5.0f, 4.0f},
+        parts.push_back({"baggage cart", {14.0f + static_cast<float>(i) * 5.0f, 4.0f},
                          0.35f, 3.8f, 1.15f, 2.0f,
                          StartFinish::Steel, false});
     }
@@ -470,7 +470,7 @@ inline std::vector<StartPart> bake_airport() {
     for (const float x : {-110.0f, -35.0f, 40.0f}) {
         for (int stripe = 0; stripe < 7; ++stripe) {
             parts.push_back({"terminal zebra stripe",
-                             {x, 154.75f + stripe * 1.75f},
+                             {x, 154.75f + static_cast<float>(stripe) * 1.75f},
                              DRAPE_EPS_M, 5.2f, kAirportCrosswalkLiftM, 0.78f,
                              StartFinish::White, false});
         }
@@ -495,7 +495,7 @@ inline std::vector<StartPart> bake_airport() {
                          StartFinish::Concrete, false});
         for (int stripe = 0; stripe < 5; ++stripe) {
             parts.push_back({"terminal parking crossing stripe",
-                             {x, 211.8f + stripe * 1.6f},
+                             {x, 211.8f + static_cast<float>(stripe) * 1.6f},
                              DRAPE_EPS_M, 5.2f, kAirportCrosswalkLiftM, 0.70f,
                              StartFinish::White, false});
         }
@@ -509,7 +509,7 @@ inline std::vector<StartPart> bake_airport() {
         const int count = row == 0 ? 50 : 35;
         const float start_x = row == 0 ? -197.0f : -147.0f;
         for (int i = 0; i < count; ++i) {
-            const float x = start_x + i * 6.6f;
+            const float x = start_x + static_cast<float>(i) * 6.6f;
             bool pedestrian_space = false;
             for (const float crossing : {-110.0f, -35.0f, 40.0f}) {
                 // Reserve a whole bay alongside each walking route, so the
@@ -533,7 +533,7 @@ inline std::vector<StartPart> bake_airport() {
         for (int i = -2; i <= 2; ++i) {
             if (i == 0) continue; // the crossing is a route, not a bollard bay
             parts.push_back({"terminal dropoff bollard",
-                             {centre_x + i * 6.0f, 152.3f},
+                             {centre_x + static_cast<float>(i) * 6.0f, 152.3f},
                              0.0f, 0.55f, 1.05f, 0.55f,
                              StartFinish::Yellow, true});
         }
@@ -553,15 +553,15 @@ inline std::vector<StartPart> bake_airport() {
     // arrival drive. Rental bays face the customer hall and keep stored cars
     // out of the cargo truck lane.
     for (int i = 0; i < 16; ++i) {
-        if (std::fabs((-402.0f + i * 6.9f) - (-324.0f)) < 5.0f) continue;
+        if (std::fabs((-402.0f + static_cast<float>(i) * 6.9f) - (-324.0f)) < 5.0f) continue;
         parts.push_back({"airport hotel parking stripe",
-                         {-402.0f + i * 6.9f, 220.0f},
+                         {-402.0f + static_cast<float>(i) * 6.9f, 220.0f},
                          kAirportPavingTopM, 0.12f, kAirportPaintLiftM, 9.0f,
                          StartFinish::White, false});
     }
     for (int i = 0; i < 9; ++i) {
         parts.push_back({"rental car parking stripe",
-                         {207.0f + i * 6.0f, 238.0f},
+                         {207.0f + static_cast<float>(i) * 6.0f, 238.0f},
                          kAirportPavingTopM, 0.12f, kAirportPaintLiftM, 8.0f,
                          StartFinish::White, false});
     }

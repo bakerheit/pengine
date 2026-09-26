@@ -159,7 +159,7 @@ inline void od_eighties_frontage(std::vector<StartPart>& out, bool coral) {
     const auto blade_start = out.size();
     for (int row=0; row<5; ++row)
         miandi_neon_glyph(out, lettering, "HOTEL"[row], 0, 0, -.55f,
-                      15.8f - row*2.0f, 1.6f, primary);
+                      15.8f - static_cast<float>(row)*2.0f, 1.6f, primary);
     const auto blade_end = out.size();
     for (std::size_t i=blade_start; i<blade_end; ++i) {
         auto& p = out[i];

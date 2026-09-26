@@ -382,7 +382,7 @@ inline void loom_gallery_antiquities(LoomFurniture& f,const LoomRoomPlan& room) 
     f.vitrine(17.f,5.6f,room.floor_m,10.4f,2.f,.75f);
     for(int i=0;i<9;++i)
         f.add("museum exhibit stone fragment",12.6f+static_cast<float>(i)*1.1f,
-            5.6f+((i%3)-1)*.55f,room.floor_m+.78f,.42f,.20f+static_cast<float>(i%4)*.06f,.34f,
+            5.6f+static_cast<float>((i%3)-1)*.55f,room.floor_m+.78f,.42f,.20f+static_cast<float>(i%4)*.06f,.34f,
             F::Concrete,false,static_cast<float>(i)*23.f);
     f.bench(11.8f,-14.f,room.floor_m,2.8f,true);
     f.bench(11.8f,-2.f,room.floor_m,2.8f,true);

@@ -808,12 +808,12 @@ void the_getup_crossfade_does_not_shear_the_body() {
     // Parent-to-child cannot change for any honest rotation, which is what
     // makes it the one that answers the question.
     auto worst_stretch = [&](const std::vector<glm::mat4>& local) {
-        std::vector<glm::mat4> world(local.size());
+        std::vector<glm::mat4> pose(local.size());
         for (uint32_t i : f.rig.order) {
             const std::size_t k = i;
-            world[k] = f.rig.parent[k] < 0
+            pose[k] = f.rig.parent[k] < 0
                 ? local[k]
-                : world[static_cast<std::size_t>(f.rig.parent[k])] * local[k];
+                : pose[static_cast<std::size_t>(f.rig.parent[k])] * local[k];
         }
         float worst = 0.0f;
         for (std::size_t b = 0; b < local.size(); ++b) {
@@ -826,8 +826,8 @@ void the_getup_crossfade_does_not_shear_the_body() {
             // and nothing at all on screen — the first version of this test
             // reported 109% and the bone was RightHandIndex2.
             if (bind < 0.04f * f.rig.figure.stature_m) continue;
-            const float len = glm::length(glm::vec3{world[b][3]} -
-                                          glm::vec3{world[p][3]});
+            const float len = glm::length(glm::vec3{pose[b][3]} -
+                                          glm::vec3{pose[p][3]});
             worst = std::max(worst, std::fabs(len - bind) / bind);
         }
         return worst;

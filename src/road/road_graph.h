@@ -146,7 +146,7 @@ struct RoadSpine {
     uint32_t id = 0;
 
     // Optional per-point deck profile. Empty retains the legacy flat deck.
-    std::vector<float> deck_heights;
+    std::vector<float> deck_heights{};
     bool one_way = false;
     bool lane_connect_start = false;
     bool lane_connect_end = false;

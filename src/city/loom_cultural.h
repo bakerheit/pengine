@@ -121,8 +121,8 @@ inline void loom_letters(std::vector<StartPart>& out,const char* text,
         for(int row=0;row<7;++row) for(int col=0;col<5;++col)
             if(rows[static_cast<std::size_t>(row)]&(1u<<(4-col)))
                 out.push_back({"museum raised sign letter",
-                    {left+(static_cast<float>(i)*6+col+.5f)*pixel,z},
-                    bottom+(6-row)*pixel,pixel*.9f,pixel*.9f,.04f,BuildingFinish::White});
+                    {left+(static_cast<float>(i)*6+static_cast<float>(col)+.5f)*pixel,z},
+                    bottom+static_cast<float>(6-row)*pixel,pixel*.9f,pixel*.9f,.04f,BuildingFinish::White});
     }
 }
 
@@ -229,7 +229,7 @@ inline std::vector<StartPart> bake_loom_park() {
         add("garden flower bed rim",x,-4,.02f,4,.25f,2.8f,BuildingFinish::WarmWall,true);
         add("garden flower bed soil",x,-4,.27f,3.7f,.04f,2.5f,BuildingFinish::DarkRoof);
         for(int i=0;i<5;++i) for(int j=0;j<3;++j)
-            add("garden flower cluster",x-1.4f+i*.7f,-4.8f+j*.8f,.32f,.35f,.22f,.35f,
+            add("garden flower cluster",x-1.4f+static_cast<float>(i)*.7f,-4.8f+static_cast<float>(j)*.8f,.32f,.35f,.22f,.35f,
                 (i+j)%2?BuildingFinish::Yellow:BuildingFinish::RedTrim);
     }
     return out;

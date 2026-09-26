@@ -87,7 +87,7 @@ void draw_wanted_stars(Hud& hud, int wanted_level, bool flash, int64_t step,
     // 4 Hz on the SIM clock: 15 steps lit, 15 unlit at 120 Hz.
     const bool lit = !flash || ((step / 15) & 1) == 0;
     for (int i = 0; i < 5; ++i) {
-        const glm::vec2 centre{right - (4 - i) * kSpacing - 11.0f, top + 11.0f};
+        const glm::vec2 centre{right - static_cast<float>(4 - i) * kSpacing - 11.0f, top + 11.0f};
         draw_star(hud, centre + glm::vec2{2.0f, 3.0f}, 12.0f,
                   {0.0f, 0.0f, 0.0f, 0.52f});
         draw_star(hud, centre, 11.0f,
@@ -973,7 +973,7 @@ int GameUi::hit_test(const UiFlow& flow, glm::vec2 pointer_px,
         const float content_top = 260.0f + 58.0f;
         if (inside(pointer_px, {content_left, content_top},
                    {content_left + content_width,
-                    content_top + row_h * flow.item_count()}, 0.0f)) {
+                    content_top + row_h * static_cast<float>(flow.item_count())}, 0.0f)) {
             const int row = static_cast<int>((pointer_px.y - content_top) / row_h);
             return row >= 0 && row < flow.item_count() ? row : -1;
         }

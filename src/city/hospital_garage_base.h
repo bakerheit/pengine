@@ -26,7 +26,7 @@ inline std::vector<StartPart> bake_hospital_garage_base() {
     add("hospital garage ground deck", garage_x, garage_z, 0.10f,
         kHospitalGarageWidthM, 0.20f, 37.0f, StartFinish::Concrete, true);
     for (int level = 1; level <= 2; ++level) {
-        const float deck = 0.10f + level * 3.7f;
+        const float deck = 0.10f + static_cast<float>(level) * 3.7f;
         add("hospital garage upper deck", -22.9f, garage_z, deck,
             8.2f, 0.28f, 37.0f, StartFinish::Concrete, true);
         add("hospital garage upper deck", 54.9f, garage_z, deck,
@@ -41,7 +41,7 @@ inline std::vector<StartPart> bake_hospital_garage_base() {
             StartFinish::Concrete, true);
     }
     for (int level = 0; level < 3; ++level) {
-        const float bottom = 0.22f + level * 3.7f;
+        const float bottom = 0.22f + static_cast<float>(level) * 3.7f;
         for (float x : {-68.0f, -34.0f, 0.0f, 34.0f, 68.0f}) {
             if (x != 0.0f) {
                 add("hospital garage column", garage_x + x,
