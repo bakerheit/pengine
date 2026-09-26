@@ -26,6 +26,14 @@ Image origins are recorded in the [source manifest](../images/sources.json).
 
 Dimensions and mass describe the game model and handling setup. Prices, production figures and unrecorded history remain undefined.
 
+## Plow variant
+
+The **Workman Plow** (`harrow_workman_plow`) carries the same kind of kit as
+the [Grazer 4x4 Plow](../Rodeo/Grazer%204x4.md#plow-variant): an 8' blade in
+the fleet yellow the lot contractors paint everything, plow lamps on the
+headgear and an amber service bar on the roof. See
+[Snowplows](../../../snowplows.md).
+
 ## Performance
 
 | Metric | Value |

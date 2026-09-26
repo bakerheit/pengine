@@ -1,0 +1,10 @@
+{
+  "slug": "pizaz_constant",
+  "grade": "exact",
+  "stock": "pizaz_constant/body.png",
+  "coverage": [["pizaz_constant", []]],
+  "refs": [{"uv": [2, 2, 254, 126]}],
+  "tol": {"c": 0.03, "dark": 0.08, "fc": 0.02, "fl": 0.02, "light": 0.08},
+  "include": [[0, 0, 256, 128]],
+  "clean": 0
+}

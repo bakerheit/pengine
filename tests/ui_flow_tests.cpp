@@ -740,6 +740,16 @@ void developer_menu_navigates_and_returns_a_teleport() {
     REQUIRE(std::strcmp(menu.item_value(0), "ACTIVE") == 0);
 
     menu.update(kBtnBack);
+    menu.set_selection(player_car_brand_index(PlayerCarId::PizazConstant));
+    menu.update(kBtnAccept);
+    REQUIRE(std::strcmp(menu.title(), "PIZAZ") == 0);
+    REQUIRE(menu.item_count() == 1);
+    REQUIRE(std::strcmp(menu.item_label(0), "CONSTANT") == 0);
+    const auto choose_pizaz=menu.update(kBtnAccept);
+    REQUIRE(choose_pizaz.kind == DevMenuActionKind::SetPlayerCar);
+    REQUIRE(choose_pizaz.player_car == PlayerCarId::PizazConstant);
+
+    menu.update(kBtnBack);
     menu.set_selection(player_car_brand_index(PlayerCarId::Bwc360));
     menu.update(kBtnAccept);
     REQUIRE(std::strcmp(menu.title(), "BWC") == 0);

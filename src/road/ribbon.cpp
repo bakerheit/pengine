@@ -104,10 +104,9 @@ void push_tri_up(RoadMesh& m, uint32_t i0, uint32_t i1, uint32_t i2) {
 }
 
 // A draped ribbon spanning lateral offsets [off_a, off_b] about `pts`, lifted
-// `lift` above the surface. UVs are world XZ over `tile`, so every band tiles
-// against every other band and against the junction fills, which are also
-// world-keyed — mismatched UV frames show up as a visible texture seam exactly
-// where a straight sidewalk meets a corner.
+// `lift` above the surface. Most layers use world XZ UVs so road surfaces and
+// plates line up. Sidewalk paving uses distance along the road and offset
+// across it: world UVs made the grout run crooked against angled curbs.
 //
 // `miter_first` / `miter_last`, when set, replace the segment perpendicular at
 // the very first / last cross-section with a shared bisector, so two ribbons
@@ -118,7 +117,8 @@ void bake_band_profiled(RoadMesh& m, const RoadSurface& d,
                float off_a_start, float off_a_end,
                float off_b_start, float off_b_end,
                float lift, float tile, glm::vec4 w, float step_m,
-               const glm::vec2* miter_first, const glm::vec2* miter_last) {
+               const glm::vec2* miter_first, const glm::vec2* miter_last,
+               bool path_aligned_uv = false) {
     bool have_prev = false;
     float total = 0.0f;
     for (std::size_t i = 1; i < pts.size(); ++i)
@@ -159,8 +159,12 @@ void bake_band_profiled(RoadMesh& m, const RoadSurface& d,
                 const float off_a = glm::mix(off_a_start, off_a_end, profile_t);
                 const float off_b = glm::mix(off_b_start, off_b_end, profile_t);
                 const glm::vec2 q = p + ncs * glm::mix(off_a, off_b, u);
+                const glm::vec2 uv = path_aligned_uv
+                    ? glm::vec2{(run + seg_len * t) / tile,
+                                glm::mix(off_a, off_b, u) / tile}
+                    : q / tile;
                 current[static_cast<std::size_t>(lateral)] =
-                    push_flat(m, d, q, lift, q / tile, w);
+                    push_flat(m, d, q, lift, uv, w);
             }
             if (have_prev) {
                 for (int lateral = 0; lateral < lateral_steps; ++lateral) {
@@ -180,9 +184,9 @@ void bake_band_profiled(RoadMesh& m, const RoadSurface& d,
 void bake_band(RoadMesh& m, const RoadSurface& d, const std::vector<glm::vec2>& pts,
                float off_a, float off_b, float lift, float tile, glm::vec4 w,
                float step_m, const glm::vec2* miter_first,
-               const glm::vec2* miter_last) {
+               const glm::vec2* miter_last, bool path_aligned_uv = false) {
     bake_band_profiled(m, d, pts, off_a, off_a, off_b, off_b, lift, tile, w,
-                       step_m, miter_first, miter_last);
+                       step_m, miter_first, miter_last, path_aligned_uv);
 }
 
 // The vertical face closing one edge of a raised slab. Stepped and mitered
@@ -1066,10 +1070,10 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
         const glm::vec4 cw = splat_for(Surface::Rock);
         RoadMesh& walk = out.layer(RoadLayer::Walk);
         RoadMesh& kerb = out.layer(RoadLayer::Kerb);
-        bake_band(walk, d, pts, -outer, -inner, walk_lift, params.slab_m, cw,
-                  params.step_m, pmf, pmb);
-        bake_band(walk, d, pts, inner, outer, walk_lift, params.slab_m, cw,
-                  params.step_m, pmf, pmb);
+        bake_band(walk, d, pts, -outer, -inner, walk_lift, params.walk_tile_m, cw,
+                  params.step_m, pmf, pmb, true);
+        bake_band(walk, d, pts, inner, outer, walk_lift, params.walk_tile_m, cw,
+                  params.step_m, pmf, pmb, true);
         // Four risers per road: each slab's road-facing edge (the visible
         // kerb) and its grass-facing edge, so you can never see under a slab.
         bake_kerb(kerb, d, pts, -inner, walk_lift, params.kerb_foot_m, 1.0f,
@@ -1194,21 +1198,64 @@ RibbonBake bake_ribbons(const RoadGraph& graph, const GroundSampler& ground,
                 }
                 const glm::vec2 ex = centre + x.dir * trim;
                 const glm::vec2 ey = centre + y.dir * trim;
-                const glm::vec2 x_in = ex + px * x.hw;
+                const glm::vec2 x_in = ex + px * (x.hw - 0.05f);
                 const glm::vec2 x_out = ex + px * x.ext;
-                const glm::vec2 y_in = ey + py * y.hw;
+                const glm::vec2 y_in = ey + py * (y.hw - 0.05f);
                 const glm::vec2 y_out = ey + py * y.ext;
                 push_quad_up(walk, flat, x_in, x_out, y_out, y_in, walk_lift,
-                             params.slab_m, cw);
-                // Two exposed edges: the outer (grass) one and the road-facing
-                // one. The other two abut the strips arriving here.
+                             params.walk_tile_m, cw);
+                // The diagonal quad above bridges the two trimmed strips, but
+                // alone it leaves a triangular hole at each true corner. The
+                // paving edges meet where their offset lines intersect, not
+                // along the straight chord from x to y. Grass showed through
+                // those holes even before the patterned paving exposed them.
+                const float den = x.dir.x * y.dir.y - x.dir.y * y.dir.x;
+                auto intersection = [&](glm::vec2 from, glm::vec2 to) {
+                    const glm::vec2 delta = to - from;
+                    const float t = (delta.x * y.dir.y - delta.y * y.dir.x) / den;
+                    return from + x.dir * t;
+                };
+                const float max_miter = 4.0f * trim;
+                const bool miter_ok = std::fabs(den) > 0.2f;
+                const glm::vec2 inner_corner = miter_ok
+                    ? intersection(centre + px * (x.hw - 0.05f),
+                                   centre + py * (y.hw - 0.05f))
+                    : (x_in + y_in) * 0.5f;
+                const glm::vec2 outer_corner = miter_ok
+                    ? intersection(centre + px * x.ext, centre + py * y.ext)
+                    : (x_out + y_out) * 0.5f;
+                const bool fill_corner = miter_ok &&
+                    glm::length(inner_corner - centre) <= max_miter &&
+                    glm::length(outer_corner - centre) <= max_miter;
+                if (fill_corner) {
+                    const auto add_wedge = [&](glm::vec2 tip, glm::vec2 p0,
+                                               glm::vec2 p1) {
+                        const glm::vec2 u = p0 - tip, v = p1 - tip;
+                        if (std::fabs(u.x * v.y - u.y * v.x) > 0.01f)
+                            push_draped_triangle(walk, flat, tip, p0, p1,
+                                                 walk_lift, params.walk_tile_m,
+                                                 cw, params.step_m);
+                    };
+                    add_wedge(outer_corner, x_out, y_out);
+                    add_wedge(inner_corner, y_in, x_in);
+                }
+                // Kerb walls follow the same exposed perimeter as the top.
                 const glm::vec2 mid = (x_in + x_out + y_in + y_out) * 0.25f;
-                push_kerb_quad(kerb, flat, x_out, y_out,
-                               (x_out + y_out) * 0.5f - mid, walk_lift,
-                               params.kerb_foot_m, params.slab_m);
-                push_kerb_quad(kerb, flat, y_in, x_in,
-                               (x_in + y_in) * 0.5f - mid, walk_lift,
-                               params.kerb_foot_m, params.slab_m);
+                const auto add_kerb = [&](glm::vec2 p0, glm::vec2 p1) {
+                    if (glm::length(p1 - p0) < 0.01f) return;
+                    push_kerb_quad(kerb, flat, p0, p1,
+                                   (p0 + p1) * 0.5f - mid, walk_lift,
+                                   params.kerb_foot_m, params.slab_m);
+                };
+                if (fill_corner) {
+                    add_kerb(x_out, outer_corner);
+                    add_kerb(outer_corner, y_out);
+                    add_kerb(y_in, inner_corner);
+                    add_kerb(inner_corner, x_in);
+                } else {
+                    add_kerb(x_out, y_out);
+                    add_kerb(y_in, x_in);
+                }
             }
         }
 

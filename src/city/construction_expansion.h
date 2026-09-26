@@ -292,20 +292,39 @@ inline std::vector<StartPart> bake_twin_skyscraper_block(std::size_t index) {
         constexpr int window_bays=5;
         constexpr float front_rear_span=15.3f;
         constexpr float side_span=15.3f;
-        add("twin tower structural core", x, 1, base, 17, height, 16,
+        constexpr float core_half_width=8.5f;
+        constexpr float core_half_depth=8.0f;
+        // Offsets are measured from the core face to each layer's centre.
+        // With 6 cm glass and 2.5 cm panes, this leaves 25 cm from core to
+        // glass and 20.75 cm from glass to pane. Trim projects 12.75 cm
+        // beyond the panes, so the lit rectangles stay inside their frame.
+        constexpr float glass_centre_from_core=.28f;
+        constexpr float pane_centre_from_core=.53f;
+        constexpr float mullion_centre_from_core=.58f;
+        add("twin tower structural core", x, 1, base,
+            2*core_half_width, height, 2*core_half_depth,
             StartFinish::Steel, true);
         for (int floor = 0; floor <= floors; ++floor) {
             const float y = base + floor * kConstructionFloorHeightM;
-            add("twin tower floor spandrel", x, 1, y, 18.0f, .30f, 17.0f,
-                trim);
+            add("twin tower floor spandrel", x, 1, y,
+                2*(core_half_width+.75f), .30f,
+                2*(core_half_depth+.75f), trim);
         }
-        add("twin tower front glazing", x, -7.1f, base + .4f, 15.3f,
+        add("twin tower front glazing",
+            x, 1-core_half_depth-glass_centre_from_core,
+            base + .4f, 15.3f,
             height - .7f, .06f, StartFinish::Glass);
-        add("twin tower rear glazing", x, 9.1f, base + .4f, 15.3f,
+        add("twin tower rear glazing",
+            x, 1+core_half_depth+glass_centre_from_core,
+            base + .4f, 15.3f,
             height - .7f, .06f, StartFinish::Glass);
-        add("twin tower west glazing", x - 8.55f, 1, base + .4f, .06f,
+        add("twin tower west glazing",
+            x-core_half_width-glass_centre_from_core,
+            1, base + .4f, .06f,
             height - .7f, 15.3f, StartFinish::Glass);
-        add("twin tower east glazing", x + 8.55f, 1, base + .4f, .06f,
+        add("twin tower east glazing",
+            x+core_half_width+glass_centre_from_core,
+            1, base + .4f, .06f,
             height - .7f, 15.3f, StartFinish::Glass);
         // Give the formerly blank curtain walls a physical five-bay rhythm.
         // The mullions sit in front of the continuous dark glass substrate;
@@ -313,15 +332,19 @@ inline std::vector<StartPart> bake_twin_skyscraper_block(std::size_t index) {
         for(int division=1;division<window_bays;++division) {
             const float front_x=x-front_rear_span*.5f+
                 float(division)*front_rear_span/float(window_bays);
-            add("twin tower facade mullion",front_x,-7.18f,base,.16f,
+            add("twin tower facade mullion",front_x,
+                1-core_half_depth-mullion_centre_from_core,base,.16f,
                 height,.18f,trim);
-            add("twin tower facade mullion",front_x,9.18f,base,.16f,
+            add("twin tower facade mullion",front_x,
+                1+core_half_depth+mullion_centre_from_core,base,.16f,
                 height,.18f,trim);
             const float side_z=1-side_span*.5f+
                 float(division)*side_span/float(window_bays);
-            add("twin tower side mullion",x-8.63f,side_z,base,.18f,
+            add("twin tower side mullion",
+                x-core_half_width-mullion_centre_from_core,side_z,base,.18f,
                 height,.16f,trim);
-            add("twin tower side mullion",x+8.63f,side_z,base,.18f,
+            add("twin tower side mullion",
+                x+core_half_width+mullion_centre_from_core,side_z,base,.18f,
                 height,.16f,trim);
         }
         const float front_bay=front_rear_span/float(window_bays);
@@ -330,7 +353,7 @@ inline std::vector<StartPart> bake_twin_skyscraper_block(std::size_t index) {
             const float window_bottom=base+float(floor)*kConstructionFloorHeightM+.48f;
             constexpr float window_height=2.48f;
             for(float side:{-1.f,1.f}) {
-                const float face_z=1+side*(8.f+.15f);
+                const float face_z=1+side*(core_half_depth+pane_centre_from_core);
                 for(int bay=0;bay<window_bays;++bay) {
                     const float window_x=x-front_rear_span*.5f+
                         (float(bay)+.5f)*front_bay;
@@ -338,7 +361,7 @@ inline std::vector<StartPart> bake_twin_skyscraper_block(std::size_t index) {
                         window_bottom,front_bay-.40f,window_height,.025f,
                         StartFinish::Glass);
                 }
-                const float face_x=x+side*(8.5f+.10f);
+                const float face_x=x+side*(core_half_width+pane_centre_from_core);
                 for(int bay=0;bay<window_bays;++bay) {
                     const float window_z=1-side_span*.5f+
                         (float(bay)+.5f)*side_bay;
@@ -349,9 +372,11 @@ inline std::vector<StartPart> bake_twin_skyscraper_block(std::size_t index) {
             }
         }
         for (float side : {-1.f, 1.f}) {
-            add("twin tower facade pier", x + side * 8.7f, 1, base, .42f,
+            add("twin tower facade pier",
+                x + side * (core_half_width+.55f), 1, base, .42f,
                 height, .42f, trim);
-            add("twin tower facade pier", x, 1 + side * 8.7f, base,  .42f,
+            add("twin tower facade pier",
+                x, 1 + side * (core_half_depth+.7f), base, .42f,
                 height, .42f, trim);
         }
         add("twin tower crown cap", x, 1, base + height, 18.8f, .7f, 17.8f,

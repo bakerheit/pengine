@@ -171,6 +171,63 @@ void patience_keeps_safety() {
     REQUIRE_NEAR(traffic_travel_seconds(10, 0, 5, 10), 2, 0.0001);
     apricot_test::pass("impatience narrows comfort gaps and quickens launch while preserving stopping and physical clearance");
 }
+void impact_caution_fades_without_changing_legal_limits() {
+    const auto baseline = make_driver_profile(DriverProfileKind::Impatient);
+    const auto shaken = traffic_driver_after_wait(baseline, 30.0f, 12.0f);
+    const auto settling = traffic_driver_after_wait(baseline, 30.0f, 6.0f);
+    const auto recovered = traffic_driver_after_wait(baseline, 30.0f, 0.0f);
+    REQUIRE(shaken.headway > settling.headway);
+    REQUIRE(settling.headway > recovered.headway);
+    REQUIRE(shaken.accel < settling.accel);
+    REQUIRE(settling.accel < recovered.accel);
+    REQUIRE(shaken.min_gap == baseline.min_gap);
+    REQUIRE(shaken.brake == baseline.brake);
+    REQUIRE(shaken.speed_mul == baseline.speed_mul);
+    REQUIRE(shaken.yellow_bias == baseline.yellow_bias);
+    REQUIRE(shaken.patience_seconds == baseline.patience_seconds);
+    REQUIRE(traffic_gap_margin_seconds(baseline, 30.0f, 12.0f) >
+            traffic_gap_margin_seconds(baseline, 30.0f, 6.0f));
+    REQUIRE(traffic_gap_margin_seconds(baseline, 30.0f, 6.0f) >
+            traffic_gap_margin_seconds(baseline, 30.0f, 0.0f));
+    REQUIRE_NEAR(recovered.headway,
+        traffic_driver_after_wait(baseline, 30.0f).headway, 0.0001f);
+    REQUIRE_NEAR(traffic_gap_margin_seconds(baseline, 30.0f, 0.0f),
+        traffic_gap_margin_seconds(baseline, 30.0f), 0.0001f);
+    const float ordinary_stop = traffic_comfort_stop_speed(25.0f, baseline);
+    const float cautious_stop = traffic_comfort_stop_speed(25.0f, baseline, 12.0f);
+    REQUIRE(cautious_stop < ordinary_stop);
+    REQUIRE(cautious_stop > 0.0f);
+    REQUIRE(traffic_comfort_stop_speed(0.0f, baseline, 12.0f) == 0.0f);
+    REQUIRE_NEAR(traffic_comfort_stop_speed(25.0f, baseline, 0.0f),
+                 ordinary_stop, 0.0001f);
+    REQUIRE(traffic_pass_wait_credit(3.0f, 12.0f) <
+            traffic_pass_wait_credit(3.0f, 6.0f));
+    REQUIRE_NEAR(traffic_pass_wait_credit(3.0f, 0.0f), 3.0f, 0.0001f);
+    apricot_test::pass("a driver eases off after impact, then smoothly returns to the waiting profile");
+}
+void everyday_driver_style_changes_braking_and_lane_choice() {
+    const auto cautious = make_driver_profile(DriverProfileKind::Cautious);
+    const auto normal = make_driver_profile(DriverProfileKind::Normal);
+    const auto impatient = make_driver_profile(DriverProfileKind::Impatient);
+    const auto aggressive = make_driver_profile(DriverProfileKind::AggressiveLite);
+    REQUIRE(traffic_comfort_brake(cautious) < cautious.brake);
+    REQUIRE(traffic_comfort_brake(normal) < normal.brake);
+    REQUIRE(traffic_comfort_brake(aggressive) == aggressive.brake);
+    REQUIRE(traffic_comfort_stop_speed(30.0f, cautious) <
+            traffic_comfort_stop_speed(30.0f, normal));
+    REQUIRE(traffic_comfort_stop_speed(30.0f, normal) <
+            traffic_comfort_stop_speed(30.0f, impatient));
+    REQUIRE(traffic_lane_change_wait(1.0f, cautious) >
+            traffic_lane_change_wait(1.0f, normal));
+    REQUIRE(traffic_lane_change_wait(1.0f, normal) >
+            traffic_lane_change_wait(1.0f, impatient));
+    REQUIRE(traffic_lane_change_gain(2.0f, cautious) >
+            traffic_lane_change_gain(2.0f, normal));
+    REQUIRE(traffic_lane_change_gain(2.0f, normal) >
+            traffic_lane_change_gain(2.0f, aggressive));
+    REQUIRE(traffic_lane_change_gain(0.0f, aggressive) >= 0.5f);
+    apricot_test::pass("ordinary drivers brake and choose useful lane changes by profile without an impact");
+}
 void signs_match_the_authored_map() {
     TerrainGround ground{city::kMapSeed}; RoadGraph roads; LaneGraph lanes;
     roads.build(city::map_spines(), {}, ground.sampler()); lanes.build(roads, ground.sampler());
@@ -404,7 +461,10 @@ void authored_traffic_never_snaps_its_heading() {
 } // namespace
 int main() {
     controls_match_priority(); rolling_yield_and_actual_stop();
-    gap_scan_and_clearance(); patience_keeps_safety(); signs_match_the_authored_map();
+    gap_scan_and_clearance(); patience_keeps_safety();
+    impact_caution_fades_without_changing_legal_limits();
+    everyday_driver_style_changes_braking_and_lane_choice();
+    signs_match_the_authored_map();
     authored_approaches_clear();
     authored_streaming_order_is_stable();
     authored_traffic_never_snaps_its_heading();

@@ -33,6 +33,18 @@ Dimensions and mass describe the game model and handling setup. Prices, producti
 
 [Detailed model notes and prior validation](../../../assets/rodeo-grazer-emblem.md).
 
+## Plow variant
+
+Come the first real snow, a lot of Grazers stop being grocery-store trucks.
+The **Grazer 4x4 Plow** (`rodeo_grazer_plow`) is the contractor's version: a
+7'6" red straight blade on a black A-frame and headgear with its own pair of
+plow lamps, and an amber service bar on the cab roof. Small outfits hang them
+off the Grazer because it is short enough to turn in a gas-station forecourt
+and cheap enough to park all summer. In Pinatty the Grazer and the
+[Harrow Workman](../Harrow/Workman.md) plow trucks clear the forecourts and
+restaurant lots while the municipal plows keep the streets. See
+[Snowplows](../../../snowplows.md) for how the blade and lot crews work.
+
 ## Additional model views
 
 Saved renders and captures from earlier model work; these are not generated concept references or a complete all-angle set.

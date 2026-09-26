@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "app/driving_mechanics.h"
+#include "app/playtest_bridge.h"
 #include "app/cutscene_player.h"
 #include "game/save_game.h"
 #include "app/character_visual.h"
@@ -215,6 +216,7 @@ public:
         camera_orbit_set_=true;
     }
     void set_camera_mode(int mode) { camera_mode_=mode; }
+    void set_camera_sweep(float radians_per_frame) { camera_sweep_=radians_per_frame; }
     void set_session_seed(uint64_t seed) { seed_=new_game_seed_=seed; }
     void set_clear_weather(bool clear) { clear_weather_=clear; }
     void set_weather_preset(DevWeatherPreset preset);
@@ -301,6 +303,9 @@ private:
     void process_ui_input(float dt);
     void render();
     bool save_screenshot(const std::string& path);
+    void publish_playtest_state();
+    PlaytestBridge playtest_;
+    unsigned long long playtest_capture_id_ = 0;
     void begin_bug_report();
     void capture_and_submit_bug_report();
     void update_camera(float dt);
@@ -864,6 +869,7 @@ private:
     float camera_orbit_yaw_=0.0f;
     float camera_orbit_pitch_=0.0f;
     bool camera_orbit_set_=false;
+    float camera_sweep_=0.0f;
     int camera_mode_=-1;
     glm::vec2 start_player_position_{0};
     bool start_player_position_set_=false;

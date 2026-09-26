@@ -45,6 +45,19 @@ void cooked_pose_contracts() {
         REQUIRE(floor);
         REQUIRE_NEAR(glm::length(fitted_body_scale(model)-glm::vec3{1}),0.f,.001f);
     }
+    const auto pizaz=vehicle_driver_door(PlayerCarId::PizazConstant);
+    REQUIRE(has_animated_driver(PlayerCarId::PizazConstant));
+    REQUIRE(has_passenger_door(PlayerCarId::PizazConstant));
+    REQUIRE_NEAR(pizaz.hinge.x,.85441452f,1e-6f);
+    REQUIRE_NEAR(pizaz.hinge.y,.57f,1e-6f);
+    REQUIRE_NEAR(pizaz.hinge.z,.835f,1e-6f);
+    REQUIRE_NEAR(pizaz.handle.x,.86f,1e-6f);
+    REQUIRE_NEAR(pizaz.handle.y,.785f,1e-6f);
+    REQUIRE_NEAR(pizaz.handle.z,-.105f,1e-6f);
+    REQUIRE_NEAR(pizaz.rear_z,-.205f,1e-6f);
+    REQUIRE_NEAR(pizaz.front_z,.84f,1e-6f);
+    REQUIRE_NEAR(pizaz.sill_y,.267f,1e-6f);
+    REQUIRE_NEAR(pizaz.open_radians,-1.04f,1e-6f);
     apricot_test::pass("new articulated cars use actual chassis fits, cooked floors and full door heights");
 }
 
@@ -368,6 +381,7 @@ void fitted_driver(PlayerCarId model, const SkinnedEmesh& mesh, const Skeleton& 
                     const Transform& car) {
     const auto& layout=vehicle_driver_layout(model);
     const bool workman=model==PlayerCarId::HarrowWorkman;
+    const bool pizaz=model==PlayerCarId::PizazConstant;
     const bool pip=model==PlayerCarId::AlderPip;
     const bool cruiser=is_municipal_cruiser_91(model);
     const bool scythe=model==PlayerCarId::VesperScythe,limo=model==PlayerCarId::HalcyonSovereign;
@@ -407,7 +421,7 @@ void fitted_driver(PlayerCarId model, const SkinnedEmesh& mesh, const Skeleton& 
             static_cast<double>(knee_car.x),static_cast<double>(knee_car.y),static_cast<double>(knee_car.z));
         REQUIRE(wrist_error < .025f);
         REQUIRE(foot_error < .025f);
-        if(cruiser) {
+        if(cruiser || pizaz) {
             REQUIRE(knee_car.y>.50f && knee_car.y<1.20f);
             REQUIRE(knee_car.z>std::min(layout.hip.z,layout.ankles[side].z)-.05f &&
                     knee_car.z<std::max(layout.hip.z,layout.ankles[side].z)+.05f);
@@ -432,8 +446,8 @@ void fitted_driver(PlayerCarId model, const SkinnedEmesh& mesh, const Skeleton& 
         low = std::min(low,point.y); high = std::max(high,point.y);
     }
     std::printf("      skinned source height %.3f .. %.3f\n",static_cast<double>(low),static_cast<double>(high));
-    REQUIRE(low > (workman?.52f:pip?.29f:cruiser?.30f:scythe?.24f:limo?.35f:.40f));
-    REQUIRE(high > (workman?1.50f:scythe?1.05f:1.20f) && high < (workman?1.93f:pip?1.48f:scythe?1.13f:limo?1.64f:1.70f));
+    REQUIRE(low > (pizaz?.28f:workman?.52f:pip?.29f:cruiser?.30f:scythe?.24f:limo?.35f:.40f));
+    REQUIRE(high > (workman?1.50f:scythe?1.05f:1.20f) && high < (pizaz?1.30f:workman?1.93f:pip?1.48f:scythe?1.13f:limo?1.64f:1.70f));
 }
 
 }  // namespace
@@ -443,6 +457,7 @@ int main() {
     workman_glass_openings();
     transition_clock();
     hinged_door(PlayerCarId::VesperMistral);
+    hinged_door(PlayerCarId::PizazConstant);
     hinged_door(PlayerCarId::HarrowWorkman);
     hinged_door(PlayerCarId::AlderPip);
     hinged_door(PlayerCarId::VesperScythe);
@@ -525,7 +540,8 @@ int main() {
                     PlayerCarId::MunicipalCruiser91B,
                     PlayerCarId::MunicipalCruiser91C,
                     PlayerCarId::MunicipalCruiser91D,
-                    PlayerCarId::MunicipalCruiser91E})
+                    PlayerCarId::MunicipalCruiser91E,
+                    PlayerCarId::PizazConstant})
       for (int i = 0; i < 3; ++i) {
         Transform car;
         car.scale=fitted_body_scale(model);

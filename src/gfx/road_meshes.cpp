@@ -2,6 +2,7 @@
 
 #include <utility>
 
+#include "core/asset_root.h"
 #include "core/log.h"
 #include "core/transform.h"
 #include "gfx/primitives.h"
@@ -100,10 +101,17 @@ bool RoadMeshes::init(Renderer& renderer, uint64_t seed) {
         Texture t;
         const bool asphalt = look.layer == RoadLayer::Carriageway ||
                              look.layer == RoadLayer::Plate;
+        const bool paving = look.layer == RoadLayer::Walk;
+        // The source pack's lane paint belongs to fixed-width tiles. Apricot
+        // draws its own lane paint over variable-width ribbons, so use the
+        // pack's asphalt aggregate here and let every bend and junction share
+        // the same world-space UVs.
         const bool made = asphalt
-            ? t.make_asphalt(look.size, seed ^ look.salt)
-            : t.make_noise(look.size, 8, look.octaves, look.lo, look.hi,
-                           seed ^ look.salt);
+            ? t.load_file(asset_path("textures/world/roads/psx-asphalt.png"))
+            : (paving
+                ? t.load_file(asset_path("textures/world/roads/psx-paving.png"))
+                : t.make_noise(look.size, 8, look.octaves, look.lo, look.hi,
+                               seed ^ look.salt));
         if (!made) {
             AP_ERROR("road: texture generation failed for the %s layer",
                      road_layer_name(look.layer));

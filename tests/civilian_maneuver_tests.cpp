@@ -5,6 +5,8 @@
 // with the obstruction staged the way the police bypass test stages it (a
 // dead engine), and asserts zero AI collisions on every step.
 
+#include <array>
+
 #include "maneuver_fixture.h"
 
 using namespace apricot;
@@ -21,6 +23,8 @@ VehicleAgent wreck(Fixture& f, float station, uint32_t slot, LaneRef ref = kInva
     v.mechanical.engine_failed = true;
     return v;
 }
+
+LaneRef outer_forward_lane(const Fixture& f);
 
 // A Street: one lane each way, so the only way past is the oncoming lane.
 void street_overtake_with_clear_oncoming() {
@@ -57,6 +61,67 @@ void street_overtake_with_clear_oncoming() {
     REQUIRE(f.crowd.stats().civilian_overtakes == 1);
     REQUIRE(f.cars()[0].lane == f.lane);  // an overtake ends on its own lane
     pass("a civilian waits, then borrows the oncoming lane around a wreck and returns");
+}
+
+void shaken_driver_waits_longer_before_passing() {
+    for (RoadClass cls : {RoadClass::Street, RoadClass::Arterial}) {
+        Fixture ordinary(cls), shaken(cls);
+        LaneRef ordinary_lane = ordinary.lane;
+        LaneRef shaken_lane = shaken.lane;
+        if (cls == RoadClass::Arterial) {
+            ordinary_lane = outer_forward_lane(ordinary);
+            shaken_lane = outer_forward_lane(shaken);
+        }
+        auto first = ordinary.car(200, 1, false, ordinary_lane);
+        auto second = shaken.car(200, 1, false, shaken_lane);
+        first.profile = second.profile = make_driver_profile(DriverProfileKind::Impatient);
+        second.impact_caution_s = 12.0f;
+        ordinary.cars() = {first, wreck(ordinary, 221, 2, ordinary_lane)};
+        shaken.cars() = {second, wreck(shaken, 221, 2, shaken_lane)};
+        int64_t ordinary_plan = -1, shaken_plan = -1;
+        for (int64_t step = 0; step < 2400; ++step) {
+            ordinary.tick(step, {400, 2}, 0);
+            shaken.tick(step, {400, 2}, 0);
+            const auto kind = cls == RoadClass::Street
+                ? TrafficManeuverKind::CivilianOvertake : TrafficManeuverKind::LaneChange;
+            if (ordinary_plan < 0 && ordinary.cars()[0].maneuver.kind == kind)
+                ordinary_plan = step;
+            if (shaken_plan < 0 && shaken.cars()[0].maneuver.kind == kind)
+                shaken_plan = step;
+            REQUIRE(ordinary.crowd.stats().ai_collisions == 0);
+            REQUIRE(shaken.crowd.stats().ai_collisions == 0);
+            if (ordinary_plan >= 0 && shaken_plan >= 0) break;
+        }
+        REQUIRE(ordinary_plan >= 0 && shaken_plan > ordinary_plan);
+    }
+    pass("impact caution delays both oncoming passes and lane changes without disabling them");
+}
+
+void ordinary_profiles_choose_lane_changes_at_different_times() {
+    const std::array<DriverProfileKind, 3> kinds{
+        DriverProfileKind::Impatient, DriverProfileKind::Normal,
+        DriverProfileKind::Cautious};
+    std::array<int64_t, 3> first_plan{};
+    for (std::size_t n = 0; n < kinds.size(); ++n) {
+        Fixture f(RoadClass::Arterial);
+        const LaneRef outer = outer_forward_lane(f);
+        auto driver = f.car(200, 1, false, outer);
+        driver.profile = make_driver_profile(kinds[n]);
+        f.cars() = {driver, wreck(f, 221, 2, outer)};
+        first_plan[n] = -1;
+        for (int64_t step = 0; step < 1800; ++step) {
+            f.tick(step, {400, 2}, 0);
+            REQUIRE(f.crowd.stats().ai_collisions == 0);
+            if (f.cars()[0].maneuver.kind == TrafficManeuverKind::LaneChange) {
+                first_plan[n] = step;
+                break;
+            }
+        }
+        REQUIRE(first_plan[n] >= 0);
+    }
+    REQUIRE(first_plan[0] < first_plan[1]);
+    REQUIRE(first_plan[1] < first_plan[2]);
+    pass("ordinary impatient, normal, and cautious drivers change lanes at different times");
 }
 
 // The TTC gate: an oncoming car that is far away by distance but close by
@@ -449,6 +514,8 @@ int main() {
     retired_departure_never_returns();
     free_flowing_traffic_plans_nothing();
     street_overtake_with_clear_oncoming();
+    shaken_driver_waits_longer_before_passing();
+    ordinary_profiles_choose_lane_changes_at_different_times();
     street_overtake_refuses_oncoming_at_50m_closing_24();
     no_overtake_behind_ai_car_at_red();
     arterial_lane_change_behind_stalled_car();

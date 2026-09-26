@@ -115,7 +115,20 @@ void towers_have_walkable_lobbies_and_restrained_piece_counts() {
         TerrainCollider collider(city::kMapSeed);
         const float yaw=std::atan2(site.sin_yaw,site.cos_yaw);
         std::size_t panes=0,window_lights=0,floor_bands=0;float top=0.f;
+        const city::StartPart *core=nullptr,*front_glass=nullptr,*side_glass=nullptr;
+        const city::StartPart *front_pane=nullptr,*side_pane=nullptr;
+        const city::StartPart *front_pier=nullptr,*side_pier=nullptr,*spandrel=nullptr;
         for(const auto& part:parts) {
+            if(!core && std::strcmp(part.name,"tower structural core")==0) core=&part;
+            if(!front_glass && std::strcmp(part.name,"tower front rear glazing")==0) front_glass=&part;
+            if(!side_glass && std::strcmp(part.name,"tower side glazing")==0) side_glass=&part;
+            if(std::strcmp(part.name,"tower office window light")==0) {
+                if(!front_pane && part.depth_m<part.width_m) front_pane=&part;
+                if(!side_pane && part.width_m<part.depth_m) side_pane=&part;
+            }
+            if(!front_pier && std::strcmp(part.name,"tower facade vertical pier")==0) front_pier=&part;
+            if(!side_pier && std::strcmp(part.name,"tower side vertical pier")==0) side_pier=&part;
+            if(!spandrel && std::strcmp(part.name,"tower floor spandrel")==0) spandrel=&part;
             top=std::max(top,part.bottom_m+part.height_m);
             panes+=part.finish==city::BuildingFinish::Glass;
             window_lights+=std::strcmp(part.name,"tower office window light")==0;
@@ -139,6 +152,30 @@ void towers_have_walkable_lobbies_and_restrained_piece_counts() {
         REQUIRE(window_lights==expected_window_lights);
         REQUIRE(floor_bands==static_cast<std::size_t>(tower.floors+2));
         REQUIRE(top>70.f && top<140.f);
+        REQUIRE(core && front_glass && side_glass && front_pane && side_pane &&
+                front_pier && side_pier && spandrel);
+        // These are opaque boxes. A layer only centimetres ahead of its
+        // backing collapses to the same depth value in the distant skyline.
+        const auto check_facade_depth=[&](bool side,const city::StartPart& glass,
+                                           const city::StartPart& pane,
+                                           const city::StartPart& pier) {
+            const auto outward=[&](const city::StartPart& part) {
+                const float centre=side?part.centre.x:part.centre.z;
+                const float core_centre=side?core->centre.x:core->centre.z;
+                const float thickness=side?part.width_m:part.depth_m;
+                return std::fabs(centre-core_centre)+thickness*.5f;
+            };
+            const float core_face=(side?core->width_m:core->depth_m)*.5f;
+            const float glass_face=outward(glass);
+            const float pane_face=outward(pane);
+            const float pier_face=outward(pier);
+            REQUIRE(glass_face-core_face>.20f);
+            REQUIRE(pane_face-glass_face>.15f);
+            REQUIRE(pier_face-pane_face>.10f);
+            REQUIRE(outward(*spandrel)-pane_face>.15f);
+        };
+        check_facade_depth(false,*front_glass,*front_pane,*front_pier);
+        check_facade_depth(true,*side_glass,*side_pane,*side_pier);
         // Real character collision, from the public sidewalk apron through
         // the central entrance into the recessed lobby.
         for(float distance=7.f;distance<=22.f;distance+=.1f) {

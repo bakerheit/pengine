@@ -52,6 +52,8 @@ enum class PlayerCarId : uint8_t {
     // (app/plow_kit.h). Appended, so every checkpoint id above stays put.
     RodeoGrazerPlow,
     HarrowWorkmanPlow,
+    // Appended after the plow variants, whose ids are already in saves.
+    PizazConstant,
     kCount,
 };
 
@@ -263,6 +265,10 @@ inline constexpr std::array<PlayerCarDefinition, kSelectablePlayerCarCount>
          "models/vehicles/orison_cinder/body.emesh",
          "textures/vehicles/orison_cinder/body.png",
          .34f, .80f, 1.30f, 1.24f, 1.27f, .80f, .326f},
+        {PlayerCarId::PizazConstant, "PIZAZ", "CONSTANT",
+         "models/vehicles/pizaz_constant/body.emesh",
+         "textures/vehicles/pizaz_constant/body.png",
+         .32f, .78f, 1.38f, 1.38f, 1.38f, .78f, .32f},
         {PlayerCarId::RodeoGrazer, "RODEO", "GRAZER 4X4",
          "models/vehicles/rodeo_grazer/body.emesh", "textures/vehicles/rodeo_grazer/body.png",
          .405f,.82f,1.43f,1.50f,1.465f,.82f,.405f},
@@ -302,7 +308,7 @@ struct PlayerCarBrand {
     std::size_t car_count = 0;
 };
 
-inline constexpr std::array<PlayerCarBrand, 15> kPlayerCarBrands{{
+inline constexpr std::array<PlayerCarBrand, 16> kPlayerCarBrands{{
     {"ALDER", "ALDER  >", 0u, 3u},
     {"BWC", "BWC  >", 3u, 1u},
     {"EMBER", "EMBER  >", 4u, 1u},
@@ -314,10 +320,11 @@ inline constexpr std::array<PlayerCarBrand, 15> kPlayerCarBrands{{
     {"MONTROSE", "MONTROSE  >", 22u, 1u},
     {"MUNICIPAL", "MUNICIPAL  >", 23u, 7u},
     {"ORISON", "ORISON  >", 30u, 1u},
-    {"RODEO", "RODEO  >", 31u, 3u},
-    {"SADDLE", "SADDLE  >", 34u, 1u},
-    {"SPAGATTI", "SPAGATTI  >", 35u, 1u},
-    {"VESPER", "VESPER  >", 36u, 3u},
+    {"PIZAZ", "PIZAZ  >", 31u, 1u},
+    {"RODEO", "RODEO  >", 32u, 3u},
+    {"SADDLE", "SADDLE  >", 35u, 1u},
+    {"SPAGATTI", "SPAGATTI  >", 36u, 1u},
+    {"VESPER", "VESPER  >", 37u, 3u},
 }};
 
 inline constexpr const PlayerCarDefinition& player_car_definition(

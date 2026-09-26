@@ -418,6 +418,16 @@ oil, or fuel while preserving the organic breakup.
 
 ## Billboard art
 
+`textures/world/billboards/monthly-mint.png` is an original generated fictional
+toothpaste ad, sized 1280x588 for the Monthly Mint roadside board south of
+Halloway Street. See `docs/assets/monthly-mint-billboard.md` for placement and
+panel dimensions.
+
+`textures/world/billboards/tacomaco.png` and
+`textures/world/billboards/loom-museum.png` are 1280x588 generated ads used on
+separate O'Haven roadsides. See `docs/assets/ohaven-roadside-billboards.md` for
+their Route 1 locations and facing directions.
+
 `textures/world/billboards/pinnaty-taxi.png` is the user-supplied 1850x850
 Pinnaty Taxi advertisement added on 2026-09-01. The runtime preserves its
 37:17 aspect ratio on a dedicated single-monopole roadside fixture.

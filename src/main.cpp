@@ -56,6 +56,7 @@ void print_usage() {
         "  --start-player-height Y select a supported floor with --start-player-at\n"
         "  --start-heading DEG face a direction at the visual-QA start\n"
         "  --camera-orbit YAW PITCH pose the chase camera in degrees for visual QA\n"
+        "  --camera-sweep DEG orbit degrees/frame after 180 warmup frames (bounded driving QA)\n"
         "  --camera-mode near|chase|far set the capture distance for visual QA\n"
         "  --player-car KEY select a model folder key for visual QA\n"
         "  --driver-transition-check test the selected car entry/exit\n"
@@ -142,6 +143,7 @@ int main(int argc, char** argv) {
     float camera_orbit_yaw_radians = 0.0f;
     float camera_orbit_pitch_radians = 0.0f;
     bool camera_orbit_set = false;
+    float camera_sweep = 0.0f;
     int camera_mode = -1;
     glm::vec2 start_player_position{0};
     bool start_player_position_set=false;
@@ -449,6 +451,18 @@ int main(int argc, char** argv) {
             camera_orbit_yaw_radians = yaw_degrees * kDegreesToRadians;
             camera_orbit_pitch_radians = pitch_degrees * kDegreesToRadians;
             camera_orbit_set = true;
+            continue;
+        }
+        if (std::strcmp(a, "--camera-sweep") == 0 && i + 1 < argc) {
+            char* end = nullptr;
+            const char* value = argv[++i];
+            const float degrees = std::strtof(value, &end);
+            if (end == value || *end != '\0' || !std::isfinite(degrees) ||
+                degrees == 0.0f || std::fabs(degrees) > 5.0f) {
+                std::fprintf(stderr, "--camera-sweep needs nonzero degrees/frame in [-5, 5]\n");
+                return 2;
+            }
+            camera_sweep = degrees * 3.14159265358979323846f / 180.0f;
             continue;
         }
         if (std::strcmp(a, "--camera-mode") == 0 && i + 1 < argc) {
@@ -770,6 +784,13 @@ int main(int argc, char** argv) {
     if (camera_orbit_set)
         app.set_camera_orbit(camera_orbit_yaw_radians, camera_orbit_pitch_radians);
     if (camera_mode >= 0) app.set_camera_mode(camera_mode);
+    if (camera_sweep != 0.0f) {
+        if (frame_limit <= 180 || !start_driving) {
+            std::fprintf(stderr, "--camera-sweep requires --frames above 180 and --start-driving\n");
+            return 2;
+        }
+        app.set_camera_sweep(camera_sweep);
+    }
     if (!explicit_seed) {
         // Host-only entropy chooses a run; simulation consumes the saved seed.
         std::random_device entropy;

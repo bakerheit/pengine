@@ -17,8 +17,8 @@ does not repeat each model's runtime validation.
 
 ## Catalog brands and fleet label
 
-14 manufacturers plus the Municipal fleet label, with 37 selectable models,
-confirmed against the catalog on 2026-09-25.
+15 manufacturers plus the Municipal fleet label, with 38 selectable models,
+confirmed against the catalog on 2026-09-26.
 
 | Brand | Segment / vibe | Catalog models |
 |---|---|---|
@@ -33,6 +33,7 @@ confirmed against the catalog on 2026-09-25.
 | **MONTROSE** | Formal 1930s luxury | Regent Eight |
 | **MUNICIPAL** | Not a manufacturer — the city fleet livery itself | Ambulance, Firetruck, Cruiser 91-A/B/C/D/E |
 | **ORISON** | Boutique retro sports coupe, 1990s | Cinder GT |
+| **PIZAZ** | 1990s retro-inspired family sedan | Constant |
 | **RODEO** | Pickup trucks and 4x4s | Grazer 4x4, Switchback |
 | **SADDLE** | 1990s sports sedans | Tango |
 | **SPAGATTI** | Italian-coded exotic grand tourer | Shū |

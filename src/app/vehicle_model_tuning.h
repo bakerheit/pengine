@@ -92,6 +92,9 @@ inline constexpr PlayerCarPerformanceProfile player_car_performance_profile(
             // the rule it was counted in.
             return {1430.f,.98f,1.12f,1.10f,1.f,1.10f,1.12f,1.16f,1.08f,
                     1.12f,1.16f,-.015f,.93f,.96f,-.10f,1.f,1.f};
+        case PlayerCarId::PizazConstant: // calm, front-biased early-90s sedan
+            return {1510.f,.88f,.91f,.98f,.96f,.94f,1.04f,.94f,.98f,
+                    .96f,1.02f,.010f,1.06f,1.08f,.26f,1.04f,1.f};
         case PlayerCarId::SaddleTango: // balanced 1991 sport sedan
             return {1420.f,1.02f,1.03f,1.06f,1.01f,1.05f,.97f,1.05f,1.03f,
                     1.05f,1.04f,-.006f,.98f,1.01f,-.02f,1.01f,1.f};
@@ -311,6 +314,20 @@ inline VehicleTuning player_model_tuning(DrivingMechanicsStyle style,
         tuning.car_collision_half_width=1.041f;tuning.car_collision_half_length=2.31f;
         tuning.chassis_floor=.24f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
         tuning.chassis_roof=1.43f-definition.arch_centre_y-static_suspension_length(tuning)-tuning.com_height_above_mount;
+    } else if (body == PlayerCarId::PizazConstant) {
+        // Broad, low family sedan: ordinary lock and a collision envelope that
+        // follows the 4.62 m shell without treating the mirrors as structure.
+        tuning.max_steer=std::min(tuning.max_steer,.48f);
+        tuning.chassis_half_width=.89f;
+        tuning.chassis_half_length=2.20f;
+        tuning.car_collision_half_width=1.011f;
+        tuning.car_collision_half_length=2.34165f;
+        tuning.chassis_floor=.235f-definition.arch_centre_y-
+                             static_suspension_length(tuning)-
+                             tuning.com_height_above_mount;
+        tuning.chassis_roof=1.32f-definition.arch_centre_y-
+                            static_suspension_length(tuning)-
+                            tuning.com_height_above_mount;
     } else if (body == PlayerCarId::GlmMeridian) {
         tuning.max_steer=std::min(tuning.max_steer,.53f);
         tuning.chassis_half_width=.84f;tuning.chassis_half_length=2.28f;

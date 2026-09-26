@@ -27,7 +27,7 @@ inline bool shows_mistral_driver(PlayerCarId car, bool occupied) {
 
 inline bool has_animated_driver(PlayerCarId car) {
     car=player_car_body_id(car);
-    return car == PlayerCarId::Bwc360 || car == PlayerCarId::VesperMistral || car == PlayerCarId::HarrowWorkman ||
+    return car == PlayerCarId::Bwc360 || car == PlayerCarId::PizazConstant || car == PlayerCarId::VesperMistral || car == PlayerCarId::HarrowWorkman ||
         car == PlayerCarId::GlmMeridian || car == PlayerCarId::RodeoSwitchback || car == PlayerCarId::HarrowHookline ||
         car==PlayerCarId::AlderPip || car==PlayerCarId::VesperScythe ||
         car==PlayerCarId::FangVenom || car==PlayerCarId::EmberGt || car==PlayerCarId::RodeoGrazer ||
@@ -152,6 +152,11 @@ inline const VehicleDriverLayout& vehicle_driver_layout(PlayerCarId car) {
         {{.33f,.40f,.76f},{.48f,.40f,.76f}},
         {{.29f,.81f,.54f},{.48f,.81f,.54f}},
         {{.08f,.68f,.28f},{.69f,.68f,.28f}},{1.20f,.82f,.07f},1.02f};
+    static const VehicleDriverLayout pizaz{
+        {.38f,.50f,.15f},{{.27f,.84f,.40f},{.49f,.84f,.40f}},
+        {{.33f,.39f,.66f},{.48f,.39f,.66f}},
+        {{.29f,.72f,.43f},{.48f,.72f,.43f}},
+        {{.08f,.64f,.20f},{.69f,.64f,.20f}},{1.20f,.80f,-.03f},1.02f};
     static const VehicleDriverLayout meridian{
         {.40f,.92f,.49f},{{.29f,1.20f,1.08f},{.51f,1.20f,1.08f}},
         {{.31f,.47f,1.25f},{.51f,.47f,1.25f}},
@@ -168,6 +173,7 @@ inline const VehicleDriverLayout& vehicle_driver_layout(PlayerCarId car) {
         {{.33f,1.26f,1.48f},{.53f,1.26f,1.48f}},
         {{.11f,1.14f,1.12f},{.76f,1.14f,1.12f}},{1.52f,1.23f,.75f},1.15f};
     if(car==PlayerCarId::Bwc360) return bwc;
+    if(car==PlayerCarId::PizazConstant) return pizaz;
     if(car==PlayerCarId::GlmMeridian) return meridian;
     if(car==PlayerCarId::RodeoSwitchback) return switchback;
     if(car==PlayerCarId::HarrowHookline) return hookline;
@@ -345,7 +351,8 @@ inline bool make_vehicle_driver_pose(PlayerCarId car,const Skeleton& skeleton,
         car==PlayerCarId::EmberGt?26.f:car==PlayerCarId::VesperScythe?20.f:
         car==PlayerCarId::LegacyCar5Next ||
             car==PlayerCarId::LegacyCar5NextPolice?kCar5NextRecline:
-        car==PlayerCarId::FangVenom?-18.f:-12.f);
+        car==PlayerCarId::FangVenom?-18.f:
+        car==PlayerCarId::PizazConstant?10.f:-12.f);
 }
 
 inline bool make_mistral_driver_pose(const Skeleton& skeleton, const AABB& bounds,

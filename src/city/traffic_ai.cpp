@@ -94,6 +94,17 @@ float traffic_follow_speed_for_gap(float gap, const DriverProfile& profile) {
     return std::max(0.f, (gap - profile.min_gap) / profile.headway);
 }
 
+float traffic_comfort_brake(const DriverProfile& profile) {
+    float fraction = 0.85f;
+    switch (profile.kind) {
+        case DriverProfileKind::Cautious:       fraction = 0.72f; break;
+        case DriverProfileKind::Normal:         fraction = 0.85f; break;
+        case DriverProfileKind::Impatient:      fraction = 0.94f; break;
+        case DriverProfileKind::AggressiveLite: fraction = 1.00f; break;
+    }
+    return std::max(0.1f, profile.brake) * fraction;
+}
+
 bool traffic_should_stop_for_yellow(float distance_to_stop, float speed,
                                     const DriverProfile& profile) {
     float stopping_dist = (speed * speed)

@@ -141,6 +141,13 @@ inline constexpr int kTowerFrontRearWindowBays=8;
 inline constexpr int kTowerSideWindowBays=6;
 inline constexpr int kTowerWindowsPerFloor=
     kTowerFrontRearWindowBays*2+kTowerSideWindowBays*2;
+// At skyline range, a few centimetres of separation can map to the same
+// 24-bit depth value. Keep each visible facade layer apart while leaving the
+// glass and suite panes recessed behind the physical frame.
+inline constexpr float kTowerGlassCentreOffsetM=.2125f;   // outer face +.24m
+inline constexpr float kTowerPaneCentreOffsetM=.4075f;    // outer face +.42m
+inline constexpr float kTowerPierCentreOffsetM=.42f;      // outer face +.56m
+inline constexpr float kTowerSpandrelOverhangM=.60f;
 
 inline float neighborhood_tower_roof(const NeighborhoodTower& tower) {
     return kTowerPodiumHeightM+static_cast<float>(tower.floors)*kTowerFloorHeightM;
@@ -194,18 +201,18 @@ inline std::vector<StartPart> bake_neighborhood_tower(std::size_t index) {
         // Glazing is recessed behind piers, with physical floor bands and
         // mullions. Four faces carry the rhythm, including the rear skyline.
         for(float side:{-1.f,1.f}) {
-            add("tower front rear glazing",0,1+side*(depth*.5f+.035f),bottom+.35f,
+            add("tower front rear glazing",0,1+side*(depth*.5f+kTowerGlassCentreOffsetM),bottom+.35f,
                 width-1.2f,height-.65f,.055f,BuildingFinish::Glass);
-            add("tower side glazing",side*(width*.5f+.035f),1,bottom+.35f,
+            add("tower side glazing",side*(width*.5f+kTowerGlassCentreOffsetM),1,bottom+.35f,
                 .055f,height-.65f,depth-1.2f,BuildingFinish::Glass);
             for(int col=0;col<=8;++col) {
                 const float x=-width*.5f+float(col)*width/8.f;
-                add("tower facade vertical pier",x,1+side*(depth*.5f+.12f),bottom,
+                add("tower facade vertical pier",x,1+side*(depth*.5f+kTowerPierCentreOffsetM),bottom,
                     index==1u?.18f:.42f,height,.28f,tower.trim);
             }
             for(int col=0;col<=6;++col) {
                 const float z=1-depth*.5f+float(col)*depth/6.f;
-                add("tower side vertical pier",side*(width*.5f+.12f),z,bottom,
+                add("tower side vertical pier",side*(width*.5f+kTowerPierCentreOffsetM),z,bottom,
                     .28f,height,index==1u?.18f:.42f,tower.trim);
             }
         }
@@ -220,14 +227,14 @@ inline std::vector<StartPart> bake_neighborhood_tower(std::size_t index) {
             const float front_bay_width=width/float(kTowerFrontRearWindowBays);
             const float side_bay_width=depth/float(kTowerSideWindowBays);
             for(float side:{-1.f,1.f}) {
-                const float face_z=1+side*(depth*.5f+.077f);
+                const float face_z=1+side*(depth*.5f+kTowerPaneCentreOffsetM);
                 for(int bay=0;bay<kTowerFrontRearWindowBays;++bay) {
                     const float x=-width*.5f+(float(bay)+.5f)*front_bay_width;
                     add("tower office window light",x,face_z,window_bottom,
                         front_bay_width-.52f,window_height,.025f,
                         BuildingFinish::Glass);
                 }
-                const float face_x=side*(width*.5f+.077f);
+                const float face_x=side*(width*.5f+kTowerPaneCentreOffsetM);
                 for(int bay=0;bay<kTowerSideWindowBays;++bay) {
                     const float z=1-depth*.5f+(float(bay)+.5f)*side_bay_width;
                     add("tower office window light",face_x,z,window_bottom,
@@ -238,7 +245,9 @@ inline std::vector<StartPart> bake_neighborhood_tower(std::size_t index) {
         }
         for(int floor=0;floor<=count;++floor) {
             const float y=bottom+float(floor)*kTowerFloorHeightM;
-            add("tower floor spandrel",0,1,y,width+.30f,.34f,depth+.30f,tower.trim);
+            add("tower floor spandrel",0,1,y,
+                width+2.f*kTowerSpandrelOverhangM,.34f,
+                depth+2.f*kTowerSpandrelOverhangM,tower.trim);
             if(index!=1u && floor%4==0)
                 add("tower masonry belt course",0,1,y+.34f,width+.65f,.15f,depth+.65f,tower.masonry);
         }

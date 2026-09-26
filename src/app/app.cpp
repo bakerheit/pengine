@@ -1225,6 +1225,7 @@ void App::step_weapon_use(bool available, float dt) {
 }
 
 void App::poll_events() {
+    playtest_.pump();
     input_.begin_frame();
     player_horn_pending_=false;
     bank_input_consumed_ = false;
@@ -2571,9 +2572,12 @@ void App::update_camera(float dt) {
         const glm::vec3 angular_velocity =
             glm::mix(prev_car_.angular_velocity, car_.angular_velocity, a);
         const InputFrame& input = input_.frame();
+        // Bounded QA: warm up for 180 frames, then exercise the normal orbit
+        // path with identical input per frame for comparisons between models.
+        const float sweep = frames_rendered_ >= 180 ? camera_sweep_ : 0.0f;
         pose = chase_camera_.update(
             pos, forward, velocity, angular_velocity.y,
-            input.look_dx, input.look_dy, is_held(input, kBtnLookBack), dt);
+            input.look_dx + sweep, input.look_dy, is_held(input, kBtnLookBack), dt);
         if (car_visual_.active_car()==PlayerCarId::HarrowCityliner || car_visual_.active_car()==PlayerCarId::HarrowHauler) {
             pose.target.y+=.9f;
             pose.collision_pivot=pose.target;
@@ -2750,6 +2754,7 @@ void App::render() {
         game_ui_.draw(hud_, ui_, snapshot, vp);
         hud_.end();
         if (frames_rendered_ < 8) gl_errors_ += drain_gl_errors("title screen");
+        publish_playtest_state();
         window_.swap();
         ++frames_rendered_;
         return;
@@ -3765,6 +3770,7 @@ void App::render() {
         gl_errors_ += drain_gl_errors("during the first frames");
     }
 
+    publish_playtest_state();
     gpu_timer_.end();
 
     // The swap is measured SEPARATELY from the rest of render() because the

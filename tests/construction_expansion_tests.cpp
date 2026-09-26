@@ -157,6 +157,87 @@ void each_shared_block_has_two_towers() {
     apricot_test::pass("both shared blocks contain two independent skyscraper cores and crowns");
 }
 
+void twin_facade_layers_stay_separate_at_distance() {
+    constexpr float tower_xs[]{-12.0f, 12.0f};
+    constexpr const char* glazing_names[]{
+        "twin tower front glazing", "twin tower rear glazing",
+        "twin tower west glazing", "twin tower east glazing"};
+    for (std::size_t block = 0; block < city::kTwinSkyscraperBlockSites.size();
+         ++block) {
+        const auto parts = city::bake_twin_skyscraper_block(block);
+        for (int tower = 0; tower < 2; ++tower) {
+            const float tower_x = tower_xs[tower];
+            const int floors = block == 0 ? (tower == 0 ? 24 : 21)
+                                          : (tower == 0 ? 28 : 25);
+            const auto core = std::find_if(parts.begin(), parts.end(),
+                [tower_x](const city::StartPart& part) {
+                    return std::strcmp(part.name, "twin tower structural core") == 0 &&
+                           std::fabs(part.centre.x - tower_x) < .01f;
+                });
+            const auto spandrel = std::find_if(parts.begin(), parts.end(),
+                [tower_x](const city::StartPart& part) {
+                    return std::strcmp(part.name, "twin tower floor spandrel") == 0 &&
+                           std::fabs(part.centre.x - tower_x) < .01f;
+                });
+            REQUIRE(core != parts.end());
+            REQUIRE(spandrel != parts.end());
+            for (int face = 0; face < 4; ++face) {
+                const bool on_x = face >= 2;
+                const float side = (face == 0 || face == 2) ? -1.0f : 1.0f;
+                const auto outward = [=](const city::StartPart& part) {
+                    return side * (on_x ? part.centre.x - tower_x
+                                        : part.centre.z - core->centre.z);
+                };
+                const auto half_depth = [=](const city::StartPart& part) {
+                    return (on_x ? part.width_m : part.depth_m) * .5f;
+                };
+                const auto on_face = [&](const city::StartPart& part) {
+                    return std::fabs(part.centre.x - tower_x) < 12.0f &&
+                           outward(part) > 1.0f;
+                };
+                const auto find_face = [&](const char* name) {
+                    const auto it = std::find_if(parts.begin(), parts.end(),
+                        [&](const city::StartPart& part) {
+                            return std::strcmp(part.name, name) == 0 &&
+                                   on_face(part);
+                        });
+                    return it == parts.end() ? nullptr : &*it;
+                };
+                const auto* glass = find_face(glazing_names[face]);
+                const auto* mullion = find_face(on_x ? "twin tower side mullion"
+                                                     : "twin tower facade mullion");
+                const auto* pier = find_face("twin tower facade pier");
+                REQUIRE(glass != nullptr);
+                REQUIRE(mullion != nullptr);
+                REQUIRE(pier != nullptr);
+                const float core_outer = half_depth(*core);
+                const float glass_inner = outward(*glass) - half_depth(*glass);
+                const float glass_outer = outward(*glass) + half_depth(*glass);
+                const float trim_outer = outward(*mullion) + half_depth(*mullion);
+                REQUIRE(glass_inner - core_outer >= .24f);
+                REQUIRE(outward(*pier) + half_depth(*pier) - trim_outer >= .07f);
+                REQUIRE(half_depth(*spandrel) - trim_outer >= .07f);
+
+                std::size_t pane_count = 0;
+                for (const auto& part : parts) {
+                    if (std::strcmp(part.name, "twin tower office window light") != 0 ||
+                        !on_face(part) ||
+                        (on_x ? part.width_m > part.depth_m
+                              : part.depth_m > part.width_m))
+                        continue;
+                    const float pane_inner = outward(part) - half_depth(part);
+                    const float pane_outer = outward(part) + half_depth(part);
+                    REQUIRE(pane_inner - glass_outer >= .20f);
+                    REQUIRE(trim_outer - pane_outer >= .12f);
+                    ++pane_count;
+                }
+                REQUIRE(pane_count == static_cast<std::size_t>(floors * 5));
+            }
+        }
+    }
+    apricot_test::pass("twin glass and lit panes clear the core and sit behind trim");
+}
+
 void low_parts_stay_inside_their_parcels() {
     const auto check = [](const city::StartSite& site,
                           const std::vector<city::StartPart>& parts) {
@@ -192,6 +273,7 @@ int main() {
     every_new_lot_clears_the_grid();
     four_sites_are_visibly_different();
     each_shared_block_has_two_towers();
+    twin_facade_layers_stay_separate_at_distance();
     low_parts_stay_inside_their_parcels();
     return apricot_test::done("construction_expansion_tests");
 }

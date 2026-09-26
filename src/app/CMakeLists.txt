@@ -12,6 +12,7 @@
 target_sources(apricot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/bellwether.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/app.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/playtest_bridge.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/app_cutscene.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/app_save.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/convertible_check.cpp

@@ -109,6 +109,9 @@ DriverProfile driver_profile_for(uint64_t seed, int32_t cell_x, int32_t cell_z,
                                  uint32_t slot);
 
 float traffic_follow_speed_for_gap(float gap, const DriverProfile& profile);
+// The deceleration a driver plans around in normal traffic. `brake` remains
+// the physical limit for emergency stopping and yellow-light decisions.
+float traffic_comfort_brake(const DriverProfile& profile);
 bool traffic_should_stop_for_yellow(float distance_to_stop, float speed,
                                     const DriverProfile& profile);
 bool traffic_profile_may_pass_jam(const DriverProfile& profile,

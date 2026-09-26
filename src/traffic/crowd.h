@@ -290,6 +290,10 @@ struct VehicleAgent {
     // Frustration builds while stuck and fades after traffic starts moving.
     // It changes comfort gaps and launch acceleration, never legal controls.
     float delay_seconds = 0.0f;
+    // A meaningful impact makes this driver temporarily leave more room and
+    // accelerate more gently. Counts down on simulation steps, then returns
+    // to the identity-derived baseline without changing legal controls.
+    float impact_caution_s = 0.0f;
 
     // HOW LONG THIS DRIVER HAS SAT BEHIND SOMETHING SLOW. Separate from
     // delay_seconds on purpose: that clock runs at any standstill, including a
@@ -1042,8 +1046,15 @@ TrafficStopDecision traffic_stop_decision(float slack_to_line_m, float speed_mps
                                           float capture_m);
 
 DriverProfile traffic_driver_after_wait(const DriverProfile& profile,
-                                        float delay_seconds);
-float traffic_gap_margin_seconds(const DriverProfile& profile, float delay_seconds);
+                                        float delay_seconds,
+                                        float impact_caution_s = 0.0f);
+float traffic_gap_margin_seconds(const DriverProfile& profile, float delay_seconds,
+                                 float impact_caution_s = 0.0f);
+float traffic_comfort_stop_speed(float room_m, const DriverProfile& profile,
+                                 float impact_caution_s = 0.0f);
+float traffic_pass_wait_credit(float waited_s, float impact_caution_s);
+float traffic_lane_change_wait(float base_wait_s, const DriverProfile& profile);
+float traffic_lane_change_gain(float base_gain_mps, const DriverProfile& profile);
 float traffic_travel_seconds(float distance_m, float speed_mps,
                              float acceleration_mps2, float speed_cap_mps);
 
@@ -1352,6 +1363,7 @@ private:
         bool active_turn = false;
         bool engine_failed = false;
         float delay_seconds = 0.0f;
+        float impact_caution_s = 0.0f;
     };
 
     void dispatch_snowplows(glm::vec2 player_xz);

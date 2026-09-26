@@ -304,7 +304,7 @@ or visual review separately. Do not promote a dated smoke run into a claim
 that every route or interaction works.
 
 Useful deeper briefs include [Pinatty's original map design](pinatty.md),
-[Florangia terrain](florangia.md), [Miandi's master plan](miandi.md),
+[Florangia terrain](design/florangia.md), [Miandi's master plan](miandi.md),
 [hospital campus](hospital-campus.md), [Loom cultural quarter](loom-cultural-quarter.md),
 and [Westmere Estates](westmere-estates.md). These retain their own scope and
 historical status; this overview does not mark all of their proposals complete.

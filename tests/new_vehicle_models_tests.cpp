@@ -12,7 +12,14 @@
 #include "test_assert.h"
 using namespace apricot;
 namespace {
-void model_contract(PlayerCarId id,float length,float width,float mass,float door_rear,float door_front) {
+struct MeshBudget {
+    std::size_t body_min=650u;
+    std::size_t body_max=1300u;
+    std::size_t open_max=1700u;
+    std::size_t door_max=140u;
+};
+void model_contract(PlayerCarId id,float length,float width,float mass,float door_rear,float door_front,
+                    MeshBudget budget={}) {
     const auto& def=player_car_definition(id);
     const auto tuning=player_model_tuning(DrivingMechanicsStyle::ClassicGta,id);
     REQUIRE_NEAR(tuning.mass_kg,mass,.001f);
@@ -26,8 +33,10 @@ void model_contract(PlayerCarId id,float length,float width,float mass,float doo
     REQUIRE(read_static_emesh(asset_path(body_path),body));
     REQUIRE(read_static_emesh(asset_path(folder+"body_open.emesh"),open));
     REQUIRE(read_static_emesh(asset_path(folder+"driver_door.emesh"),door));
-    REQUIRE(body.indices.size()/3>=650u && body.indices.size()/3<=1300u);
-    REQUIRE(open.indices.size()/3<=1700u && door.indices.size()/3<=140u);
+    REQUIRE(body.indices.size()/3>=budget.body_min &&
+            body.indices.size()/3<=budget.body_max);
+    REQUIRE(open.indices.size()/3<=budget.open_max &&
+            door.indices.size()/3<=budget.door_max);
     REQUIRE_NEAR(body.bounds.size().z,length,1e-4f);
     REQUIRE_NEAR(body.bounds.size().x,width,1e-4f);
     REQUIRE_NEAR(body.bounds.max.x,-body.bounds.min.x,1e-4f);
@@ -73,6 +82,40 @@ void model_contract(PlayerCarId id,float length,float width,float mass,float doo
     std::printf("  position %.2f %.2f %.2f velocity %.2f %.2f %.2f\n",car.position.x,car.position.y,car.position.z,car.velocity.x,car.velocity.y,car.velocity.z);
     REQUIRE(stopped);
 }
+
+void pizaz_component_meshes_are_ready_for_the_runtime_loader() {
+    const auto& definition=player_car_definition(PlayerCarId::PizazConstant);
+    const std::string body_path=definition.mesh_path;
+    const auto folder=body_path.substr(0,body_path.find_last_of('/')+1);
+    StaticEmesh drive,open,closed;
+    REQUIRE(read_static_emesh(asset_path(folder+"body_drive.emesh"),drive));
+    REQUIRE(read_static_emesh(asset_path(folder+"body_open.emesh"),open));
+    REQUIRE(read_static_emesh(asset_path(body_path),closed));
+    REQUIRE(drive.indices.size()>open.indices.size());
+    REQUIRE(closed.indices.size()>drive.indices.size());
+    for(const char* name:{"driver_door","passenger_door","windshield","rear_glass",
+            "driver_glass","passenger_glass","driver_rear_glass","passenger_rear_glass"}) {
+        StaticEmesh part;
+        REQUIRE(read_static_emesh(asset_path(folder+name+".emesh"),part));
+        REQUIRE(part.bounds.valid() && !part.indices.empty());
+    }
+    StaticEmesh front,rear;
+    REQUIRE(read_static_emesh(asset_path(folder+"front_wheel.emesh"),front));
+    REQUIRE(read_static_emesh(asset_path(folder+"rear_wheel.emesh"),rear));
+    for(const auto* wheel:{&front,&rear}) {
+        const auto size=wheel->bounds.size();
+        REQUIRE_NEAR(std::max(size.y,size.z)*.5f,.32f,.001f);
+        REQUIRE_NEAR(wheel->bounds.min.y+wheel->bounds.max.y,0.f,.001f);
+        REQUIRE_NEAR(wheel->bounds.min.z+wheel->bounds.max.z,0.f,.001f);
+        REQUIRE_NEAR(wheel->bounds.min.x+wheel->bounds.max.x,0.f,.001f);
+        REQUIRE(wheel->indices.size()/3u>2000u);
+    }
+    REQUIRE_NEAR(definition.physical_half_wheelbase,1.38f,1e-6f);
+    REQUIRE_NEAR(definition.physical_half_track,.78f,1e-6f);
+    REQUIRE_NEAR(definition.physical_wheel_radius,.32f,1e-6f);
+    apricot_test::pass("PIZAZ runtime body, six panes, two doors and custom wheels are present");
+}
+
 void selected_1991_candidates_are_playable_models() {
     struct Expected { PlayerCarId id; float mass; float radius; int panes; };
     for (const Expected expected : {
@@ -139,9 +182,12 @@ void selected_1991_candidates_are_playable_models() {
 }
 }
 int main() {
-    selected_1991_candidates_are_playable_models();
     model_contract(PlayerCarId::VesperScythe,4.65f,2.18f,1320.f,-.54f,.78f);
     model_contract(PlayerCarId::HalcyonSovereign,8.20f,2.26f,2750.f,.18f,1.60f);
+    model_contract(PlayerCarId::PizazConstant,4.683288f,2.014016f,1510.f,-.250751f,.837f,
+                   {30000u,40000u,32000u,2500u});
+    pizaz_component_meshes_are_ready_for_the_runtime_loader();
+    selected_1991_candidates_are_playable_models();
     REQUIRE(player_model_tuning(DrivingMechanicsStyle::ClassicGta,PlayerCarId::HarrowCityliner).mass_kg==9000.f);
     REQUIRE(player_model_tuning(DrivingMechanicsStyle::ClassicGta,PlayerCarId::AlderPip).mass_kg==1050.f);
     apricot_test::pass("sports car and limousine preserve asset, lamp, door and actual driving contracts");

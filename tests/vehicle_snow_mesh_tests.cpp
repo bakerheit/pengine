@@ -80,13 +80,14 @@ void articulated_live_shells_keep_painted_windshields_tagged() {
         // A plow truck draws its base truck's shell, counted once below.
         if(player_car_body_id(car.id)!=car.id) continue;
         const std::string path=car.mesh_path;
-        const std::string open_path=path.substr(0,path.find_last_of('/')+1)+(car.id==PlayerCarId::Bwc360 ? "body_drive.emesh" : "body_open.emesh");
+        const bool fixed_rear_doors=car.id==PlayerCarId::Bwc360 || car.id==PlayerCarId::PizazConstant;
+        const std::string open_path=path.substr(0,path.find_last_of('/')+1)+(fixed_rear_doors ? "body_drive.emesh" : "body_open.emesh");
         StaticEmesh source;
         REQUIRE(read_static_emesh(asset_path(open_path),source));
         const auto tagged=make_vehicle_snow_mesh(source,open_path);
         geometry_is_unchanged(source,tagged);
-        const bool separate_glass=car.id==PlayerCarId::GlmMeridian || car.id==PlayerCarId::RodeoSwitchback || car.id==PlayerCarId::HarrowHookline ||
-            car.id==PlayerCarId::Bwc360 || car.id==PlayerCarId::HarrowWorkman || car.id==PlayerCarId::EmberGt || car.id==PlayerCarId::RodeoGrazer ||
+        const bool separate_glass=car.id==PlayerCarId::Bwc360 || car.id==PlayerCarId::PizazConstant || car.id==PlayerCarId::HarrowWorkman || car.id==PlayerCarId::EmberGt || car.id==PlayerCarId::RodeoGrazer ||
+            car.id==PlayerCarId::GlmMeridian || car.id==PlayerCarId::RodeoSwitchback || car.id==PlayerCarId::HarrowHookline ||
             car.id==PlayerCarId::AlderPip || car.id==PlayerCarId::LegacyCar5Next ||
             car.id==PlayerCarId::LegacyCar5NextPolice ||
             is_municipal_cruiser_91(car.id);
@@ -102,11 +103,11 @@ void articulated_live_shells_keep_painted_windshields_tagged() {
     // Mistral, Scythe and Sovereign paint their screens on the shell instead
     // of loading a named pane.
     REQUIRE(opaque_panes==3u);
-    REQUIRE(glass_shells==15u);
+    REQUIRE(glass_shells==16u);
 }
 
 void named_glass_uses_exact_pane_bounds_and_unknowns_fail_closed() {
-    for(const auto* name:{"bwc_360","rodeo_grazer","ember_gt","alder_pip","car5_next","car5_next_police","harrow_workman","glm_meridian","rodeo_switchback","harrow_hookline","municipal_cruiser_91a",
+    for(const auto* name:{"bwc_360","rodeo_grazer","ember_gt","alder_pip","pizaz_constant","car5_next","car5_next_police","harrow_workman","glm_meridian","rodeo_switchback","harrow_hookline","municipal_cruiser_91a",
             "municipal_cruiser_91b","municipal_cruiser_91c","municipal_cruiser_91d",
             "municipal_cruiser_91e"}) {
         StaticEmesh pane;

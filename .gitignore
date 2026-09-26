@@ -20,4 +20,5 @@ __pycache__/
 
 # Proprietary model assets must stay local.
 /assets/models/
+/tools/pizaz_constant_threejs/node_modules/
 .worktree-rescue/

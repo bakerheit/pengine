@@ -718,6 +718,14 @@ void brake_lights_follow_rear_red_cells() {
         const auto brake = vehicle_brakelight_profile(car.mesh_path);
         REQUIRE(brake.id == vehicle_headlight_profile(car.mesh_path).id);
         REQUIRE(brake.regions[0].valid());
+        if (car.id == PlayerCarId::PizazConstant) {
+            // The white reverse inset sits between the two red brake cells.
+            // Keep both mirrored samples out of the brake-light profile.
+            for (const auto& r : brake.regions) {
+                REQUIRE(!r.contains({.47f,.69f,-2.342f}));
+                REQUIRE(!r.contains({-.47f,.69f,-2.342f}));
+            }
+        }
         StaticEmesh body;
         REQUIRE(read_static_emesh(asset_path(car.mesh_path),body));
         if (car.id == PlayerCarId::MunicipalAmbulance) {

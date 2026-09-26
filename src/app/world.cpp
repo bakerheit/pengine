@@ -115,8 +115,10 @@ struct StartMaterials {
     MaterialId airport_landside_paving = kInvalidId;
     MaterialId airport_directory = kInvalidId;
     MaterialId airport_furnishing = kInvalidId;
-    MaterialId billboard_ness = kInvalidId;
+    MaterialId billboard_monthly_mint = kInvalidId;
     MaterialId billboard_taxi = kInvalidId;
+    MaterialId billboard_tacomaco = kInvalidId;
+    MaterialId billboard_loom_museum = kInvalidId;
     MaterialId bank_sign = kInvalidId;
     MaterialId repair_sign = kInvalidId;
     MaterialId pawn_sign = kInvalidId;
@@ -415,11 +417,17 @@ bool load_start_materials(Renderer& renderer, StartMaterials& out) {
                             out.airport_directory) ||
         !load_start_texture(renderer, "textures/world/airport/furnishing-steel-generated.png",out.airport_furnishing) ||
         !load_start_texture(
-            renderer, "textures/world/billboards/ness-and-ness.jpg",
-            out.billboard_ness) ||
+            renderer, "textures/world/billboards/monthly-mint.png",
+            out.billboard_monthly_mint) ||
         !load_start_texture(
             renderer, "textures/world/billboards/pinnaty-taxi.png",
             out.billboard_taxi) ||
+        !load_start_texture(
+            renderer, "textures/world/billboards/tacomaco.png",
+            out.billboard_tacomaco) ||
+        !load_start_texture(
+            renderer, "textures/world/billboards/loom-museum.png",
+            out.billboard_loom_museum) ||
         !load_start_texture(
             renderer, "textures/world/bank/pinatty-savings-sign.png",
             out.bank_sign) ||
@@ -588,6 +596,14 @@ bool is_billboard_face(const city::StartPart& part) {
 
 bool is_taxi_billboard_face(const city::StartPart& part) {
     return part_name_is(part, "billboard face pinnaty taxi");
+}
+
+bool is_tacomaco_billboard_face(const city::StartPart& part) {
+    return part_name_is(part, "billboard face tacomaco");
+}
+
+bool is_loom_museum_billboard_face(const city::StartPart& part) {
+    return part_name_is(part, "billboard face loom museum");
 }
 
 bool is_bank_sign_face(const city::StartPart& part) {
@@ -1270,7 +1286,11 @@ void append_start_site(Scene& scene, TerrainCollider& collider,
                        is_billboard_face(part)) {
                 r.material = is_taxi_billboard_face(part)
                                  ? materials.billboard_taxi
-                                 : materials.billboard_ness;
+                                 : is_tacomaco_billboard_face(part)
+                                       ? materials.billboard_tacomaco
+                                       : is_loom_museum_billboard_face(part)
+                                             ? materials.billboard_loom_museum
+                                             : materials.billboard_monthly_mint;
             }
             // Flat slabs expose X/Z as their important face; upright props and
             // walls expose X/Y. Mixing those is what turns pavement aggregate
@@ -2919,7 +2939,8 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
                          miandi_promenade_parts.size() +
                          miandi_port_sol_parts.size() +
                          city::kNessBillboardPartCount +
-                         city::kPinnatyTaxiBillboardPartCount);
+                         city::kPinnatyTaxiBillboardPartCount +
+                         city::kRoadsideBillboardPartCount * 2u);
     city::apply_building_access_layout(city::kGasStationSite,gas_parts,access_layout_);
     append_start_site(scene, collider, precipitation_cover_, city::kGasStationSite,
                       gas_parts.data(), gas_parts.size(), r, unit.bounds,
@@ -3794,6 +3815,29 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
                       start_decal_mesh_, start_billboard_mesh_,
                       start_rounded_box_mesh_, start_cylinder_mesh_,
                       start_nodes_);
+    const TerrainGround billboard_ground{seed_};
+    const auto sample_billboard_ground = billboard_ground.sampler();
+    auto tacomaco_billboard_site = city::kTacomacoBillboardSite;
+    tacomaco_billboard_site.ground_m = sample_billboard_ground.at(
+        tacomaco_billboard_site.origin.x, tacomaco_billboard_site.origin.z);
+    append_start_site(scene, collider, precipitation_cover_,
+                      tacomaco_billboard_site,
+                      city::kTacomacoBillboardParts.data(),
+                      city::kTacomacoBillboardParts.size(), r, unit.bounds,
+                      start_materials, SiteMaterialStyle::Billboard,
+                      start_decal_mesh_, start_billboard_mesh_,
+                      start_rounded_box_mesh_, start_cylinder_mesh_,
+                      start_nodes_);
+    auto loom_billboard_site = city::kLoomMuseumBillboardSite;
+    loom_billboard_site.ground_m = sample_billboard_ground.at(
+        loom_billboard_site.origin.x, loom_billboard_site.origin.z);
+    append_start_site(scene, collider, precipitation_cover_, loom_billboard_site,
+                      city::kLoomMuseumBillboardParts.data(),
+                      city::kLoomMuseumBillboardParts.size(), r, unit.bounds,
+                      start_materials, SiteMaterialStyle::Billboard,
+                      start_decal_mesh_, start_billboard_mesh_,
+                      start_rounded_box_mesh_, start_cylinder_mesh_,
+                      start_nodes_);
     append_graffiti(scene, start_materials, start_billboard_mesh_, unit.bounds,
                     start_nodes_);
 
@@ -3819,8 +3863,9 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
             "car wash %zu parts, bank %zu parts, Pinatty airport %zu parts, "
             "Florangia airport %zu parts, "
             "Miandi %zu parts, "
-            "Ness billboard %zu parts, "
+            "Monthly Mint billboard %zu parts, "
             "Pinnaty Taxi billboard %zu parts, "
+            "O'Haven TacoMaco and Loom billboards %zu parts each, "
             "%zu solid collision boxes, %zu paved plot surfaces",
             gas_parts.size(), motel_parts.size(), apartment_parts.size(),
             fast_food_parts.size(), car_wash_parts.size(), bank_parts.size(),
@@ -3833,6 +3878,7 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
                 miandi_promenade_parts.size() + miandi_port_sol_parts.size(),
             city::kNessBillboardPartCount,
             city::kPinnatyTaxiBillboardPartCount,
+            city::kRoadsideBillboardPartCount,
             collider.static_boxes().size(),
             collider.static_ground_rects().size());
     AP_INFO("interior streaming: %zu authored floor volumes registered",

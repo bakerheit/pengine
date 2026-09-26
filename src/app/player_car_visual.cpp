@@ -78,19 +78,21 @@ bool PlayerCarVisual::load_model(
         const std::string path=definition.mesh_path;
         const std::string root=path.substr(0,path.find_last_of('/')+1);
         StaticEmesh open_body, door;
-        if (!read_static_emesh(asset_path(root + (body_id==PlayerCarId::Bwc360 ? "body_drive.emesh" : "body_open.emesh")), open_body) ||
-            !read_static_emesh(asset_path(root + (body_id==PlayerCarId::Bwc360 ? "driver_front_door.emesh" : "driver_door.emesh")), door)) {
+        const bool split_front_doors=body_id==PlayerCarId::Bwc360;
+        const bool has_fixed_rear_doors=split_front_doors || body_id==PlayerCarId::PizazConstant;
+        if (!read_static_emesh(asset_path(root + (has_fixed_rear_doors ? "body_drive.emesh" : "body_open.emesh")), open_body) ||
+            !read_static_emesh(asset_path(root + (split_front_doors ? "driver_front_door.emesh" : "driver_door.emesh")), door)) {
             AP_ERROR("player car: %s articulated meshes missing; recook the vehicle assets", definition.model);
             return false;
         }
         out.body_mesh = renderer.add_mesh(
-            make_vehicle_snow_mesh(open_body, root + (body_id==PlayerCarId::Bwc360 ? "body_drive.emesh" : "body_open.emesh")));
+            make_vehicle_snow_mesh(open_body, root + (has_fixed_rear_doors ? "body_drive.emesh" : "body_open.emesh")));
         out.driver_door_mesh = renderer.add_mesh(door);
         out.driver_door_bounds = door.bounds;
         if (out.driver_door_mesh == kInvalidId) return false;
         if (has_passenger_door(body_id)) {
             StaticEmesh passenger;
-            if (!read_static_emesh(asset_path(root+(body_id==PlayerCarId::Bwc360 ? "passenger_front_door.emesh" : "passenger_door.emesh")),passenger)) return false;
+            if (!read_static_emesh(asset_path(root+(split_front_doors ? "passenger_front_door.emesh" : "passenger_door.emesh")),passenger)) return false;
             out.passenger_door_mesh=renderer.add_mesh(passenger);
             out.passenger_door_bounds=passenger.bounds;
             if (out.passenger_door_mesh==kInvalidId) return false;
@@ -116,7 +118,7 @@ bool PlayerCarVisual::load_model(
             if (out.soft_top_meshes[i]==kInvalidId) return false;
         }
     }
-    if (body_id == PlayerCarId::Bwc360 || body_id == PlayerCarId::SaddleTango || body_id == PlayerCarId::HarrowWorkman ||
+    if (body_id == PlayerCarId::Bwc360 || body_id == PlayerCarId::PizazConstant || body_id == PlayerCarId::SaddleTango || body_id == PlayerCarId::HarrowWorkman ||
         body_id == PlayerCarId::GlmMeridian || body_id == PlayerCarId::RodeoSwitchback || body_id == PlayerCarId::HarrowHookline ||
         body_id == PlayerCarId::EmberGt || body_id == PlayerCarId::RodeoGrazer ||
         body_id == PlayerCarId::AlderPip || body_id == PlayerCarId::SpagattiShu ||
@@ -150,7 +152,7 @@ bool PlayerCarVisual::load_model(
         return false;
     }
 
-    if (is_motorbike(body_id) || body_id==PlayerCarId::Bwc360 || body_id==PlayerCarId::SaddleTango || body_id==PlayerCarId::EmberGt || body_id==PlayerCarId::RodeoGrazer ||
+    if (is_motorbike(body_id) || body_id==PlayerCarId::Bwc360 || body_id==PlayerCarId::PizazConstant || body_id==PlayerCarId::SaddleTango || body_id==PlayerCarId::EmberGt || body_id==PlayerCarId::RodeoGrazer ||
         body_id==PlayerCarId::GlmMeridian || body_id==PlayerCarId::RodeoSwitchback || body_id==PlayerCarId::HarrowHookline) {
         const std::string path=definition.mesh_path;
         const std::string root=path.substr(0,path.find_last_of('/')+1);

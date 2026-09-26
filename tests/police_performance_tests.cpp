@@ -95,6 +95,11 @@ void police_cars_are_not_in_the_top_thirty_percent() {
         std::size_t civilians = 0;
         Performance all_rounder;
         for (const auto& car : kPlayerCars) {
+            // A fitted-equipment variant (the plow trucks) is its base truck
+            // with a deliberately heavy work tune. Ranking it as another
+            // civilian would count one slow body twice and raise the bar the
+            // patrol cars must clear without adding a car that could race them.
+            if (player_car_body_id(car.id) != car.id) continue;
             roster.push_back({car.id, measure(car.id, style)});
             if (!is_police_car(car.id)) ++civilians;
             if (car.id == PlayerCarId::LegacyCar5) all_rounder = roster.back().p;

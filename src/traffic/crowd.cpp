@@ -766,6 +766,10 @@ TrafficBodyCollision resolve_traffic_body_collision(
     };
     arm_recovery(a);
     arm_recovery(b);
+    if (result.closing_speed_mps >= 2.5f) {
+        a.impact_caution_s = std::max(a.impact_caution_s, 12.0f);
+        b.impact_caution_s = std::max(b.impact_caution_s, 12.0f);
+    }
     return result;
 }
 
@@ -901,20 +905,60 @@ TrafficStopDecision traffic_stop_decision(float slack_to_line_m,
 }
 
 DriverProfile traffic_driver_after_wait(const DriverProfile& profile,
-                                        float delay_seconds) {
+                                        float delay_seconds,
+                                        float impact_caution_s) {
     DriverProfile out = profile;
     const float frustration = std::clamp(
         delay_seconds / std::max(1.0f, profile.patience_seconds * 3.0f), 0.0f, 1.0f);
-    out.headway *= 1.0f - frustration * 0.15f;
-    out.accel *= 1.0f + frustration * 0.15f;
+    const float caution = std::clamp(impact_caution_s / 12.0f, 0.0f, 1.0f);
+    out.headway *= 1.0f - frustration * (1.0f - caution) * 0.15f + caution * 0.25f;
+    out.accel *= 1.0f + frustration * (1.0f - caution) * 0.15f - caution * 0.20f;
     return out;
 }
 
-float traffic_gap_margin_seconds(const DriverProfile& profile, float delay_seconds) {
+float traffic_gap_margin_seconds(const DriverProfile& profile, float delay_seconds,
+                                 float impact_caution_s) {
     const float comfort = std::max(1.25f, profile.headway * 1.6f);
     const float frustration = std::clamp(
         delay_seconds / std::max(1.0f, profile.patience_seconds * 3.0f), 0.0f, 1.0f);
-    return std::max(0.9f, comfort * (1.0f - frustration * 0.35f));
+    const float caution = std::clamp(impact_caution_s / 12.0f, 0.0f, 1.0f);
+    return std::max(0.9f, comfort *
+        (1.0f - frustration * (1.0f - caution) * 0.35f + caution * 0.20f));
+}
+
+float traffic_comfort_stop_speed(float room_m, const DriverProfile& profile,
+                                 float impact_caution_s) {
+    const float room = std::max(0.0f, room_m);
+    const float caution = std::clamp(impact_caution_s / 12.0f, 0.0f, 1.0f);
+    // Style changes the approach speed, not the driver's physical brake limit.
+    const float comfort_brake = traffic_comfort_brake(profile) *
+                                (1.0f - caution * 0.25f);
+    return std::min(room * 0.8f, std::sqrt(2.0f * comfort_brake * room));
+}
+
+float traffic_pass_wait_credit(float waited_s, float impact_caution_s) {
+    const float caution = std::clamp(impact_caution_s / 12.0f, 0.0f, 1.0f);
+    return waited_s - 4.0f * caution;
+}
+
+float traffic_lane_change_wait(float base_wait_s, const DriverProfile& profile) {
+    switch (profile.kind) {
+        case DriverProfileKind::Cautious:       return base_wait_s + 1.5f;
+        case DriverProfileKind::Normal:         return base_wait_s;
+        case DriverProfileKind::Impatient:      return std::max(0.25f, base_wait_s - 0.4f);
+        case DriverProfileKind::AggressiveLite: return std::max(0.15f, base_wait_s - 0.6f);
+    }
+    return base_wait_s;
+}
+
+float traffic_lane_change_gain(float base_gain_mps, const DriverProfile& profile) {
+    switch (profile.kind) {
+        case DriverProfileKind::Cautious:       return base_gain_mps + 1.0f;
+        case DriverProfileKind::Normal:         return base_gain_mps;
+        case DriverProfileKind::Impatient:      return std::max(0.5f, base_gain_mps - 0.5f);
+        case DriverProfileKind::AggressiveLite: return std::max(0.5f, base_gain_mps - 0.8f);
+    }
+    return base_gain_mps;
 }
 
 float traffic_travel_seconds(float distance_m, float speed_mps,
@@ -2642,7 +2686,8 @@ void Crowd::rebuild_buckets() {
             agent_planned_exit(*graph_, v, map_seed_, police_search_centre_,
                                police_wanted_level_ > 0),
             active_turn(*graph_, v),
-            vehicle_engine_failed(v.mechanical), v.delay_seconds};
+            vehicle_engine_failed(v.mechanical), v.delay_seconds,
+            v.impact_caution_s};
         if (!graph_->valid(v.lane) || v.chase_active) continue;
         const LanePose centre = graph_->pose(v.lane, v.dist_along_m);
         // A car changing lane stays in its ORIGIN bucket for the whole arc:
@@ -3286,7 +3331,8 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         const auto control = graph_->junction_control(junction);
         if (control == JunctionControl::Yield ||
             control == JunctionControl::PriorityStop) {
-            const auto driver = traffic_driver_after_wait(a.profile, s.delay_seconds);
+            const auto driver = traffic_driver_after_wait(
+                a.profile, s.delay_seconds, s.impact_caution_s);
             const float clear = junction_clearance(junction);
             // Predict priority traffic accelerating, not holding its current
             // low speed. Otherwise a stopped lead looks falsely far away.
@@ -3297,7 +3343,8 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
             out.clearance_seconds = out.eta_seconds +
                 traffic_travel_seconds(clear * 2.0f + tuning_.car_length_m,
                     s.speed_mps, driver.accel, cap) +
-                traffic_gap_margin_seconds(a.profile, s.delay_seconds);
+                traffic_gap_margin_seconds(
+                    a.profile, s.delay_seconds, s.impact_caution_s);
         }
         return out;
     };
@@ -3310,6 +3357,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
             sub_rate_phase(v.lane_key, v.slot, i, v.spawn_ordinal, k))
             continue;
         ++stats_.vehicles_stepped;
+        v.impact_caution_s = std::max(0.0f, v.impact_caution_s - dt);
         step_vehicle_mechanical(v.mechanical,v.body_damage,dt,
             splitmix64_mix(map_seed_ ^ v.lane_key ^ (static_cast<uint64_t>(v.slot)<<32)));
 
@@ -3407,7 +3455,8 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
 
         // --- what would slow me down ---------------------------------------
         const float gap = leader_gap_[i] - convoy_car_length;
-        DriverProfile prof = traffic_driver_after_wait(v.profile, v.delay_seconds);
+        DriverProfile prof = traffic_driver_after_wait(
+            v.profile, v.delay_seconds, v.impact_caution_s);
         prof.min_gap = effective_min_gap(prof, min_gap_floor);
         const float pursuit_cruise = police_pursuit_cruise_mps(
             lane.speed_limit_mps, police_target_speed_mps_,
@@ -3427,7 +3476,7 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
                 0.0f, gap - prof.min_gap - closing_speed);
             const float braking_limit = std::sqrt(
                 leader_speed * leader_speed +
-                2.0f * std::max(0.1f, prof.brake) * braking_room);
+                2.0f * traffic_comfort_brake(prof) * braking_room);
             target = std::min(target, braking_limit);
         }
         // Owning a junction means keep moving when the box is clear. It does
@@ -3880,10 +3929,8 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
             // nothing at freeway range, then hard-stopped the lead car at the
             // gate and let its following queue hit it.
             const float room = std::max(0.0f, slack);
-            const float braking_speed = std::sqrt(
-                2.0f * std::max(0.1f, prof.brake) * room);
             target = std::min(target,
-                std::min(room * 0.8f, braking_speed));
+                traffic_comfort_stop_speed(room, prof, v.impact_caution_s));
         }
         if (run_control)
             target = std::min(target,
@@ -3891,6 +3938,9 @@ void Crowd::step_vehicles(int64_t step, const VehicleState* player,
         if (box_blocked) {
             hold = true;
             target = std::min(target, std::max(0.0f, slack * 0.8f));
+            if (v.impact_caution_s > 0.0f)
+                target = std::min(target,
+                    traffic_comfort_stop_speed(slack, prof, v.impact_caution_s));
             ++stats_.junction_box_holds;
         }
         // Facing away from the suspect on a two-way street: shed speed so the
@@ -4367,6 +4417,8 @@ bool Crowd::resolve_player_collision(VehicleState& player,
                 player.velocity - traffic_velocity;
             const float inward = glm::dot(relative_motion_world, normal);
             const float impact = std::max(0.0f, -inward);
+            if (impact >= 2.5f)
+                traffic.impact_caution_s = std::max(traffic.impact_caution_s, 12.0f);
             player.car_contact_speed=std::max(player.car_contact_speed,impact);
             const glm::vec2 traffic_contact =
                 traffic_body.centre - traffic_base_centre +
@@ -5371,6 +5423,7 @@ uint64_t Crowd::population_hash() const {
         h = mix_f32(h, v.speed_mps);
         h = mix_bits(h, v.stop_junction);
         h = mix_f32(h, v.delay_seconds);
+        h = mix_f32(h, v.impact_caution_s);
         h = mix_f32(h, v.obstruction_wait_s);
         h = mix_bits(h, v.maneuver_decisions);
         h = mix_f32(h, v.lane_change_cooldown_s);

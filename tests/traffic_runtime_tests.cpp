@@ -861,6 +861,12 @@ void rear_impact_becomes_real_lane_progress() {
     player.position = target->pos - fwd * 2.90f;
     player.velocity = fwd * (target->speed_mps + 12.0f);
     REQUIRE(hit_crowd.resolve_player_collision(player));
+    const auto struck = std::find_if(hit_crowd.vehicles().begin(),
+        hit_crowd.vehicles().end(), [&](const VehicleAgent& agent) {
+            return agent.lane_key == lane_key && agent.slot == slot;
+        });
+    REQUIRE(struck != hit_crowd.vehicles().end());
+    REQUIRE(struck->impact_caution_s == 12.0f);
 
     hit_crowd.rebuild_buckets();
     control_crowd.rebuild_buckets();
@@ -878,6 +884,9 @@ void rear_impact_becomes_real_lane_progress() {
     const auto control = find_target(control_crowd);
     REQUIRE(hit != hit_crowd.vehicles().end());
     REQUIRE(control != control_crowd.vehicles().end());
+    REQUIRE(hit->impact_caution_s < 12.0f);
+    REQUIRE(hit->impact_caution_s > 11.0f);
+    REQUIRE(control->impact_caution_s == 0.0f);
     REQUIRE(hit->dist_along_m > control->dist_along_m + 0.02f);
     const glm::vec2 lane_fwd = glm::normalize(
         glm::vec2{hit->fwd.x, hit->fwd.z});
@@ -912,6 +921,8 @@ void ai_traffic_bodies_do_not_ghost() {
     REQUIRE(contact.collided);
     REQUIRE(contact.penetration_m > 1.0f);
     REQUIRE(contact.closing_speed_mps > 9.0f);
+    REQUIRE(rear.impact_caution_s == 12.0f);
+    REQUIRE(front.impact_caution_s == 12.0f);
     REQUIRE(after > before + 1.0f);
     REQUIRE(glm::dot(rear.collision_velocity_xz,
                      glm::vec2{0.0f, -1.0f}) < 0.0f);
@@ -921,6 +932,17 @@ void ai_traffic_bodies_do_not_ghost() {
     REQUIRE(front.mode == AgentMode::Integrating);
     REQUIRE(vehicle_damage_total(rear.body_damage) > 0.0f);
     REQUIRE(vehicle_damage_total(front.body_damage) > 0.0f);
+    rear.impact_caution_s = front.impact_caution_s = 6.0f;
+    rear.pos = {0.0f, 0.0f, 3.5f};
+    front.pos = {0.0f, 0.0f, 0.0f};
+    rear.speed_mps = front.speed_mps = 0.0f;
+    rear.collision_velocity_xz = front.collision_velocity_xz = glm::vec2{0.0f};
+    const TrafficBodyCollision resting =
+        resolve_traffic_body_collision(rear, front, tuning);
+    REQUIRE(resting.collided);
+    REQUIRE(resting.closing_speed_mps < 2.5f);
+    REQUIRE(rear.impact_caution_s == 6.0f);
+    REQUIRE(front.impact_caution_s == 6.0f);
     pass("AI traffic bodies separate and exchange impact velocity");
 }
 

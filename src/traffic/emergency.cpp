@@ -1042,13 +1042,16 @@ bool Crowd::plan_civilian_pass(uint32_t index, const ObstructionView& ob,
     Rng roll{phantom_key(map_seed_, v.lane_key, v.slot,
                          kChannelOvertakeHesitation ^
                              (v.maneuver_decisions * 0x85EBCA6Bu))};
-    const float waited = v.obstruction_wait_s - civ.hesitation_max_s * roll.next_float();
+    const float waited = traffic_pass_wait_credit(
+        v.obstruction_wait_s - civ.hesitation_max_s * roll.next_float(),
+        v.impact_caution_s);
     const float half_length = traffic_vehicle_footprint(traffic_vehicle_kind(v)).half_length_m;
     const bool taper = lane.lanes_at_start != lane.lanes_at_end;
 
     // (b) A lane change on a multi-lane road. Outboard first: the fixed try
     // order is the keep-right bias, and it is deterministic without a roll.
-    if (!taper && v.lane_change_cooldown_s <= 0.0f && waited >= civ.lane_change_wait_s) {
+    if (!taper && v.lane_change_cooldown_s <= 0.0f &&
+        waited >= traffic_lane_change_wait(civ.lane_change_wait_s, v.profile)) {
         // The speed a lane will let me SUSTAIN: my cruise with nobody ahead,
         // otherwise no more than the leader's own speed (a follow law says
         // what I may do this second; over the run it is the leader that sets
@@ -1078,7 +1081,9 @@ bool Crowd::plan_civilian_pass(uint32_t index, const ObstructionView& ob,
                 lead_speed = std::max(0.0f, v.speed_mps - view.front_closing);
             const float gain = sustain(view.front_gap, lead_speed) -
                                sustain(ob.gap_m, ob.speed_mps);
-            if (gain <= civ.lane_change_gain_mps) continue;
+            const float caution = std::clamp(v.impact_caution_s / 12.0f, 0.0f, 1.0f);
+            if (gain <= traffic_lane_change_gain(civ.lane_change_gain_mps,
+                                                 v.profile) + caution) continue;
             const float speed = std::max(6.0f, std::min(v.cruise_mps, tl.speed_limit_mps));
             TrafficManeuver move = lane_shift_arc(*graph_, start, target, end, speed);
             if (submit(move)) {

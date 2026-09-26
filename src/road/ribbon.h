@@ -118,10 +118,11 @@ struct RibbonParams {
     // Depth of a zebra band along its approach.
     float crosswalk_depth_m = kRoadCrosswalkDepthM;
 
-    // World metres per texture repeat: asphalt, one concrete slab, and the
-    // span of one crosswalk bar pair.
+    // World metres per texture repeat: asphalt, kerb, walk paving, and the
+    // span of one crosswalk bar pair. Walk paving follows the road tangent.
     float uv_tile_m = 8.0f;
     float slab_m = 1.0f;
+    float walk_tile_m = 2.0f;
     float crosswalk_tile_m = 4.0f;
 
     // Road paint dimensions. Markings are separate curved ribbons instead of

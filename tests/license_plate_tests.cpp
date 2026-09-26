@@ -53,10 +53,11 @@ void catalog_and_identity() {
         REQUIRE(sample.emplace(int(r.series),plate_serial(r)).second);
     }
     REQUIRE(player_plate_use(PlayerCarId::RodeoGrazer)==PlateUse::Private);
+    REQUIRE(player_plate_use(PlayerCarId::PizazConstant)==PlateUse::Private);
     REQUIRE(player_plate_use(PlayerCarId::HarrowWorkman)==PlateUse::Commercial);
+    REQUIRE(player_plate_use(PlayerCarId::HarrowHookline)==PlateUse::Commercial);
     REQUIRE(player_plate_use(PlayerCarId::GlmMeridian)==PlateUse::Private);
     REQUIRE(player_plate_use(PlayerCarId::RodeoSwitchback)==PlateUse::Private);
-    REQUIRE(player_plate_use(PlayerCarId::HarrowHookline)==PlateUse::Commercial);
     REQUIRE(player_plate_use(PlayerCarId::MunicipalCruiser91C)==PlateUse::Government);
     REQUIRE(traffic_plate_use(TrafficVehicleKind::Snowplow)==PlateUse::Government);
 }
@@ -97,6 +98,12 @@ void cooked_mounts_and_meshes() {
     REQUIRE(mounts[0].centre==glm::vec3(0,.625f,2.446f));
     REQUIRE(mounts[1].centre==glm::vec3(0,.560f,-2.646f));
     REQUIRE(mounts[0].normal.z==1 && mounts[1].normal.z==-1);
+    StaticEmesh pizaz;REQUIRE(read_static_emesh(asset_path("models/vehicles/pizaz_constant/body.emesh"),pizaz));
+    const auto pizaz_mounts=vehicle_plate_mounts(pizaz,"models/vehicles/pizaz_constant/body.emesh");
+    REQUIRE(pizaz_mounts.size()==2);
+    REQUIRE(pizaz_mounts[0].centre==glm::vec3(0,.45f,2.32f));
+    REQUIRE(pizaz_mounts[1].centre==glm::vec3(0,.47f,-2.32f));
+    REQUIRE(pizaz_mounts[0].normal.z==1 && pizaz_mounts[1].normal.z==-1);
     StaticEmesh bike;REQUIRE(read_static_emesh(asset_path("models/vehicles/fang_venom_v2/body.emesh"),bike));
     const auto bike_mount=vehicle_plate_mounts(bike,"fang_venom_v2/body.emesh");
     REQUIRE(bike_mount.size()==1);

@@ -32,16 +32,38 @@ octagons, inverted triangles, and plaques are shared procedural meshes.
   the entire junction, and leave a comfort margin. Predictions allow priority
   traffic to accelerate. Committed cars and downstream storage still win.
 - A clear yield approach rolls through; STOP still requires a full dwell.
+- In ordinary driving, each profile plans a gentler braking curve than its
+  physical brake limit: cautious drivers slow earliest, normal drivers next,
+  and impatient drivers later. This applies when following a slower car and
+  approaching a held stop. Hard braking, yellow decisions, and minimum spacing
+  still use the physical limit and clearance rules.
+- Passing choices also vary without a collision. Cautious drivers wait longer
+  and need more sustained speed gain to change lanes; impatient drivers wait
+  less and accept a smaller useful gain. The oncoming-lane, front/rear gap,
+  and time-to-collision checks are unchanged.
 - Delay accumulates while a healthy driver is stuck and fades once moving.
   Frustration reduces following headway by at most 15%, increases launch
   acceleration by at most 15%, and reduces the profile's gap margin by at most
   35%, with a 0.9-second minimum beyond estimated physical clearance. It does
   not raise cruise speed, reduce minimum bumper clearance, weaken braking,
   bypass a stop, enter on red, or enter a blocked exit.
+- A collision with at least 2.5 m/s closing speed gives both traffic drivers
+  twelve seconds of caution. A player collision applies the same response to
+  the traffic driver. Caution fades on simulation steps: at full strength the
+  driver leaves 25% more following headway, launches with 20% less acceleration,
+  and asks for 20% more comfort time at a priority gap. Waiting frustration is
+  suppressed while caution is high and returns as caution fades. Speed limits,
+  braking ability, minimum clearance, stop dwell, signal compliance, and
+  junction ownership are unchanged. At a held stop, a shaken driver aims for a
+  lower approach speed and starts slowing earlier while retaining the same
+  physical brake limit. Before passing a road obstruction, caution adds up to
+  four seconds of wait; a lane change also needs up to 1 m/s more sustained
+  speed gain. Oncoming clearance, rear clearance, and time-to-collision gates
+  remain the same. Low-speed contacts do not restart the timer.
 - Stop gates allow for crosswalk depth. Unsignalized skewed approaches reserve
   their angled lane corridors so a waiting car cannot sit in passing traffic.
 
-All cross-agent decisions use frozen snapshots. Delay state is included in
+All cross-agent decisions use frozen snapshots. Delay and caution are included in
 the deterministic population hash; no wall clock or shared random stream is
 used for driver behavior.
 
