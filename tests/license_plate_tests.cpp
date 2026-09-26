@@ -118,7 +118,8 @@ void checkpoints() {
     GameSave loaded;REQUIRE(decode_game_save(bytes,loaded,error));
     REQUIRE(loaded.car_registration==saved.car_registration); // Home plate stays across the border.
     std::string v4=bytes.substr(bytes.find('\n',bytes.find('\n')+1)+1);
-    REQUIRE(rewrap(v4,5)==bytes); // Control: rewrap is the encoder's own framing.
+    REQUIRE(rewrap(v4,6)==bytes); // Control: rewrap is the encoder's own framing.
+    REQUIRE(strip_row(v4)=="0 0\n"); // v6 bank vault, stocked.
     REQUIRE(strip_row(v4)=="250 5 12 48 5\n"); // v5 wallet and ammunition, cut to reach v4.
     const std::string paint_row="2 1 40 90 200\n";
     const std::string plate_row=std::to_string(int(saved.car_registration.state))+" "+

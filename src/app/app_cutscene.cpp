@@ -26,6 +26,7 @@ void App::begin_new_game() {
     mission_stage_=MissionStage::Opening;save_notice_.clear();
     game_ui_.clear_waypoint();
     bank_vault_={};world_.reset_session_objects(scene_,collider_);
+    reset_bank_heist({});  // New Game restocks the vault and drops any take.
     wanted_.reset();
     police_escalation_.reset();
     police_stop_feedback_s_=0.0f;

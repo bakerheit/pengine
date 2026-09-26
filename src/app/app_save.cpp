@@ -49,6 +49,8 @@ bool App::save_game() {
     saved.pistol_magazine=weapon_use_.magazine;
     saved.pistol_reserve=std::min(weapon_use_.reserve,kMaxSavedPistolReserve);
     saved.molotov_stock=std::min(molotov_use_.stock,kMaxSavedMolotovStock);
+    // The vault's piles and restock; the take in hand is not saved.
+    saved.bank_loot_taken=bank_heist_.taken; saved.bank_restock_step=bank_heist_.restock_step;
     if (!store_game_save(save_path_,saved,save_notice_)) { AP_WARN("save: %s",save_notice_.c_str()); return false; }
     save_notice_="Game saved."; ui_.set_save_available(true);
     AP_INFO("game checkpoint saved"); return true;
@@ -95,6 +97,9 @@ bool App::load_game() {
     weapon_wheel_={}; weapon_use_={}; molotov_use_={};
     weapon_use_.magazine=saved.pistol_magazine; weapon_use_.reserve=saved.pistol_reserve;
     molotov_use_.stock=saved.molotov_stock;
+    // Loading ends any heist in progress: the wanted level is reset below, and
+    // a take that was never banked is not in the save.
+    reset_bank_heist(bank_heist_from_save(saved.bank_loot_taken,saved.bank_restock_step));
     snow_clearance_ = {};
     traffic_snow_loads_.clear();
     player_snow_load_ = -1.0f;

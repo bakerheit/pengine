@@ -63,6 +63,7 @@
 #include "city/tidewater_farm.h"
 #include "app/pawn_merchandise_mesh.h"
 #include "city/building_access.h"
+#include "city/bank_heist_layout.h"
 #include "city/bank_vault_layout.h"
 #include "city/interior_streaming.h"
 #include "core/asset_root.h"
@@ -2840,6 +2841,8 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
         city::bake_building(city::kFastFoodPlan);
     std::vector<city::StartPart> bank_parts =
         city::bake_building(city::kBankPlan);
+    // The heist's cash carts are vault furniture, solid like the table.
+    for (const auto& cart : city::bank_heist_cart_parts()) bank_parts.push_back(cart);
     auto repair_parts = city::bake_auto_repair();
     auto laundry_parts = city::bake_laundromat();
     std::vector<city::StartPart> airport_parts = city::bake_airport();
@@ -3532,6 +3535,25 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
         }
     }
     bank_vault_pose_ = 0.0f;
+    // The vault's cash. Never solid (it sits on the table and the carts), so
+    // taking a pile only hides its nodes; see sync_bank_loot.
+    bank_loot_nodes_.assign(kBankHeistPiles.size(), {});
+    for (std::size_t pile = 0; pile < kBankHeistPiles.size(); ++pile) {
+        for (const city::StartPart& part : city::bank_heist_pile_parts(pile)) {
+            Renderable cash = r;
+            cash.mesh = start_box_mesh_;
+            cash.material = start_materials.finish[finish_index(part.finish)];
+            cash.tint = part_name_has(part, "cash") ? glm::vec4{0.34f, 0.56f, 0.33f, 1.0f}
+                                                    : start_finish_tint(part.finish);
+            cash.uv_scale = {1.0f, 1.0f};
+            const NodeId node = scene.create(cash, part_transform(city::kBankSite, part),
+                                             unit.bounds);
+            if (SceneNode* placed = scene.get(node)) placed->max_draw_distance = 160.0f;
+            bank_loot_nodes_[pile].push_back(node);
+            start_nodes_.push_back(node);
+        }
+    }
+    bank_loot_shown_ = 0;
     append_start_site(scene, collider, precipitation_cover_, city::kAirportSite,
                       airport_parts.data(), airport_parts.size(), r,
                       unit.bounds, start_materials, SiteMaterialStyle::Airport,
@@ -3992,6 +4014,16 @@ void World::sync_bank_vault(Scene& scene, TerrainCollider& collider, float openn
     bank_vault_pose_ = openness;
 }
 
+void World::sync_bank_loot(Scene& scene, uint8_t taken) {
+    if (static_cast<int>(taken) == bank_loot_shown_) return;
+    for (std::size_t pile = 0; pile < bank_loot_nodes_.size(); ++pile) {
+        const bool shown = (taken & (1u << pile)) == 0;
+        for (const NodeId id : bank_loot_nodes_[pile])
+            if (SceneNode* node = scene.get(id)) node->visible = shown;
+    }
+    bank_loot_shown_ = taken;
+}
+
 void World::sync_boat(Scene& scene, TerrainCollider& collider,const BoatState& state) {
     Transform pose;pose.position=state.position;
     pose.position.y+=std::sin(state.phase)*.025f;
@@ -4176,6 +4208,8 @@ void World::shutdown(Scene& scene, Renderer& renderer) {
     }
     bank_vault_nodes_.clear();
     bank_vault_pose_ = -1.0f;
+    bank_loot_nodes_.clear();
+    bank_loot_shown_ = -1;
     if (start_box_mesh_ != kInvalidId) {
         renderer.remove_mesh(start_box_mesh_);
         start_box_mesh_ = kInvalidId;

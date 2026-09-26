@@ -50,6 +50,8 @@ bool validate_game_save(const GameSave& d, std::string& error) {
              d.pistol_reserve < 0 || d.pistol_reserve > kMaxSavedPistolReserve ||
              d.molotov_stock < 0 || d.molotov_stock > kMaxSavedMolotovStock)
         error = "Invalid saved ammunition.";
+    else if (!valid_bank_heist_save(d.bank_loot_taken, d.bank_restock_step, d.sim_step))
+        error = "Invalid saved bank vault.";
     for (float zone : d.car_damage.zones) if (!range(zone,0,1)) error = "Invalid saved damage.";
     for (const auto& s : d.car_damage.stamps) {
         if (!range(s.contact_xz.x,-1,1) || !range(s.contact_xz.y,-1,1) || !range(s.severity,0,1) || !range(s.motion_angle,-10000,10000) || !range(s.radius,0,1) || !range(s.height,0,1) || !range(s.glancing,0,1)) error = "Invalid saved dent.";
@@ -94,8 +96,9 @@ bool encode_game_save(const GameSave& d, std::string& bytes, std::string& error)
       << int(d.car_paint.g) << ' ' << int(d.car_paint.b) << '\n';
     b << d.economy.cash << ' ' << int(d.economy.owned_weapons) << ' ' << d.pistol_magazine << ' '
       << d.pistol_reserve << ' ' << d.molotov_stock << '\n';
+    b << int(d.bank_loot_taken) << ' ' << d.bank_restock_step << '\n';
     const auto body = b.str();
-    bytes = "APRICOT_SAVE 5\n" + std::to_string(checksum(body)) + "\n" + body;
+    bytes = "APRICOT_SAVE 6\n" + std::to_string(checksum(body)) + "\n" + body;
     return true;
 }
 
@@ -105,10 +108,10 @@ bool decode_game_save(const std::string& bytes, GameSave& out, std::string& erro
     const auto first = bytes.find('\n'), second = first == std::string::npos ? first : bytes.find('\n',first+1);
     if (first == std::string::npos || second == std::string::npos) return false;
     // Each version appends one row to the one before: 2 the trailer, 3 the
-    // plate, 4 the paint, 5 the wallet and ammunition. Rows are never
-    // reordered, so older bodies still parse.
+    // plate, 4 the paint, 5 the wallet and ammunition, 6 the bank vault.
+    // Rows are never reordered, so older bodies still parse.
     int version=0;
-    for (int v=1;v<=5;++v) if (bytes.compare(0,first,"APRICOT_SAVE "+std::to_string(v))==0) version=v;
+    for (int v=1;v<=6;++v) if (bytes.compare(0,first,"APRICOT_SAVE "+std::to_string(v))==0) version=v;
     if (version==0) { error = "Unsupported save version."; return false; }
     uint64_t expected = 0;
     std::istringstream header(bytes.substr(first+1,second-first-1));
@@ -162,6 +165,13 @@ bool decode_game_save(const std::string& bytes, GameSave& out, std::string& erro
         if (owned<0 || owned>255) return false;
         d.economy.cash=cash;
         d.economy.owned_weapons=static_cast<uint8_t>(owned);
+    }
+    // Before version 6 the vault was not saved: it loads stocked.
+    if (version>=6) {
+        int taken=-1;
+        b >> taken >> d.bank_restock_step;
+        if (taken<0 || taken>255) return false;
+        d.bank_loot_taken=static_cast<uint8_t>(taken);
     }
     if (!b || !(b >> std::ws).eof() || failed < 0 || failed > 1) return false;
     if (version<3 && d.car_model>=0 && d.car_model<static_cast<int>(kPlayerCarCount))

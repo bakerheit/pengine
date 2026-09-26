@@ -66,6 +66,7 @@
 #include "game/aircraft.h"
 #include "game/helicopter.h"
 #include "game/wreck_explosion.h"
+#include "game/bank_heist.h"
 #include "game/car_bomb.h"
 #include "game/boat.h"
 #include "gfx/camera.h"
@@ -157,6 +158,9 @@ public:
     void set_car_bomb_check(bool enabled) { car_bomb_check_=enabled; if (enabled) vehicle_god_mode_=true; }
     bool car_bomb_check_passed() const;
     unsigned car_bomb_check_captures() const { return car_bomb_check_captures_; }
+    void set_heist_check(bool enabled) { heist_check_=enabled; }
+    bool heist_check_passed() const;
+    unsigned heist_check_captures() const { return heist_check_captures_; }
     bool paint_check_passed() const;
     unsigned paint_check_bits() const { return paint_check_bits_; }
     unsigned paint_check_captures() const { return paint_check_captures_; }
@@ -657,6 +661,28 @@ private:
     unsigned car_bomb_check_bites_before_=0;
     void tick_car_bomb_check();
     void capture_car_bomb_check();
+    // The bank heist: rules in game/bank_heist.h, the App glue in
+    // src/app/heist_gameplay.cpp.
+    BankHeistState bank_heist_;
+    unsigned heist_caught_seen_=0;  // arrests + deaths already settled against the take
+    float heist_card_s_=0, heist_bell_wait_s_=0;
+    const char* heist_card_title_="";
+    std::string heist_card_line_;
+    PcmClip heist_bell_clip_;
+    bool try_bank_heist_grab();
+    void step_bank_heist_rules();
+    void reset_bank_heist(const BankHeistState& state);
+    void draw_bank_heist_hud(glm::vec2 vp);
+    // --heist-check. See src/app/heist_check.cpp.
+    bool heist_check_=false, heist_check_done_=false, heist_check_failed_=false;
+    int heist_check_phase_=0, heist_check_mark_=0, heist_check_cop_frames_=0;
+    std::size_t heist_check_leg_=0, heist_check_getaway_=0;
+    unsigned heist_check_captures_=0, heist_check_capture_bit_=0;
+    std::string heist_check_capture_;
+    int64_t heist_check_cash_before_=0;
+    void tick_heist_check();
+    void capture_heist_check();
+    InputFrame heist_check_input();
     bool on_foot_ = true;
     VehicleTransitionState vehicle_transition_;
     bool transition_waiting_=false;

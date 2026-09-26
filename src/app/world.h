@@ -118,6 +118,8 @@ public:
     struct BellwetherLight { glm::vec3 position{};float radius=0;float strength=0; };
     const std::vector<BellwetherLight>& bellwether_lights() const { return bellwether_lights_; }
     void sync_bank_vault(Scene& scene, TerrainCollider& collider, float openness);
+    // The heist's cash piles (city/bank_heist_layout.h); bit i hides pile i.
+    void sync_bank_loot(Scene& scene, uint8_t taken);
     void reset_session_objects(Scene& scene, TerrainCollider& collider);
     void step_house_doors(Scene& scene,TerrainCollider& collider,
         const PlayerCharacterState* actor,const CharacterTuning& tuning,
@@ -324,6 +326,8 @@ private:
     std::vector<NodeId> bank_vault_nodes_;
     std::size_t bank_vault_collider_ = static_cast<std::size_t>(-1);
     float bank_vault_pose_ = -1.0f;
+    std::vector<std::vector<NodeId>> bank_loot_nodes_;
+    int bank_loot_shown_ = -1;  // the taken mask last applied; -1 forces one
     CanopyLightRig canopy_lights_;
     uint64_t seed_ = 0;
 
