@@ -79,6 +79,8 @@ void print_usage() {
         "  --clear          clear weather for visual QA\n"
         "  --weather NAME   force clear, sunshower, overcast, rain, storm, thunderstorm, snow, blizzard, tornado, flood, hail, or heatwave\n"
         "  --snow-depth M   pin accumulated snow depth from 0.0 to 1.5 metres\n"
+        "  --vehicle-snow-load L  start the player car carrying snow L (0..1), as if\n"
+        "                   it had just driven in from open weather\n"
         "  --snowplow-check follow a working traffic plow; use --weather snow --snow-depth 0.18\n"
         "  --snowplow-refill-seconds N age actual cleared paths before final --frames image (QA)\n"
         "  --seed N         reproduce a session weather sequence\n"
@@ -173,6 +175,7 @@ int main(int argc, char** argv) {
     bool weather_preset_set = false;
     float snow_depth_m = -1.0f;
     bool snow_depth_set = false;
+    float start_vehicle_snow_load = -1.0f;
     bool snowplow_check = false;
     float snowplow_refill_preview_seconds = 0.0f;
     apricot::PlayerCarId start_car=apricot::PlayerCarId::LegacyCar5;
@@ -283,6 +286,16 @@ int main(int argc, char** argv) {
             if (errno || end==argv[i] || *end || !std::isfinite(snowplow_refill_preview_seconds) ||
                 snowplow_refill_preview_seconds<0.0f || snowplow_refill_preview_seconds>86400.0f) {
                 std::fprintf(stderr,"--snowplow-refill-seconds needs 0..86400 seconds\n");
+                return 2;
+            }
+            continue;
+        }
+        if (std::strcmp(a,"--vehicle-snow-load")==0) {
+            char* end=nullptr;
+            if (++i<argc) start_vehicle_snow_load=std::strtof(argv[i],&end);
+            if (i>=argc || end==argv[i] || *end || !std::isfinite(start_vehicle_snow_load) ||
+                start_vehicle_snow_load<0.0f || start_vehicle_snow_load>1.0f) {
+                std::fprintf(stderr,"--vehicle-snow-load needs a load from 0.0 to 1.0\n");
                 return 2;
             }
             continue;
@@ -699,6 +712,7 @@ int main(int argc, char** argv) {
     app.set_clear_weather(clear_weather);
     if (weather_preset_set) app.set_weather_preset(weather_preset);
     if (snow_depth_set) app.set_snow_depth_override(snow_depth_m);
+    app.set_start_vehicle_snow_load(start_vehicle_snow_load);
     app.set_snowplow_check(snowplow_check);
     app.set_snowplow_refill_preview(snowplow_refill_preview_seconds);
     app.set_vehicle_preview(start_car,start_driving);

@@ -55,6 +55,12 @@ struct Renderable {
     glm::vec4 body_damage0{0.0f};
     glm::vec4 body_damage1{0.0f};
     glm::vec4 deform_frame{0.0f};
+
+    // Vehicle-only snow the body carries (game/vehicle_snow_load.h), [0, 1].
+    // Negative, the default, is every world prop: it keeps reading the ground
+    // snow field at its own position. Per-instance for the same batching
+    // reason as the damage above.
+    float snow_load = -1.0f;
 };
 
 struct SceneNode {

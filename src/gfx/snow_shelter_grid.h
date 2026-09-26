@@ -39,7 +39,8 @@ struct SnowShelterGrid {
                 ? glm::vec4{box.axis_x,box.axis_z} : glm::vec4{1,0,0,1});
             roofs.push_back({box.oriented ? box.centre.x : 0.f,
                              box.oriented ? box.centre.z : 0.f,
-                             box.bounds.min.y-SnowShelterField::kRoofClearanceM,0.f});
+                             box.bounds.min.y-SnowShelterField::kRoofClearanceM,
+                             box.open_sided ? 1.f : 0.f});
             roofs.push_back({box.bounds.min.x,box.bounds.min.z,
                              box.bounds.max.x,box.bounds.max.z});
         }
@@ -105,6 +106,36 @@ struct SnowShelterGrid {
             if(p.x>=local.x && p.y>=local.y && p.x<=local.z && p.y<=local.w) return true;
         }
         return false;
+    }
+
+    // lit.frag's snow_shelter_exposure(), line for line, over the packed data.
+    // Pinned against SnowShelterField::exposure() so physics grip and drawn
+    // drift agree to rounding.
+    float exposure(glm::vec3 point) const {
+        if(columns==0 || rows==0 || !std::isfinite(point.x) ||
+            !std::isfinite(point.y) || !std::isfinite(point.z)) return 1.f;
+        const glm::vec2 cell=glm::floor((glm::vec2{point.x,point.z}-origin)/cell_size);
+        if(cell.x<0 || cell.y<0 || cell.x>=static_cast<float>(columns) ||
+            cell.y>=static_cast<float>(rows)) return 1.f;
+        const auto span=cells[static_cast<std::size_t>(cell.y)*static_cast<std::size_t>(columns)+
+                              static_cast<std::size_t>(cell.x)];
+        float result=1.f;
+        for(uint32_t i=0;i<span.y;++i) {
+            const std::size_t base=static_cast<std::size_t>(indices[span.x+i])*4u;
+            const auto local=roofs[base]; const auto axes=roofs[base+1];
+            const auto anchor=roofs[base+2]; const auto broad=roofs[base+3];
+            if(point.y>=anchor.z || point.x<broad.x || point.z<broad.y ||
+                point.x>broad.z || point.z>broad.w) continue;
+            const glm::vec2 delta=glm::vec2{point.x,point.z}-glm::vec2{anchor};
+            const glm::vec2 p{glm::dot(delta,glm::vec2{axes.x,axes.y}),
+                              glm::dot(delta,glm::vec2{axes.z,axes.w})};
+            if(!(p.x>=local.x && p.y>=local.y && p.x<=local.z && p.y<=local.w)) continue;
+            if(anchor.w<.5f) return 0.f;
+            const float edge=std::min(std::min(p.x-local.x,local.z-p.x),
+                                      std::min(p.y-local.y,local.w-p.y));
+            result=std::min(result,snow_drift_exposure(edge,anchor.z-point.y));
+        }
+        return result;
     }
 };
 

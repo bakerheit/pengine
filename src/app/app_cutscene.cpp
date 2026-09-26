@@ -12,6 +12,8 @@
 namespace apricot {
 void App::begin_new_game() {
     snow_clearance_ = {};
+    traffic_snow_loads_.clear();
+    player_snow_load_ = -1.0f;
     snowplow_service_.reset();
     // Load the complete production scene before changing session state.
     std::string error;

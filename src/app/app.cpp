@@ -1807,6 +1807,50 @@ void App::apply_ui_settings() {
     ui_settings_applied_ = true;
 }
 
+VehicleSnowWeather App::vehicle_snow_weather() const {
+    return {conditions_.snow_cover, conditions_.snow, conditions_.heatwave};
+}
+
+void App::step_vehicle_snow() {
+    const VehicleSnowWeather weather = vehicle_snow_weather();
+    const float dt = static_cast<float>(kSimDt);
+    const auto roof_exposure = [&](glm::vec3 roof) {
+        return snow_shelter_.exposure(roof.x, roof.y, roof.z);
+    };
+
+    vehicle_snow_samples_.clear();
+    for (const VehicleAgent& agent : world_.traffic().vehicles()) {
+        VehicleSnowSample sample;
+        sample.lane_key = agent.lane_key;
+        sample.slot = agent.slot;
+        sample.generation = agent.generation;
+        sample.roof_exposure = roof_exposure(
+            agent.pos + glm::vec3{0.0f, kVehicleSnowRoofAboveGroundM, 0.0f});
+        sample.speed_mps = agent.speed_mps;
+        vehicle_snow_samples_.push_back(sample);
+    }
+    traffic_snow_loads_.step(vehicle_snow_samples_, weather, dt);
+
+    // car_.position is the body's centre of mass, about a metre under the roof.
+    const glm::vec3 roof = car_.position + glm::vec3{0.0f, 1.0f, 0.0f};
+    const float exposure = roof_exposure(roof);
+    const PlayerCarId car = car_visual_.active_car();
+    // A different car, or one teleported by a load or a reset: seed afresh.
+    const bool moved_away = glm::distance(car_.position, player_snow_position_) > 15.0f;
+    if (player_snow_load_ < 0.0f || car != player_snow_car_ || moved_away) {
+        player_snow_load_ = start_vehicle_snow_load_ >= 0.0f
+            ? std::min(start_vehicle_snow_load_, 1.0f)
+            : seed_vehicle_snow_load(exposure, weather);
+        start_vehicle_snow_load_ = -1.0f;
+    } else {
+        player_snow_load_ = step_vehicle_snow_load(
+            player_snow_load_, exposure, glm::length(car_.velocity), !on_foot_,
+            weather, dt);
+    }
+    player_snow_car_ = car;
+    player_snow_position_ = car_.position;
+}
+
 void App::update_weather(bool step_snowpack) {
     dev_menu_.set_snow_depth_m(controls_.snow_depth_override_m);
     conditions_=conditions_at(seed_,step_index_);
@@ -4496,6 +4540,7 @@ int App::run() {
             add_ms(sim_police_ms_, police_t1);
             snowplow_service_.step(world_.traffic().vehicles(), snow_clearance_,
                                     conditions_.snow_depth_m);
+            step_vehicle_snow();
             traffic_horn_audio_.update(step_index_,world_.traffic().vehicles(),
                 world_.lanes(),world_.traffic_tuning(),camera_.position);
             const WallClock::time_point traffic_t1 = WallClock::now();
@@ -4763,9 +4808,14 @@ int App::run() {
         const float npc_presentation_radius = interior_presentation_lod_
             ? city::kInteriorNpcPresentationRadiusM : 0.0f;
         trailer_visual_.sync(scene_,prev_trailer_,trailer_,static_cast<float>(clock_.alpha()),visible_headlight_level,brake_level);
+        // With weather effects off the world draws no snow; vehicles follow.
+        const bool vehicle_snow = ui_.settings().weather_effects;
         car_visual_.sync(scene_, tuning_, prev_car_, car_,
                          static_cast<float>(clock_.alpha()),
-                         visible_headlight_level, brake_level);
+                         visible_headlight_level, brake_level,
+                         vehicle_snow ? player_snow_load_ : -1.0f);
+        traffic_visual_.set_snow(vehicle_snow ? &traffic_snow_loads_ : nullptr,
+                                 &snow_shelter_, vehicle_snow_weather());
         car_visual_.sync_emergency(scene_,step_index_,police_emergency_enabled_ &&
             !on_foot_ && !in_aircraft_ && !in_helicopter_ && !in_boat_);
         car_visual_.sync_soft_top(scene_,soft_top_.stowed);

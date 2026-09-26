@@ -17,9 +17,28 @@ fully white at 10 cm in a much deeper pack. Height checks keep road levels
 separate.
 
 Accumulation is excluded beneath authored roofs and ceilings, including
-non-solid interior cover. The same cover geometry controls surface color,
-physical ground snow and local ice warnings. Exposed roofs and open parking
-lots still accumulate snow.
+non-solid interior cover. Open-sided roofs are the exception: a cover whose
+name marks it as a canopy, carport, shelter, awning, gazebo, portico or
+pergola (`city/precipitation_cover.h`) lets snow drift in from its edges. The
+drift is full at the roof line and fades to a 5% dusting over a reach of 0.6 m
+per metre of headroom, capped at 4 m, so the Halloway fuel canopy (5.25 m)
+drifts about 3 m in. Every other roof is treated as a building and leaves its
+floor bare; where roofs overlap, the most sheltering one wins. One function,
+`assets/shaders/snow_drift.glsl`, is compiled into both `lit.frag` and
+`physics/snow_shelter.h`, so surface color, physical ground snow, tyre grip,
+tire marks and local ice warnings all follow the same exposure. Exposed roofs
+and open parking lots still accumulate snow.
+
+Vehicles carry their own snow (`game/vehicle_snow_load.h`) rather than reading
+the ground under them. A load settles while the roof is exposed and snow is
+falling, up to the open-ground cover times the roof's exposure; it holds under
+cover and on plowed roads, sheds above 9 m/s down to a 0.35 floor, and melts
+slowly in the dry, faster with a running engine or a heatwave. The player car
+and moving traffic are stepped at the fixed sim step; ambient parked cars wear
+the steady state at their roof. The player car is seeded from where it starts,
+a stolen traffic car keeps its load, and `--vehicle-snow-load L` starts the
+player car as though it had just driven in from open weather. A parked copy
+left behind when the player switches cars keeps the load it had at that moment.
 
 Vehicle windshields retain two clear wiper sweeps, with snow around the seals
 and curved upper edges. Source-mesh profiles cover all 26 current car/truck
@@ -49,6 +68,18 @@ stacked levels and dense roof overlap. Seven focused suites passed for this
 change. Inspected 300-frame blizzard runs with 0.8 m main snow confirmed a clear
 restaurant floor and snowy outdoor parking, both with clean graphics error
 queues. Images and logs are in `build/qa/snow-interiors/`.
+
+`snow_drift_tests` walks the real Halloway canopy, pins the packed shader grid
+to the CPU exposure, checks tyre depth follows it, and samples every authored
+interior floor in the building-access inventory (58 floors) to prove none
+receives drift. `vehicle_snow_load_tests` steps a car through the real canopy.
+A before/after at the pumps:
+
+```sh
+build/bin/apricot --frames 240 --start-driving --start-at 9.84 -12.15 \
+  --start-heading 6 --weather snow --snow-depth 0.3 --daylight \
+  --vehicle-snow-load 1 --screenshot build/qa/snow-shelter/after-canopy-car.png
+```
 
 This is an autonomous traffic service. The trucks cannot be entered by the
 player. The active fleet follows the existing traffic streaming area; it does
