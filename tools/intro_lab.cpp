@@ -70,7 +70,7 @@ int main(int argc, char** argv) {
         int logical_w, logical_h;
         SDL_GetWindowSize(window.sdl(), &logical_w, &logical_h);
         for (int row = 0; row < 3; ++row) {
-            const auto target = layout.menu_position + glm::vec2{80, row * layout.row_height + 30};
+            const auto target = layout.menu_position + glm::vec2{80, static_cast<float>(row) * layout.row_height + 30};
             const glm::vec2 logical{logical_w, logical_h};
             const auto pointer = canvas.from_window(target / canvas.size * logical, logical);
             if (ui.hit_test(flow, pointer, canvas.size) != row) return 1;

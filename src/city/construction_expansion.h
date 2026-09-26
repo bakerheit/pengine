@@ -78,7 +78,7 @@ inline std::vector<StartPart> bake_steel_frame_annex() {
     add("construction expansion concrete core", 7, 1, .2f, 5, 42, 5,
         StartFinish::Concrete, true);
     for (int floor = 0; floor < 12; ++floor) {
-        const float y = 3.7f + floor * kConstructionFloorHeightM;
+        const float y = 3.7f + static_cast<float>(floor) * kConstructionFloorHeightM;
         add("construction expansion steel floor band", 5, 1, y, 31, .22f,
             21, StartFinish::Steel, true);
         for (float x : {-14.5f, 14.5f})
@@ -126,7 +126,7 @@ inline std::vector<StartPart> bake_concrete_deck_works() {
     add("construction expansion concrete deck slab", 2, 1, .2f, 42, .5f, 25,
         StartFinish::Concrete, true);
     for (int level = 0; level < 4; ++level) {
-        const float y = 1.0f + level * 3.5f;
+        const float y = 1.0f + static_cast<float>(level) * 3.5f;
         add("construction deck floor slab", 2, 1, y, 42, .38f, 25,
             StartFinish::Concrete, true);
         for (float x : {-17.f, -5.f, 7.f, 19.f})
@@ -188,11 +188,11 @@ inline std::vector<StartPart> bake_facade_retrofit() {
             18, .22f, StartFinish::Steel, true);
         for (int level = 0; level < 4; ++level)
             add("construction retrofit scaffold deck", x, -1.0f,
-                3.1f + level * 3.8f, 7.7f, .18f, 1.1f,
+                3.1f + static_cast<float>(level) * 3.8f, 7.7f, .18f, 1.1f,
                 StartFinish::Steel);
     }
     for (int level = 0; level < 4; ++level) {
-        const float y = 3.1f + level * 3.8f;
+        const float y = 3.1f + static_cast<float>(level) * 3.8f;
         add("construction retrofit scaffold rail", 3, -1.6f, y + .45f, 32,
             .12f, .12f, StartFinish::RedTrim);
     }
@@ -230,11 +230,11 @@ inline std::vector<StartPart> bake_demolition_parcel() {
     add("construction demolition broken slab east", 13, -1, 4.8f, 12, .45f, 7,
         StartFinish::Concrete, true);
     for (int i = 0; i < 6; ++i) {
-        const float x = -18.f + (i % 3) * 4.5f;
-        const float z = 9.f + (i / 3) * 3.0f;
+        const float x = -18.f + static_cast<float>(i % 3) * 4.5f;
+        const float z = 9.f + static_cast<float>(i / 3) * 3.0f;
         add("construction demolition rubble pile", x, z, .2f,
-            3.4f - (i % 2) * .5f, 1.0f + (i % 3) * .35f,
-            2.2f + (i % 2) * .5f, StartFinish::Concrete, true);
+            3.4f - static_cast<float>(i % 2) * .5f, 1.0f + static_cast<float>(i % 3) * .35f,
+            2.2f + static_cast<float>(i % 2) * .5f, StartFinish::Concrete, true);
     }
     add("construction demolition excavator body", 16, 8, .2f, 4.5f, 1.8f,
         2.8f, StartFinish::Yellow, true);
@@ -288,7 +288,7 @@ inline std::vector<StartPart> bake_twin_skyscraper_block(std::size_t index) {
             StartFinish::Steel, true);
     const auto tower = [&](float x, int floors, StartFinish trim) {
         const float base = 7.75f;
-        const float height = floors * kConstructionFloorHeightM;
+        const float height = static_cast<float>(floors) * kConstructionFloorHeightM;
         constexpr int window_bays=5;
         constexpr float front_rear_span=15.3f;
         constexpr float side_span=15.3f;
@@ -305,7 +305,7 @@ inline std::vector<StartPart> bake_twin_skyscraper_block(std::size_t index) {
             2*core_half_width, height, 2*core_half_depth,
             StartFinish::Steel, true);
         for (int floor = 0; floor <= floors; ++floor) {
-            const float y = base + floor * kConstructionFloorHeightM;
+            const float y = base + static_cast<float>(floor) * kConstructionFloorHeightM;
             add("twin tower floor spandrel", x, 1, y,
                 2*(core_half_width+.75f), .30f,
                 2*(core_half_depth+.75f), trim);

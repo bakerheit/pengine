@@ -571,7 +571,7 @@ PcmClip synth_surface_roll(AudioSurface surface, float seconds,
             return clip;
     }
 
-    Noise noise(0x50FACE00ull ^ static_cast<uint64_t>(surface));
+    Noise noise(uint64_t{0x50FACE00} ^ static_cast<uint64_t>(surface));
     OnePole body;
     body.set(p.body_hz, sr);
     OnePole rumble;
@@ -588,7 +588,7 @@ PcmClip synth_surface_roll(AudioSurface surface, float seconds,
     // every naive surface loop sounds like, and it is why they all sound like
     // the same tape hiss at different cutoffs. Individual stones give it grain.
     if (p.grit > 0.01) {
-        Noise hit(0x9B17CE55ull ^ static_cast<uint64_t>(surface));
+        Noise hit(uint64_t{0x9B17CE55} ^ static_cast<uint64_t>(surface));
         const double span = static_cast<double>(raw.size()) / sr;
         const int count = static_cast<int>(p.strikes_per_sec * span);
         for (int k = 0; k < count; ++k) {

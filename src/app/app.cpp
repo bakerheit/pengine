@@ -572,7 +572,7 @@ bool App::init() {
             for (int i = 0; i < 3; ++i) {
                 const float strength = 0.35f + 0.65f *
                     (0.5f + 0.5f * std::sin(phase - static_cast<float>(i)));
-                hud_.rect({left + i * 12.0f, y + 11}, {left + i * 12.0f + 5, y + 16},
+                hud_.rect({left + static_cast<float>(i) * 12.0f, y + 11}, {left + static_cast<float>(i) * 12.0f + 5, y + 16},
                           {0.86f, 0.20f, 0.14f, alpha * strength});
             }
             hud_.text(stage, {left + 52, y}, 19, {0.75f, 0.74f, 0.69f, alpha});

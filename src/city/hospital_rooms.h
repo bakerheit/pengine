@@ -169,7 +169,7 @@ inline std::vector<StartPart> bake_hospital_rooms() {
                 if(!(digits[numbers[digit]] & (1u<<segment)))continue;
                 const bool horizontal=segment==0 || segment==3 || segment==6;
                 out.push_back({"hospital patient room number",
-                    {label_x+(digit-1)*0.18f+segment_x[segment],room.z1+0.162f},
+                    {label_x+static_cast<float>(digit-1)*0.18f+segment_x[segment],room.z1+0.162f},
                     1.74f+segment_y[segment]-(horizontal?0.0075f:0.035f),
                     horizontal?0.075f:0.015f,horizontal?0.015f:0.07f,0.015f,
                     StartFinish::TealDoor,false});

@@ -472,7 +472,8 @@ struct Editor {
             if (ImGui::Button(doc.shots[i].name.c_str(),{std::max(20.f,(available-3*static_cast<float>(doc.shots.size()))*doc.shots[i].duration/doc.duration()),30})) {
                 shot=static_cast<int>(i);time=doc.shot_start(i);playing=false;free_camera=false;seek=true;
             }
-            if (current) ImGui::PopStyleColor();ImGui::PopID();
+            if (current) ImGui::PopStyleColor();
+            ImGui::PopID();
         }
         ImGui::Separator();ImGui::TextWrapped("%s",status.c_str());ImGui::End();
     }
@@ -488,7 +489,7 @@ struct Editor {
                 if (e.window.event==SDL_WINDOWEVENT_FOCUS_LOST) {mouse_look=false;SDL_SetRelativeMouseMode(SDL_FALSE);}
             }
             if (e.type==SDL_MOUSEBUTTONDOWN&&e.button.button==SDL_BUTTON_RIGHT&&
-                (viewer||(e.button.x>=kSidebar&&e.button.y>=kTop&&e.button.y<height-kBottom))) {
+                (viewer||(static_cast<float>(e.button.x)>=kSidebar&&static_cast<float>(e.button.y)>=kTop&&static_cast<float>(e.button.y)<height-kBottom))) {
                 mouse_look=true;free_camera=true;playing=false;SDL_SetRelativeMouseMode(SDL_TRUE);
             }
             if (e.type==SDL_MOUSEBUTTONUP&&e.button.button==SDL_BUTTON_RIGHT) {
@@ -591,7 +592,8 @@ struct Editor {
                 ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());gl_state::invalidate_all();
                 if (!capture_path.empty()&&(!frame_limit||frames+1>=frame_limit)) {
                     if (!screenshot(window,capture_path)) {status="Screenshot failed.";++errors;}
-                    else status="Screenshot saved.";capture_path.clear();
+                    else status="Screenshot saved.";
+                    capture_path.clear();
                 }
                 if (!export_dir.empty()) {
                     char filename[40];std::snprintf(filename,sizeof(filename),"frame-%05d.png",frames);

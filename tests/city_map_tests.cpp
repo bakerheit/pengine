@@ -669,8 +669,8 @@ void the_causeway_is_the_only_way_onto_camber_point() {
     for (int z = 0; z < kRows; ++z) {
         for (int x = 0; x < kCols; ++x) {
             dry[static_cast<std::size_t>(cell(x, z))] =
-                height_at(kMapSeed, kMinX + x * kStep,
-                          kMinZ + z * kStep) > kSeaLevelMetres;
+                height_at(kMapSeed, kMinX + static_cast<float>(x) * kStep,
+                          kMinZ + static_cast<float>(z) * kStep) > kSeaLevelMetres;
         }
     }
 
@@ -747,7 +747,7 @@ void the_causeway_is_the_only_way_onto_camber_point() {
         }
         bottleneck_cells = std::min(bottleneck_cells, hi - lo + 1);
     }
-    const float bridge_width = bottleneck_cells * kStep;
+    const float bridge_width = static_cast<float>(bottleneck_cells) * kStep;
 
     std::printf("\n  Camber channel: %d connected land bridge(s); narrowest "
                 "cross-section %.0f m\n",

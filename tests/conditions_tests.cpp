@@ -28,7 +28,7 @@ using namespace apricot;
 namespace {
 
 uint64_t nth_seed(int i) {
-    return splitmix64_mix(0xB0A7C10Dull + static_cast<uint64_t>(i));
+    return splitmix64_mix(uint64_t{0xB0A7C10D} + static_cast<uint64_t>(i));
 }
 
 void test_conditions_are_pure_and_bounded() {

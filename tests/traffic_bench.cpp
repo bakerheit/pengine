@@ -378,7 +378,7 @@ void bench_push_to_failure(const LaneGraph& lanes) {
         t.max_peds = 4000000u;
         const Run r = measure(lanes, t, density(g.density_mul), 180, 90);
         check_not_vacuous(r, "ladder2");
-        char tag[8];
+        char tag[16];
         std::snprintf(tag, sizeof(tag), "%gx", static_cast<double>(g.density_mul));
         print_row(tag, r);
         if (r.per_step.total() <= kStepBudgetMs) last_under = r;

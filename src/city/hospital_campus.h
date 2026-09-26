@@ -145,7 +145,7 @@ inline std::vector<StartPart> bake_hospital_campus() {
             add("hospital wing roof", c.x, c.z, 0.25f + wing_height,
                 53.6f, 0.30f, 37.6f, StartFinish::DarkRoof, true);
             for (int floor = 0; floor < kHospitalFloorCount; ++floor) {
-                const float sill = 1.05f + floor * kHospitalFloorHeightM;
+                const float sill = 1.05f + static_cast<float>(floor) * kHospitalFloorHeightM;
                 add("hospital wing front glazing west", c.x - 15.0f,
                     c.z - 17.91f, sill, 19.0f, 1.75f, 0.05f,
                     StartFinish::Glass);
@@ -155,7 +155,7 @@ inline std::vector<StartPart> bake_hospital_campus() {
                 add("hospital wing rear glazing", c.x, c.z + 17.91f, sill,
                     45.0f, 1.75f, 0.05f, StartFinish::Glass);
                 add("hospital wing floor band", c.x, c.z - 18.0f,
-                    0.25f + (floor + 1) * kHospitalFloorHeightM - 0.18f,
+                    0.25f + static_cast<float>(floor + 1) * kHospitalFloorHeightM - 0.18f,
                     53.5f, 0.20f, 0.22f, StartFinish::Steel, true);
             }
         }
@@ -165,13 +165,13 @@ inline std::vector<StartPart> bake_hospital_campus() {
     // the nine wings into one hospital while leaving paved courts around them.
     for (int row = 0; row < 3; ++row) {
         for (int seam = 0; seam < 2; ++seam) {
-            const float x = 46.0f + seam * kHospitalBlockStepXM;
-            const float z = row * kHospitalBlockStepZM;
+            const float x = 46.0f + static_cast<float>(seam) * kHospitalBlockStepXM;
+            const float z = static_cast<float>(row) * kHospitalBlockStepZM;
             add("hospital east west connector core", x, z, 0.25f,
                 39.0f, kHospitalHeightM, 12.0f,
                 StartFinish::Concrete, true);
             for (int floor = 0; floor < kHospitalFloorCount; ++floor) {
-                const float sill = 1.05f + floor * kHospitalFloorHeightM;
+                const float sill = 1.05f + static_cast<float>(floor) * kHospitalFloorHeightM;
                 add("hospital east west connector glazing", x, z - 6.08f,
                     sill, 35.0f, 1.75f, 0.06f, StartFinish::Glass);
                 add("hospital east west connector glazing", x, z + 6.08f,
@@ -184,13 +184,13 @@ inline std::vector<StartPart> bake_hospital_campus() {
     }
     for (int row_seam = 0; row_seam < 2; ++row_seam) {
         for (int column = 0; column < 3; ++column) {
-            const float x = column * kHospitalBlockStepXM;
-            const float z = 31.0f + row_seam * kHospitalBlockStepZM;
+            const float x = static_cast<float>(column) * kHospitalBlockStepXM;
+            const float z = 31.0f + static_cast<float>(row_seam) * kHospitalBlockStepZM;
             add("hospital north south connector core", x, z, 0.25f,
                 12.0f, kHospitalHeightM, 25.0f,
                 StartFinish::WarmWall, true);
             for (int floor = 0; floor < kHospitalFloorCount; ++floor) {
-                const float sill = 1.05f + floor * kHospitalFloorHeightM;
+                const float sill = 1.05f + static_cast<float>(floor) * kHospitalFloorHeightM;
                 add("hospital north south connector glazing", x - 6.08f, z,
                     sill, 0.06f, 1.75f, 21.0f, StartFinish::Glass);
                 add("hospital north south connector glazing", x + 6.08f, z,
@@ -264,7 +264,7 @@ inline std::vector<StartPart> bake_hospital_campus() {
     add("hospital garage ground deck", garage_x, garage_z, 0.10f,
         kHospitalGarageWidthM, 0.20f, 37.0f, StartFinish::Concrete, true);
     for (int level = 1; level <= 2; ++level) {
-        const float deck = 0.10f + level * 3.7f;
+        const float deck = 0.10f + static_cast<float>(level) * 3.7f;
         // Three slabs leave a real 9.6 x 12.5 m stair opening against the
         // north facade while preserving the driving deck around it.
         add("hospital garage upper deck", -22.9f, garage_z, deck,
@@ -281,7 +281,7 @@ inline std::vector<StartPart> bake_hospital_campus() {
             StartFinish::Concrete, true);
     }
     for (int level = 0; level < 3; ++level) {
-        const float bottom = 0.22f + level * 3.7f;
+        const float bottom = 0.22f + static_cast<float>(level) * 3.7f;
         for (float x : {-68.0f, -34.0f, 0.0f, 34.0f, 68.0f}) {
             if (x != 0.0f) {
                 add("hospital garage column", garage_x + x,
