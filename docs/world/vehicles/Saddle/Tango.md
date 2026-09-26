@@ -62,6 +62,15 @@ Generated design references, shown here as the visual target.
 ![Saddle Tango — top](../../../design/references/saddle_tango/top.png)
 
 
+## Performance
+
+| Metric | Value |
+|---|---|
+| Top speed | 180.8 mph |
+| 0–60 mph | 4.5 s |
+
+Measured in the headless game-physics benchmark using **Classic GTA**, the default driving preset, on flat dry ground. Values describe the current gameplay tuning. See [conditions, source snapshot and full roster](../performance.md).
+
 ## Game files
 
 - Model key: `saddle_tango`.

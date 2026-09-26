@@ -8,6 +8,8 @@
 
 Calm, front-biased early-90s sedan.
 
+**Class 3 — design and detail benchmark.** User-designated reference for bringing Class 1 and Class 2 vehicles up to the same standard of design, model detail, documentation and reference imagery. See [vehicle quality classes](../quality-classes.md).
+
 ## Images
 
 ![Pizaz Constant — game screenshot from the local model work](../images/pizaz-constant.png)
@@ -24,6 +26,7 @@ Image origins are recorded in the [source manifest](../images/sources.json).
 |---|---|
 | Manufacturer | [Pizaz](../Pizaz.md) |
 | Model | Constant |
+| Quality class | **Class 3** — user-designated benchmark |
 | Status | Present in the local working catalog; integration is still in progress |
 | Vehicle role | calm, front-biased early-90s sedan |
 | In-game mass | 1,510 kg |
@@ -32,6 +35,12 @@ Image origins are recorded in the [source manifest](../images/sources.json).
 | Tire radius | 0.320 m |
 
 Dimensions and mass describe the game model and handling setup. Prices, production figures and unrecorded history remain undefined.
+
+## Class 3 benchmark
+
+Use this vehicle's selected concept, directional references, model renders and documentation together when refining another vehicle. Match the care given to proportions, body surfaces, panel seams, trim, lamps, wheels, transparent glass, cabin and visible inner door surfaces. Preserve the vehicle being upgraded's own manufacturer identity, era and body style.
+
+The Class 3 designation recognizes the design, detail and supporting documentation approved by the user. Runtime integration and verification retain their own status in the model information and review records.
 
 ## Reference photos
 
@@ -84,6 +93,15 @@ Archived studio renders from the local Constant modeling work. These show the au
 ### Constant model — Doors open
 
 ![Constant model — Doors open](../images/pizaz-constant-model-doors-open.png)
+
+## Performance
+
+| Metric | Value |
+|---|---|
+| Top speed | 146.1 mph |
+| 0–60 mph | 4.9 s |
+
+Measured in the headless game-physics benchmark using **Classic GTA**, the default driving preset, on flat dry ground. Values describe the current gameplay tuning. See [conditions, source snapshot and full roster](../performance.md).
 
 ## Game files
 

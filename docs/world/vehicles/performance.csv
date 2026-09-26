@@ -1,0 +1,39 @@
+brand,model,mesh,texture,top_speed_mph,zero_to_60_s,peak_speed_mph,run_seconds,settled
+ALDER,PIP,models/vehicles/alder_pip/body.emesh,textures/vehicles/alder_pip/body.png,111.979,4.4547,112.015,40.0,true
+ALDER,RIDGE,models/vehicles/alder_ridge/body.emesh,textures/vehicles/alder_ridge/body.png,125.220,4.6125,125.249,40.0,true
+ALDER,WAYFARER,models/vehicles/alder_wayfarer/body.emesh,textures/vehicles/alder_wayfarer/body.png,134.839,4.8203,134.862,45.0,true
+BWC,360,models/vehicles/bwc_360/body.emesh,textures/vehicles/bwc_360/body.png,176.935,5.1914,176.952,70.0,true
+EMBER,GT,models/vehicles/ember_gt/body.emesh,textures/vehicles/ember_gt/body.png,221.538,3.7241,221.561,100.0,true
+FANG,VENOM,models/vehicles/fang_venom_v2/body.emesh,textures/vehicles/fang_venom_v2/body.png,,3.7940,129.085,180.0,false
+GLM,LUNGE,models/vehicles/glm_lunge/body_surface.emesh,textures/vehicles/glm_lunge/body_surface.png,184.602,3.6222,184.629,50.0,true
+GLM,MERIDIAN,models/vehicles/glm_meridian/body.emesh,textures/vehicles/glm_meridian/body.png,146.472,5.0712,146.493,50.0,true
+GLM,ZIP,models/vehicles/glm_zip/body_surface.emesh,textures/vehicles/glm_zip/body_surface.png,173.362,3.5832,173.390,45.0,true
+HARROW,CITYLINER BUS,models/vehicles/harrow_cityliner/body.emesh,textures/vehicles/harrow_cityliner/body.png,91.522,4.8518,91.549,40.0,true
+HARROW,HAULER SEMI,models/vehicles/harrow_hauler/body.emesh,textures/vehicles/harrow_hauler/body.png,105.375,3.8526,105.414,40.0,true
+HARROW,HOOKLINE,models/vehicles/harrow_hookline/body.emesh,textures/vehicles/harrow_hookline/body.png,138.467,5.0333,138.493,45.0,true
+HARROW,PARCEL,models/vehicles/harrow_parcel/body.emesh,textures/vehicles/harrow_parcel/body.png,115.595,4.2576,115.629,40.0,true
+HARROW,WORKMAN,models/vehicles/harrow_workman/body_surface.emesh,textures/vehicles/harrow_workman/body_surface.png,125.224,4.1813,125.257,40.0,true
+KARLSDALE,LUX,models/vehicles/halcyon_sovereign/body.emesh,textures/vehicles/halcyon_sovereign/body.png,126.430,4.3868,126.451,40.0,true
+KARLSDALE,REGENT EIGHT,models/vehicles/montrose_regent_eight/body_surface.emesh,textures/vehicles/montrose_regent_eight/body_surface.png,83.490,6.1534,83.518,40.0,true
+KARLSDALE,SIX SEDAN,models/vehicles/halcyon_six/body_surface.emesh,textures/vehicles/halcyon_six/body_surface.png,93.119,5.7241,93.150,40.0,true
+LEGACY,CAR 5,models/vehicles/car5/body.emesh,textures/vehicles/car5/body.png,160.518,3.9397,160.542,45.0,true
+LEGACY,CAR 5-NEXT,models/vehicles/car5_next/body.emesh,textures/vehicles/car5/body.png,163.729,3.7799,163.755,45.0,true
+LEGACY,CAR 5-NEXT PATROL,models/vehicles/car5_next_police/body.emesh,textures/vehicles/car5_next_police/body.png,170.149,4.1811,170.169,55.0,true
+LEGACY,CAR 8,models/vehicles/car8/body.emesh,textures/vehicles/car8/body.png,134.852,3.9386,134.881,40.0,true
+LEGACY,CAR 8 AMBULANCE,models/vehicles/car8/body.emesh,textures/vehicles/car8/ambulance.png,128.434,4.2767,128.463,40.0,true
+MUNICIPAL,AMBULANCE,models/vehicles/ambulance/body.emesh,textures/vehicles/ambulance/body.png,163.938,4.8975,163.960,50.0,true
+MUNICIPAL,CRUISER 91-A SQUARE,models/vehicles/municipal_cruiser_91a/body.emesh,textures/vehicles/municipal_cruiser_91a/body.png,157.465,4.5939,157.485,50.0,true
+MUNICIPAL,CRUISER 91-B AERO,models/vehicles/municipal_cruiser_91b/body.emesh,textures/vehicles/municipal_cruiser_91b/body.png,165.442,4.1114,165.466,45.0,true
+MUNICIPAL,CRUISER 91-C PURSUIT,models/vehicles/municipal_cruiser_91c/body.emesh,textures/vehicles/municipal_cruiser_91c/body.png,170.961,4.1323,170.982,50.0,true
+MUNICIPAL,CRUISER 91-D METRO,models/vehicles/municipal_cruiser_91d/body.emesh,textures/vehicles/municipal_cruiser_91d/body.png,152.501,4.1020,152.527,45.0,true
+MUNICIPAL,CRUISER 91-E HIGHWAY,models/vehicles/municipal_cruiser_91e/body.emesh,textures/vehicles/municipal_cruiser_91e/body.png,170.710,4.2743,170.732,50.0,true
+MUNICIPAL,FIRETRUCK,models/vehicles/firetruck/body_surface.emesh,textures/vehicles/firetruck/body_surface.png,64.247,4.1708,64.311,40.0,true
+ORISON,CINDER GT,models/vehicles/orison_cinder/body.emesh,textures/vehicles/orison_cinder/body.png,179.884,3.6943,179.908,50.0,true
+PIZAZ,CONSTANT,models/vehicles/pizaz_constant/body.emesh,textures/vehicles/pizaz_constant/body.png,146.070,4.9456,146.090,50.0,true
+RODEO,GRAZER 4X4,models/vehicles/rodeo_grazer/body.emesh,textures/vehicles/rodeo_grazer/body.png,166.580,4.2259,166.603,50.0,true
+RODEO,SWITCHBACK,models/vehicles/rodeo_switchback/body.emesh,textures/vehicles/rodeo_switchback/body.png,179.272,4.8767,179.279,115.0,true
+SADDLE,TANGO,models/vehicles/saddle_tango/body.emesh,textures/vehicles/saddle_tango/body.png,180.831,4.4502,180.849,80.0,true
+SPAGATTI,SHŪ,models/vehicles/spagatti_shu/body.emesh,textures/vehicles/spagatti_shu/body.png,201.253,3.6505,201.277,55.0,true
+VESPER,MISTRAL,models/vehicles/vesper_mistral/body.emesh,textures/vehicles/vesper_mistral/body.png,173.365,3.7587,173.390,45.0,true
+VESPER,SCYTHE,models/vehicles/vesper_scythe/body.emesh,textures/vehicles/vesper_scythe/body.png,204.661,3.6067,204.687,55.0,true
+VESPER,VX-91,models/vehicles/vesper_vx91/body_surface.emesh,textures/vehicles/vesper_vx91/body_surface.png,182.997,3.8948,183.021,50.0,true

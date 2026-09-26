@@ -42,6 +42,15 @@ Saved renders and captures from earlier model work; these are not generated conc
 
 ![Rear three-quarter — body only, wheels omitted](../images/karlsdale-six-rear.png)
 
+## Performance
+
+| Metric | Value |
+|---|---|
+| Top speed | 93.1 mph |
+| 0–60 mph | 5.7 s |
+
+Measured in the headless game-physics benchmark using **Classic GTA**, the default driving preset, on flat dry ground. Values describe the current gameplay tuning. See [conditions, source snapshot and full roster](../performance.md).
+
 ## Game files
 
 - Model key: `halcyon_six`.

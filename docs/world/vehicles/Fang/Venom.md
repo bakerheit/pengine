@@ -29,6 +29,15 @@ Image origins are recorded in the [source manifest](../images/sources.json).
 
 Dimensions and mass describe the game model and handling setup. Prices, production figures and unrecorded history remain undefined.
 
+## Performance
+
+| Metric | Value |
+|---|---|
+| Top speed | Unsettled; 129.1 mph peak observed |
+| 0–60 mph | 3.8 s |
+
+Measured in the headless game-physics benchmark using **Classic GTA**, the default driving preset, on flat dry ground. Values describe the current gameplay tuning. See [conditions, source snapshot and full roster](../performance.md).
+
 ## Game files
 
 - Model key: `fang_venom_v2`.

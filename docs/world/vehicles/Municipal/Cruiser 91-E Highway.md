@@ -31,6 +31,15 @@ Dimensions and mass describe the game model and handling setup. Prices, producti
 
 Municipal is a fleet label for city service vehicles, not a manufacturer.
 
+## Performance
+
+| Metric | Value |
+|---|---|
+| Top speed | 170.7 mph |
+| 0–60 mph | 4.3 s |
+
+Measured in the headless game-physics benchmark using **Classic GTA**, the default driving preset, on flat dry ground. Values describe the current gameplay tuning. See [conditions, source snapshot and full roster](../performance.md).
+
 ## Game files
 
 - Model key: `municipal_cruiser_91e`.

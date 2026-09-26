@@ -45,6 +45,15 @@ Saved renders and captures from earlier model work; these are not generated conc
 
 ![Rear three-quarter — body-only asset-lab capture, wheels omitted](../images/spagatti-shu-body-rear.png)
 
+## Performance
+
+| Metric | Value |
+|---|---|
+| Top speed | 201.3 mph |
+| 0–60 mph | 3.7 s |
+
+Measured in the headless game-physics benchmark using **Classic GTA**, the default driving preset, on flat dry ground. Values describe the current gameplay tuning. See [conditions, source snapshot and full roster](../performance.md).
+
 ## Game files
 
 - Model key: `spagatti_shu`.

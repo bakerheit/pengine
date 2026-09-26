@@ -1,0 +1,29 @@
+{
+  "measured_at_utc": "2026-09-26T03:03:03.082914+00:00",
+  "base_commit": "0658265ae03e532688beecb5b891b516625d9387",
+  "source_state": "Local working tree, including uncommitted vehicle tuning/catalog work. Hashes identify the measured inputs; this is not a claim that all inputs are committed at base_commit.",
+  "style": "ClassicGta",
+  "physics_library_sha256": "daa8dde41308de93fc538f6b579fe306fa3d7db841089f1fda998d17669919e6",
+  "csv_sha256": "5767264ec0eb8310d50aa1a31c69e545d10f88bfe6b29fdf2b6a47bb9b4896d8",
+  "source_sha256": {
+    "tools/vehicle_performance.cpp": "5fec386e20da13b94df4894fb8cda5f8f72200dcbb0a683be9b58d11950d2da6",
+    "src/app/vehicle_model_tuning.h": "7c672f6abf736148bf4e95f10f56e60f6ebe42d4d1ef3c87d0af225ee0d5dfa4",
+    "src/app/driving_mechanics.h": "243e53e8d32b5e3c62b5385a58f80d0f757307e5ce83e6b303aca24318d07b72",
+    "src/app/player_car_catalog.h": "6faedc8189d85e2d1fbd5a70b24d99c318040b8176ed8f053b876bf3837e9733",
+    "src/physics/CMakeLists.txt": "7a2ce0ab56103f4246eb67c8a76409d6fae8583291a0b74b98b4e25b10758bae",
+    "src/physics/breakaway_contact.h": "b331c1ad7d55dbe4f20148aa5df50decf11c990146e02a53ccafbafc55f22f4d",
+    "src/physics/ragdoll.cpp": "0ae1d9c9d63b8350fb8760793f36a2896946511cceeaa0a537320131e8fc5b4d",
+    "src/physics/ragdoll.h": "75f70c07dc39a4f35c9ed9670100fd97acd7ba578e340f5e879616b16f6cddcf",
+    "src/physics/ragdoll_rig.cpp": "4ef2acf29b6d1939799f3f2c7f504833a8b2546e673a31a6c64ff06796f5ee7b",
+    "src/physics/ragdoll_rig.h": "387c0b046ac4f2b0048171c8b758080b4d3753336167800e22e133cd91ad2af8",
+    "src/physics/snow_shelter.h": "b56ce90a4351b2abe0fc66ad7d42ef1ea2876a495f4b1aa69e8e19f370bb1e74",
+    "src/physics/surface.h": "0630cde14b7054bf22c4010e75be366ded2e0d410836adee92043370c5530b3a",
+    "src/physics/terrain_collider.cpp": "5f288e56af4a8aed745350f704583ef7bbbb8c54f105b9f39a00c391a4bd0f82",
+    "src/physics/terrain_collider.h": "04cf7e13ccb99f0bf146e1a3a3edae4bba7a59c6c8f3dc6e417a4705ddd4d298",
+    "src/physics/vehicle.cpp": "0eb871ad9145343ea3f4783639a09873584645ff6fda50c31b096148ca12c251",
+    "src/physics/vehicle.h": "b161877ca2ddc6203700d989e5e934c6b18a2fddb962aa3f8608654618be3159",
+    "src/physics/vehicle_damage.h": "3907cec982a129407ea42efba6326474465f04b843590b1888258d3ca0539375",
+    "src/physics/vehicle_mechanical.cpp": "20f083a33185c90b728df326283a664352eadcf4f52f3dd91b4dd708291c6cd6",
+    "src/physics/vehicle_mechanical.h": "530427f7237d362800c3c7e4359f92a564aeb319d697d9504545a4bd592fa011"
+  }
+}

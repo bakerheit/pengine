@@ -1,3 +1,8 @@
+# Reproducible vehicle documentation figures using the production simulation.
+add_executable(apricot_vehicle_performance vehicle_performance.cpp)
+target_compile_options(apricot_vehicle_performance PRIVATE ${APRICOT_STRICT_FLAGS})
+target_link_libraries(apricot_vehicle_performance PRIVATE apricot_sim)
+
 # Native asset QA tool. It links the real host renderer so a preview exercises
 # the same cooked mesh, texture, shader, culling and draw path as the game.
 add_executable(apricot_asset_lab asset_lab.cpp)

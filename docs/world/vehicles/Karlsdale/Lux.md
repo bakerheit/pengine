@@ -93,6 +93,15 @@ Saved model renders corresponding to the reference views. The front three-quarte
 
 ![Lux model — Top](../images/karlsdale-lux-model-top.png)
 
+## Performance
+
+| Metric | Value |
+|---|---|
+| Top speed | 126.4 mph |
+| 0–60 mph | 4.4 s |
+
+Measured in the headless game-physics benchmark using **Classic GTA**, the default driving preset, on flat dry ground. Values describe the current gameplay tuning. See [conditions, source snapshot and full roster](../performance.md).
+
 ## Game files
 
 - Model key: `halcyon_sovereign`.

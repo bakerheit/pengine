@@ -91,6 +91,15 @@ Generated design references, shown here as the visual target.
 
 ![Door interior](../../../design/reviews/1991-vehicle-refinement/harrow_hookline-door-inside.png)
 
+## Performance
+
+| Metric | Value |
+|---|---|
+| Top speed | 138.5 mph |
+| 0–60 mph | 5.0 s |
+
+Measured in the headless game-physics benchmark using **Classic GTA**, the default driving preset, on flat dry ground. Values describe the current gameplay tuning. See [conditions, source snapshot and full roster](../performance.md).
+
 ## Game files
 
 - Model key: `harrow_hookline`.

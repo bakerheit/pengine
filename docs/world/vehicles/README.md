@@ -4,6 +4,14 @@
 
 Each manufacturer has a page here and a folder containing its model pages. Model pages hold the vehicle information and available reference photos. The roster follows the current working catalog; individual pages distinguish local work in progress and unselected concepts.
 
+## Quality classes
+
+**[Pizaz Constant](Pizaz/Constant.md) is the user-designated Class 3 benchmark:** well designed and detailed, with good documentation and reference images. Use it as the quality reference when bringing Class 1 or Class 2 vehicles up to Class 3. [Class definitions and upgrade guide](quality-classes.md).
+
+## Performance
+
+Model pages list **top speed (mph)** and **0–60 mph (X.X s)**. [Measured roster and test conditions](performance.md) use the default Classic GTA driving preset; unimplemented concepts remain unmeasured.
+
 ## Manufacturers and fleet
 
 | Manufacturer | Models |
@@ -19,7 +27,7 @@ Each manufacturer has a page here and a folder containing its model pages. Model
 | [Legacy](Legacy.md) | [Car 5](Legacy/Car%205.md) · [Car 5-Next](Legacy/Car%205-Next.md) · [Car 5-Next Patrol](Legacy/Car%205-Next%20Patrol.md) · [Car 8](Legacy/Car%208.md) · [Car 8 Ambulance](Legacy/Car%208%20Ambulance.md) |
 | [Municipal](Municipal.md) | [Ambulance](Municipal/Ambulance.md) · [Cruiser 91-A Square](Municipal/Cruiser%2091-A%20Square.md) · [Cruiser 91-B Aero](Municipal/Cruiser%2091-B%20Aero.md) · [Cruiser 91-C Pursuit](Municipal/Cruiser%2091-C%20Pursuit.md) · [Cruiser 91-D Metro](Municipal/Cruiser%2091-D%20Metro.md) · [Cruiser 91-E Highway](Municipal/Cruiser%2091-E%20Highway.md) · [Firetruck](Municipal/Firetruck.md) |
 | [Orison](Orison.md) | [Cinder GT](Orison/Cinder%20GT.md) |
-| [Pizaz](Pizaz.md) | [Constant](Pizaz/Constant.md) |
+| [Pizaz](Pizaz.md) | [Constant](Pizaz/Constant.md) — **Class 3 benchmark** |
 | [Regalia](Regalia.md) | [Borough](Regalia/Borough.md) |
 | [Rodeo](Rodeo.md) | [Grazer 4x4](Rodeo/Grazer%204x4.md) · [Switchback](Rodeo/Switchback.md) |
 | [Saddle](Saddle.md) | [Tango](Saddle/Tango.md) |

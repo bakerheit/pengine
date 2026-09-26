@@ -6,7 +6,7 @@
 
 ## Models
 
-- [Constant](Pizaz/Constant.md)
+- [Constant](Pizaz/Constant.md) — **Class 3**, the design, detail and documentation benchmark.
 
 ## Sources
 

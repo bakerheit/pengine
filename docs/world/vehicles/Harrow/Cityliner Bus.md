@@ -29,6 +29,15 @@ Image origins are recorded in the [source manifest](../images/sources.json).
 
 Dimensions and mass describe the game model and handling setup. Prices, production figures and unrecorded history remain undefined.
 
+## Performance
+
+| Metric | Value |
+|---|---|
+| Top speed | 91.5 mph |
+| 0–60 mph | 4.9 s |
+
+Measured in the headless game-physics benchmark using **Classic GTA**, the default driving preset, on flat dry ground. Values describe the current gameplay tuning. See [conditions, source snapshot and full roster](../performance.md).
+
 ## Game files
 
 - Model key: `harrow_cityliner`.
