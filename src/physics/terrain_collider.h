@@ -187,6 +187,38 @@ public:
     void clear_static_boxes();
     const std::vector<StaticBox>& static_boxes() const { return boxes_; }
 
+    // BOXES AND GROUND RECTS ARE BUCKETED ON A 16 m GRID, AND A QUERY READS
+    // ONLY THE BUCKETS IT TOUCHES.
+    //
+    // Before this, probe_down() and line_of_sight_blocked() walked every box
+    // and every paved rect in the city on every call — some 14,000 boxes and
+    // 2,000 rects on the island — to answer a question about one point. One
+    // car's four wheels could afford it. A police chase could not, because a
+    // chase multiplies the queries: a cruiser stuck behind a queue re-plans
+    // its way round at 10 Hz, and the siren planner (traffic/emergency.cpp)
+    // checks every 0.85 m of each candidate arc with six probes and a scan of
+    // every box. Measured over a scripted 75 s five-star chase, that planner
+    // cost 2.2-2.7 s and its worst single step 17-22 ms, which with two or
+    // three steps owed is a 25-55 ms frame. Bucketed, the same chase costs
+    // 0.47 s and 2.7 ms, and the sim hashes identically step for step.
+    //
+    // THE ORDER IS PART OF THE ANSWER. A point query visits its candidates in
+    // ascending slot order, exactly as the linear scan did, because a tie is
+    // settled by order: of two coplanar tops the lower slot wins, and it is
+    // that slot's material the tyre grips. Visit in bucket order instead and
+    // two coplanar props of different materials swap grip under a wheel, which
+    // a recorded tape reports as the physics changing.
+    //
+    // boxes_near() is the broad phase for callers with their own narrow test:
+    // every box whose broad XZ bounds may touch the rectangle, each once, in
+    // ascending slot order. It is a superset; the caller keeps its exact test.
+    void boxes_near(glm::vec2 min_xz, glm::vec2 max_xz,
+                    std::vector<uint32_t>& out) const;
+    // Off, every query walks every box and rect exactly as it did before the
+    // buckets existed. For the suite that proves the buckets change nothing,
+    // and for measuring what they save; nothing in the game turns them off.
+    void set_broad_phase(bool enabled) { broad_phase_ = enabled; }
+
     // Stable slots for kinematic props. Publish their deterministic poses
     // between sim steps, never during a vehicle/character query. Restore the
     // same poses with game state when replaying a run.
@@ -312,10 +344,37 @@ private:
                          Surface& out_material, float& out_snow_depth) const;
     float local_snow_collision_depth(float x, float base_y, float z) const;
 
+    // The buckets over one list (boxes_ or ground_rects_). Each bucket holds
+    // slots in ascending order. A prop too large to bucket sensibly lives in
+    // `oversized` instead, and every query reads that list as well.
+    struct PropGrid {
+        std::unordered_map<uint64_t, std::vector<uint32_t>> cells;
+        std::vector<uint32_t> oversized;
+        void clear() {
+            cells.clear();
+            oversized.clear();
+        }
+        void insert(uint32_t slot, glm::vec2 min_xz, glm::vec2 max_xz);
+        void erase(uint32_t slot, glm::vec2 min_xz, glm::vec2 max_xz);
+    };
+    void index_box(std::size_t slot);
+    void unindex_box(std::size_t slot);
+    // Every prop whose bucket covers the point, ascending, each once. With
+    // the buckets off, or at a point that is not a place, every prop.
+    template <class Visit>
+    void visit_props_at(const PropGrid& grid, std::size_t count, float x,
+                        float z, Visit&& visit) const;
+    // Every box whose buckets the XZ segment a-b passes through, ascending.
+    void boxes_along(glm::vec2 a, glm::vec2 b, std::vector<uint32_t>& out) const;
+    void all_boxes(std::vector<uint32_t>& out) const;
+
     uint64_t seed_;
     std::vector<StaticBox> boxes_;
+    PropGrid box_grid_;
     std::vector<std::size_t> kinematic_boxes_;
     std::vector<StaticGroundRect> ground_rects_;
+    PropGrid rect_grid_;
+    bool broad_phase_ = true;
     std::vector<RoadSurface> road_surfaces_;
     std::vector<std::size_t> road_solid_slots_;
     std::unordered_map<ChunkCoord, std::vector<uint32_t>, ChunkCoordHash>

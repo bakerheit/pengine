@@ -366,6 +366,9 @@ apricot_add_suite(license_plate_tests)
 # The visibility query that replaced a contact raycast in police line of
 # sight, checked against the predicate it replaced.
 apricot_add_suite(line_of_sight_tests)
+# The collider's prop buckets, held bit-for-bit to the linear scan they
+# replaced.
+apricot_add_suite(collider_broad_phase_tests)
 
 apricot_add_suite(bwc_360_tests)
 # The respray recolour core (game/vehicle_paint.h), held to tools/paint_lab.py

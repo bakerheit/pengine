@@ -130,6 +130,7 @@ bool Crowd::emergency_path_clear(uint32_t own, const TrafficManeuver& move,
     const float length = footprint.half_length_m + 0.45f;
     const float end = std::min(move.length_m, from + distance);
     const int samples = std::max(1, int(std::ceil((end - from) / 0.85f)));
+    std::vector<uint32_t> nearby;  // reused by every sample's world check
     for (int s = 0; s <= samples; ++s) {
         const float d = from + (end - from) * float(s) / float(samples);
         const LanePose pose = traffic_maneuver_pose(move, d);
@@ -259,7 +260,21 @@ bool Crowd::emergency_path_clear(uint32_t own, const TrafficManeuver& move,
                     std::fabs(hit.point.y - point.y) > 0.24f) return false;
             }
         }
-        for (const auto& box : police_officer_world_->static_boxes()) {
+        // THE BOXES AROUND THIS SAMPLE, NOT THE CITY'S. This loop used to read
+        // every box on the island, 0.85 m apart along every arc a cruiser
+        // stuck in a queue tried ten times a second, and in a five-star chase
+        // that was single steps of 17-22 ms (terrain_collider.h has the
+        // numbers). The reach bounds the padded footprint's corners in any
+        // box's frame — root two of the swept half-extents, rounded up — so
+        // every box the test below could reject on is in the list;
+        // collider_broad_phase_tests checks this formula against that test.
+        const float reach = 1.5f * (length * glm::length(xz(pose.tangent)) +
+                                    width * glm::length(xz(pose.right))) + 0.05f;
+        police_officer_world_->boxes_near(xz(pose.position) - reach,
+                                          xz(pose.position) + reach, nearby);
+        const auto& boxes = police_officer_world_->static_boxes();
+        for (const uint32_t slot : nearby) {
+            const StaticBox& box = boxes[slot];
             if (!box.enabled || box.bounds.max.y < pose.position.y + 0.25f ||
                 box.bounds.min.y > pose.position.y + 1.9f) continue;
             const auto& b = box.collision_bounds();

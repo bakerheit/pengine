@@ -656,9 +656,9 @@ ties them to the literals in `update_camera`: change one there and the chooser
 keeps scoring the old one. The caller must disable the driven car's own
 kinematic box first, as `update_camera` does; left enabled, every ray starts
 inside it and nothing clears. And it is a search: measured at 0.23 ms mean and
-2.6 ms worst per call against Rook's boxes alone, and `line_of_sight_blocked`
-scans every static box, so it grows with the world — run it once when the
-picker opens, never per frame. Against all 32 drivable cars in both bays,
+2.6 ms worst per call against Rook's boxes alone, and every
+`line_of_sight_blocked` reads each box bucketed along its line, so it grows with
+how built-up the street is — run it once when the picker opens, never per frame. Against all 32 drivable cars in both bays,
 19,664 reachable poses, every sight cleared. Before the ground clamp became part
 of the fit, a Fang Venom wedged into the back of bay -9 fell through to the
 fallback: the bike fit so close that its eye was under the clamp. Scoring once
@@ -800,6 +800,26 @@ this reason: grip is answerable in a chunk that has never been built.
 **Probes report penetration as a negative distance, and callers need that.**
 `GroundHit::distance` is not clamped at zero: the sign is how a caller tells
 "hovering" from "already under the surface".
+
+**Prop queries read buckets, in slot order.** `TerrainCollider` buckets its
+static boxes and paved ground rects on a 16 m grid, and `probe_down()`,
+`line_of_sight_blocked()` and `boxes_near()` read only the buckets a query
+touches. Until then every probe walked all ~14,000 boxes and ~2,000 rects on
+the island. One car's wheels could afford that; a police chase could not,
+because a cruiser stuck behind a queue re-plans at 10 Hz and the siren planner
+probes every 0.85 m of every arc it tries. Over a scripted 75 s five-star chase
+the planner cost 2.2-2.7 s, with single sim steps of 17-22 ms, and that was the
+chase stutter; bucketed, 0.47 s and 2.7 ms.
+
+The buckets are admissible only as a pure speed-up, and the visit ORDER is
+part of the answer: of two coplanar tops the lower slot wins, and its material
+is the grip under the wheel. So a point query merges its bucket with the
+oversized list in ascending slot order, exactly as the old scan ran, and
+`tests/collider_broad_phase_tests.cpp` holds every query bit-for-bit to that
+scan through `set_broad_phase(false)`. What it costs: a box's bounds can only
+change through the collider, which re-buckets on every kinematic pose update.
+`step_vehicle()`'s body contact, `step_character()` and `raycast()` still walk
+every box, and are the next callers to move.
 
 **Vehicle state is plain data, complete and copyable.** It is what a replay
 diff compares and what a save-state restore overwrites, so no pointers, no

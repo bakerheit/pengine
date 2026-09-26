@@ -108,6 +108,91 @@ bool make_oriented_box(glm::vec3 centre, glm::vec3 half, float yaw,
     return true;
 }
 
+// --- prop buckets --------------------------------------------------------------
+
+// Sixteen metres: a building covers a handful of buckets and a bucket holds a
+// few dozen props even in the densest interiors, against the ~14,000 boxes
+// every query read before.
+constexpr float kPropCellMetres = 16.0f;
+// A prop spanning more buckets than this (a 512 m square) goes in the list
+// every query reads instead. Only terrain-sized test slabs get there.
+constexpr int64_t kMaxPropCells = 1024;
+// A query wider than this many buckets reads everything; nothing in the game
+// asks one.
+constexpr int64_t kMaxQueryCells = 16384;
+// Past a thousand kilometres a coordinate is not a place. Refusing to bucket
+// it keeps the cell arithmetic well inside int32 without a range check per
+// query.
+constexpr float kPropGridLimit = 1.0e6f;
+
+struct CellSpan {
+    int32_t x0 = 0, z0 = 0, x1 = -1, z1 = -1;
+    int64_t cells() const {
+        return (int64_t{x1} - x0 + 1) * (int64_t{z1} - z0 + 1);
+    }
+};
+
+// Monotonic in its argument, which is the whole of why a point inside a box's
+// bounds always lands in one of that box's buckets: both sides use this, so
+// min <= p <= max gives cell(min) <= cell(p) <= cell(max) with no rounding
+// argument needed.
+int32_t prop_cell(float v) {
+    return static_cast<int32_t>(std::floor(v * (1.0f / kPropCellMetres)));
+}
+
+// False for anything that is not a finite place; callers then fall back to
+// reading every prop, which is the answer the linear scan gave.
+bool prop_span(glm::vec2 lo, glm::vec2 hi, CellSpan& out) {
+    if (!(std::fabs(lo.x) < kPropGridLimit && std::fabs(lo.y) < kPropGridLimit &&
+          std::fabs(hi.x) < kPropGridLimit && std::fabs(hi.y) < kPropGridLimit))
+        return false;
+    out.x0 = prop_cell(lo.x);
+    out.z0 = prop_cell(lo.y);
+    out.x1 = prop_cell(hi.x);
+    out.z1 = prop_cell(hi.y);
+    return out.x1 >= out.x0 && out.z1 >= out.z0;
+}
+
+uint64_t prop_cell_key(int32_t x, int32_t z) {
+    return (static_cast<uint64_t>(static_cast<uint32_t>(x)) << 32) |
+           static_cast<uint64_t>(static_cast<uint32_t>(z));
+}
+
+void insert_slot(std::vector<uint32_t>& list, uint32_t slot) {
+    // Registration appends in slot order, so this is nearly always a
+    // push_back; only a kinematic prop moving to a new bucket takes the
+    // sorted insert.
+    if (list.empty() || list.back() < slot) {
+        list.push_back(slot);
+        return;
+    }
+    const auto at = std::lower_bound(list.begin(), list.end(), slot);
+    if (at == list.end() || *at != slot) list.insert(at, slot);
+}
+
+void erase_slot(std::vector<uint32_t>& list, uint32_t slot) {
+    const auto at = std::lower_bound(list.begin(), list.end(), slot);
+    if (at != list.end() && *at == slot) list.erase(at);
+}
+
+// The broad XZ rectangle of a ground rect, padded. Its footprint test runs in
+// the rect's own rotated frame with a 0.1 mm tolerance, and a point that
+// passes it must not fall outside the buckets through float rounding in the
+// rotation; 5 cm is a hundred times the worst of that at island coordinates.
+void ground_rect_bounds(const StaticGroundRect& r, glm::vec2& lo, glm::vec2& hi) {
+    constexpr float kPad = 0.05f;
+    const glm::vec2 half{
+        std::fabs(r.axis_x.x) * r.half_extents.x +
+            std::fabs(r.axis_z.x) * r.half_extents.y + kPad,
+        std::fabs(r.axis_x.y) * r.half_extents.x +
+            std::fabs(r.axis_z.y) * r.half_extents.y + kPad};
+    lo = r.centre - half;
+    hi = r.centre + half;
+}
+
+glm::vec2 xz_min(const AABB& b) { return {b.min.x, b.min.z}; }
+glm::vec2 xz_max(const AABB& b) { return {b.max.x, b.max.z}; }
+
 }  // namespace
 
 // --- the smooth field --------------------------------------------------------
@@ -179,6 +264,148 @@ float TerrainCollider::local_snow_collision_depth(float x, float base_y,
         snowpack_collision_from_depth(snow_depth_at(x, base_y, z)).depth_m));
 }
 
+// --- prop buckets --------------------------------------------------------------
+
+void TerrainCollider::PropGrid::insert(uint32_t slot, glm::vec2 lo, glm::vec2 hi) {
+    CellSpan span;
+    if (!prop_span(lo, hi, span) || span.cells() > kMaxPropCells) {
+        insert_slot(oversized, slot);
+        return;
+    }
+    for (int32_t z = span.z0; z <= span.z1; ++z)
+        for (int32_t x = span.x0; x <= span.x1; ++x)
+            insert_slot(cells[prop_cell_key(x, z)], slot);
+}
+
+// Must be given the SAME rectangle the slot was inserted with: that is what
+// finds every bucket it is in.
+void TerrainCollider::PropGrid::erase(uint32_t slot, glm::vec2 lo, glm::vec2 hi) {
+    CellSpan span;
+    if (!prop_span(lo, hi, span) || span.cells() > kMaxPropCells) {
+        erase_slot(oversized, slot);
+        return;
+    }
+    for (int32_t z = span.z0; z <= span.z1; ++z)
+        for (int32_t x = span.x0; x <= span.x1; ++x) {
+            const auto it = cells.find(prop_cell_key(x, z));
+            if (it != cells.end()) erase_slot(it->second, slot);
+        }
+}
+
+void TerrainCollider::index_box(std::size_t slot) {
+    const AABB& b = boxes_[slot].bounds;
+    box_grid_.insert(static_cast<uint32_t>(slot), xz_min(b), xz_max(b));
+}
+
+void TerrainCollider::unindex_box(std::size_t slot) {
+    const AABB& b = boxes_[slot].bounds;
+    box_grid_.erase(static_cast<uint32_t>(slot), xz_min(b), xz_max(b));
+}
+
+template <class Visit>
+void TerrainCollider::visit_props_at(const PropGrid& grid, std::size_t count,
+                                     float x, float z, Visit&& visit) const {
+    CellSpan span;
+    if (!broad_phase_ || !prop_span({x, z}, {x, z}, span)) {
+        for (std::size_t i = 0; i < count; ++i) visit(static_cast<uint32_t>(i));
+        return;
+    }
+    // The bucket and the oversized list are each ascending; merge them so
+    // the visit order is the slot order the linear scan used.
+    const auto it = grid.cells.find(prop_cell_key(span.x0, span.z0));
+    const uint32_t* a = nullptr;
+    const uint32_t* a_end = nullptr;
+    if (it != grid.cells.end()) {
+        a = it->second.data();
+        a_end = a + it->second.size();
+    }
+    const uint32_t* b = grid.oversized.data();
+    const uint32_t* b_end = b + grid.oversized.size();
+    while (a != a_end || b != b_end) {
+        if (b == b_end || (a != a_end && *a < *b)) {
+            visit(*a++);
+        } else if (a == a_end || *b < *a) {
+            visit(*b++);
+        } else {
+            visit(*a++);
+            ++b;
+        }
+    }
+}
+
+void TerrainCollider::all_boxes(std::vector<uint32_t>& out) const {
+    out.resize(boxes_.size());
+    for (std::size_t i = 0; i < boxes_.size(); ++i)
+        out[i] = static_cast<uint32_t>(i);
+}
+
+void TerrainCollider::boxes_near(glm::vec2 lo, glm::vec2 hi,
+                                 std::vector<uint32_t>& out) const {
+    CellSpan span;
+    if (!broad_phase_ || !prop_span(lo, hi, span) ||
+        span.cells() > kMaxQueryCells) {
+        all_boxes(out);
+        return;
+    }
+    out.clear();
+    for (int32_t z = span.z0; z <= span.z1; ++z)
+        for (int32_t x = span.x0; x <= span.x1; ++x) {
+            const auto it = box_grid_.cells.find(prop_cell_key(x, z));
+            if (it != box_grid_.cells.end())
+                out.insert(out.end(), it->second.begin(), it->second.end());
+        }
+    out.insert(out.end(), box_grid_.oversized.begin(), box_grid_.oversized.end());
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+}
+
+// The buckets a thickened XZ segment passes through, swept one column at a
+// time: within a column the segment's z range is known exactly, so the sweep
+// reads the buckets the segment crosses and none of the ones it only passes
+// near. Thickened by 5 cm on every side, so a hit point that float rounding
+// nudges off the line (an oriented box's corner, a ray grazing a bucket edge)
+// still lands in a bucket that was read.
+void TerrainCollider::boxes_along(glm::vec2 a, glm::vec2 b,
+                                  std::vector<uint32_t>& out) const {
+    constexpr float kPad = 0.05f;
+    const glm::vec2 seg_lo = glm::min(a, b);
+    const glm::vec2 seg_hi = glm::max(a, b);
+    CellSpan span;
+    if (!broad_phase_ || !prop_span(seg_lo - kPad, seg_hi + kPad, span) ||
+        span.cells() > kMaxQueryCells * 64) {
+        all_boxes(out);
+        return;
+    }
+    out.clear();
+    const glm::vec2 delta = b - a;
+    const bool steep = std::fabs(delta.x) <= 1e-6f;
+    for (int32_t x = span.x0; x <= span.x1; ++x) {
+        float z_lo = seg_lo.y;
+        float z_hi = seg_hi.y;
+        if (!steep) {
+            // This column's x range, thickened, then clipped to the segment.
+            const float u0 = std::clamp(
+                static_cast<float>(x) * kPropCellMetres - kPad, seg_lo.x, seg_hi.x);
+            const float u1 = std::clamp(
+                static_cast<float>(x + 1) * kPropCellMetres + kPad, seg_lo.x, seg_hi.x);
+            const float za = a.y + (u0 - a.x) / delta.x * delta.y;
+            const float zb = a.y + (u1 - a.x) / delta.x * delta.y;
+            z_lo = std::max(seg_lo.y, std::min(za, zb));
+            z_hi = std::min(seg_hi.y, std::max(za, zb));
+        }
+        const int32_t z0 = prop_cell(z_lo - kPad);
+        const int32_t z1 = prop_cell(z_hi + kPad);
+        for (int32_t z = z0; z <= z1; ++z) {
+            const auto it = box_grid_.cells.find(prop_cell_key(x, z));
+            if (it != box_grid_.cells.end())
+                out.insert(out.end(), it->second.begin(), it->second.end());
+        }
+    }
+    out.insert(out.end(), box_grid_.oversized.begin(), box_grid_.oversized.end());
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+}
+
 // --- props -------------------------------------------------------------------
 
 void TerrainCollider::add_static_box(const AABB& bounds, Surface material) {
@@ -186,10 +413,12 @@ void TerrainCollider::add_static_box(const AABB& bounds, Surface material) {
     // given and would become a prop covering the entire world.
     if (!bounds.valid()) return;
     boxes_.push_back(StaticBox{bounds, material});
+    index_box(boxes_.size() - 1);
 }
 
 void TerrainCollider::clear_static_boxes() {
     boxes_.clear();
+    box_grid_.clear();
     kinematic_boxes_.clear();
     road_solid_slots_.clear();
 }
@@ -197,7 +426,9 @@ void TerrainCollider::clear_static_boxes() {
 void TerrainCollider::add_static_oriented_box(glm::vec3 centre, glm::vec3 half,
                                               float yaw, Surface material) {
     StaticBox box;
-    if (make_oriented_box(centre, half, yaw, material, box)) boxes_.push_back(box);
+    if (!make_oriented_box(centre, half, yaw, material, box)) return;
+    boxes_.push_back(box);
+    index_box(boxes_.size() - 1);
 }
 
 std::size_t TerrainCollider::add_kinematic_box(const AABB& bounds) {
@@ -237,10 +468,12 @@ bool TerrainCollider::set_kinematic_box(std::size_t id, const AABB& bounds) {
     const bool is_vehicle=boxes_[id].is_vehicle;
     const float breakaway_speed=boxes_[id].breakaway_speed;
     const uint32_t breakaway_id=boxes_[id].breakaway_id;
+    unindex_box(id);
     boxes_[id] = StaticBox{bounds, boxes_[id].material};
     boxes_[id].is_vehicle=is_vehicle;
     boxes_[id].breakaway_speed=breakaway_speed;
     boxes_[id].breakaway_id=breakaway_id;
+    index_box(id);
     return true;
 }
 
@@ -249,6 +482,8 @@ std::size_t TerrainCollider::add_kinematic_oriented_box(glm::vec3 centre,
     StaticBox box;
     if (!make_oriented_box(centre, half, yaw, Surface::Rock, box))
         return static_cast<std::size_t>(-1);
+    // Bucketed by box.bounds inside add_kinematic_box; the assignment below
+    // keeps those bounds, so the buckets stay right.
     const std::size_t id = add_kinematic_box(box.bounds);
     boxes_[id] = box;
     return id;
@@ -265,7 +500,9 @@ bool TerrainCollider::set_kinematic_oriented_box(std::size_t id, glm::vec3 centr
     box.is_vehicle = boxes_[id].is_vehicle;
     box.breakaway_speed = boxes_[id].breakaway_speed;
     box.breakaway_id = boxes_[id].breakaway_id;
+    unindex_box(id);
     boxes_[id] = box;
+    index_box(id);
     return true;
 }
 
@@ -284,9 +521,15 @@ void TerrainCollider::add_static_ground_rect(glm::vec2 centre, float height,
     const float s = std::sin(yaw_radians);
     ground_rects_.push_back(StaticGroundRect{
         centre, {c, -s}, {s, c}, half_extents, height, material});
+    glm::vec2 lo{0.0f}, hi{0.0f};
+    ground_rect_bounds(ground_rects_.back(), lo, hi);
+    rect_grid_.insert(static_cast<uint32_t>(ground_rects_.size() - 1), lo, hi);
 }
 
-void TerrainCollider::clear_static_ground_rects() { ground_rects_.clear(); }
+void TerrainCollider::clear_static_ground_rects() {
+    ground_rects_.clear();
+    rect_grid_.clear();
+}
 
 // --- baked road surfaces ----------------------------------------------------
 
@@ -458,8 +701,13 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
     // through it.
     constexpr float kGroundRectPenetrationAllowance = 0.35f;
     constexpr float kGroundRectEdgeTolerance = 1e-4f;
+    // Both loops below read only the props bucketed at this point, in slot
+    // order (the header says why the order matters); a prop outside the
+    // bucket would have failed its footprint test before touching any state.
     const glm::vec2 p{origin.x, origin.z};
-    for (const StaticGroundRect& ground : ground_rects_) {
+    visit_props_at(rect_grid_, ground_rects_.size(), origin.x, origin.z,
+                   [&](uint32_t slot) {
+        const StaticGroundRect& ground = ground_rects_[slot];
         const glm::vec2 delta = p - ground.centre;
         const float local_x = glm::dot(delta, ground.axis_x);
         const float local_z = glm::dot(delta, ground.axis_z);
@@ -467,15 +715,15 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
                 ground.half_extents.x + kGroundRectEdgeTolerance ||
             std::fabs(local_z) >
                 ground.half_extents.y + kGroundRectEdgeTolerance) {
-            continue;
+            return;
         }
         const float ground_y = with_ground_snow(
             ground.height, local_snow_collision_depth(origin.x, ground.height, origin.z));
         const float gap = origin.y - ground_y;
         if (gap < -kGroundRectPenetrationAllowance || gap > max_distance) {
-            continue;
+            return;
         }
-        if (ground_y <= surface_y) continue;
+        if (ground_y <= surface_y) return;
 
         surface_y = ground_y;
         surface_n = glm::vec3{0.0f, 1.0f, 0.0f};
@@ -483,21 +731,23 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
         prop = false;
         road = false;
         snow_depth = snow_depth_at(origin.x, ground.height, origin.z);
-    }
+    });
 
-    for (const StaticBox& b : boxes_) {
-        if (!b.enabled || (b.is_vehicle && vehicles == ProbeVehicles::Exclude)) continue;
-        if (origin.x < b.bounds.min.x || origin.x > b.bounds.max.x) continue;
-        if (origin.z < b.bounds.min.z || origin.z > b.bounds.max.z) continue;
+    visit_props_at(box_grid_, boxes_.size(), origin.x, origin.z,
+                   [&](uint32_t slot) {
+        const StaticBox& b = boxes_[slot];
+        if (!b.enabled || (b.is_vehicle && vehicles == ProbeVehicles::Exclude)) return;
+        if (origin.x < b.bounds.min.x || origin.x > b.bounds.max.x) return;
+        if (origin.z < b.bounds.min.z || origin.z > b.bounds.max.z) return;
         if (b.oriented) {
             const glm::vec3 local_origin = b.local_point(origin);
             if (local_origin.x < b.local_bounds.min.x || local_origin.x > b.local_bounds.max.x ||
-                local_origin.z < b.local_bounds.min.z || local_origin.z > b.local_bounds.max.z) continue;
+                local_origin.z < b.local_bounds.min.z || local_origin.z > b.local_bounds.max.z) return;
         }
         // Started underneath the box: its top is not what we are standing on.
-        if (origin.y < b.bounds.min.y) continue;
+        if (origin.y < b.bounds.min.y) return;
         // Buried in the hillside, or lower than what we already found.
-        if (b.bounds.max.y <= surface_y) continue;
+        if (b.bounds.max.y <= surface_y) return;
 
         surface_y = b.bounds.max.y;
         surface_n = glm::vec3{0.0f, 1.0f, 0.0f};
@@ -505,7 +755,7 @@ TerrainCollider::GroundHit TerrainCollider::probe_down(
         prop = true;
         road = false;
         snow_depth = 0.0f;
-    }
+    });
 
     GroundHit out;
     out.distance = origin.y - surface_y;
@@ -537,8 +787,14 @@ bool TerrainCollider::line_of_sight_blocked(glm::vec3 from, glm::vec3 to,
     if (!(limit > 0.0f)) return false;
 
     // Boxes first. A building is the usual answer in a city and settles the
-    // question without touching the height field.
-    for (const StaticBox& b : boxes_) {
+    // question without touching the height field. Only the boxes bucketed
+    // along the line: any box the ray enters before `limit` has its entry
+    // point on the segment, and so sits in a bucket the segment crosses.
+    std::vector<uint32_t> along;
+    const glm::vec3 far_end = from + d * limit;
+    boxes_along({from.x, from.z}, {far_end.x, far_end.z}, along);
+    for (const uint32_t slot : along) {
+        const StaticBox& b = boxes_[slot];
         if (!b.enabled) continue;
         float t = 0.0f;
         glm::vec3 n{0.0f};
