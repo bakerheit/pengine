@@ -315,6 +315,7 @@ InputFrame App::police_officer_check_input() {
             police_armed_reports_=0;
             police_shot_reports_=0;
             player_vitals_.revive();
+            economy_.owned_weapons|=weapon_bit(WeaponId::Pistol); // QA owns it
             weapon_wheel_.equipped=WeaponId::Pistol;
             advance(5);
             AP_INFO("police officer check: officer walking toward suspect; drawing pistol");

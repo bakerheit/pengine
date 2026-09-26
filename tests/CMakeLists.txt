@@ -265,6 +265,7 @@ apricot_add_suite(weapon_wheel_tests)
 # New pawn-shop parcel clearance and actual customer/staff walking routes.
 apricot_add_suite(pawn_shop_tests)
 apricot_add_suite(gun_store_tests)
+apricot_add_suite(gun_store_shop_tests)
 
 apricot_add_suite(repair_shop_tests)
 # The respray visit at Rook's (game/respray_shop.h): the pull-in latch that

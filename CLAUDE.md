@@ -34,9 +34,11 @@ gardens are fenced for it.
 **What is still NOT there is worth naming precisely, because that is the part
 that keeps expiring.** There is no mission *campaign* — one delivery mission and
 a cutscene system, not a structure of jobs; the Sycamore Loop target house has
-no scripting (`docs/neighborhood-backlog.md`); the gun store cannot sell you
-anything. Check the tree before describing any of it, in either direction: the
-design document is still a design document, not a description of the code.
+no scripting (`docs/neighborhood-backlog.md`); the gun store sells only the
+pistol and its ammunition (`game/gun_store_shop.h`, `--gun-store-check`), and
+the wheel equips only what you own. Check the tree before describing any of
+it, in either direction: the design document is still a design document, not a
+description of the code.
 
 There used to be a sample game, Apricot Rally — a time trial with a checkpoint
 route, lap timing and a ghost car. It was a placeholder and it was deleted in

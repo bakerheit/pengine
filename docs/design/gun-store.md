@@ -1,6 +1,6 @@
 # Brassline Arms — gun store near Second Chance Pawn
 
-Environment built and checked on 2026-09-05 from the three-agent planning draft. The shop is enterable and staffed, with original display weapons, stock shelves, cases, a counter, safe, parking, curb access, sign, and interior lighting. Purchases remain a separate future feature.
+Environment built and checked on 2026-09-05 from the three-agent planning draft. The shop is enterable and staffed, with original display weapons, stock shelves, cases, a counter, safe, parking, curb access, sign, and interior lighting. Since 2026-09-26 the counter sells the pistol and pistol ammunition; see [Buying at the counter](#buying-at-the-counter).
 
 ## Location and layout
 
@@ -96,8 +96,52 @@ ctest --test-dir build --output-on-failure -R '^(gun_store_tests|building_access
 
 Screenshots are SDL BMPs. The preview PNGs are format conversions without image edits. The full project suite was not rerun for this scoped environment change.
 
-## Future purchase feature
+## Buying at the counter
 
-The current wheel offers Unarmed and a presentation-only Pistol. There is no wallet, owned inventory, ammo model, or purchase system; current strict v1 saves omit weapons and cash.
+Stand on the shop floor in front of the counter and the prompt `E / A  SHOP - BRASSLINE ARMS` appears. E or pad A opens the Brassline Arms menu; the game pauses while it is open, like the bank keypad and Rook's booth.
 
-A purchase follow-up can add a one-item Pistol catalog at the customer side of the counter. First settle starting cash or an earning source, price, and old-save ownership. Debit cash and grant ownership atomically, gate every selection input including the direct keyboard shortcut, and persist wallet/owned/equipped state with backward-compatible migration. Use the existing modal input pattern and test exact funds, insufficient funds, repeated purchase, cancel, through-wall interaction, and save/load/equip behavior. Ammo, combat, robbery, resale, attachments, and extra weapon classes remain separate work.
+| Item | Price | What you get | Refused when |
+|---|---|---|---|
+| Pistol | $500 | ownership of the pistol, which the wheel can then equip | already owned (`OWNED`), or cash short |
+| Pistol ammo | $50 | a box of 24 rounds into the pistol's reserve | no pistol yet (`BUY THE PISTOL FIRST`), the box would take the reserve past 240 (`AMMO FULL`), or cash short |
+
+The menu shows your cash, each price, and the ammo row's `CARRYING n / 240`. A row that cannot be bought is greyed with the reason; pressing Accept on it shows the reason (for example `NOT ENOUGH CASH`) and charges nothing. A buyable row asks `PAY $500 FOR PISTOL?` first: Accept pays, ESC / B goes back to the list without charging. ESC / B from the list, or `LEAVE THE COUNTER`, closes it. W / S or the D-pad moves the selection.
+
+**Where you can shop from.** `at_gun_store_counter()` in `src/game/gun_store_shop.h` is a site-local box: `|x| <= 4.6`, `z` from −5.8 (the counter's face) to −4.0 (where the island display begins), with the feet within the floor height band, on foot. Every side of that box is inside the shell, so no point outside the building, on the roof, behind the counter or in the staff passage is in it; that is the through-a-wall rule, and it needs no line-of-sight test that could leak. `gun_store_tests` checks it against the real character walk: the counter stop and the pressed-against-the-counter spot are in the zone, the staff passage and the clerk's side are not.
+
+**The rules live in `src/game/gun_store_shop.h`** (headless): prices, `gun_store_refusal()`, which both greys a row and refuses the purchase so they cannot disagree, `gun_store_buy()`, and the `GunStoreMenu` state machine. The pistol goes through `buy_weapon` and a box through `spend_cash` after every check has passed, so nothing moves on a refusal. `src/app/gun_store_counter.cpp` only opens the menu, routes input to it, and draws it.
+
+**A bought pistol comes loaded.** The pistol's magazine and reserve exist from the start of a game (12 and 48) and nothing can spend them before the pistol is owned, so buying it hands you those 60 rounds.
+
+### You can only use what you own
+
+A new game owns bare hands and molotovs; a v1–v4 save owns everything (see [save version 5](../save-games.md)). The weapon wheel draws an unowned sector dark with `LOCKED` and `NOT OWNED - BUY IT AT BRASSLINE ARMS`. You can point at it, but releasing equips nothing (`close_weapon_wheel()` in `src/game/weapon_ownership.h`). The 1/2/3 keys only move the wheel's hover, so they go through the same gate. `enforce_weapon_ownership()` also runs every frame before the weapons step and holsters anything unowned, because `equipped` is a plain field that QA scripts and future pickups can write directly. `--weapon-check`, `--damage-check` and the police officer check grant themselves the pistol for that reason.
+
+### Death keeps what you bought
+
+Dying keeps ownership (it is in the economy, which death does not touch) and keeps the pistol's magazine and reserve. Only the draw, a reload in progress and the recoil are dropped (`respawn_weapon_use()`). Before the shop, death refilled the pistol to 12/48; that would have made dying the cheapest box of rounds in town. Molotovs are not sold, so their stock still comes back full on respawn. Taking it away would leave a player with no way to get more.
+
+### Tests and the in-game check
+
+`gun_store_shop_tests` covers exact funds, one dollar short, a second pistol, cancel at the confirm, Back and LEAVE, ammo without the pistol, the ammo cap (including a reserve already past it from an old save, which is refused, never trimmed), the zone's inside and outside points (staff side, rear and side walls, storefront, roof, under the floor, in a car), the death rule, and a purchase through the real `encode_game_save`/`decode_game_save` that then equips through the gate. An unbought pistol stays locked after the same round trip.
+
+`--gun-store-check` drives the real keys in the real game, unattended. It starts on the customer side of the counter, sets the wallet to $1,000, and checks each step:
+
+1. The wheel refuses the unowned pistol.
+2. The prompt shows and E opens the menu.
+3. The pistol is bought through the confirm ($500).
+4. A box of rounds is bought (reserve 48 → 72, $450 left).
+5. A second pistol is refused.
+6. With $20 left, a box is refused as `NOT ENOUGH CASH`.
+7. ESC leaves, and the wheel then equips the bought pistol.
+
+Every step asserts the exact cash and reserve and saves a screenshot. It exits non-zero on any failure.
+
+```sh
+./build/bin/apricot --gun-store-check --frames 600 --save-file /tmp/gun-store-qa-save.json \
+    --screenshot build/qa/gun-store/check
+```
+
+Captures (`build/qa/gun-store/check.<stage>.png`): `wheel-locked`, `prompt`, `menu`, `confirm`, `bought-pistol`, `bought-ammo`, `already-owned`, `no-cash`, `wheel-owned`, `armed`. Checked by eye on 2026-09-26 at 2560×1440, daylight.
+
+**Not built yet:** earning money (payouts and fines belong to the wallet work), selling molotovs or anything else, resale, robbery, attachments, and refusing to serve a wanted player.
