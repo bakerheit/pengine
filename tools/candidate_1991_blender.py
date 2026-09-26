@@ -477,9 +477,12 @@ def build(slug):
             t=math.radians(70+285*i/20);hook.append((.115*math.cos(t),-2.12,1.79+.16*math.sin(t)))
         beam('Hook upper shank',(0,-2.12,1.99),hook[0],.06,'METAL')
         for a,c in zip(hook,hook[1:]):tube('Forged hook',a,c,.030,'DARK',segments=10)
-        box('Rear recovery bar',(-width-.04,-length-.21,.63),(width+.04,-length-.13,.82),'TOP',rounding=.02)
-        for i in range(-4,5):
-            x=i*.24
+        # The bar stops inside the lamp gaskets (x from width-.141): run full
+        # width at this height and it hides the brake lamps from behind.
+        bar_half=width-.16
+        box('Rear recovery bar',(-bar_half,-length-.21,.63),(bar_half,-length-.13,.82),'TOP',rounding=.02)
+        for i in range(-3,4):
+            x=i*.24-.05
             mesh('Diagonal hazard stripe',[(x-.065,-length-.216,.64),(x+.045,-length-.216,.64),
                 (x+.16,-length-.216,.81),(x+.05,-length-.216,.81)],[(0,1,2,3)],'STRIPE')
         box('Lightbar base',(-.52,.94,roof+.014),(.52,1.23,roof+.05),'DARK',rounding=.026)
