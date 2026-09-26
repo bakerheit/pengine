@@ -126,7 +126,7 @@ void expanded_neighborhood_plots() {
 
 void authored_inventory_and_slopes() {
     const auto lots = city::authored_building_access_lots();
-    REQUIRE(lots.size() == 45u + city::kLuxuryEstates.size());
+    REQUIRE(lots.size() == 46u + city::kLuxuryEstates.size());
     const TerrainGround ground{city::kMapSeed};
     RoadGraph graph;
     graph.build(city::map_spines(), RoadGraphParams{}, ground.sampler());
