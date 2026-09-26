@@ -72,9 +72,13 @@ void print_usage() {
         "  --gun-store-check buy the pistol and a box of rounds at Brassline Arms, then equip it (480+ frames)\n"
         "  --car-bomb-check fit a bomb at Rook's, set it off from the street, then from the\n"
         "                  driver's seat, respawn clear of the fire, and set a pedestrian alight (3600+ frames)\n"
+        "  --heist-check   rob Pinatty Savings & Trust: open the vault, take the cash, face the\n"
+        "                  police response, get away and bank the take (18000+ frames)\n"
         "  --attended      drive a --frames run by hand: let the window take focus and the cursor\n"
         "  --damage-check  check that three rounds kill a civilian, the body stays down,\n"
         "                  and the player dies, freezes and respawns (2400+ frames)\n"
+        "  --wallet-check  pay the delivery, fine an arrest, bill a death and capture\n"
+        "                  the cash counter after each (3000+ frames; stops when done)\n"
         "  --house-check   walk through 102 Sycamore's push doors and both exits\n"
         "  --signal-check  crash-test signals, street lamps and stop signs (1700+ frames)\n"
         "  --character-identity-check prove a new departure at one (lane,slot) gets a fresh rig\n"
@@ -168,11 +172,13 @@ int main(int argc, char** argv) {
     bool convertible_check=false;
     bool paint_check=false;
     bool car_bomb_check=false;
+    bool heist_check=false;
     int start_wanted=0;
     bool weapon_check=false;
     bool molotov_check=false;
     bool gun_store_check=false;
     bool damage_check=false;
+    bool wallet_check=false;
     bool house_check=false;
     bool signal_check=false;
     bool character_identity_check=false;
@@ -210,6 +216,7 @@ int main(int argc, char** argv) {
         if (std::strcmp(a,"--molotov-check")==0) { molotov_check=true;continue; }
         if (std::strcmp(a,"--gun-store-check")==0) { gun_store_check=true;continue; }
         if (std::strcmp(a,"--damage-check")==0) { damage_check=true;continue; }
+        if (std::strcmp(a,"--wallet-check")==0) { wallet_check=true;continue; }
         if (std::strcmp(a,"--house-check")==0) { house_check=true;continue; }
         if (std::strcmp(a,"--signal-check")==0) { signal_check=true;continue; }
         if (std::strcmp(a,"--character-identity-check")==0) {
@@ -251,6 +258,7 @@ int main(int argc, char** argv) {
         if (std::strcmp(a,"--convertible-check")==0) { convertible_check=true; continue; }
         if (std::strcmp(a,"--paint-check")==0) { paint_check=true; continue; }
         if (std::strcmp(a,"--car-bomb-check")==0) { car_bomb_check=true; continue; }
+        if (std::strcmp(a,"--heist-check")==0) { heist_check=true; continue; }
         if (std::strcmp(a,"--wanted")==0) {
             if (++i>=argc) { std::fprintf(stderr,"--wanted needs a level from 1 to 5\n"); return 2; }
             start_wanted=std::atoi(argv[i]);
@@ -548,6 +556,30 @@ int main(int argc, char** argv) {
         if (!screenshot_path) screenshot_path="build/car-bomb-check";
         app.set_car_bomb_check(true);
     }
+    if (heist_check) {
+        // Places the player inside the bank and walks from there, so it runs
+        // alone: another check's placement or warp would fight it.
+        if (frame_limit<18000 || car_bomb_check || paint_check || vehicle_entry_check ||
+            driver_transition_check || aircraft_check || helicopter_check || boat_check ||
+            trailer_check || tire_track_check || police_check || police_officer_check ||
+            traffic_horn_check || convertible_check || weapon_check || molotov_check ||
+            damage_check || house_check || signal_check || character_identity_check ||
+            gun_store_check || lighting_benchmark || warp_every || start_driving || start_wanted>0) {
+            std::fprintf(stderr,"--heist-check needs --frames 18000 or more and no other checks, warps or driving\n");
+            return 2;
+        }
+        clear_weather=true;
+        if (!lighting_night) daylight_qa=true;
+        if (!start_position_set) {
+            // The car waits on the entrance walk; the check puts the player
+            // inside at the vault keypad.
+            const auto& site=apricot::city::kBankSite;
+            start_position={site.origin.x+site.sin_yaw*-14.0f,site.origin.z+site.cos_yaw*-14.0f};
+            if (!start_heading_set) start_heading_radians=std::atan2(site.sin_yaw,site.cos_yaw);
+        }
+        if (!screenshot_path) screenshot_path="build/heist-check";
+        app.set_heist_check(true);
+    }
     if (convertible_check) {
         // The canvas takes 2.4 s each way and the second press lands at frame
         // 420; below this there is no room left to capture the return.
@@ -778,6 +810,20 @@ int main(int argc, char** argv) {
         if (!screenshot_path) screenshot_path="build/gun-store-check";
         app.set_gun_store_check(true);
     }
+    if (wallet_check) {
+        // It plays the delivery cutscene, arrests and kills the player, so it
+        // owns the mission, the wanted level and the body: it runs alone.
+        if (frame_limit<3000 || damage_check || weapon_check || molotov_check ||
+            house_check || signal_check || police_check || police_officer_check ||
+            traffic_horn_check || paint_check || car_bomb_check || delivery_check || gun_store_check ||
+            opening_preview || delivery_preview || lighting_benchmark || warp_every) {
+            std::fprintf(stderr,"--wallet-check needs --frames 3000 or more and no other checks/previews/warps\n");
+            return 2;
+        }
+        clear_weather=true;daylight_qa=true;
+        if (!screenshot_path) screenshot_path="build/wallet-check";
+        app.set_wallet_check(true);
+    }
     app.set_attended(attended);
     app.set_dusk_preview(dusk_preview);
     app.set_start_in_game(bellwether_start);
@@ -848,6 +894,9 @@ int main(int argc, char** argv) {
     if (car_bomb_check && !app.car_bomb_check_passed()) {
         AP_ERROR("car bomb check did not pass: captures 0x%x", app.car_bomb_check_captures());rc=1;
     }
+    if (heist_check && !app.heist_check_passed()) {
+        AP_ERROR("heist check did not pass: captures 0x%x", app.heist_check_captures());rc=1;
+    }
     if (paint_check && !app.paint_check_passed()) {
         AP_ERROR("paint check did not pass: stages 0x%x, captures 0x%x",
                  app.paint_check_bits(), app.paint_check_captures());rc=1;
@@ -887,6 +936,9 @@ int main(int argc, char** argv) {
     }
     if (damage_check && !app.damage_check_passed()) {
         AP_ERROR("damage and death check did not complete");rc=1;
+    }
+    if (wallet_check && !app.wallet_check_passed()) {
+        AP_ERROR("wallet check did not complete");rc=1;
     }
     if (trailer_check && !app.trailer_check_passed()) return 1;
     if (boat_check && !app.boat_check_passed()) {

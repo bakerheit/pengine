@@ -1967,22 +1967,33 @@ void GameUi::draw_wanted_badge(Hud& hud, int wanted_level, bool flash, int64_t s
     draw_wanted_stars(hud, std::clamp(wanted_level, 0, 5), flash, step, right, top);
 }
 
-void GameUi::draw_arrested(Hud& hud, float remaining_s, glm::vec2 vp) const {
+void GameUi::draw_arrested(Hud& hud, float remaining_s, glm::vec2 vp,
+                           const char* detail) const {
     if (remaining_s <= 0.0f || vp.x <= 0.0f || vp.y <= 0.0f) return;
     const float alpha = glm::smoothstep(0.0f, 1.0f, remaining_s);
     const float centre = vp.x * 0.5f;
     const float top = vp.y * 0.29f;
     const float height = std::min(92.0f, vp.x * 0.12f);
     const float half = hud.measure_title_text("ARRESTED", height) * 0.5f + 54.0f;
+    // The plate grows to hold the detail line rather than letting it hang
+    // off the bottom over whatever is behind.
+    const bool has_detail = detail && detail[0];
+    const float bottom = top + height + (has_detail ? 90.0f : 48.0f);
     hud.quad({centre-half-14.0f, top}, {centre+half, top},
-             {centre+half+14.0f, top+height+48.0f},
-             {centre-half, top+height+48.0f}, {0.012f,0.025f,0.04f,0.84f*alpha});
+             {centre+half+14.0f, bottom},
+             {centre-half, bottom}, {0.012f,0.025f,0.04f,0.84f*alpha});
     hud.rect({centre-half+26.0f, top+height+21.0f},
              {centre+half-26.0f, top+height+26.0f}, {0.3f,0.66f,0.86f,alpha});
     hud.title_text_centered("ARRESTED", centre+4.0f, top+15.0f, height,
                             {0.0f,0.0f,0.0f,0.9f*alpha});
     hud.title_text_centered("ARRESTED", centre, top+11.0f, height,
                             {0.88f,0.94f,0.98f,alpha});
+    if (has_detail) {
+        hud.text_centered(detail, centre+2.0f, top+height+42.0f, 28.0f,
+                          {0.0f,0.0f,0.0f,0.8f*alpha});
+        hud.text_centered(detail, centre, top+height+40.0f, 28.0f,
+                          {0.88f,0.94f,0.98f,alpha});
+    }
 }
 
 void GameUi::draw_dev_menu(Hud& hud, const DevMenu& menu,

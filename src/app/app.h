@@ -29,6 +29,7 @@
 #include "game/police_offenses.h"
 #include "game/player_vitals.h"
 #include "game/police_arrest.h"
+#include "game/wallet_rules.h"
 #include "game/police_visibility.h"
 #include "game/repair_shop.h"
 #include "game/respray_shop.h"
@@ -65,6 +66,7 @@
 #include "game/aircraft.h"
 #include "game/helicopter.h"
 #include "game/wreck_explosion.h"
+#include "game/bank_heist.h"
 #include "game/car_bomb.h"
 #include "game/boat.h"
 #include "gfx/camera.h"
@@ -156,6 +158,9 @@ public:
     void set_car_bomb_check(bool enabled) { car_bomb_check_=enabled; if (enabled) vehicle_god_mode_=true; }
     bool car_bomb_check_passed() const;
     unsigned car_bomb_check_captures() const { return car_bomb_check_captures_; }
+    void set_heist_check(bool enabled) { heist_check_=enabled; }
+    bool heist_check_passed() const;
+    unsigned heist_check_captures() const { return heist_check_captures_; }
     bool paint_check_passed() const;
     unsigned paint_check_bits() const { return paint_check_bits_; }
     unsigned paint_check_captures() const { return paint_check_captures_; }
@@ -180,6 +185,8 @@ public:
     bool damage_check_passed() const {
         return damage_check_done_ && !damage_check_failed_;
     }
+    void set_wallet_check(bool on) { wallet_check_=on; }
+    bool wallet_check_passed() const { return wallet_check_done_ && !wallet_check_failed_; }
     void set_house_check(bool enabled) { house_check_=enabled; }
     bool house_check_passed() const { return house_check_complete_ && !house_check_failed_; }
     void set_signal_check(bool enabled) { signal_check_=enabled; }
@@ -517,6 +524,24 @@ private:
     glm::vec3 damage_check_death_position_{0.f};
     void tick_damage_check();
     void capture_damage_check();
+    // The wallet's gameplay: payouts, fines, the hospital bill and the HUD
+    // counter. src/app/wallet_gameplay.cpp; amounts in game/wallet_rules.h.
+    WalletNotices wallet_;
+    void pay_delivery();
+    void arrest_player();
+    void charge_hospital_bill();
+    void draw_wallet_hud(glm::vec2 vp);
+    void draw_wasted_bill(glm::vec2 vp);
+    std::string arrest_fine_line() const;
+    // --wallet-check: payout, fine and hospital bill in the real game.
+    bool wallet_check_=false;
+    bool wallet_check_done_=false, wallet_check_failed_=false;
+    int wallet_check_stage_=0;
+    int wallet_check_stage_frame_=0;
+    bool wallet_check_acted_=false;
+    bool wallet_check_capture_pending_=true;
+    int64_t wallet_check_cash_=0;
+    void tick_wallet_check();
 
     bool weapon_hit_check_done_=false, weapon_hit_check_failed_=false;
     uint64_t weapon_hit_check_lane_=0;
@@ -636,6 +661,28 @@ private:
     unsigned car_bomb_check_bites_before_=0;
     void tick_car_bomb_check();
     void capture_car_bomb_check();
+    // The bank heist: rules in game/bank_heist.h, the App glue in
+    // src/app/heist_gameplay.cpp.
+    BankHeistState bank_heist_;
+    unsigned heist_caught_seen_=0;  // arrests + deaths already settled against the take
+    float heist_card_s_=0, heist_bell_wait_s_=0;
+    const char* heist_card_title_="";
+    std::string heist_card_line_;
+    PcmClip heist_bell_clip_;
+    bool try_bank_heist_grab();
+    void step_bank_heist_rules();
+    void reset_bank_heist(const BankHeistState& state);
+    void draw_bank_heist_hud(glm::vec2 vp);
+    // --heist-check. See src/app/heist_check.cpp.
+    bool heist_check_=false, heist_check_done_=false, heist_check_failed_=false;
+    int heist_check_phase_=0, heist_check_mark_=0, heist_check_cop_frames_=0;
+    std::size_t heist_check_leg_=0, heist_check_getaway_=0;
+    unsigned heist_check_captures_=0, heist_check_capture_bit_=0;
+    std::string heist_check_capture_;
+    int64_t heist_check_cash_before_=0;
+    void tick_heist_check();
+    void capture_heist_check();
+    InputFrame heist_check_input();
     bool on_foot_ = true;
     VehicleTransitionState vehicle_transition_;
     bool transition_waiting_=false;

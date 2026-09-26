@@ -45,8 +45,12 @@ target_sources(apricot PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/molotov_gameplay.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/car_bomb_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/car_bomb_gameplay.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/heist_check.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/heist_gameplay.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/molotov_visual.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/weapon_visual.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/weapon_check.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/world.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/wallet_gameplay.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/wallet_check.cpp
 )

@@ -4,6 +4,7 @@
 #include <string>
 #include "city/map.h"
 #include "physics/vehicle.h"
+#include "game/bank_heist.h"
 #include "game/tractor_trailer.h"
 #include "game/license_plate.h"
 #include "game/molotov.h"
@@ -54,6 +55,11 @@ struct GameSave {
     int pistol_magazine = WeaponUseState::kMagazineCapacity;
     int pistol_reserve = WeaponUseState::kInitialReserve;
     int molotov_stock = MolotovUseState::kInitialStock;
+    // Version 6: the bank vault (game/bank_heist.h). Which piles are gone and
+    // the sim step the vault restocks at; 0,0 is a stocked vault, which is
+    // what every older save loads with. The take in hand is not saved.
+    uint8_t bank_loot_taken = 0;
+    uint64_t bank_restock_step = 0;
 };
 
 inline constexpr int kMaxSavedPistolReserve = 9999;

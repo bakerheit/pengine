@@ -43,10 +43,14 @@ void test_new_rows_did_not_renumber_the_old_ones() {
                 "REPORT BUG stays last", "root");
 
     DevMenu vehicle = open_vehicle_page();
-    REQUIRE(vehicle.item_count() == 6);
+    REQUIRE(vehicle.item_count() == 7);
     REQUIRE(std::strcmp(vehicle.item_label(3), "WANTED LEVEL  >") == 0);
     REQUIRE(std::strcmp(vehicle.item_label(4), "GOD MODE") == 0);
     REQUIRE(std::strcmp(vehicle.item_label(5), "VEHICLE GOD MODE") == 0);
+    REQUIRE(std::strcmp(vehicle.item_label(6), "ADD $1,000 CASH") == 0);
+    vehicle.set_selection(6);
+    REQUIRE(vehicle.update(kBtnAccept).kind == DevMenuActionKind::AddCash);
+    REQUIRE(vehicle.open() && vehicle.page() == DevMenuPage::Vehicle);
     apricot_test::pass("the added rows sit below the ones other pages navigate by index");
 }
 

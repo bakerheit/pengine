@@ -116,15 +116,29 @@ void App::check_police_arrest(const std::vector<VisiblePoliceIdentity>& visible)
     const auto event=police_arrest_.observe(step_index_,arrestable,wanted_.level(),
         player_character_.position,world_.traffic().vehicles(),visible);
     if (!event) return;
+    arrest_player();
+    AP_INFO("Arrested: officer key %llu slot %u held within %.1f m for %.1f s",
+        static_cast<unsigned long long>(event->officer.lane_key),event->officer.slot,
+        kPoliceArrestRangeM,kPoliceArrestHoldSeconds);
+}
+
+// What being arrested does, whoever made the arrest. Split from the detection
+// above so --wallet-check can arrest the player without staging an officer,
+// and still go through the one door. The fine is read off the level the player
+// was arrested AT, so it is charged before the reset clears it.
+void App::arrest_player() {
+    const int stars=wanted_.level();
+    wallet_.arrest_fine=charge_penalty(economy_,arrest_fine(stars));
     wanted_.reset();
     police_escalation_.reset();
     police_stop_feedback_s_=0.0f;
     world_.set_police_context(0,player_focus_position());
     arrested_feedback_s_=GameUi::kArrestedDisplaySeconds;
     ++police_arrest_reports_;
-    AP_INFO("Arrested: officer key %llu slot %u held within %.1f m for %.1f s",
-        static_cast<unsigned long long>(event->officer.lane_key),event->officer.slot,
-        kPoliceArrestRangeM,kPoliceArrestHoldSeconds);
+    AP_INFO("arrest fine at %d stars: billed $%lld, paid $%lld, cash $%lld",stars,
+        static_cast<long long>(wallet_.arrest_fine.billed),
+        static_cast<long long>(wallet_.arrest_fine.taken),
+        static_cast<long long>(economy_.cash));
 }
 
 // Bodies the player's car left in the road, drained on the step they happen.

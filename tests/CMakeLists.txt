@@ -135,9 +135,15 @@ apricot_add_suite(ferrone_mast_tests)
 apricot_add_suite(pinatty_infill_tests)
 apricot_add_suite(marina_tests)
 apricot_add_suite(bank_vault_tests)
+# The bank heist (game/bank_heist.h): loot, alarm heat, the carried take and
+# the restock, against a real wanted system, wallet and walking controller.
+apricot_add_suite(bank_heist_tests)
 # The wallet and owned weapons (game/player_economy.h): all-or-nothing
 # purchases, clamped payouts and fines that stop at zero.
 apricot_add_suite(player_economy_tests)
+# The wallet in play (game/wallet_rules.h): payout, fines, hospital bill, the
+# HUD flash, and the real events each charging exactly once.
+apricot_add_suite(wallet_rules_tests)
 apricot_add_suite(construction_site_tests)
 apricot_add_suite(construction_neighbor_materials_tests)
 apricot_add_suite(construction_neighbor_equipment_tests)

@@ -199,6 +199,26 @@ because the headless suites cannot see a corpse standing back up or a banner
 playing over a world the player is already driving around in, and both of those
 broke at some point while every test passed.
 
+**The player carries a wallet.** The cash is on the HUD, a green figure in a
+plate beside the clock, and any change to it flashes beside the plate for a
+couple of seconds (`+$750` green, `-$400` red). A new game starts with $250.
+Lou's delivery pays $750 on completion, shown on the Mission Success card. An
+arrest fines $100 doubled per star ($200 at one, $3,200 at five), shown under
+ARRESTED; dying costs a $250 hospital bill, shown under WASTED. A penalty takes
+what the wallet holds and stops at zero, and the banner says what was billed
+and what was paid. Amounts and the reasoning are in
+[`docs/economy.md`](docs/economy.md); rules in `game/wallet_rules.h`
+(`wallet_rules_tests`); the App side in `app/wallet_gameplay.cpp`. The F1
+menu's PLAYER & VEHICLE page has ADD $1,000 CASH for testing.
+`--wallet-check --frames 3000` plays and skips the real delivery cutscene,
+arrests at two stars, kills the player, then arrests at five stars with less
+than the fine in hand, checking the balance after each and leaving five
+screenshots in `build/wallet-check.*.png`. The arrests go through the same
+`arrest_player()` a real officer's arrest does, but the check does not stage
+the officer — `--police-officer-check` does that. **Not there yet:** arrest
+does not jail, relocate or confiscate; Brassline Arms is the only place that
+takes the cash; not yet played by hand.
+
 **Rook's Auto Repair resprays cars.** Drive into a bay, stop, press R or pad X:
 the world pauses, the camera swings round to frame the car beside a paint
 picker (24 presets, or a custom hue bar and saturation/value plane), and the
@@ -232,8 +252,8 @@ car disarms the first. Rules in `game/car_bomb.h` (`car_bomb_tests`); the App
 side in `app/car_bomb_gameplay.cpp`. `--car-bomb-check --frames 3600` runs both
 detonations in the real game, leaves nine screenshots in
 `build/car-bomb-check.*.png`, and lights a fire under a real pedestrian and
-requires it to bite them. **Not there yet:** there is no money in the game,
-so the bomb is free; there is no pad binding; the fireball's flames and smoke
+requires it to bite them. **Not there yet:** Rook's does not charge for the
+bomb, so it is free; there is no pad binding; the fireball's flames and smoke
 are cards off the molotov's flame atlas (smoke is that take tinted to soot, as
 there is no smoke sheet yet) and its debris is still small boxes; no explosion
 recording ships (it layers the crash, glass and molotov whoosh, and plays

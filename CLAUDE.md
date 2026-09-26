@@ -24,12 +24,16 @@ population that consumes `city/traffic_ai.h`; `game/wanted_system.h` consumes
 `game/delivery_mission.h` is wired into the app; `game/molotov.h` and
 `game/fire.h` put a second weapon in the wheel and burning ground under it;
 Rook's Auto Repair resprays any drivable car and loses the cops if none saw the
-pull-in (`game/respray_shop.h`, `--paint-check`); and
+pull-in (`game/respray_shop.h`, `--paint-check`); the Pinatty Savings & Trust
+vault can be robbed — take the cash, trip three stars, lose the cops to bank it
+(`game/bank_heist.h`, `--heist-check`); and
 a growing set of authored buildings are enterable — the bar, pawn shop, gun store, gas store, quickbite,
 repair shop, bank vault and a furnished house among them, each with its own
 suite. `game/climb.h` vaults the player over a wall or fence up to 1.30 m when
 it has standing room on top and somewhere to land, and the Sycamore Loop back
-gardens are fenced for it.
+gardens are fenced for it. The player has a wallet on the HUD: the delivery
+pays, an arrest fines by the star and dying bills the hospital
+(`game/wallet_rules.h`, `--wallet-check`).
 
 **What is still NOT there is worth naming precisely, because that is the part
 that keeps expiring.** There is no mission *campaign* — one delivery mission and

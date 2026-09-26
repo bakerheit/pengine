@@ -1533,6 +1533,7 @@ void App::process_ui_input(float dt) {
     }
     if (ui_.screen() == UiScreen::Driving && !dev_menu_.open() && on_foot_ && !vehicle_transition_.active() &&
         was_pressed(input_.frame(), kBtnAccept)) {
+        if (try_bank_heist_grab()) { input_.consume_edges(); clock_.reset(); return; }
         const BankTarget target = bank_target(
             city::bank_local_position(player_character_.position), true);
         if (target != BankTarget::None) {
@@ -1626,6 +1627,11 @@ void App::process_ui_input(float dt) {
                 dev_menu_.set_player_car(car_visual_.active_car());
                 AP_ERROR("developer vehicle selection failed");
             }
+        } else if (dev_action.kind == DevMenuActionKind::AddCash) {
+            const int64_t added = earn_cash(economy_, kDevMenuCashGrant);
+            AP_INFO("developer cash: +$%lld, cash $%lld",
+                    static_cast<long long>(added),
+                    static_cast<long long>(economy_.cash));
         } else if (dev_action.kind == DevMenuActionKind::RepairVehicle) {
             repair_vehicle(car_);
             prev_car_ = car_;
@@ -3137,6 +3143,7 @@ void App::render() {
             // through GameUi::draw, so the badge is drawn here beside it and
             // not in that switch.
             game_ui_.draw_perf_recorder(hud_, radar, vp);
+            draw_wallet_hud(vp);
             const glm::vec3 focus = player_focus_position();
             const auto snow_contact = collider_.probe_down(
                 focus + glm::vec3{0.0f, 0.5f, 0.0f}, 4.0f,
@@ -3535,12 +3542,14 @@ void App::render() {
                                         0.0f, 1.0f)});
                 hud_.title_text_centered("WASTED", vp.x * 0.5f, 116.0f, 58.0f,
                                          {0.92f, 0.08f, 0.05f, 1.0f});
+                draw_wasted_bill(vp);
             }
             draw_weapon_wheel(hud_,weapon_wheel_,vp,economy_.owned_weapons);
             if(repair_shop_feedback_s_>0 && respray_feedback_s_<=0)
                 hud_.text_centered("CAR REPAIRED",vp.x*.5f,vp.y*.25f,30,{.65f,1,.65f,1});
             draw_respray_card(vp);
             if (respray_feedback_s_ <= 0.0f) draw_car_bomb_card(vp);
+            if (!dev_menu_.open()) draw_bank_heist_hud(vp);
             if (mission_success_feedback_s_ > 0.0f) {
                 constexpr float kDisplaySeconds = 6.25f;
                 const float age = kDisplaySeconds - mission_success_feedback_s_;
@@ -3575,7 +3584,13 @@ void App::render() {
                 hud_.title_text_centered("Mission Success", centre_x,
                                          top + 10.0f, title_h,
                                          {0.94f, 0.91f, 0.82f, alpha});
-                hud_.text_centered("PACKAGE DELIVERED", centre_x,
+                char paid[48] = "PACKAGE DELIVERED";
+                if (wallet_.delivery_paid > 0) {
+                    char amount[32];
+                    format_cash(amount, sizeof(amount), wallet_.delivery_paid, true);
+                    std::snprintf(paid, sizeof(paid), "PACKAGE DELIVERED   %s", amount);
+                }
+                hud_.text_centered(paid, centre_x,
                                    top + 137.0f, 17.0f,
                                    {1.0f, 0.72f, 0.30f, alpha});
             }
@@ -3584,7 +3599,8 @@ void App::render() {
             if (!dev_menu_.open()) bank_interaction_.draw(hud_, vp,
                 bank_target(city::bank_local_position(player_character_.position), on_foot_),
                 bank_vault_);
-            game_ui_.draw_arrested(hud_, arrested_feedback_s_, vp);
+            game_ui_.draw_arrested(hud_, arrested_feedback_s_, vp,
+                                   arrest_fine_line().c_str());
         } else {
             GameUiSnapshot snapshot;
         snapshot.save_notice=save_notice_.c_str();
@@ -3764,6 +3780,7 @@ void App::render() {
     if (convertible_check_) capture_convertible_check();
     if (paint_check_) capture_paint_check();
     if (car_bomb_check_) capture_car_bomb_check();
+    if (heist_check_) capture_heist_check();
     if (!screenshot_path_.empty() && frame_limit_ > 0 &&
         frames_rendered_ + 1 >= frame_limit_) {
         save_screenshot(screenshot_path_);
@@ -4361,11 +4378,18 @@ int App::run() {
         if (molotov_check_) tick_molotov_check();
         if (gun_store_.check) tick_gun_store_check();
         if (damage_check_) { tick_damage_check(); capture_damage_check(); }
+        if (wallet_check_) {
+            if (wallet_check_done_ || wallet_check_failed_) break;
+            tick_wallet_check();
+        }
         if (paint_check_ && (paint_check_failed_ || (paint_check_done_ && paint_check_capture_.empty()))) break;
         if (paint_check_) tick_paint_check();
         if (car_bomb_check_ && (car_bomb_check_failed_ ||
             (car_bomb_check_done_ && car_bomb_check_capture_.empty()))) break;
         if (car_bomb_check_) tick_car_bomb_check();
+        if (heist_check_ && (heist_check_failed_ ||
+            (heist_check_done_ && heist_check_capture_.empty()))) break;
+        if (heist_check_) tick_heist_check();
         if (weapon_check_) {
             // The check is about aim, fire and reload, not the shop: it owns
             // the pistol (the gun store's own check proves buying one).
@@ -4509,6 +4533,7 @@ int App::run() {
         respray_camera_hold_s_=std::max(0.f,respray_camera_hold_s_-camera_frame_dt_);
         mission_success_feedback_s_=std::max(
             0.f,mission_success_feedback_s_-camera_frame_dt_);
+        wallet_.flash.observe(economy_.cash,camera_frame_dt_);
         if (ui_.screen()==UiScreen::Driving)
             arrested_feedback_s_=std::max(0.f,arrested_feedback_s_-camera_frame_dt_);
 
@@ -4542,7 +4567,7 @@ int App::run() {
             !paint_shop_.modal() && !paint_input_consumed_ &&
             !gun_store_holds_input() &&
             !(lighting_benchmark_ && frames_rendered_>=300)) {
-            tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_ || plow_check_ || paint_check_ || car_bomb_check_) ? 1.0/60.0 : dt);
+            tick = clock_.advance((weapon_check_ || molotov_check_ || lighting_benchmark_ || driver_transition_check_ || house_check_ || signal_check_ || trailer_check_ || tire_track_check_ || plow_check_ || paint_check_ || car_bomb_check_ || heist_check_) ? 1.0/60.0 : dt);
         } else {
             // Title, pause and map are real pauses. Never let wall time from a
             // modal screen turn into a burst of vehicle steps on return.
@@ -4748,6 +4773,7 @@ int App::run() {
                     ? character_look_dy_pending_ : 0.0f;
                 if (i != 0) character_input.pressed = 0u;
                 if (house_check_) character_input = house_check_input();
+                if (heist_check_) character_input = heist_check_input();
                 if (weapon_use_.aim_blend>.01f) {
                     character_input.held &= ~kBtnShiftUp;
                     character_input.steer*=.55f;
@@ -4929,6 +4955,7 @@ int App::run() {
             police_eyes_on_=!current_police_visible.empty();
             step_respray_visit(i);
             step_car_bomb_rules(i);
+            step_bank_heist_rules();
             // The stars flash from the crime until the dispatch radio goes
             // out (PENG-46); the crowd owns that step, so the latch clears
             // on exactly the frame the callout would play.

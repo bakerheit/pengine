@@ -26,6 +26,7 @@ void App::begin_new_game() {
     mission_stage_=MissionStage::Opening;save_notice_.clear();
     game_ui_.clear_waypoint();
     bank_vault_={};world_.reset_session_objects(scene_,collider_);
+    reset_bank_heist({});  // New Game restocks the vault and drops any take.
     wanted_.reset();
     police_escalation_.reset();
     police_stop_feedback_s_=0.0f;
@@ -49,6 +50,7 @@ void App::begin_new_game() {
     repair_shop_visit_={};repair_shop_feedback_s_=0;
     reset_respray_state();
     mission_success_feedback_s_=0;
+    wallet_=WalletNotices{};wallet_.flash.resync(economy_.cash);
     vehicle_interaction_notice_.clear();vehicle_notice_until_=0;
     driving_mechanics_style_=DrivingMechanicsStyle::ClassicGta;
     tuning_=player_model_tuning(driving_mechanics_style_,start_car_);
@@ -100,7 +102,10 @@ void App::finish_opening() {
     character_look_dx_pending_=character_look_dy_pending_=0;
     if (delivery_cutscene_) {
         // Natural completion and skip commit the same checkpoint, after assets loaded.
-        complete_delivery(mission_stage_,player_character_.position,on_foot_);
+        // Paid on the one step the stage flips, and before the checkpoint
+        // below, so the saved wallet already holds the payout.
+        if (complete_delivery(mission_stage_,player_character_.position,on_foot_))
+            pay_delivery();
         vehicle_interaction_notice_="PACKAGE DELIVERED TO DEVON";
         vehicle_notice_until_=step_index_+static_cast<uint64_t>(std::ceil(5.0/kSimDt));
         VoiceParams success;success.category=Category::Music;
