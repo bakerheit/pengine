@@ -63,6 +63,7 @@ extern char** environ;
 #include "game/drunk.h"
 #include "gfx/gl_state.h"
 #include "gfx/sky_env.h"
+#include "gfx/bellwether_sky.h"
 #include "game/local_snow_conditions.h"
 #include "terrain/heightmap.h"
 
@@ -897,7 +898,7 @@ bool App::init() {
     init_save_game();
     if (start_wanted_level_ > 0)
         wanted_.add_heat(wanted_heat_for_level(start_wanted_level_));
-    if (frame_limit_ > 0) ui_.enter_game();
+    if (frame_limit_ > 0 || start_in_game_) ui_.enter_game();
     if (opening_preview_) { ui_.enter_game();begin_new_game(); }
     if (delivery_preview_ || delivery_check_) {
         ui_.enter_game();mission_stage_=MissionStage::DeliveryActive;on_foot_=true;
@@ -2667,6 +2668,7 @@ SkyEnv App::current_sky_env() const {
     weather.fog_start_m = kRenderDistance * 0.25f;
     weather.fog_end_m = kRenderDistance;
     SkyEnv env = compute_sky_env(time_of_day, weather);
+    if(dusk_preview_ && !daylight_qa_ && !lighting_night_) env=bellwether_dusk_sky(weather);
 
     DistanceHazeParams haze;
     haze.weather_fog = controls_.fog;
@@ -2966,6 +2968,11 @@ void App::render() {
         add_interior_lights(city::kHospitalNorthParkingSite,
             hospital_parking_lights, "hospital parking lot light lens", 23.0f,
             {0.0f, -1.0f, 0.0f}, 5.0f, 0.54f);
+    }
+    if(!lighting_stress_ && visible_night_level>0) for(const auto& p:world_.bellwether_lights()) {
+        if(glm::distance(p.position,camera_.position)<110.f)
+            emergency_light_sources_.push_back({glm::vec4{p.position,p.radius},
+                {0,-1,0,p.strength*visible_night_level},{1.f,.72f,.38f,.50f}});
     }
     if(!lighting_stress_) for(const auto& p:world_.miandi_gas_station_lights()) {
         if(glm::distance(p,camera_.position)<75.f)

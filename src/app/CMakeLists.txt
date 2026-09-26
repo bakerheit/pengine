@@ -10,6 +10,7 @@
 # boxes, and its own header said in capitals that it was placeholder and meant
 # to be deleted.
 target_sources(apricot PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/bellwether.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/app.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/app_cutscene.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/app_save.cpp

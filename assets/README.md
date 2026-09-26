@@ -295,8 +295,11 @@ prove every detail looks right under every possible dent.
 
 ## Player and pedestrian characters
 
-The live player is Character 01 with `Character_01.png` from the supplied
-`Characters_psx_1.1.zip`. Ambient pedestrians use eight more civilians from
+The live player wears the original Bellwether trench coat over Character 01's
+head, hands, trousers, shoes and rig from the supplied
+`Characters_psx_1.1.zip`. Run `python3 tools/make_trench_detective.py` after the
+base character cook. See [Bellwether asset provenance](../docs/assets/bellwether.md).
+Ambient pedestrians use eight more civilians from
 that pack. A pedestrian's selected look is stable for its `(lane key, slot)`
 simulation identity.
 

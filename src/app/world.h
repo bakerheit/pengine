@@ -114,6 +114,9 @@ public:
     // and register the same solid pieces with vehicle physics.
     bool set_starting_area(Renderer& renderer, Scene& scene,
                            TerrainCollider& collider);
+    bool set_bellwether(Renderer& renderer,Scene& scene,TerrainCollider& collider);
+    struct BellwetherLight { glm::vec3 position{};float radius=0;float strength=0; };
+    const std::vector<BellwetherLight>& bellwether_lights() const { return bellwether_lights_; }
     void sync_bank_vault(Scene& scene, TerrainCollider& collider, float openness);
     void reset_session_objects(Scene& scene, TerrainCollider& collider);
     void step_house_doors(Scene& scene,TerrainCollider& collider,
@@ -262,6 +265,8 @@ private:
     // Atlas-cell quads and exhibit meshes for the Pinatty Museum interior,
     // released together because they are uploaded together.
     std::vector<MeshId> museum_meshes_;
+    std::vector<MeshId> bellwether_meshes_;
+    std::vector<BellwetherLight> bellwether_lights_;
     MeshId airport_garage_ramp_mesh_ = kInvalidId;
     std::vector<glm::vec3> residential_lights_;
     std::vector<city::InteriorStreamingVolume> interior_streaming_volumes_;

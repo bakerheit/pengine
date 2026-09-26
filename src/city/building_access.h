@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "city/airport.h"
+#include "city/bellwether.h"
 #include "city/neighborhood_shops.h"
 #include "city/pawn_shop.h"
 #include "city/gun_store.h"
@@ -104,6 +105,9 @@ inline std::vector<BuildingAccessLot> authored_building_access_lots(GroundSample
         out.push_back(std::move(lot));
     };
     add(kGasStationSite, bake_building(kGasStationPlan), "gas lot", {0, 1}, 0);
+    add(kBellwetherGasSite,bake_bellwether_gas_lot(),"bellwether gas lot",{0,1},0,{kBellwetherRoadId});
+    out.back().driveway_width_m=12.0f;
+    out.back().parking_tracks_frontage=false;
     add(kMotelSite, bake_building(kMotelPlan), "motel lot", {0, 1}, 12);
     out.back().driveway_outward_local = {1, 0};
     out.back().preferred_entry_local = -9;

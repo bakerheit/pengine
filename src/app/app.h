@@ -114,6 +114,7 @@ public:
     void set_opening_preview(bool enabled) { opening_preview_=enabled; }
     void set_save_path(std::string path) { save_path_=std::move(path); }
     void set_frame_limit(int frames) { frame_limit_ = frames; }
+    void set_start_in_game(bool enabled) { start_in_game_ = enabled; }
     // Put a human back at the keyboard of a frame-limited run. --frames
     // otherwise means the window neither takes focus nor captures the cursor,
     // which is right for every scripted check and wrong for the one case that
@@ -121,6 +122,7 @@ public:
     void set_attended(bool attended) { attended_ = attended; }
     void set_overhead_qa(bool enabled) { overhead_qa_ = enabled; }
     void set_daylight_qa(bool enabled) { daylight_qa_ = enabled; }
+    void set_dusk_preview(bool enabled) { dusk_preview_ = enabled; }
     void set_road_start_qa(bool enabled) { road_start_qa_ = enabled; }
     void set_vehicle_entry_check(bool enabled) { vehicle_entry_check_=enabled; }
     bool vehicle_entry_check_passed() const { return vehicle_entry_check_passed_; }
@@ -282,6 +284,7 @@ private:
     bool tire_track_check_ = false;
     bool overhead_qa_=false;
     bool daylight_qa_=false;
+    bool dusk_preview_=false;
     bool road_start_qa_=false;
     int signal_check_ticks_=0;
     int signal_check_fixture_kind_=0;
@@ -913,6 +916,7 @@ private:
 
     bool running_ = false;
     int frame_limit_ = 0;
+    bool start_in_game_ = false;
     std::string screenshot_path_;
     int frames_rendered_ = 0;
     int gl_errors_ = 0;

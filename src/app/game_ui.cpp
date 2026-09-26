@@ -44,6 +44,7 @@
 #include "city/loom_cultural.h"
 #include "city/burgerpiz.h"
 #include "city/church_of_waffles.h"
+#include "city/bellwether.h"
 #include "city/north_pinatty_gas_station.h"
 #include "city/luxury_neighborhood.h"
 #include "city/residential_neighborhood.h"
@@ -477,6 +478,11 @@ void GameUi::build_map() {
     add_rect("6twelve restrooms",*station.site,{14.45f,-10.32f},4.66f,7.80f,false);
     }
     add_site(city::kGasStationSite, city::kGasStationPlan);
+    add_rect("Bellwether Service forecourt",city::kBellwetherGasSite,{0,0},50,46,true);
+    add_rect("Bellwether Service store",city::kBellwetherGasSite,{0,-15},28,12,false);
+    add_rect("Bellwether Parish",city::kBellwetherChurchSite,{0,0},13,23,false);
+    add_rect("Bellwether Water Tower",city::kBellwetherTowerSite,{0,0},9,9,false);
+    add_rect("Bellwether shops",city::kBellwetherShopsSite,{0,0},63,19,false);
     add_site(city::kCarWashSite, city::kCarWashPlan);
     add_site(city::kMotelSite, city::kMotelPlan);
     add_site(city::kApartmentSite, city::kApartmentPlan);
@@ -1162,6 +1168,9 @@ glm::vec2 map_site_world_position(const MapSiteMarker& marker) {
 // Keep the atlas POI set in one place. The full map uses these for its
 // labelled markers; the radar uses the same positions as small blips.
 const MapSiteMarker kMapSiteMarkers[] = {
+    {&city::kBellwetherGasSite,{.94f,.72f,.31f,1},0},
+    {&city::kBellwetherChurchSite,{.7f,.65f,.54f,1},-1,UiSymbol::Count,"C"},
+    {&city::kBellwetherTowerSite,{.44f,.65f,.8f,1},-1,UiSymbol::Count,"W"},
     {&city::kNorthPinattyGasStationSite,{.1f,.7f,.68f,1},0},
     {&city::kMiandiGasStationSite,{.94f,.72f,.31f,1},0},
     {&city::kFreakyFranksSite,{.96f,.30f,.58f,1},4},
@@ -1423,7 +1432,8 @@ void GameUi::draw_minimap(Hud& hud, const UiFlow& flow,
                  centre+glm::vec2{11,11}, {0,0,0,1});
     hud.triangle(centre+glm::vec2{0,-11}, centre+glm::vec2{-7,7},
                  centre+glm::vec2{7,7}, {1,1,.94f,1});
-    const char* district = city::district_name(city::district_at(view.origin.x, view.origin.y));
+    const char* district = city::in_bellwether(view.origin.x,view.origin.y)
+        ? "Bellwether" : city::district_name(city::district_at(view.origin.x, view.origin.y));
     const float label_y = centre.y + radius + 14;
     if (snapshot.road_name && snapshot.road_name[0]) {
         const float measured = hud.measure_text(snapshot.road_name, 20);

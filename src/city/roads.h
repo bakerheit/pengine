@@ -1861,6 +1861,14 @@ inline constexpr Road kRoads[] = {
               {-792.29f, -684.0f, 7.44f}, {-804.0f, -672.29f, 7.44f},
               {-820.0f, -668.0f, 7.44f}},
      .count = 15},
+    // Bellwether's main street loops back to the two existing Ferrone Road
+    // control points. Both junctions share coordinates and the 11m road datum.
+    {.name = "Bellwether Main Street", .id = 245, .district = DistrictId::Count,
+     .cls = RoadClass::Street, .block_quality = 180, .width_m = 10.0f,
+     .shapes_ground = true,
+     .path = {{300,-700,11},{640,-700,11},{665,-725,11},{665,-770,11},
+              {640,-795,11},{445,-795,11},{410,-820,11}},
+     .count = 7},
 };
 
 inline constexpr int kRoadCount =

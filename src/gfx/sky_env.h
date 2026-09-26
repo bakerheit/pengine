@@ -43,6 +43,7 @@ struct SkyEnv {
     glm::vec3 cloud_color{1.0f, 1.0f, 1.0f};
     float star_intensity = 0.0f;   // 0 by day, 1 at night
     float cloud_cover = 0.35f;     // 0..1
+    float dusk_style = 0.0f;       // Bellwether's layered blue-hour art direction
 
     // Distance fog. Disabled when fog_end <= fog_start OR fog_density <= 0, and
     // "disabled" means the shader returns its input untouched — see

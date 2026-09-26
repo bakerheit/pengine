@@ -2,6 +2,7 @@
 
 #include "city/districts.h"
 #include "city/roads.h"
+#include "city/bellwether_layout.h"
 #include "road/road_class.h"
 
 namespace apricot {
@@ -144,7 +145,8 @@ std::vector<RoadSpine> map_spines() {
         s.block_quality = r.block_quality;
         s.speed_limit_mps = r.speed_limit_mps;
 
-        const Density d = density_for(r.district);
+        const Density d = r.id==kBellwetherRoadId
+            ? Density{.70f,1.1f,.65f,16.0f} : density_for(r.district);
         s.traffic_density = d.traffic;
         s.ped_density = d.ped;
         // .pop.parked was authored per district from the start and nothing

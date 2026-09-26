@@ -16,6 +16,7 @@
 
 #include "app/app.h"
 #include "app/emergency_lighting.h"
+#include "city/bellwether_layout.h"
 #include "core/log.h"
 
 namespace {
@@ -76,6 +77,8 @@ void print_usage() {
         "  --signal-check  crash-test signals, street lamps and stop signs (1700+ frames)\n"
         "  --character-identity-check prove a new departure at one (lane,slot) gets a fresh rig\n"
         "  --night          hold the sky at midnight for lighting QA\n"
+        "  --dusk           hold the blue-hour concept-art sky\n"
+        "  --bellwether     start in the new town at dusk (explicit start flags override)\n"
         "  --clear          clear weather for visual QA\n"
         "  --weather NAME   force clear, sunshower, overcast, rain, storm, thunderstorm, snow, blizzard, tornado, flood, hail, or heatwave\n"
         "  --snow-depth M   pin accumulated snow depth from 0.0 to 1.5 metres\n"
@@ -145,6 +148,7 @@ int main(int argc, char** argv) {
     float start_player_height=0;
     bool start_player_height_set=false;
     const char* screenshot_path = nullptr;
+    bool dusk_preview=false,bellwether_start=false;
     bool instancing = true;
     bool vehicle_entry_check=false;
     bool driver_transition_check=false;
@@ -270,6 +274,8 @@ int main(int argc, char** argv) {
             continue;
         }
         if (std::strcmp(a,"--night")==0) { lighting_night=true; continue; }
+        if (std::strcmp(a,"--dusk")==0) { dusk_preview=true;continue; }
+        if (std::strcmp(a,"--bellwether")==0) { bellwether_start=true;dusk_preview=true;clear_weather=true;continue; }
         if (std::strcmp(a,"--clear")==0) { clear_weather=true; continue; }
         if (std::strcmp(a,"--weather")==0) {
             if (++i>=argc) { std::fprintf(stderr,"--weather needs a name\n"); return 2; }
@@ -737,6 +743,18 @@ int main(int argc, char** argv) {
         app.set_damage_check(true);
     }
     app.set_attended(attended);
+    app.set_dusk_preview(dusk_preview);
+    app.set_start_in_game(bellwether_start);
+    if(bellwether_start) {
+        if(!start_position_set)start_position={apricot::city::kBellwetherCarStart.x,
+                                              apricot::city::kBellwetherCarStart.z};
+        if(!start_player_position_set && !start_driving) {
+            start_player_position={apricot::city::kBellwetherPlayerStart.x,
+                                   apricot::city::kBellwetherPlayerStart.z};
+            start_player_position_set=true;
+        }
+        if(!start_heading_set)start_heading_radians=1.57079632679f;
+    }
     app.set_instancing(instancing);
     app.set_warp_interval(warp_every);
     app.set_start_position(start_position);

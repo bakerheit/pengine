@@ -106,6 +106,7 @@ void Sky::render(const Camera& camera, const SkyEnv& env, float anim_time) {
     shader_.set_float("u_time", anim_time);
     shader_.set_float("u_star_intensity", env.star_intensity);
     shader_.set_float("u_cloud_cover", env.cloud_cover);
+    shader_.set_float("u_dusk_style", env.dusk_style);
     shader_.set_vec3("u_fog_color", env.fog_color);
     shader_.set_float("u_fog_density", env.fog_density);
 

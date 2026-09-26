@@ -1,0 +1,27 @@
+{
+  "date": "2026-09-26",
+  "tool": "OpenAI image generation",
+  "reference": "approved-town.jpg",
+  "subject_prompts": [
+    [
+      "water-tower",
+      "Isolate and design the WATER TOWER from this scene. A 1989 Midwest municipal water tower: weathered charcoal-blue steel cylindrical tank, shallow conical roof, four splayed lattice steel legs, X bracing, vertical access ladder, service ring under tank, small pipe. Approx 24m tall, tank diameter 7m. Four aligned views of the SAME model: front, right, rear, three-quarter. Full structure visible in each view, no scenery. Low polygon early PS2 construction with chipped industrial paint, economical readable detail."
+    ],
+    [
+      "church",
+      "Isolate and design the CHURCH silhouette visible in the reference. Small 1989 Rust Belt red-brown brick neighborhood church, slate gable roof, square entrance bell tower on the short front end with tall dark pointed steeple, narrow amber stained-glass lancet windows, pale worn stone lintels, double wood door with modest steps. Footprint about 13m wide by 23m deep, 26m steeple. Four views of the SAME building: front, right side, rear, elevated three-quarter. Match geometry across views. Entire building in frame. Early PS2 low polygon and pixel-textured style."
+    ],
+    [
+      "power-lines",
+      "Isolate and design the overhead UTILITY POLES AND POWER LINES from the reference. 1989 Midwest weathered timber pole, dark brown wood, horizontal crossarm, three ceramic insulators, three sagging overhead electrical cables, one low communication wire, one cylindrical dull gray transformer on one pole. Pole 10m tall. Show the SAME pole in front, side, rear, and a separate three-quarter view showing a three-pole 55m span with graceful sagging wires. Early PS2 low polygon model with simple pixelated rough wood and dark cables. Keep all silhouettes readable on light background."
+    ],
+    [
+      "detective",
+      "Isolate and design the TRENCH COAT DETECTIVE from the reference. Same ordinary adult male, short tousled dark brown hair, long weathered olive-brown trench coat with broad lapels, storm flap on upper back, belt at waist, coat hem at knees with open split tails, pale shirt and loose dark tie, charcoal trousers, scuffed dark leather shoes. Distinct low polygon PS2 game character with textured face and geometric silhouette, no hat. Four aligned full-body modeling reference views: FRONT, RIGHT SIDE, BACK, THREE-QUARTER. Relaxed symmetric A-pose hands slightly away from body in all views, consistent proportions. Approx 1.82m tall. Clearly show coat collar/lapels, belt, split tails, front opening, hair and face. No weapons."
+    ],
+    [
+      "dusk-sky",
+      "Create a SKY AND LIGHTING REFERENCE sheet for the attached game's exact dusk atmosphere. Four wide clean sky-only panels viewed toward WEST, NORTH, EAST, SOUTH at the same time. Deep smoky navy blue overhead with layers of soft slate blue cloud, a very narrow muted peach amber sunset band on the west horizon, pale steel blue east horizon, barely any stars. Quiet late autumn 1989 Midwest dusk. Painterly pixel-textured early PS2 atmosphere, gentle cloud gradients and no giant dramatic orange sun. No buildings, no characters, no foreground silhouettes. Show how the dusk colors wrap around the horizon consistently. Small direction labels only."
+    ]
+  ]
+}

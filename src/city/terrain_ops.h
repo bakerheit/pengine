@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "city/map.h"
+#include "city/bellwether_layout.h"
 #include "city/roads.h"
 
 namespace apricot {
@@ -475,9 +476,16 @@ inline constexpr TerrainOp kHalberdFieldTerrainOp{
     .target_m = 9.0f,
 };
 
+inline constexpr TerrainOp kBellwetherTerrainOp{
+    .kind=OpKind::Flatten,.shape=OpShape::Rect,.note="Bellwether developed town terrace",
+    .centre=kBellwetherPlateCentre,.half_m=kBellwetherPlateHalf,
+    .feather_m=24,.target_m=kBellwetherGroundM,
+};
+
 inline float authored_site_clearance_weight(float x, float z) {
     float unused_profile = 0.0f;
-    return std::max({op_weight(kNorthPinattyGasStationTerrainOp,x,z,unused_profile),
+    return std::max({op_weight(kBellwetherTerrainOp,x,z,unused_profile),
+        op_weight(kNorthPinattyGasStationTerrainOp,x,z,unused_profile),
         op_weight(kTacomacoTerrainOp,x,z,unused_profile),
         op_weight(kFreakyFranksTerrainOp,x,z,unused_profile),
         op_weight(kBurgerPizTerrainOp,x,z,unused_profile),
@@ -579,6 +587,7 @@ inline constexpr TerrainOp kBaseOps[] = {
     kFreakyFranksTerrainOp,
     kTacomacoTerrainOp,
     kNorthPinattyGasStationTerrainOp,
+    kBellwetherTerrainOp,
     kBurgerPizTerrainOp,
     kChurchOfWafflesTerrainOp,
     kLoomMuseumTerrainOp,

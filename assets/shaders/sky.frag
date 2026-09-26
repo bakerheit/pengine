@@ -18,6 +18,7 @@ uniform vec3  u_cloud_color;
 uniform float u_time;             // seconds; cloud drift and star twinkle
 uniform float u_star_intensity;   // 0 by day, 1 at night
 uniform float u_cloud_cover;      // 0..1
+uniform float u_dusk_style;
 uniform vec3  u_fog_color;
 uniform float u_fog_density;
 
@@ -99,13 +100,31 @@ void main() {
         col = mix(col, u_cloud_color, clouds * 0.9);
     }
 
+    // A narrow warm western horizon under layered slate-blue cloud. Direction
+    // coordinates are continuous around the dome, so there is no panorama seam.
+    if (u_dusk_style > 0.0) {
+        float height = max(up, 0.0);
+        vec3 dusk = mix(u_sky_bottom, u_sky_top, smoothstep(0.0, 0.55, height));
+        float west = pow(max(dot(normalize(dir.xz + vec2(1e-5)),
+                            normalize(u_sun_dir.xz + vec2(1e-5))),0.0),3.0);
+        dusk += vec3(0.43,0.17,0.042) * exp(-abs(height-0.025)*19.0) * west;
+        vec2 p = dir.xz * 5.0 + vec2(height*3.0,height*33.0);
+        float deck = fbm(p + vec2(u_time*0.001,0.0));
+        float detail = fbm(p*3.1);
+        float cloud = smoothstep(0.28,0.67,deck*0.8+detail*0.2);
+        dusk = mix(dusk,u_cloud_color,cloud*0.90*smoothstep(0.015,0.13,height));
+        dusk *= 0.80 + 0.35 * detail;
+        col = mix(col,dusk,clamp(u_dusk_style,0.0,1.0));
+    }
+
     // Meet the world fog at the horizon. Without this, fully fogged terrain
     // ends against a differently coloured sky strip and advertises the draw
     // distance more clearly than drawing the terrain would have.
     float horizon_haze =
         1.0 - smoothstep(0.0, 0.32, abs(up));
     col = mix(col, u_fog_color,
-              horizon_haze * clamp(u_fog_density, 0.0, 1.0));
+              horizon_haze * clamp(u_fog_density, 0.0, 1.0)
+              * mix(1.0,0.18,clamp(u_dusk_style,0.0,1.0)));
 
     frag_color = vec4(col, 1.0);
 }

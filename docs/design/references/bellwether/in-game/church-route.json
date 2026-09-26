@@ -1,0 +1,187 @@
+[
+  {
+    "version": 1,
+    "frame": 246,
+    "sim_step": 248,
+    "accepted": 1,
+    "completed": 1,
+    "action": "sprint",
+    "playing": true,
+    "on_foot": true,
+    "transition": false,
+    "alive": true,
+    "health": 100,
+    "speed_mps": 2.10938,
+    "position": [
+      438,
+      11.4,
+      -735.133
+    ],
+    "forward": [
+      0,
+      -1
+    ],
+    "car_position": [
+      569,
+      11.6575,
+      -723.995
+    ],
+    "car_distance_m": 131.473,
+    "can_enter": false,
+    "car_health": 100,
+    "impacts": 0,
+    "distance_walked_m": 12.1334,
+    "fps": 120.103,
+    "gl_errors": 0,
+    "obstacle_ahead_m": 8,
+    "capture_id": 1
+  },
+  {
+    "version": 1,
+    "frame": 488,
+    "sim_step": 500,
+    "accepted": 2,
+    "completed": 2,
+    "action": "forward",
+    "playing": true,
+    "on_foot": true,
+    "transition": false,
+    "alive": true,
+    "health": 100,
+    "speed_mps": 2.10205,
+    "position": [
+      438,
+      11.4,
+      -739.689
+    ],
+    "forward": [
+      0,
+      -1
+    ],
+    "car_position": [
+      569,
+      11.6575,
+      -723.995
+    ],
+    "car_distance_m": 131.937,
+    "can_enter": false,
+    "car_health": 100,
+    "impacts": 0,
+    "distance_walked_m": 16.6888,
+    "fps": 120.097,
+    "gl_errors": 0,
+    "obstacle_ahead_m": 8,
+    "capture_id": 2
+  },
+  {
+    "version": 1,
+    "frame": 737,
+    "sim_step": 760,
+    "accepted": 3,
+    "completed": 3,
+    "action": "backward",
+    "playing": true,
+    "on_foot": true,
+    "transition": false,
+    "alive": true,
+    "health": 100,
+    "speed_mps": 2.02148,
+    "position": [
+      438,
+      11.4,
+      -735.008
+    ],
+    "forward": [
+      0,
+      -1
+    ],
+    "car_position": [
+      569,
+      11.6575,
+      -723.995
+    ],
+    "car_distance_m": 131.462,
+    "can_enter": false,
+    "car_health": 100,
+    "impacts": 0,
+    "distance_walked_m": 21.3697,
+    "fps": 120.144,
+    "gl_errors": 0,
+    "obstacle_ahead_m": 8,
+    "capture_id": 3
+  },
+  {
+    "version": 1,
+    "frame": 981,
+    "sim_step": 1015,
+    "accepted": 4,
+    "completed": 4,
+    "action": "backward",
+    "playing": true,
+    "on_foot": true,
+    "transition": false,
+    "alive": true,
+    "health": 100,
+    "speed_mps": 2.02148,
+    "position": [
+      438,
+      11.4,
+      -730.343
+    ],
+    "forward": [
+      0,
+      -1
+    ],
+    "car_position": [
+      569,
+      11.6575,
+      -723.995
+    ],
+    "car_distance_m": 131.154,
+    "can_enter": false,
+    "car_health": 100,
+    "impacts": 0,
+    "distance_walked_m": 26.035,
+    "fps": 120.092,
+    "gl_errors": 0,
+    "obstacle_ahead_m": 8,
+    "capture_id": 4
+  },
+  {
+    "version": 1,
+    "frame": 1223,
+    "sim_step": 1268,
+    "accepted": 5,
+    "completed": 5,
+    "action": "backward",
+    "playing": true,
+    "on_foot": true,
+    "transition": false,
+    "alive": true,
+    "health": 100,
+    "speed_mps": 2.02148,
+    "position": [
+      438,
+      11.11,
+      -725.684
+    ],
+    "forward": [
+      0,
+      -1
+    ],
+    "car_position": [
+      569,
+      11.6575,
+      -723.995
+    ],
+    "car_distance_m": 131.011,
+    "can_enter": false,
+    "car_health": 100,
+    "impacts": 0,
+    "distance_walked_m": 30.6932,
+    "fps": 120.048,
+    "gl_errors": 0,
+    "obstacle_ahead_m": 8,
+    "capture_id": 5
+  }
+]

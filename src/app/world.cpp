@@ -3837,7 +3837,13 @@ bool World::set_starting_area(Renderer& renderer, Scene& scene,
             collider.static_ground_rects().size());
     AP_INFO("interior streaming: %zu authored floor volumes registered",
             interior_streaming_volumes_.size());
-    return true;
+    auto bellwether_lot=city::bake_bellwether_gas_lot();
+    city::apply_building_access_layout(city::kBellwetherGasSite,bellwether_lot,access_layout_);
+    append_start_site(scene,collider,precipitation_cover_,city::kBellwetherGasSite,
+        bellwether_lot.data(),bellwether_lot.size(),r,unit.bounds,start_materials,
+        SiteMaterialStyle::Plain,start_decal_mesh_,start_billboard_mesh_,
+        start_rounded_box_mesh_,start_cylinder_mesh_,start_nodes_);
+    return set_bellwether(renderer,scene,collider);
 }
 
 int World::fill(Scene& scene, Renderer& renderer, glm::vec3 focus) {
@@ -4093,6 +4099,8 @@ void World::shutdown(Scene& scene, Renderer& renderer) {
     miandi_gas_station_meshes_.clear();
     for(const auto mesh:kyjhi_phonebooth_meshes_)renderer.remove_mesh(mesh);
     kyjhi_phonebooth_meshes_.clear();
+    for(const auto mesh:bellwether_meshes_)renderer.remove_mesh(mesh);
+    bellwether_meshes_.clear();bellwether_lights_.clear();
     for(const auto mesh:ferrone_mast_meshes_)renderer.remove_mesh(mesh);
     ferrone_mast_meshes_.clear();
     ferrone_mast_far_nodes_.clear();ferrone_mast_beacon_nodes_.clear();

@@ -216,7 +216,7 @@ bool CharacterVisual::init(const PlayerCharacterState& player) {
         AP_ERROR("character visual: skinned shader failed to build");
         return false;
     }
-    if (!load_model("models/characters/psx_pack/player_male_01/",
+    if (!load_model("models/characters/psx_pack/trench_detective/",
                     1.76f, player_model_)) {
         return false;
     }
